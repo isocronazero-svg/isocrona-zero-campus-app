@@ -1,0 +1,352 @@
+{
+  "role": "admin",
+  "activeView": "overview",
+  "selectedCourseId": "course-1",
+  "selectedMemberId": "member-1",
+  "selectedAssociateApplicationId": "associate-application-1",
+  "selectedAssociatePaymentSubmissionId": null,
+  "selectedAssociateProfileRequestId": null,
+  "selectedAssociateId": "associate-1",
+  "accounts": [
+    {
+      "id": "account-1",
+      "name": "Admin Campus",
+      "email": "admin@isocronazero.org",
+      "password": "campus123",
+      "role": "admin",
+      "memberId": "member-4"
+    },
+    {
+      "id": "account-2",
+      "name": "Lucia Martin",
+      "email": "lucia@isocronazero.org",
+      "password": "bomberos123",
+      "role": "member",
+      "memberId": "member-1"
+    },
+    {
+      "id": "account-3",
+      "name": "Javier Torres",
+      "email": "javier@isocronazero.org",
+      "password": "bomberos123",
+      "role": "member",
+      "memberId": "member-2"
+    }
+  ],
+  "activityLog": [],
+  "agentLog": [],
+  "automationInbox": [],
+  "automationMeta": {
+    "lastRunAt": "",
+    "lastReason": "",
+    "lastSummary": null
+  },
+  "emailOutbox": [],
+  "associatePaymentSubmissions": [],
+  "associateProfileRequests": [],
+  "associateApplications": [
+    {
+      "id": "associate-application-1",
+      "publicAccessToken": "associate-application-1-access",
+      "submittedAt": "2026-03-20T18:15:00.000Z",
+      "source": "web",
+      "status": "Pendiente de revision",
+      "firstName": "Marta",
+      "lastName": "Lopez Rico",
+      "dni": "12345678A",
+      "phone": "612345678",
+      "email": "marta@isocronazero.org",
+      "service": "CPBC",
+      "paymentProof": "transferencia-marzo-2026.pdf",
+      "paymentProof2": "",
+      "submitterEmail": "marta@isocronazero.org",
+      "receiptEmailStatus": "pending",
+      "receiptEmailSentAt": "",
+      "infoRequestMessage": "",
+      "infoRequestedAt": "",
+      "infoRequestedBy": "",
+      "infoRequestEmailStatus": "pending",
+      "infoRequestEmailSentAt": "",
+      "applicantReplyNote": "",
+      "applicantReplyAt": "",
+      "applicantReplyDocuments": [],
+      "applicantReplyReceiptStatus": "pending",
+      "applicantReplyReceiptSentAt": "",
+      "applicantReplyNotificationStatus": "pending",
+      "applicantReplyNotificationSentAt": "",
+      "reopenedAt": "",
+      "reopenedBy": "",
+      "reopenNote": "",
+      "decisionEmailStatus": "pending",
+      "decisionEmailSentAt": "",
+      "notes": "Alta desde formulario publico"
+    },
+    {
+      "id": "associate-application-2",
+      "publicAccessToken": "associate-application-2-access",
+      "submittedAt": "2026-02-12T11:40:00.000Z",
+      "source": "web",
+      "status": "Aprobada",
+      "firstName": "Laura",
+      "lastName": "Campos Gil",
+      "dni": "23456789B",
+      "phone": "623456789",
+      "email": "laura@isocronazero.org",
+      "service": "SPEIS",
+      "paymentProof": "cuota-laura.pdf",
+      "paymentProof2": "",
+      "submitterEmail": "laura@isocronazero.org",
+      "receiptEmailStatus": "sent",
+      "receiptEmailSentAt": "2026-02-12T11:41:00.000Z",
+      "infoRequestMessage": "",
+      "infoRequestedAt": "",
+      "infoRequestedBy": "",
+      "infoRequestEmailStatus": "pending",
+      "infoRequestEmailSentAt": "",
+      "applicantReplyNote": "",
+      "applicantReplyAt": "",
+      "applicantReplyDocuments": [],
+      "applicantReplyReceiptStatus": "pending",
+      "applicantReplyReceiptSentAt": "",
+      "applicantReplyNotificationStatus": "pending",
+      "applicantReplyNotificationSentAt": "",
+      "reopenedAt": "",
+      "reopenedBy": "",
+      "reopenNote": "",
+      "decisionEmailStatus": "sent",
+      "decisionEmailSentAt": "2026-02-14T08:45:00.000Z",
+      "notes": "Documentacion revisada"
+    }
+  ],
+  "associates": [
+    {
+      "id": "associate-1",
+      "associateNumber": 1,
+      "applicationId": "associate-application-2",
+      "status": "Activa",
+      "firstName": "Laura",
+      "lastName": "Campos Gil",
+      "dni": "23456789B",
+      "phone": "623456789",
+      "email": "laura@isocronazero.org",
+      "service": "SPEIS",
+      "joinedAt": "2026-02-14T09:00:00.000Z",
+      "lastQuotaMonth": "Febrero",
+      "annualAmount": 150,
+      "observations": "Alta completada y numerada",
+      "yearlyFees": {
+        "2024": 50,
+        "2025": 50,
+        "2026": 50,
+        "2027": 0
+      }
+    },
+    {
+      "id": "associate-2",
+      "associateNumber": 2,
+      "applicationId": "",
+      "status": "Pendiente cuota",
+      "firstName": "Carlos",
+      "lastName": "Soler Mora",
+      "dni": "34567890C",
+      "phone": "634567890",
+      "email": "carlos.socios@isocronazero.org",
+      "service": "CPBV",
+      "joinedAt": "2026-01-08T12:00:00.000Z",
+      "lastQuotaMonth": "Enero",
+      "annualAmount": 100,
+      "observations": "Falta regularizar anualidad 2027",
+      "yearlyFees": {
+        "2024": 50,
+        "2025": 50,
+        "2026": 0,
+        "2027": 0
+      }
+    }
+  ],
+  "settings": {
+    "organization": "Asociacion de Bomberos Isocrona Zero",
+    "certificateCity": "Madrid",
+    "diplomaSignerA": "Direccion de Formacion",
+    "diplomaSignerB": "Presidencia de la Asociacion",
+    "emailTemplate": "Estimado/a {{name}}, adjuntamos su diploma correspondiente a la accion formativa \"{{course}}\". Gracias por su participacion.",
+    "automationTone": "Prioriza recordatorios claros, revision de datos antes de emitir diplomas y seguimiento de renovaciones.",
+    "automation": {
+      "autoGenerateDiplomas": true,
+      "autoPromoteWaitlist": true,
+      "autoAdvanceCourseStatus": true,
+      "autoSendDiplomas": true,
+      "autoDetectRenewals": true,
+      "autoDetectFailedEmails": true,
+      "autoRunOnSave": true
+    },
+    "agent": {
+      "enabled": true,
+      "canResolveInbox": true,
+      "canSendDiplomas": true,
+      "canCloseCourses": true,
+      "notes": "No modificar apto/no apto ni asistencia sin validacion humana. Puede resolver bandeja automatica y preparar trabajo."
+    },
+    "associates": {
+      "defaultAnnualAmount": 50,
+      "nextAssociateNumber": 3,
+      "autoCreateCampusAccess": true,
+      "autoSendWelcomeEmail": true,
+      "autoSendApplicationReceipt": true,
+      "autoSendApplicationInfoRequest": true,
+      "autoSendApplicationDecision": true,
+      "autoSendApplicantReplyNotification": true,
+      "autoSendApplicantReplyReceipt": true,
+      "defaultMemberRole": "Socio",
+      "applicationFormNotice": "La solicitud queda registrada y pasa a revision administrativa antes de activar el numero de socio."
+    },
+    "smtp": {
+      "host": "",
+      "port": 465,
+      "secure": true,
+      "startTls": false,
+      "username": "",
+      "password": "",
+      "fromEmail": "",
+      "fromName": "Isocrona Zero Campus",
+      "testTo": ""
+    }
+  },
+  "members": [
+    {
+      "id": "member-1",
+      "name": "Lucia Martin",
+      "role": "Jefa de dotacion",
+      "email": "lucia@isocronazero.org",
+      "certifications": [
+        "ERA",
+        "Primeros auxilios",
+        "Altura"
+      ],
+      "renewalsDue": 1
+    },
+    {
+      "id": "member-2",
+      "name": "Javier Torres",
+      "role": "Voluntario",
+      "email": "javier@isocronazero.org",
+      "certifications": [
+        "ERA"
+      ],
+      "renewalsDue": 0
+    },
+    {
+      "id": "member-3",
+      "name": "Clara Sanz",
+      "role": "Voluntaria",
+      "email": "clara@isocronazero.org",
+      "certifications": [
+        "Primeros auxilios"
+      ],
+      "renewalsDue": 2
+    },
+    {
+      "id": "member-4",
+      "name": "Pablo Ruiz",
+      "role": "Instructor",
+      "email": "pablo@isocronazero.org",
+      "certifications": [
+        "ERA",
+        "Formador"
+      ],
+      "renewalsDue": 0
+    }
+  ],
+  "courses": [
+    {
+      "id": "course-1",
+      "title": "Reciclaje ERA y seguridad en intervencion",
+      "type": "Recertificacion",
+      "status": "Inscripcion abierta",
+      "audience": "Socios y participantes externos",
+      "accessScope": "public",
+      "summary": "Sesion intensiva para recertificar uso seguro de equipos de respiracion autonoma y maniobras de control.",
+      "startDate": "2026-04-12",
+      "endDate": "2026-04-13",
+      "hours": 12,
+      "capacity": 18,
+      "enrolledIds": [
+        "member-1",
+        "member-2"
+      ],
+      "waitingIds": [
+        "member-3"
+      ],
+      "attendance": {
+        "member-1": 100,
+        "member-2": 75
+      },
+      "evaluations": {
+        "member-1": "Apto",
+        "member-2": "Pendiente"
+      },
+      "diplomaTemplate": "Aprovechamiento",
+      "diplomaReady": [
+        "member-1"
+      ],
+      "mailsSent": [
+        "member-1"
+      ]
+    },
+    {
+      "id": "course-2",
+      "title": "Primeros auxilios tacticos para intervencion",
+      "type": "Curso interno",
+      "status": "Planificacion",
+      "summary": "Formacion de soporte vital basico, trauma y coordinacion en escenarios operativos de primera respuesta.",
+      "startDate": "2026-05-08",
+      "endDate": "2026-05-10",
+      "hours": 16,
+      "capacity": 20,
+      "enrolledIds": [
+        "member-1",
+        "member-3"
+      ],
+      "waitingIds": [],
+      "attendance": {},
+      "evaluations": {},
+      "diplomaTemplate": "Asistencia",
+      "diplomaReady": [],
+      "mailsSent": []
+    },
+    {
+      "id": "course-3",
+      "title": "Rescate vertical y maniobras de aseguramiento",
+      "type": "Especializacion",
+      "status": "Cierre pendiente",
+      "summary": "Curso avanzado con estaciones practicas, listas de chequeo y evaluacion tecnica final.",
+      "startDate": "2026-03-28",
+      "endDate": "2026-03-30",
+      "hours": 20,
+      "capacity": 12,
+      "enrolledIds": [
+        "member-2",
+        "member-3",
+        "member-4"
+      ],
+      "waitingIds": [],
+      "attendance": {
+        "member-2": 95,
+        "member-3": 100,
+        "member-4": 100
+      },
+      "evaluations": {
+        "member-2": "Apto",
+        "member-3": "Apto",
+        "member-4": "Apto"
+      },
+      "diplomaTemplate": "Aprovechamiento",
+      "diplomaReady": [
+        "member-2",
+        "member-3",
+        "member-4"
+      ],
+      "mailsSent": []
+    }
+  ]
+}

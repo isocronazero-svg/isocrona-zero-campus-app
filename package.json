@@ -1,0 +1,16 @@
+{
+  "name": "isocrona-zero-campus",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prototipo local del campus de formacion de Isocrona Zero",
+  "packageManager": "npm@10",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "start:local": "node server.js",
+    "health": "node scripts/healthcheck.mjs",
+    "smoke:campus-test": "node scripts/smoke-campus-test.mjs"
+  }
+}

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Alta de Socio | Isocrona Zero</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="public-page-shell">
+      <section class="public-page-grid join-page-grid">
+        <section class="panel panel-wide public-page-panel">
+          <div class="public-page-brand">
+            <img src="./assets/isocrona-brand.png" alt="Marca Isocrona Zero" />
+            <div>
+              <p class="eyebrow">Alta de socio</p>
+              <h1>Solicitud para asociarte a Isocrona Zero</h1>
+            </div>
+          </div>
+
+          <div class="public-page-head">
+            <div>
+              <p class="hero-copy" id="joinNotice">
+                Completa tu solicitud y la revisaremos para activar tu acceso a la asociacion, al campus y al entorno formativo.
+              </p>
+            </div>
+            <div class="chip-row">
+              <a class="button-link" href="/application.html">Consultar solicitud</a>
+              <a class="button-link" href="/index.html">Volver al campus</a>
+            </div>
+          </div>
+
+          <form id="joinForm" class="stack">
+            <div class="course-grid">
+              <label class="inline-field">
+                Nombre
+                <input id="joinFirstName" required />
+              </label>
+              <label class="inline-field">
+                Apellidos
+                <input id="joinLastName" required />
+              </label>
+            </div>
+
+            <div class="course-grid">
+              <label class="inline-field">
+                DNI
+                <input id="joinDni" />
+              </label>
+              <label class="inline-field">
+                Telefono
+                <input id="joinPhone" required />
+              </label>
+            </div>
+
+            <div class="course-grid">
+              <label class="inline-field">
+                E-mail
+                <input id="joinEmail" type="email" required />
+              </label>
+              <label class="inline-field">
+                Servicio al que pertenece
+                <input id="joinService" placeholder="CPBC, SPEIS, CPBV..." required />
+              </label>
+            </div>
+
+            <div class="course-grid">
+              <label class="inline-field">
+                Justificante de pago
+                <input id="joinPaymentProof" type="file" accept=".pdf,image/*" />
+              </label>
+              <label class="inline-field">
+                Justificante adicional
+                <input id="joinPaymentProof2" type="file" accept=".pdf,image/*" />
+              </label>
+            </div>
+
+            <label class="inline-field">
+              Correo del remitente del formulario
+              <input id="joinSubmitterEmail" type="email" placeholder="Si es distinto al email principal" />
+            </label>
+
+            <p class="status-note" id="joinStatus">Rellena la solicitud y la dejaremos preparada para revision.</p>
+            <div id="joinTracking" class="mail-card" style="display: none;"></div>
+
+            <div class="chip-row">
+              <button class="primary-button" type="submit">Enviar solicitud</button>
+            </div>
+          </form>
+        </section>
+
+        <aside class="public-side-stack">
+          <section class="panel public-side-panel">
+            <p class="eyebrow">Como funciona</p>
+            <h3>Que pasara despues</h3>
+            <ol class="public-steps-list">
+              <li>Revisamos tus datos y la documentacion enviada.</li>
+              <li>Si hace falta algo, te lo pediremos por correo o desde el seguimiento.</li>
+              <li>Cuando quede aprobado, activaremos tu acceso al campus.</li>
+            </ol>
+          </section>
+
+          <section class="panel public-side-panel public-side-panel-highlight">
+            <p class="eyebrow">Proyecto comun</p>
+            <h3>Lo que encontrara un socio dentro</h3>
+            <ul class="portal-benefit-list">
+              <li>Ficha de socio y seguimiento administrativo.</li>
+              <li>Campus completo, cursos, inscripciones y diplomas.</li>
+              <li>Bibliotecas internas por especialidad y grupos de trabajo.</li>
+              <li>Un entorno de colaboracion, cooperacion y aprendizaje compartido.</li>
+            </ul>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <script src="./join.js"></script>
+  </body>
+</html>

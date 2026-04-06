@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Isocrona Zero Campus</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="login-screen" id="loginScreen">
+      <div class="login-layout">
+        <form class="login-card" id="loginForm">
+          <div class="login-brand">
+            <img src="./assets/isocrona-brand.png" alt="Marca Isocrona Zero" />
+          </div>
+          <p class="eyebrow">Portal del socio y campus</p>
+          <h2>Bienvenido a Isocrona Zero</h2>
+          <p class="hero-copy">
+            Accede a tu ficha, al campus y a la formacion de la asociacion desde un unico punto de entrada.
+          </p>
+          <div class="portal-decision-strip">
+            <div class="portal-route-card portal-route-card-clickable" data-focus-target="#loginEmail" tabindex="0" role="button" aria-label="Ir al acceso de socios">
+              <span class="eyebrow">Ya soy socio</span>
+              <strong>Entrar al portal</strong>
+              <p>Entra con el correo vinculado a tu ficha para revisar datos, cursos, grupos internos y diplomas.</p>
+            </div>
+            <div class="portal-route-card portal-route-card-clickable" data-focus-target="#publicCampusRegisterForm" tabindex="0" role="button" aria-label="Ir al acceso solo campus">
+              <span class="eyebrow">Uso rapido</span>
+              <strong>Solo necesito un curso</strong>
+              <p>Si no eres socio, puedes crear un acceso solo campus para cursos abiertos al publico general.</p>
+            </div>
+          </div>
+          <label class="inline-field">
+            Email
+            <input id="loginEmail" type="email" placeholder="tu@email.com" required />
+          </label>
+          <label class="inline-field">
+            Contrasena
+            <input id="loginPassword" type="password" placeholder="********" required />
+          </label>
+          <p class="status-note" id="loginStatus">Introduce tus datos para entrar.</p>
+          <div class="chip-row">
+            <button class="primary-button" type="submit">Entrar</button>
+            <button class="ghost-button local-only" type="button" id="fillCarlosLogin">Cargar Carlos</button>
+            <button class="ghost-button local-only" type="button" id="fillAdminLogin">Cargar admin demo</button>
+            <button class="ghost-button local-only" type="button" id="fillMemberLogin">Cargar Santiago demo</button>
+          </div>
+          <div class="portal-support-strip">
+            <span>Si eres socio, entra con el correo vinculado a tu ficha.</span>
+            <span>Si detectas un error, luego podras corregirlo desde tu perfil.</span>
+          </div>
+        </form>
+
+        <section class="login-card login-card-secondary">
+          <div class="portal-route-card portal-route-card-wide">
+            <span class="eyebrow">Campus abierto</span>
+            <h2>Cursos para socios y participantes externos</h2>
+            <p class="hero-copy">
+              Aqui veras primero los cursos abiertos a socios y participantes externos. Cuando te inscribas, el portal se centrara en tus cursos.
+            </p>
+            <div class="status-note" id="publicCampusStatus">Cargando cursos abiertos...</div>
+          </div>
+
+          <div class="login-public-list" id="publicCourseList"></div>
+
+          <div class="portal-side-grid">
+            <section class="portal-side-card portal-membership-card">
+              <p class="eyebrow">Asociacion</p>
+              <h3>Quiero hacerme socio</h3>
+              <p class="muted">
+                Si quieres acceso completo a la asociacion, a tu ficha, a la operativa y a los grupos internos, este es tu camino.
+              </p>
+              <div class="portal-membership-banner">Acceso completo a la asociacion y al campus</div>
+              <ul class="portal-benefit-list">
+                <li>Ficha de socio y seguimiento administrativo.</li>
+                <li>Campus completo, formaciones y diplomas.</li>
+                <li>Bibliotecas internas por especialidad.</li>
+                <li>Proyecto comun basado en colaboracion, cooperacion y aprendizaje compartido.</li>
+              </ul>
+              <div class="chip-row">
+                <a class="primary-button button-link portal-membership-cta" href="/join.html">Hazte socio</a>
+              </div>
+              <p class="portal-side-footnote">
+                Si ya has enviado tu alta, podras entrar al campus en cuanto administracion active tu acceso.
+              </p>
+            </section>
+
+            <form id="publicCampusRegisterForm" class="portal-side-card stack">
+              <div>
+                <p class="eyebrow">Acceso solo campus</p>
+                <h3>Crear acceso para un curso</h3>
+                <p class="muted">Pensado para participantes no socios que solo necesitan ver cursos publicos, su inscripcion y sus diplomas.</p>
+              </div>
+              <div class="studio-grid">
+                <label class="inline-field">
+                  Nombre
+                  <input id="publicCampusFirstName" type="text" placeholder="Nombre" />
+                </label>
+                <label class="inline-field">
+                  Apellidos
+                  <input id="publicCampusLastName" type="text" placeholder="Apellidos" />
+                </label>
+                <label class="inline-field studio-full">
+                  Email
+                  <input id="publicCampusEmail" type="email" placeholder="correo@ejemplo.org" />
+                </label>
+                <label class="inline-field">
+                  Telefono
+                  <input id="publicCampusPhone" type="text" placeholder="Telefono opcional" />
+                </label>
+                <label class="inline-field">
+                  Contrasena
+                  <input id="publicCampusPassword" type="password" placeholder="Minimo 8 caracteres" />
+                </label>
+              </div>
+              <div class="chip-row">
+                <button class="primary-button" type="submit">Crear acceso solo campus</button>
+              </div>
+              <p class="portal-side-footnote">
+                Este acceso solo muestra cursos abiertos al publico general y, cuando te inscribas, tus propios cursos y diplomas.
+              </p>
+            </form>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="login-screen" id="passwordScreen">
+      <form class="login-card" id="changePasswordForm">
+        <div class="login-brand">
+          <img src="./assets/isocrona-brand.png" alt="Marca Isocrona Zero" />
+        </div>
+        <p class="eyebrow">Primer acceso</p>
+        <h2>Actualiza tu contrasena</h2>
+        <p class="hero-copy">
+          Tu acceso al campus ya esta activo, pero antes de continuar necesitamos sustituir la clave temporal.
+        </p>
+        <label class="inline-field">
+          Contrasena temporal
+          <input id="currentPassword" type="password" placeholder="Clave temporal" required />
+        </label>
+        <label class="inline-field">
+          Nueva contrasena
+          <input id="newPassword" type="password" placeholder="Minimo 8 caracteres" required />
+        </label>
+        <label class="inline-field">
+          Repite la nueva contrasena
+          <input id="confirmPassword" type="password" placeholder="Repite la nueva contrasena" required />
+        </label>
+        <p class="status-note" id="changePasswordStatus">Debes cambiar la contrasena temporal para entrar al campus.</p>
+        <div class="chip-row">
+          <button class="primary-button" type="submit">Guardar contrasena</button>
+          <button class="ghost-button" type="button" id="passwordLogout">Salir</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="shell" id="shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <img src="./assets/isocrona-brand.png" alt="" />
+          </div>
+          <div>
+            <p class="eyebrow">Campus Local</p>
+            <h1>Isocrona Zero</h1>
+            <p class="brand-subtitle">Asociacion - Formacion - Operativa</p>
+          </div>
+        </div>
+
+        <section class="sidebar-utility">
+          <label class="switcher">
+            <span>Vista</span>
+            <select id="roleSwitcher">
+              <option value="admin">Administracion</option>
+              <option value="member-self">Mi perfil socio y alumno</option>
+              <option value="member-preview">Previsualizar otra persona</option>
+            </select>
+          </label>
+          <label class="switcher">
+            <span>Persona activa</span>
+            <select id="memberSwitcher"></select>
+          </label>
+          <p class="status-note" id="sessionStatus">Sin sesion activa</p>
+          <p class="status-note" id="syncStatus">Cargando datos...</p>
+          <div class="sidebar-toolbar">
+            <button class="primary-button local-only" id="resetData">Restablecer datos demo</button>
+            <button class="ghost-button" id="logoutButton">Cerrar sesion</button>
+          </div>
+        </section>
+
+        <nav class="nav" id="nav"></nav>
+
+        <section class="sidebar-card" id="sidebarAssistantCard">
+          <p class="eyebrow">Automatizacion</p>
+          <h2>Asistente operativo</h2>
+          <p id="assistantSummary">
+            Revisa cursos listos para cerrar, diplomas pendientes y avisos de renovacion.
+          </p>
+          <div class="chip-row" style="margin-top: 14px;">
+            <a class="primary-button" href="/join.html">Hazte socio</a>
+          </div>
+        </section>
+      </aside>
+
+      <main class="content" id="content">
+        <header class="hero" id="hero">
+          <div>
+            <p class="eyebrow">Centro de gestion formativa</p>
+            <h2>Campus operativo para socios, cursos y conocimiento interno</h2>
+            <p class="hero-copy">
+              Una unica plataforma para coordinar formacion, seguimiento del alumnado,
+              bibliotecas internas y operativa diaria de la asociacion.
+            </p>
+          </div>
+        </header>
+
+        <section class="metrics" id="metrics"></section>
+
+        <section class="workspace" id="workspace">
+          <div class="panel panel-wide" id="mainPanel"></div>
+          <div class="panel panel-side" id="sidePanel"></div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast-layer" id="toastLayer" aria-live="polite" aria-atomic="true"></div>
+    <input id="globalFilePicker" type="file" class="visually-hidden" />
+
+    <template id="courseCardTemplate">
+      <article class="course-card">
+        <div class="course-topline">
+          <span class="tag" data-slot="type"></span>
+          <span class="status-chip" data-slot="status"></span>
+        </div>
+        <h3 data-slot="title"></h3>
+        <p class="course-meta" data-slot="summary"></p>
+        <div class="course-grid">
+          <div>
+            <span class="muted">Fechas</span>
+            <strong data-slot="dates"></strong>
+          </div>
+          <div>
+            <span class="muted">Horas</span>
+            <strong data-slot="hours"></strong>
+          </div>
+          <div>
+            <span class="muted">Plazas</span>
+            <strong data-slot="capacity"></strong>
+          </div>
+          <div>
+            <span class="muted">Diploma</span>
+            <strong data-slot="diploma"></strong>
+          </div>
+        </div>
+        <div class="course-actions" data-slot="actions"></div>
+      </article>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

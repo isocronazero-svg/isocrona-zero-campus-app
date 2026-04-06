@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Validacion de diploma</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      body { padding: 24px; }
+      .verify-shell { max-width: 840px; margin: 0 auto; }
+      .verify-card { padding: 24px; }
+    </style>
+  </head>
+  <body>
+    <main class="verify-shell">
+      <section class="panel verify-card">
+        <p class="eyebrow">Validacion publica</p>
+        <h1>Comprobar diploma</h1>
+        <form id="verifyForm" class="stack">
+          <label class="inline-field">
+            Codigo del diploma
+            <input id="codeInput" placeholder="IZ-2026-1-1" />
+          </label>
+          <div class="chip-row">
+            <button class="primary-button" type="submit">Validar</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel verify-card" id="resultCard">
+        <p class="muted">Introduce un codigo para comprobar si el diploma existe en el campus.</p>
+      </section>
+    </main>
+
+    <script>
+      const form = document.getElementById("verifyForm");
+      const input = document.getElementById("codeInput");
+      const resultCard = document.getElementById("resultCard");
+      const params = new URLSearchParams(window.location.search);
+      const initialCode = params.get("code") || "";
+      input.value = initialCode;
+
+      if (initialCode) {
+        validateCode(initialCode);
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const code = input.value.trim();
+        if (!code) {
+          return;
+        }
+        validateCode(code);
+      });
+
+      async function validateCode(code) {
+        resultCard.innerHTML = '<p class="muted">Buscando diploma...</p>';
+
+        try {
+          const response = await fetch(`/api/verify?code=${encodeURIComponent(code)}`);
+          const payload = await response.json();
+
+          if (!response.ok || !payload.ok) {
+            throw new Error(payload.error || "No encontrado");
+          }
+
+          const diploma = payload.diploma;
+          resultCard.innerHTML = `
+            <p class="eyebrow">Resultado</p>
+            <h2>Diploma valido</h2>
+            <div class="table-card">
+              <table>
+                <tbody>
+                  <tr><td>Codigo</td><td>${diploma.code}</td></tr>
+                  <tr><td>Alumno</td><td>${diploma.memberName}</td></tr>
+                  <tr><td>Curso</td><td>${diploma.courseTitle}</td></tr>
+                  <tr><td>Tipo</td><td>${diploma.courseType}</td></tr>
+                  <tr><td>Fin</td><td>${diploma.endDate}</td></tr>
+                  <tr><td>Horas</td><td>${diploma.hours}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          `;
+        } catch (error) {
+          resultCard.innerHTML = `
+            <p class="eyebrow">Resultado</p>
+            <h2>Diploma no encontrado</h2>
+            <p class="muted">No existe un diploma registrado con ese codigo en este campus.</p>
+          `;
+        }
+      }
+    </script>
+  </body>
+</html>

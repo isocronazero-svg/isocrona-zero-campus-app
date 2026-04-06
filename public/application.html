@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Seguimiento de Solicitud | Isocrona Zero</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="public-page-shell">
+      <section class="public-page-grid join-page-grid">
+        <section class="panel panel-wide public-page-panel">
+          <div class="public-page-brand">
+            <img src="./assets/isocrona-brand.png" alt="Marca Isocrona Zero" />
+            <div>
+              <p class="eyebrow">Seguimiento de solicitud</p>
+              <h1>Estado y subsanacion del alta de socio</h1>
+            </div>
+          </div>
+
+          <div class="public-page-head">
+            <div>
+              <p class="hero-copy" id="applicationIntro">
+                Desde aqui puedes consultar el estado de tu solicitud y aportar documentacion adicional si administracion te la ha pedido.
+              </p>
+            </div>
+            <div class="chip-row">
+              <a class="button-link" href="/join.html">Nueva solicitud</a>
+              <a class="button-link" href="/index.html">Volver al campus</a>
+            </div>
+          </div>
+
+          <div class="mail-card">
+            <label class="inline-field">
+              Enlace o token de seguimiento
+              <input id="applicationToken" placeholder="Pega aqui el token o abre esta pagina desde el enlace recibido" />
+            </label>
+            <div class="chip-row">
+              <button class="primary-button" id="loadApplicationButton" type="button">Cargar solicitud</button>
+            </div>
+            <p class="status-note" id="applicationStatus">Introduce el token o abre esta pagina desde el enlace recibido por correo.</p>
+          </div>
+
+          <div id="applicationDetail" class="panel-stack"></div>
+        </section>
+
+        <aside class="public-side-stack">
+          <section class="panel public-side-panel">
+            <p class="eyebrow">Como usarlo</p>
+            <h3>Que puedes hacer aqui</h3>
+            <ol class="public-steps-list">
+              <li>Consultar si tu solicitud esta pendiente, revisada o aprobada.</li>
+              <li>Ver si administracion te ha pedido alguna subsanacion.</li>
+              <li>Aportar justificantes o documentacion adicional desde el mismo seguimiento.</li>
+            </ol>
+          </section>
+
+          <section class="panel public-side-panel public-side-panel-highlight">
+            <p class="eyebrow">Siguiente paso</p>
+            <h3>Cuando tu alta quede aprobada</h3>
+            <ul class="portal-benefit-list">
+              <li>Recibiras el acceso al campus vinculado a tu correo.</li>
+              <li>Podras revisar tu ficha y corregir datos si hace falta.</li>
+              <li>Tendras acceso a cursos, diplomas y bibliotecas internas segun tu perfil.</li>
+            </ul>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <script src="./application.js"></script>
+  </body>
+</html>
