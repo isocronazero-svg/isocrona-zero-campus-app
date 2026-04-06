@@ -35,14 +35,14 @@ SMTP opcional para correo real:
 - `SMTP_PASS`
 - `SMTP_FROM`
 
-## Comandos
+## Builder recomendado
 
-Railway deberia detectar Node de forma automatica.
+Para evitar problemas con autodeteccion, el proyecto ya incluye:
 
-Si te pide comandos manuales:
+- [C:\Users\charl\OneDrive\Desktop\Isocrona Zero\Dockerfile](C:\Users\charl\OneDrive\Desktop\Isocrona Zero\Dockerfile)
+- [C:\Users\charl\OneDrive\Desktop\Isocrona Zero\.dockerignore](C:\Users\charl\OneDrive\Desktop\Isocrona Zero\.dockerignore)
 
-- Build: `npm install`
-- Start: `npm start`
+Asi Railway puede construir el campus como contenedor sin depender de Nixpacks.
 
 ## Volume
 
