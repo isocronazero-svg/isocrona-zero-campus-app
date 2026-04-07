@@ -55,6 +55,48 @@ body {
   display: flex;
 }
 
+.portal-top-membership {
+  position: fixed;
+  top: 22px;
+  right: 24px;
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  min-width: 220px;
+  padding: 14px 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(180, 82, 46, 0.34);
+  color: #2a170e;
+  text-decoration: none;
+  background:
+    radial-gradient(circle at top right, rgba(201, 146, 47, 0.34), transparent 38%),
+    linear-gradient(135deg, rgba(255, 251, 244, 0.98), rgba(247, 220, 194, 0.98));
+  box-shadow: 0 20px 44px rgba(78, 40, 16, 0.26);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.portal-top-membership span {
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.portal-top-membership strong {
+  font-family: var(--font-display);
+  font-size: 1.36rem;
+  line-height: 1;
+}
+
+.portal-top-membership:hover,
+.portal-top-membership:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(180, 82, 46, 0.52);
+  box-shadow: 0 24px 54px rgba(78, 40, 16, 0.32);
+  outline: none;
+}
+
 .login-card {
   width: min(520px, 100%);
   padding: 28px;
@@ -72,7 +114,7 @@ body {
   grid-template-columns: minmax(320px, 460px) minmax(420px, 1fr);
   gap: 24px;
   align-items: stretch;
-  margin: auto 0;
+  margin: 74px 0 0;
 }
 
 .login-card-secondary {
@@ -2887,9 +2929,21 @@ tr:last-child td {
 }
 
 @media (max-width: 1100px) {
+  .portal-top-membership {
+    top: 14px;
+    right: 14px;
+    min-width: 190px;
+    padding: 12px 15px;
+  }
+
+  .portal-top-membership strong {
+    font-size: 1.18rem;
+  }
+
   .login-layout {
     grid-template-columns: 1fr;
     width: min(720px, 100%);
+    margin-top: 72px;
   }
 
   .portal-side-grid {
@@ -2937,8 +2991,26 @@ tr:last-child td {
 }
 
 @media (max-width: 720px) {
+  .portal-top-membership {
+    left: 14px;
+    right: 14px;
+    min-width: 0;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    column-gap: 10px;
+  }
+
+  .portal-top-membership strong {
+    font-size: 1.08rem;
+  }
+
+  .portal-top-membership span {
+    font-size: 0.66rem;
+  }
+
   .login-layout {
     width: 100%;
+    margin-top: 78px;
   }
 
   .login-card,

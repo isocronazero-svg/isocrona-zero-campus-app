@@ -374,6 +374,10 @@ function parseCampusSnapshotUpload(snapshotFile) {
   return importedState;
 }
 
+function readDefaultState() {
+  return JSON.parse(fs.readFileSync(path.join(bundledDataDir, "default-state.json"), "utf8"));
+}
+
 function prepareCleanPrepublicationState(state, actorName = "Administracion") {
   const cleanState = structuredClone(state || {});
   const adminAccounts = (cleanState.accounts || []).filter((account) => account.role === "admin");
@@ -422,6 +426,100 @@ function prepareCleanPrepublicationState(state, actorName = "Administracion") {
 
 function normalizeCampusAccountRole(role) {
   return role === "admin" ? "admin" : "member";
+}
+
+function applyRecoveryAdminAccessFromEnv() {
+  const email = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "").trim().toLowerCase();
+  const password = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "");
+  if (!email || !password) {
+    return;
+  }
+
+  if (password.length < 8) {
+    console.warn("IZ_RECOVERY_ADMIN_PASSWORD debe tener al menos 8 caracteres; recuperacion admin omitida.");
+    return;
+  }
+
+  const state = readState();
+  state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
+  state.members = Array.isArray(state.members) ? state.members : [];
+  state.associates = Array.isArray(state.associates) ? state.associates : [];
+
+  const associate = state.associates.find(
+    (item) => String(item.email || "").trim().toLowerCase() === email
+  );
+  let member = state.members.find(
+    (item) =>
+      String(item.email || "").trim().toLowerCase() === email ||
+      (associate && item.associateId === associate.id)
+  );
+
+  if (!member) {
+    member = {
+      id: `member-recovery-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: associate ? getAssociateFullName(associate) : "Administrador recuperado",
+      role: "Administracion",
+      email,
+      certifications: [],
+      renewalsDue: 0,
+      associateId: associate?.id || "",
+      source: "recovery"
+    };
+    state.members.unshift(member);
+  } else {
+    member.email = email;
+    member.name = associate ? getAssociateFullName(associate) : member.name || "Administrador recuperado";
+    member.role = "Administracion";
+    member.associateId = associate?.id || member.associateId || "";
+    member.source = member.source || "recovery";
+  }
+
+  let account = state.accounts.find(
+    (item) =>
+      String(item.email || "").trim().toLowerCase() === email ||
+      item.memberId === member.id ||
+      (associate && item.associateId === associate.id)
+  );
+
+  if (!account) {
+    account = {
+      id: `account-recovery-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: member.name,
+      email,
+      password,
+      role: "admin",
+      memberId: member.id,
+      associateId: associate?.id || "",
+      mustChangePassword: false,
+      source: "recovery"
+    };
+    state.accounts.push(account);
+  } else {
+    account.name = member.name || account.name || "Administrador recuperado";
+    account.email = email;
+    account.password = password;
+    account.role = "admin";
+    account.memberId = member.id;
+    account.associateId = associate?.id || account.associateId || "";
+    account.mustChangePassword = false;
+    account.source = account.source || "recovery";
+  }
+
+  if (associate) {
+    associate.linkedMemberId = member.id;
+    associate.linkedAccountId = account.id;
+    associate.campusAccessStatus = "active";
+    associate.temporaryPassword = "";
+  }
+
+  appendActivity(
+    state,
+    "system",
+    "Recuperacion",
+    `Acceso administrador recuperado para ${email} desde variables de entorno`
+  );
+  writeState(state);
+  console.log(`Acceso administrador recuperado para ${email}. Retira IZ_RECOVERY_ADMIN_* tras entrar.`);
 }
 
 function compactCampusGroupsForTransport(campusGroups = []) {
@@ -3318,6 +3416,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
   serveStatic(requestUrl.pathname, res);
 });
+
+applyRecoveryAdminAccessFromEnv();
 
 server.listen(port, () => {
   console.log(`Campus disponible en ${campusBaseUrl}`);
