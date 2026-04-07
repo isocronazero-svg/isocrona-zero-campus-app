@@ -420,6 +420,10 @@ function prepareCleanPrepublicationState(state, actorName = "Administracion") {
   return cleanState;
 }
 
+function normalizeCampusAccountRole(role) {
+  return role === "admin" ? "admin" : "member";
+}
+
 function compactCampusGroupsForTransport(campusGroups = []) {
   return (Array.isArray(campusGroups) ? campusGroups : []).map((group) => {
     const compactCategoryEntries = (entries, moduleId, category) =>
@@ -1748,6 +1752,8 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
+      const payload = await readJsonBody(req).catch(() => ({}));
+      const requestedAccountRole = payload.role ? normalizeCampusAccountRole(payload.role) : "";
       const associate = (state.associates || []).find(
         (item) => item.id === createAssociateCampusAccessMatch[1]
       );
@@ -1758,11 +1764,17 @@ const server = http.createServer(async (req, res) => {
         throw new Error("El socio necesita un email antes de crear acceso al campus");
       }
 
-      provisionAssociateCampusAccess(state, associate, { force: true });
+      provisionAssociateCampusAccess(state, associate, {
+        force: true,
+        accountRole: requestedAccountRole
+      });
       writeState(state);
       return sendJson(res, 200, {
         ok: true,
-        message: `Acceso al campus preparado para ${getAssociateFullName(associate)}`,
+        message:
+          requestedAccountRole === "admin"
+            ? `Acceso administrador preparado para ${getAssociateFullName(associate)}`
+            : `Acceso al campus preparado para ${getAssociateFullName(associate)}`,
         associate
       });
     } catch (error) {
@@ -1772,6 +1784,48 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, {
         ok: false,
         error: error.message || "No se pudo crear el acceso al campus"
+      });
+    }
+  }
+
+  const resetAssociateCampusPasswordMatch = requestUrl.pathname.match(
+    /^\/api\/associates\/([^/]+)\/reset-password$/
+  );
+  if (resetAssociateCampusPasswordMatch && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      const associate = (state.associates || []).find(
+        (item) => item.id === resetAssociateCampusPasswordMatch[1]
+      );
+      if (!associate) {
+        throw new Error("Socio no encontrado");
+      }
+
+      resetAssociateCampusPassword(state, associate);
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha restablecido la contrasena temporal del socio #${associate.associateNumber} (${associate.email})`
+      );
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        message: `Contrasena temporal restablecida para ${getAssociateFullName(associate)}`,
+        associate
+      });
+    } catch (error) {
+      if (state) {
+        writeState(state);
+      }
+      return sendJson(res, 400, {
+        ok: false,
+        error: error.message || "No se pudo restablecer la contrasena temporal"
       });
     }
   }
@@ -2671,6 +2725,70 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       });
     } catch (error) {
       return sendJson(res, 500, { ok: false, error: error.message || "No se pudo enviar el lote" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/emails/send-queued" && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      if (!isSmtpConfigured(state)) {
+        return sendJson(res, 400, {
+          ok: false,
+          error: "Configura SMTP antes de enviar la bandeja"
+        });
+      }
+
+      const pendingEmails = (state.emailOutbox || []).filter(
+        (email) =>
+          ["queued", "manual", "failed"].includes(String(email.status || "").trim()) &&
+          String(email.to || "").trim()
+      );
+      const batch = pendingEmails.slice(0, 200);
+      let sentCount = 0;
+      let failedCount = 0;
+
+      for (const email of batch) {
+        try {
+          email.status = "queued";
+          email.transport = "smtp";
+          await deliverEmailRecord(state, email);
+          if (email.status === "sent") {
+            sentCount += 1;
+          }
+        } catch (error) {
+          failedCount += 1;
+        }
+      }
+
+      appendActivity(
+        state,
+        "system",
+        "Servidor",
+        `Bandeja SMTP procesada: ${sentCount} enviado(s), ${failedCount} fallido(s)`
+      );
+      const summary = await runAutomationEngine(state);
+      recordAutomationRun(state, "Envio SMTP de bandeja", summary);
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        sentCount,
+        failedCount,
+        message: `Bandeja SMTP procesada: ${sentCount} enviado(s), ${failedCount} fallido(s)`,
+        summary
+      });
+    } catch (error) {
+      if (state) {
+        writeState(state);
+      }
+      return sendJson(res, 500, {
+        ok: false,
+        error: error.message || "No se pudo enviar la bandeja"
+      });
     }
   }
 
@@ -6175,6 +6293,9 @@ function getAssociateApplicationReplyRecipients(state) {
 
 function provisionAssociateCampusAccess(state, associate, options = {}) {
   const force = Boolean(options.force);
+  const requestedAccountRole = options.accountRole
+    ? normalizeCampusAccountRole(options.accountRole)
+    : "";
   if (!force && !state.settings?.associates?.autoCreateCampusAccess) {
     associate.campusAccessStatus = "pending";
     return associate;
@@ -6215,7 +6336,7 @@ function provisionAssociateCampusAccess(state, associate, options = {}) {
       name: member.name,
       email: associate.email,
       password: tempPassword,
-      role: "member",
+      role: requestedAccountRole || "member",
       memberId: member.id,
       associateId: associate.id,
       mustChangePassword: true
@@ -6227,6 +6348,9 @@ function provisionAssociateCampusAccess(state, associate, options = {}) {
     account.email = associate.email;
     account.memberId = member.id;
     account.associateId = associate.id;
+    if (requestedAccountRole) {
+      account.role = requestedAccountRole;
+    }
     if (!account.password) {
       account.password = buildTemporaryCampusPassword(associate);
       account.mustChangePassword = true;
@@ -6251,12 +6375,44 @@ function provisionAssociateCampusAccess(state, associate, options = {}) {
   return associate;
 }
 
-function buildTemporaryCampusPassword(associate) {
+function buildTemporaryCampusPassword(associate, options = {}) {
   const nameChunk = String(associate.firstName || "socio")
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "")
     .slice(0, 4) || "socio";
-  return `IZ-${nameChunk}-${associate.associateNumber || Date.now().toString().slice(-4)}`;
+  const base = `IZ-${nameChunk}-${associate.associateNumber || Date.now().toString().slice(-4)}`;
+  return options.unique ? `${base}-${Math.random().toString(36).slice(2, 6)}` : base;
+}
+
+function resetAssociateCampusPassword(state, associate) {
+  if (!associate?.email) {
+    throw new Error("El socio necesita un email antes de restablecer su acceso");
+  }
+
+  const account = (state.accounts || []).find(
+    (item) =>
+      item.id === associate.linkedAccountId ||
+      item.associateId === associate.id ||
+      item.email?.toLowerCase() === associate.email.toLowerCase()
+  );
+
+  if (!account) {
+    throw new Error("Primero crea el acceso al campus de este socio");
+  }
+
+  const tempPassword = buildTemporaryCampusPassword(associate, { unique: true });
+  account.password = tempPassword;
+  account.mustChangePassword = true;
+  account.email = associate.email;
+  account.name = getAssociateFullName(associate) || account.name;
+  account.associateId = associate.id;
+  associate.linkedAccountId = account.id;
+  associate.temporaryPassword = tempPassword;
+  associate.campusAccessStatus = "active";
+  associate.welcomeEmailStatus = "pending";
+  associate.welcomeEmailSentAt = "";
+
+  return account;
 }
 
 async function maybeSendAssociateWelcomeEmail(state, associate, options = {}) {
@@ -8010,7 +8166,8 @@ function buildAssociateWelcomeEmailBody(state, associate, account, member) {
   const organization = state.settings?.organization || "Isocrona Zero";
   const displayName = getAssociateFullName(associate) || account?.name || member?.name || "socio";
   const loginEmail = account?.email || associate.email || "";
-  const tempPassword = associate.temporaryPassword || account?.password || "";
+  const hasTemporaryPassword = Boolean(account?.mustChangePassword);
+  const tempPassword = hasTemporaryPassword ? associate.temporaryPassword || account?.password || "" : "";
   const service = String(associate.service || "").trim();
   const contactEmail = state.settings?.smtp?.fromEmail || "administracion@isocronazero.org";
 
@@ -8027,13 +8184,17 @@ function buildAssociateWelcomeEmailBody(state, associate, account, member) {
     "- Diplomas y certificados disponibles.",
     "- Grupos internos con documentacion, fichas de practica, videos y enlaces de interes.",
     "",
-    "Datos de acceso inicial:",
+    hasTemporaryPassword ? "Datos de acceso inicial:" : "Datos de acceso:",
     `- Usuario: ${loginEmail || "pendiente de configurar"}`,
-    `- Contrasena temporal: ${tempPassword || "pendiente de generar"}`,
+    hasTemporaryPassword
+      ? `- Contrasena temporal: ${tempPassword || "pendiente de generar"}`
+      : "- Contrasena: usa la contrasena que ya configuraste en el campus.",
     service ? `- Servicio asociado: ${service}` : "",
     "",
     "Primeros pasos recomendados:",
-    "1. Entra en el campus y cambia tu contrasena en el primer acceso.",
+    hasTemporaryPassword
+      ? "1. Entra en el campus y cambia tu contrasena en el primer acceso."
+      : "1. Entra en el campus con tu contrasena actual.",
     "2. Revisa que tu ficha de socio este correcta, especialmente DNI/NIE, telefono y email.",
     "3. Consulta los cursos disponibles e inscribete en aquellos que correspondan a tu actividad.",
     "4. Revisa tus grupos internos para acceder a material operativo y formativo.",

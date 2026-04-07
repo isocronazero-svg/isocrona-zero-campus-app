@@ -831,6 +831,12 @@ body {
   color: var(--muted);
 }
 
+.field-help {
+  font-size: 0.86rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
 select,
 input,
 textarea {

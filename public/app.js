@@ -148,6 +148,7 @@ const VIEW_SECTION_MODES = {
 
 const MANUAL_NOTICE_AUDIENCE_LABELS = {
   all: "Todo el campus",
+  "active-associates": "Socios activos",
   associates: "Solo socios",
   "campus-only": "Solo externos",
   course: "Alumnado de un curso"
@@ -541,6 +542,8 @@ roleSwitcher.addEventListener("change", async (event) => {
   const requestedRole = event.target.value;
   if (requestedRole === "member-self" && !session?.memberId) {
     viewRole = "admin";
+    syncStatus = "Tu cuenta admin no esta vinculada a una ficha de socio real";
+    showToast("Primero vincula tu cuenta admin a una ficha de socio para usar Mi perfil socio", "warning");
   } else if (requestedRole === "member-preview") {
     viewRole = "member-preview";
   } else if (requestedRole === "member-self") {
@@ -551,15 +554,19 @@ roleSwitcher.addEventListener("change", async (event) => {
   }
   persistViewRole();
   if (requestedRole === "admin" && wasMemberView) {
+    await refreshState({ forceAdminState: true });
+  } else if (!isAdminView()) {
     await refreshState();
   }
   applySessionToState();
-  syncStatus =
-    viewRole === "member-preview"
-      ? "Vista alumno activada para previsualizar cambios"
-      : viewRole === "member-self"
-      ? "Mi perfil socio activado"
-      : "Vista administracion recuperada";
+  if (requestedRole !== "member-self" || session?.memberId) {
+    syncStatus =
+      viewRole === "member-preview"
+        ? "Vista alumno activada para previsualizar cambios"
+        : viewRole === "member-self"
+        ? "Mi perfil socio activado"
+        : "Vista administracion recuperada";
+  }
   render();
 });
 
@@ -666,7 +673,9 @@ loginForm.addEventListener("submit", async (event) => {
 
     const payload = await response.json();
     if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || "Acceso denegado");
+      throw new Error(
+        `${payload.error || "Acceso denegado"}. Si ya cambiaste la contrasena, la temporal del correo ya no sirve.`
+      );
     }
 
     session = payload.session;
@@ -681,7 +690,7 @@ loginForm.addEventListener("submit", async (event) => {
     loginPassword.value = "";
     passwordChangeStatus = session.mustChangePassword
       ? "Tu cuenta usa una contrasena temporal. Actualizala para continuar."
-      : "Debes cambiar la contrasena temporal para entrar al campus.";
+      : "";
     addActivity(session.role === "admin" ? "admin" : "member", session.name, "Ha iniciado sesion");
     loginStatus = "Acceso correcto.";
     showToast("Acceso correcto", "success");
@@ -2551,12 +2560,37 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  if (action === "create-associate-campus-access" && isAdminSession()) {
+  if (action === "reset-associate-campus-password" && isAdminSession()) {
     const associateId = actionTarget.dataset.associateId;
+    const associate = findAssociate(associateId);
+    const associateName = associate ? getAssociateFullName(associate) : "este socio";
+    if (
+      !window.confirm(
+        `Se generara una nueva contrasena temporal para ${associateName}. La contrasena anterior dejara de funcionar.`
+      )
+    ) {
+      return;
+    }
     state.selectedAssociateId = associateId;
     associatesSectionMode = "workbench";
     await invokeServerAction(
+      `/api/associates/${associateId}/reset-password`,
+      "Contrasena temporal restablecida"
+    );
+    requestAnimationFrame(() => focusAssociatesWorkbench());
+    return;
+  }
+
+  if (
+    (action === "create-associate-campus-access" || action === "create-associate-campus-admin-access") &&
+    isAdminSession()
+  ) {
+    const associateId = actionTarget.dataset.associateId;
+    state.selectedAssociateId = associateId;
+    associatesSectionMode = "workbench";
+    await invokeJsonAction(
       `/api/associates/${associateId}/create-access`,
+      { role: action === "create-associate-campus-admin-access" ? "admin" : "member" },
       "Acceso al campus preparado"
     );
     requestAnimationFrame(() => focusAssociatesWorkbench());
@@ -3023,6 +3057,11 @@ document.addEventListener("click", async (event) => {
 
   if (action === "smtp-test" && isAdminSession()) {
     await invokeServerAction("/api/smtp/test", "Correo de prueba SMTP enviado");
+    return;
+  }
+
+  if (action === "send-queued-emails" && isAdminSession()) {
+    await invokeServerAction("/api/emails/send-queued", "Bandeja SMTP procesada");
     return;
   }
 
@@ -3539,6 +3578,24 @@ document.addEventListener("submit", async (event) => {
     addActivity("member", session.name, `Ha enviado la valoracion del curso ${course.title}`);
     await persistAndRender("Valoracion enviada correctamente");
     learnerCourseWorkspaceMode = "feedback";
+    return;
+  }
+
+  if (event.target.id === "smtpSettingsForm" && isAdminSession()) {
+    event.preventDefault();
+    state.settings.smtp = {
+      host: document.getElementById("smtpConfigHost").value.trim(),
+      port: Number(document.getElementById("smtpConfigPort").value || 0),
+      secure: document.getElementById("smtpConfigSecure").checked,
+      startTls: document.getElementById("smtpConfigStartTls").checked,
+      username: document.getElementById("smtpConfigUser").value.trim(),
+      password: document.getElementById("smtpConfigPassword").value,
+      fromEmail: document.getElementById("smtpConfigFromEmail").value.trim(),
+      fromName: document.getElementById("smtpConfigFromName").value.trim(),
+      testTo: document.getElementById("smtpConfigTestTo").value.trim()
+    };
+    addActivity("admin", session.name, "Ha actualizado la configuracion SMTP del campus");
+    await persistAndRender("SMTP guardado");
     return;
   }
 
@@ -7666,6 +7723,11 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
   const legacyIssues = getAssociateLegacyReviewIssues(associate);
   const accountRole = normalizeCampusAccountRole(campusAccount?.role);
   const ownAccountRoleLocked = Boolean(campusAccount?.id && campusAccount.id === session?.accountId);
+  const accountRoleLockedReason = ownAccountRoleLocked
+    ? "Estas viendo tu propia cuenta admin. Cambia este rol desde otra cuenta administradora."
+    : !campusAccount
+      ? "Primero crea el acceso al campus de este socio."
+      : "";
   const reviewReadyToClose =
     associate.status === "Revisar documentacion" &&
     canCloseAssociateLegacyReview(associate) &&
@@ -7700,8 +7762,19 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
         }
         ${
           campusAccount
-            ? `<button class="mini-button" data-action="send-associate-welcome" data-associate-id="${associate.id}">${welcomeActionLabel}</button>`
-            : `<button class="mini-button" data-action="create-associate-campus-access" data-associate-id="${associate.id}" ${associate.email ? "" : "disabled"}>Crear acceso</button>`
+            ? `
+              <button class="mini-button" data-action="send-associate-welcome" data-associate-id="${associate.id}">${welcomeActionLabel}</button>
+              <button class="mini-button" data-action="reset-associate-campus-password" data-associate-id="${associate.id}">Restablecer contrasena</button>
+              ${
+                accountRole !== "admin"
+                  ? `<button class="mini-button" data-action="create-associate-campus-admin-access" data-associate-id="${associate.id}">Hacer admin</button>`
+                  : ""
+              }
+            `
+            : `
+              <button class="mini-button" data-action="create-associate-campus-access" data-associate-id="${associate.id}" ${associate.email ? "" : "disabled"}>Crear acceso socio</button>
+              <button class="mini-button" data-action="create-associate-campus-admin-access" data-associate-id="${associate.id}" ${associate.email ? "" : "disabled"}>Crear acceso admin</button>
+            `
         }
         ${
           associate.status === "Revisar documentacion"
@@ -7758,7 +7831,7 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
           </label>
           <label class="inline-field">
             Rol de acceso
-            <select id="editAssociateAccountRole" ${campusAccount && !ownAccountRoleLocked ? "" : "disabled"}>
+            <select id="editAssociateAccountRole" ${campusAccount && !ownAccountRoleLocked ? "" : "disabled"} title="${escapeHtml(accountRoleLockedReason)}">
               ${Object.entries(CAMPUS_ACCOUNT_ROLE_LABELS)
                 .map(
                   ([role, label]) =>
@@ -7766,6 +7839,11 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
                 )
                 .join("")}
             </select>
+            ${
+              accountRoleLockedReason
+                ? `<span class="field-help">${escapeHtml(accountRoleLockedReason)}</span>`
+                : `<span class="field-help">Este rol define si entra como socio/alumno o como administracion.</span>`
+            }
           </label>
         </div>
 
@@ -7797,7 +7875,13 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
           campusAccount && ownAccountRoleLocked
             ? `<p class="status-note warning">Estas viendo tu propia cuenta. Para evitar bloquearte por error, el rol se cambia desde otra cuenta administradora.</p>`
             : !campusAccount
-              ? `<p class="status-note warning">Crea primero el acceso al campus para poder asignar rol.</p>`
+              ? `
+                <p class="status-note warning">Crea primero el acceso al campus para poder asignar rol.</p>
+                <div class="chip-row">
+                  <button class="mini-button" type="button" data-action="create-associate-campus-access" data-associate-id="${associate.id}" ${associate.email ? "" : "disabled"}>Crear acceso socio</button>
+                  <button class="mini-button" type="button" data-action="create-associate-campus-admin-access" data-associate-id="${associate.id}" ${associate.email ? "" : "disabled"}>Crear acceso admin</button>
+                </div>
+              `
               : `<p class="status-note">El rol define si esta cuenta entra como socio/alumno o como administracion.</p>`
         }
         <button class="primary-button" type="submit">Guardar ficha de socio</button>
@@ -7890,7 +7974,8 @@ function buildAssociateWelcomePreviewText(associate, campusAccount, campusMember
   const displayName =
     getAssociateFullName(associate) || campusAccount?.name || campusMember?.name || "socio";
   const loginEmail = campusAccount?.email || associate?.email || "";
-  const tempPassword = associate?.temporaryPassword || campusAccount?.password || "";
+  const hasTemporaryPassword = Boolean(campusAccount?.mustChangePassword);
+  const tempPassword = hasTemporaryPassword ? associate?.temporaryPassword || campusAccount?.password || "" : "";
   const service = String(associate?.service || "").trim();
   const contactEmail = state.settings?.smtp?.fromEmail || "administracion@isocronazero.org";
 
@@ -7907,13 +7992,17 @@ function buildAssociateWelcomePreviewText(associate, campusAccount, campusMember
     "- Diplomas y certificados disponibles.",
     "- Grupos internos con documentacion, fichas de practica, videos y enlaces de interes.",
     "",
-    "Datos de acceso inicial:",
+    hasTemporaryPassword ? "Datos de acceso inicial:" : "Datos de acceso:",
     `- Usuario: ${loginEmail || "pendiente de configurar"}`,
-    `- Contrasena temporal: ${tempPassword || "pendiente de generar"}`,
+    hasTemporaryPassword
+      ? `- Contrasena temporal: ${tempPassword || "pendiente de generar"}`
+      : "- Contrasena: usa la contrasena que ya configuraste en el campus.",
     service ? `- Servicio asociado: ${service}` : "",
     "",
     "Primeros pasos recomendados:",
-    "1. Entra en el campus y cambia tu contrasena en el primer acceso.",
+    hasTemporaryPassword
+      ? "1. Entra en el campus y cambia tu contrasena en el primer acceso."
+      : "1. Entra en el campus con tu contrasena actual.",
     "2. Revisa que tu ficha de socio este correcta, especialmente DNI/NIE, telefono y email.",
     "3. Consulta los cursos disponibles e inscribete en aquellos que correspondan a tu actividad.",
     "4. Revisa tus grupos internos para acceder a material operativo y formativo.",
@@ -9983,6 +10072,8 @@ function renderReports() {
         <p>Esta pieza ya prepara la sustitucion del Google Form por un alta integrada dentro de la web.</p>
         <a class="button-link" target="_blank" rel="noreferrer" href="/join.html">Abrir alta de socio</a>
       </div>
+
+      ${renderSmtpSettingsCard()}
       `
           : ""
       }
@@ -10073,6 +10164,7 @@ function renderManualCampusNoticesManager() {
               .map(([value, label]) => `<option value="${value}">${label}</option>`)
               .join("")}
           </select>
+          <span class="field-hint">Para escribir a los socios importados desde el Excel, usa "Socios activos". No necesitan tener cuenta de campus creada.</span>
         </label>
         <label class="inline-field">
           Tono
@@ -10164,6 +10256,70 @@ function renderManualCampusNoticesManager() {
   `;
 }
 
+function renderSmtpSettingsCard() {
+  const smtp = state.settings?.smtp || {};
+  const isHostingerLike = !smtp.host || String(smtp.host).includes("hostinger");
+  return `
+    <div class="mail-card associate-anchor" id="reportSectionSmtp">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Correo saliente</p>
+          <h4>SMTP para avisos a socios</h4>
+          <p class="muted">Configura un buzon real para enviar bienvenidas, novedades y avisos de cuota a socios activos.</p>
+        </div>
+        <span class="small-chip">${smtp.host && smtp.fromEmail ? "SMTP configurado" : "Pendiente"}</span>
+      </div>
+
+      <form id="smtpSettingsForm" class="stack">
+        <div class="form-grid">
+          <label class="field">
+            <span>Servidor SMTP</span>
+            <input id="smtpConfigHost" placeholder="smtp.hostinger.com" value="${escapeHtml(smtp.host || (isHostingerLike ? "smtp.hostinger.com" : ""))}" />
+          </label>
+          <label class="field">
+            <span>Puerto</span>
+            <input id="smtpConfigPort" type="number" min="1" placeholder="465" value="${smtp.port || 465}" />
+          </label>
+          <label class="field">
+            <span>Usuario SMTP</span>
+            <input id="smtpConfigUser" placeholder="campus@isocronazero.org" value="${escapeHtml(smtp.username || "")}" />
+          </label>
+          <label class="field">
+            <span>Contrasena del buzon</span>
+            <input id="smtpConfigPassword" type="password" autocomplete="new-password" placeholder="Contrasena del correo" value="${escapeHtml(smtp.password || "")}" />
+          </label>
+          <label class="field">
+            <span>Correo remitente</span>
+            <input id="smtpConfigFromEmail" type="email" placeholder="campus@isocronazero.org" value="${escapeHtml(smtp.fromEmail || "")}" />
+          </label>
+          <label class="field">
+            <span>Nombre remitente</span>
+            <input id="smtpConfigFromName" placeholder="Isocrona Zero Campus" value="${escapeHtml(smtp.fromName || "Isocrona Zero Campus")}" />
+          </label>
+          <label class="field">
+            <span>Correo de prueba</span>
+            <input id="smtpConfigTestTo" type="email" placeholder="tu-correo@ejemplo.org" value="${escapeHtml(smtp.testTo || "")}" />
+          </label>
+        </div>
+
+        <div class="chip-row">
+          <label class="inline-field"><span>SSL directo</span><input id="smtpConfigSecure" type="checkbox" ${smtp.secure !== false ? "checked" : ""} /></label>
+          <label class="inline-field"><span>STARTTLS</span><input id="smtpConfigStartTls" type="checkbox" ${smtp.startTls ? "checked" : ""} /></label>
+        </div>
+
+        <div class="status-note info">
+          Para Hostinger suele funcionar: servidor <strong>smtp.hostinger.com</strong>, puerto <strong>465</strong>, SSL directo activado y STARTTLS desactivado.
+        </div>
+
+        <div class="inline-actions">
+          <button class="primary-button" type="submit">Guardar SMTP</button>
+          <button class="ghost-button" type="button" data-action="smtp-test">Probar SMTP</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
 function renderAutomation() {
   if (!isAdminView()) {
     return `<div class="empty-state">La automatizacion y la bandeja operativa solo estan disponibles para administracion.</div>`;
@@ -10174,6 +10330,11 @@ function renderAutomation() {
     (course) => getCoursePendingDiplomaDeliveries(course) > 0
   );
   const lastEmails = state.emailOutbox.slice(-4).reverse();
+  const queuedEmailCount = (state.emailOutbox || []).filter(
+    (mail) =>
+      ["queued", "manual", "failed"].includes(String(mail.status || "").trim()) &&
+      String(mail.to || "").trim()
+  ).length;
   const agentItems = [...(state.agentLog || [])]
     .sort((a, b) => String(b.at).localeCompare(String(a.at)))
     .slice(0, 6);
@@ -10331,7 +10492,17 @@ function renderAutomation() {
         showAutomationSection("outbox")
           ? `
       <div class="mail-card associate-anchor" id="automationSectionOutbox">
-        <h4>Bandeja de salida</h4>
+        <div class="row-between">
+          <h4>Bandeja de salida</h4>
+          <div class="chip-row">
+            <span class="small-chip">${queuedEmailCount} pendiente(s)</span>
+            ${
+              isAdminView()
+                ? `<button class="ghost-button" data-action="send-queued-emails" ${queuedEmailCount ? "" : "disabled"}>Enviar pendientes por SMTP</button>`
+                : ""
+            }
+          </div>
+        </div>
         ${
           lastEmails.length
             ? `<div class="compact-list">
@@ -18220,14 +18391,27 @@ function queueEmailForMember(courseId, memberId, markSent) {
 function getManualNoticeRecipients(notice) {
   const audience = String(notice?.audience || "all").trim();
   const linkedCourse = notice?.courseId ? findCourse(notice.courseId) : null;
-  const baseMembers = (state.members || []).filter((member) => String(member.email || "").trim());
+  const memberRecipients = (state.members || [])
+    .filter((member) => String(member.email || "").trim())
+    .map(buildMemberNoticeRecipient);
+  const associateRecipients = (state.associates || [])
+    .filter((associate) => String(associate.email || "").trim())
+    .map(buildAssociateNoticeRecipient);
+  const activeAssociateRecipients = (state.associates || [])
+    .filter(isAssociateActiveForBulkEmail)
+    .map(buildAssociateNoticeRecipient);
 
   if (audience === "associates") {
-    return baseMembers.filter((member) => Boolean(findAssociateByMember(member) || member.associateId));
+    const linkedMemberRecipients = memberRecipients.filter((recipient) => recipient.associateId);
+    return dedupeNoticeEmailRecipients([...associateRecipients, ...linkedMemberRecipients]);
+  }
+
+  if (audience === "active-associates") {
+    return dedupeNoticeEmailRecipients(activeAssociateRecipients);
   }
 
   if (audience === "campus-only") {
-    return baseMembers.filter((member) => !findAssociateByMember(member) && !member.associateId);
+    return dedupeNoticeEmailRecipients(memberRecipients.filter((recipient) => !recipient.associateId));
   }
 
   if (audience === "course" && linkedCourse) {
@@ -18236,10 +18420,58 @@ function getManualNoticeRecipients(notice) {
       ...(linkedCourse.waitingIds || []),
       ...(linkedCourse.diplomaReady || [])
     ]);
-    return baseMembers.filter((member) => ids.has(member.id));
+    return dedupeNoticeEmailRecipients(memberRecipients.filter((recipient) => ids.has(recipient.memberId)));
   }
 
-  return baseMembers;
+  return dedupeNoticeEmailRecipients([...associateRecipients, ...memberRecipients]);
+}
+
+function buildMemberNoticeRecipient(member) {
+  const associate = findAssociateByMember(member);
+  return {
+    id: `member-${member.id}`,
+    memberId: member.id,
+    associateId: associate?.id || member.associateId || "",
+    name: member.name || member.email || "socio",
+    email: member.email
+  };
+}
+
+function buildAssociateNoticeRecipient(associate) {
+  return {
+    id: `associate-${associate.id}`,
+    memberId: associate.linkedMemberId || "",
+    associateId: associate.id,
+    name: getAssociateFullName(associate) || associate.email || "socio",
+    email: associate.email
+  };
+}
+
+function isAssociateActiveForBulkEmail(associate) {
+  if (!associate || !String(associate.email || "").trim()) {
+    return false;
+  }
+  const status = normalizeSearchValue(associate.status || associate.situation || associate.estado || "");
+  if (!status) {
+    return true;
+  }
+  return status.includes("activa") || status.includes("activo") || status.includes("alta");
+}
+
+function getNoticeRecipientEmailKey(recipient) {
+  return String(recipient?.email || "").trim().toLowerCase();
+}
+
+function dedupeNoticeEmailRecipients(recipients) {
+  const seen = new Set();
+  return recipients.filter((recipient) => {
+    const key = getNoticeRecipientEmailKey(recipient);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function buildManualNoticeEmailBody(member, notice, linkedCourse) {
@@ -18265,15 +18497,16 @@ function queueManualNoticeEmails(notice) {
   const recipients = getManualNoticeRecipients(notice);
   const linkedCourse = notice.courseId ? findCourse(notice.courseId) : null;
 
-  recipients.forEach((member) => {
+  recipients.forEach((recipient) => {
     state.emailOutbox.unshift({
-      id: `mail-notice-${Date.now()}-${member.id}-${Math.random().toString(36).slice(2, 7)}`,
+      id: `mail-notice-${Date.now()}-${recipient.id}-${Math.random().toString(36).slice(2, 7)}`,
       courseId: linkedCourse?.id || "",
-      memberId: member.id,
+      memberId: recipient.memberId || "",
+      associateId: recipient.associateId || "",
       manualNoticeId: notice.id,
-      to: member.email,
+      to: recipient.email,
       subject: `${notice.title || "Novedad del campus"} - Isocrona Zero`,
-      body: buildManualNoticeEmailBody(member, notice, linkedCourse),
+      body: buildManualNoticeEmailBody(recipient, notice, linkedCourse),
       sentAt: new Date().toISOString(),
       status: state.settings?.smtp?.host ? "queued" : "manual",
       transport: state.settings?.smtp?.host ? "smtp-pending" : "manual"
