@@ -899,6 +899,16 @@ a {
   color: var(--text);
 }
 
+.danger-button {
+  border-color: rgba(158, 47, 47, 0.28);
+  color: #8f2f2f;
+}
+
+.danger-button:hover {
+  background: rgba(158, 47, 47, 0.08);
+  border-color: rgba(158, 47, 47, 0.42);
+}
+
 .mini-button {
   padding: 9px 14px;
   background: rgba(255, 255, 255, 0.88);

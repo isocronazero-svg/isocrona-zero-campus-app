@@ -338,6 +338,88 @@ function compactCampusAttachmentForTransport(attachment, groupId, moduleId, cate
   };
 }
 
+function parseCampusSnapshotUpload(snapshotFile) {
+  const file = snapshotFile && typeof snapshotFile === "object" ? snapshotFile : null;
+  const base64 = String(file?.contentBase64 || "").trim();
+  if (!base64) {
+    throw new Error("Adjunta un state.json valido antes de importarlo.");
+  }
+
+  let raw = "";
+  try {
+    raw = Buffer.from(base64, "base64").toString("utf8");
+  } catch (error) {
+    throw new Error("No se pudo leer el snapshot enviado.");
+  }
+
+  let importedState = null;
+  try {
+    importedState = JSON.parse(raw || "{}");
+  } catch (error) {
+    throw new Error("El archivo state.json no contiene un JSON valido.");
+  }
+
+  if (!importedState || typeof importedState !== "object" || Array.isArray(importedState)) {
+    throw new Error("El snapshot del campus no tiene un formato valido.");
+  }
+
+  const requiredCollections = ["accounts", "associates", "members", "courses"];
+  const missingCollections = requiredCollections.filter((key) => !Array.isArray(importedState[key]));
+  if (missingCollections.length) {
+    throw new Error(
+      `El snapshot no incluye las colecciones esperadas: ${missingCollections.join(", ")}.`
+    );
+  }
+
+  return importedState;
+}
+
+function prepareCleanPrepublicationState(state, actorName = "Administracion") {
+  const cleanState = structuredClone(state || {});
+  const adminAccounts = (cleanState.accounts || []).filter((account) => account.role === "admin");
+  cleanState.accounts = adminAccounts.length
+    ? adminAccounts.map((account) => ({
+        ...account,
+        memberId: "",
+        associateId: ""
+      }))
+    : (readDefaultState().accounts || []).filter((account) => account.role === "admin");
+
+  cleanState.associates = [];
+  cleanState.members = [];
+  cleanState.courses = [];
+  cleanState.campusGroups = [];
+  cleanState.associateApplications = [];
+  cleanState.associatePaymentSubmissions = [];
+  cleanState.associateProfileRequests = [];
+  cleanState.automationInbox = [];
+  cleanState.emailOutbox = [];
+  cleanState.agentLog = [];
+  cleanState.activityLog = [];
+  cleanState.selectedAssociateId = "";
+  cleanState.selectedMemberId = "";
+  cleanState.selectedCourseId = "";
+  cleanState.selectedCampusGroupId = "";
+  cleanState.selectedAssociateApplicationId = "";
+  cleanState.selectedAssociatePaymentSubmissionId = "";
+  cleanState.selectedAssociateProfileRequestId = "";
+  cleanState.activeView = "dashboard";
+  cleanState.role = "admin";
+  cleanState.settings = cleanState.settings || {};
+  cleanState.settings.associates = cleanState.settings.associates || {};
+  cleanState.settings.associates.nextAssociateNumber = 1;
+
+  appendActivity(
+    cleanState,
+    "admin",
+    actorName,
+    "Prepublicacion",
+    "Campus de prueba limpiado para importar socios reales desde Excel"
+  );
+
+  return cleanState;
+}
+
 function compactCampusGroupsForTransport(campusGroups = []) {
   return (Array.isArray(campusGroups) ? campusGroups : []).map((group) => {
     const compactCategoryEntries = (entries, moduleId, category) =>
@@ -562,37 +644,74 @@ function registerPublicCampusAccount(state, payload) {
   return { member, account };
 }
 
+function findAssociateForAccount(state, account, member) {
+  const associateId = member?.associateId || account?.associateId || "";
+  const memberEmail = String(member?.email || account?.email || "").trim().toLowerCase();
+  const memberName = String(member?.name || account?.name || "").trim().toLowerCase();
+  return (
+    (state.associates || []).find(
+      (associate) =>
+        associate.id === associateId ||
+        associate.linkedMemberId === member?.id ||
+        associate.linkedAccountId === account?.id ||
+        (memberEmail && String(associate.email || "").trim().toLowerCase() === memberEmail) ||
+        (memberName &&
+          `${String(associate.firstName || "").trim()} ${String(associate.lastName || "").trim()}`
+            .trim()
+            .toLowerCase() === memberName)
+    ) || null
+  );
+}
+
+function getAssociateCurrentYearQuotaGap(associate) {
+  if (!associate) {
+    return 0;
+  }
+  const currentYear = String(new Date().getFullYear());
+  const paid = Number(associate.yearlyFees?.[currentYear] || 0);
+  return Math.max(0, Number(associate.annualAmount || 0) - paid);
+}
+
+function isAssociateAccessLimitedByQuota(associate) {
+  return getAssociateCurrentYearQuotaGap(associate) > 0;
+}
+
 function buildMemberScopedState(state, account, memberIdOverride) {
   const memberId = memberIdOverride || account.memberId || "";
   const scopedMember = (state.members || []).find((item) => item.id === memberId) || null;
   const associateId = scopedMember?.associateId || account.associateId || "";
   const memberEmail = String(scopedMember?.email || account.email || "").toLowerCase();
   const campusOnlyAccess = !associateId;
-  const memberOwnedCourseIds = new Set(
-    (state.courses || [])
-      .filter((course) => {
-        const hasEnrollment = (course.enrolledIds || []).includes(memberId);
-        const isWaiting = (course.waitingIds || []).includes(memberId);
-        const hasDiploma = (course.diplomaReady || []).includes(memberId);
-        const hasSubmission = (course.enrollmentSubmissions || []).some((item) => item.memberId === memberId);
-        return hasEnrollment || isWaiting || hasDiploma || hasSubmission;
+  const scopedAssociate = findAssociateForAccount(state, account, scopedMember);
+  const quotaLimitedAccess = !campusOnlyAccess && isAssociateAccessLimitedByQuota(scopedAssociate);
+  const memberOwnedCourseIds = quotaLimitedAccess
+    ? new Set()
+    : new Set(
+        (state.courses || [])
+          .filter((course) => {
+            const hasEnrollment = (course.enrolledIds || []).includes(memberId);
+            const isWaiting = (course.waitingIds || []).includes(memberId);
+            const hasDiploma = (course.diplomaReady || []).includes(memberId);
+            const hasSubmission = (course.enrollmentSubmissions || []).some((item) => item.memberId === memberId);
+            return hasEnrollment || isWaiting || hasDiploma || hasSubmission;
+          })
+          .map((course) => course.id)
+      );
+  const visibleCourses = quotaLimitedAccess
+    ? []
+    : (state.courses || []).filter((course) => {
+        if (!campusOnlyAccess) {
+          return true;
+        }
+        if (!isCoursePublicAccess(course)) {
+          return false;
+        }
+        if (!memberOwnedCourseIds.size) {
+          return true;
+        }
+        return memberOwnedCourseIds.has(course.id);
       })
-      .map((course) => course.id)
-  );
-  const visibleCourses = (state.courses || [])
-    .filter((course) => {
-      if (!campusOnlyAccess) {
-        return true;
-      }
-      if (!isCoursePublicAccess(course)) {
-        return false;
-      }
-      if (!memberOwnedCourseIds.size) {
-        return true;
-      }
-      return memberOwnedCourseIds.has(course.id);
-    })
-    .map((course) => {
+      .map((course) => {
       const isEnrolled = (course.enrolledIds || []).includes(memberId);
       const isWaiting = (course.waitingIds || []).includes(memberId);
       const hasDiploma = (course.diplomaReady || []).includes(memberId);
@@ -630,6 +749,7 @@ function buildMemberScopedState(state, account, memberIdOverride) {
   return {
     ...state,
     role: "member",
+    activeView: quotaLimitedAccess ? "join" : state.activeView,
     selectedMemberId: memberId || null,
     selectedAssociateId: associateId || null,
     selectedCourseId,
@@ -663,9 +783,9 @@ function buildMemberScopedState(state, account, memberIdOverride) {
     associates: (state.associates || []).filter(
       (item) => item.id === associateId || item.email.toLowerCase() === memberEmail
     ),
-    emailOutbox: (state.emailOutbox || []).filter(
-      (item) => item.memberId === memberId || item.associateId === associateId
-    ),
+    emailOutbox: quotaLimitedAccess
+      ? []
+      : (state.emailOutbox || []).filter((item) => item.memberId === memberId || item.associateId === associateId),
     settings: {
       ...state.settings,
       smtp: {
@@ -687,7 +807,7 @@ function buildMemberScopedState(state, account, memberIdOverride) {
         notes: ""
       }
     },
-    campusGroups: campusOnlyAccess ? [] : state.campusGroups || [],
+    campusGroups: campusOnlyAccess || quotaLimitedAccess ? [] : state.campusGroups || [],
     courses: visibleCourses
   };
 }
@@ -699,6 +819,12 @@ function mergeMemberScopedStateIntoFullState(fullState, scopedState, account) {
   }
 
   const nextState = structuredClone(fullState);
+  const member = (nextState.members || []).find((item) => item.id === memberId) || null;
+  const associate = findAssociateForAccount(nextState, account, member);
+  if (isAssociateAccessLimitedByQuota(associate)) {
+    return nextState;
+  }
+
   const scopedCourses = Array.isArray(scopedState?.courses) ? scopedState.courses : [];
 
   for (const scopedCourse of scopedCourses) {
@@ -2963,6 +3089,76 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     return;
   }
 
+  if (requestUrl.pathname === "/api/storage/import-state" && req.method === "POST") {
+    const currentState = readState();
+    const account = requireAdminAccount(req, res, currentState);
+    if (!account) {
+      return;
+    }
+
+    try {
+      const payload = await readJsonBody(req, 80_000_000);
+      const importedState = parseCampusSnapshotUpload(payload.snapshotFile);
+      writeState(importedState);
+      const nextState = readState();
+      return sendJson(res, 200, {
+        ok: true,
+        message:
+          "Estado real importado correctamente. Cierra la sesion demo y vuelve a entrar con tus credenciales reales.",
+        storage: getStorageMeta(),
+        counts: {
+          accounts: Array.isArray(nextState.accounts) ? nextState.accounts.length : 0,
+          associates: Array.isArray(nextState.associates) ? nextState.associates.length : 0,
+          members: Array.isArray(nextState.members) ? nextState.members.length : 0,
+          courses: Array.isArray(nextState.courses) ? nextState.courses.length : 0
+        }
+      });
+    } catch (error) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: error.message || "No se pudo importar el state.json del campus"
+      });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/storage/prepare-prepublication" && req.method === "POST") {
+    const currentState = readState();
+    const account = requireAdminAccount(req, res, currentState);
+    if (!account) {
+      return;
+    }
+
+    try {
+      const payload = await readJsonBody(req);
+      if (String(payload.confirmText || "").trim() !== "PREPUBLICACION LIMPIA") {
+        return sendJson(res, 400, {
+          ok: false,
+          error: "Confirmacion incorrecta. Escribe PREPUBLICACION LIMPIA para limpiar la web de prueba."
+        });
+      }
+      const cleanState = prepareCleanPrepublicationState(currentState, account.name || "Administracion");
+      writeState(cleanState);
+      const nextState = readState();
+      return sendJson(res, 200, {
+        ok: true,
+        message:
+          "Prepublicacion limpia preparada. Ahora importa el Excel real de socios desde Socios y cuotas > Migracion.",
+        storage: getStorageMeta(),
+        counts: {
+          accounts: Array.isArray(nextState.accounts) ? nextState.accounts.length : 0,
+          associates: Array.isArray(nextState.associates) ? nextState.associates.length : 0,
+          members: Array.isArray(nextState.members) ? nextState.members.length : 0,
+          courses: Array.isArray(nextState.courses) ? nextState.courses.length : 0
+        }
+      });
+    } catch (error) {
+      return sendJson(res, 400, {
+        ok: false,
+        error: error.message || "No se pudo preparar la prepublicacion limpia"
+      });
+    }
+  }
+
   if (requestUrl.pathname === "/api/storage" && req.method === "GET") {
     const state = readState();
     const account = requireAdminAccount(req, res, state);
@@ -3013,12 +3209,11 @@ setInterval(() => {
   runBackgroundAutomationSweep().catch(() => {});
 }, automationIntervalMs).unref();
 
-function readJsonBody(req) {
+function readJsonBody(req, maxBytes = 30_000_000) {
   return new Promise((resolve, reject) => {
     let raw = "";
     let totalBytes = 0;
     let payloadTooLarge = false;
-    const maxBytes = 30_000_000;
 
     req.on("data", (chunk) => {
       totalBytes += chunk.length;

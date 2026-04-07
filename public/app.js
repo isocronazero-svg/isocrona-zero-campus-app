@@ -159,6 +159,11 @@ const MANUAL_NOTICE_TONE_LABELS = {
   success: "Resuelto"
 };
 
+const CAMPUS_ACCOUNT_ROLE_LABELS = {
+  member: "Socio / alumno",
+  admin: "Administracion"
+};
+
 const ADMIN_ONLY_VIEWS = new Set(["associates", "members", "reports", "activity", "automation"]);
 
 function buildDefaultCampusGroups() {
@@ -415,6 +420,8 @@ let selectedAssociateProfileRequestIds = [];
 let associateWorkbookPreview = null;
 let associateWorkbookDraftFile = null;
 let associateWorkbookImportStatus = "";
+let storageImportDraftFile = null;
+let storageImportStatus = "";
 let hasLoaded = false;
 let syncStatus = "Cargando datos...";
 let loginStatus = "Usa una cuenta demo para entrar.";
@@ -798,6 +805,14 @@ document.addEventListener("click", async (event) => {
         syncStatus = error.message || "No se pudo recargar el estado de administracion";
         showToast(syncStatus, "error");
       }
+    }
+
+    if (isCurrentMemberLimitedToAssociateProfile() && effectiveRequestedView !== "join") {
+      state.activeView = "join";
+      syncStatus = "Tienes la cuota pendiente. Por ahora solo puedes revisar tu ficha de socio.";
+      showToast(syncStatus, "warning");
+      render();
+      return;
     }
 
     if (requestedView === state.activeView && navItem?.sections?.length) {
@@ -2177,6 +2192,94 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "import-storage-state" && isAdminSession()) {
+    try {
+      const snapshotFile = await readFileInput(document.getElementById("storageStateSnapshotFile"), {
+        maxBytes: 35_000_000,
+        label: "El state.json del campus"
+      });
+      if (!snapshotFile) {
+        throw new Error("Selecciona primero el state.json real del campus.");
+      }
+
+      storageImportDraftFile = snapshotFile;
+      storageImportStatus = "Importando el state.json real en la web de prueba...";
+      syncStatus = storageImportStatus;
+      render();
+
+      const response = await fetch("/api/storage/import-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshotFile })
+      });
+      const payload = await readJsonResponse(
+        response,
+        "No se pudo leer la respuesta de la importacion del state.json."
+      );
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || "No se pudo importar el state.json del campus");
+      }
+
+      storageMeta = payload.storage || null;
+      storageImportDraftFile = null;
+      storageImportStatus =
+        payload.message ||
+        "Estado real importado correctamente. Vuelve a entrar con tus credenciales reales.";
+      syncStatus = storageImportStatus;
+      showToast("Estado real importado correctamente", "success");
+      clearSession();
+      state = structuredClone(fallbackState);
+      loginStatus = storageImportStatus;
+    } catch (error) {
+      storageImportStatus = error.message || "No se pudo importar el state.json del campus";
+      syncStatus = storageImportStatus;
+      showToast(storageImportStatus, "error");
+    }
+
+    render();
+    return;
+  }
+
+  if (action === "prepare-clean-prepublication" && isAdminSession()) {
+    const confirmText = window.prompt(
+      "Esto vaciara cursos, socios, alumnado, solicitudes, avisos y datos demo de la web de prueba. Conserva solo cuentas administradoras. Escribe PREPUBLICACION LIMPIA para continuar."
+    );
+    if (String(confirmText || "").trim() !== "PREPUBLICACION LIMPIA") {
+      syncStatus = "Limpieza cancelada";
+      render();
+      return;
+    }
+
+    try {
+      storageImportStatus = "Preparando web de prueba limpia...";
+      syncStatus = storageImportStatus;
+      render();
+      const response = await fetch("/api/storage/prepare-prepublication", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmText })
+      });
+      const payload = await readJsonResponse(response, "No se pudo leer la respuesta de limpieza.");
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || "No se pudo preparar la prepublicacion limpia");
+      }
+
+      storageMeta = payload.storage || null;
+      storageImportStatus = payload.message || "Prepublicacion limpia preparada.";
+      syncStatus = storageImportStatus;
+      showToast("Prepublicacion limpia preparada", "success");
+      await refreshState({ forceAdminState: true });
+      applySessionToState();
+    } catch (error) {
+      storageImportStatus = error.message || "No se pudo preparar la prepublicacion limpia";
+      syncStatus = storageImportStatus;
+      showToast(storageImportStatus, "error");
+    }
+
+    render();
+    return;
+  }
+
   if (action === "bulk-approve-associate-applications" && isAdminSession()) {
     const applicationIds = [...new Set(selectedAssociateApplicationIds)];
     if (!applicationIds.length) {
@@ -2568,6 +2671,32 @@ document.addEventListener("click", async (event) => {
       addActivity("admin", session.name, `Ha eliminado la ficha de ${member.name}`);
     }
     membersSectionMode = "directory";
+    shouldPersist = true;
+  }
+
+  if (action === "delete-course" && isAdminSession() && courseId) {
+    const course = state.courses.find((item) => item.id === courseId);
+    if (!course) {
+      syncStatus = "No encuentro ese curso para eliminarlo";
+      render();
+      return;
+    }
+    const expectedText = "ELIMINAR CURSO";
+    const confirmation = window.prompt(
+      `Vas a eliminar "${course.title}" y todo su rastro de alumnado, diplomas, avisos y correos pendientes. Escribe ${expectedText} para continuar.`
+    );
+    if (String(confirmation || "").trim().toUpperCase() !== expectedText) {
+      syncStatus = "Eliminacion de curso cancelada";
+      render();
+      return;
+    }
+    deleteCourse(courseId);
+    addActivity("admin", session.name, `Ha eliminado el curso ${course.title}`);
+    coursesSectionMode = state.courses.length ? "all" : "create";
+    courseWorkbenchMode = state.courses.length ? "ficha" : "overview";
+    campusSectionMode = "courses";
+    state.activeView = "campus";
+    syncStatus = `Curso eliminado: ${course.title}`;
     shouldPersist = true;
   }
 
@@ -3791,6 +3920,12 @@ document.addEventListener("submit", async (event) => {
       "2027": Number(document.getElementById("editAssociateFee2027").value || 0)
     };
 
+    const linkedAccount = findAccountByAssociate(associate.id);
+    const nextAccountRole = normalizeCampusAccountRole(document.getElementById("editAssociateAccountRole")?.value);
+    if (linkedAccount && nextAccountRole && linkedAccount.id !== session?.accountId) {
+      linkedAccount.role = nextAccountRole;
+    }
+
     state.settings.associates.nextAssociateNumber = Math.max(
       Number(state.settings.associates.nextAssociateNumber || 1),
       associate.associateNumber + 1
@@ -4027,7 +4162,7 @@ function applySessionToState() {
     }
   }
   if (!isViewAllowed(state.activeView)) {
-    state.activeView = "overview";
+    state.activeView = isCurrentMemberLimitedToAssociateProfile() ? "join" : "overview";
   }
   if (!state.selectedCourseId && state.courses[0]) {
     state.selectedCourseId = state.courses[0].id;
@@ -7529,6 +7664,8 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
   const welcomeActionLabel = canSendWelcome ? "Enviar bienvenida" : "Crear acceso";
   const welcomePreview = buildAssociateWelcomePreviewText(associate, campusAccount, campusMember);
   const legacyIssues = getAssociateLegacyReviewIssues(associate);
+  const accountRole = normalizeCampusAccountRole(campusAccount?.role);
+  const ownAccountRoleLocked = Boolean(campusAccount?.id && campusAccount.id === session?.accountId);
   const reviewReadyToClose =
     associate.status === "Revisar documentacion" &&
     canCloseAssociateLegacyReview(associate) &&
@@ -7540,6 +7677,7 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
         <span class="small-chip">Estado: ${escapeHtml(associate.status)}</span>
         <span class="small-chip">Servicio: ${escapeHtml(associate.service || "Sin servicio")}</span>
         <span class="small-chip">Campus: ${escapeHtml(associate.campusAccessStatus || "pending")}</span>
+        <span class="small-chip">Rol: ${campusAccount ? escapeHtml(formatCampusAccountRole(campusAccount.role)) : "Sin cuenta"}</span>
         <span class="small-chip">Pendiente: ${formatCurrency(getAssociateQuotaGap(associate))}</span>
       </div>
 
@@ -7618,6 +7756,17 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
             Anual
             <input id="editAssociateAnnual" type="number" min="0" value="${associate.annualAmount || 0}" />
           </label>
+          <label class="inline-field">
+            Rol de acceso
+            <select id="editAssociateAccountRole" ${campusAccount && !ownAccountRoleLocked ? "" : "disabled"}>
+              ${Object.entries(CAMPUS_ACCOUNT_ROLE_LABELS)
+                .map(
+                  ([role, label]) =>
+                    `<option value="${role}" ${accountRole === role ? "selected" : ""}>${label}</option>`
+                )
+                .join("")}
+            </select>
+          </label>
         </div>
 
         <div class="course-grid">
@@ -7643,7 +7792,14 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
           Observaciones
           <textarea id="editAssociateObservations">${escapeHtml(associate.observations || "")}</textarea>
         </label>
-        <p class="muted">Persona interna: ${campusMember ? escapeHtml(campusMember.name) : "No vinculada"} | Cuenta: ${campusAccount ? escapeHtml(campusAccount.email) : "No creada"} | Total ${currentYear}: ${formatCurrency(getAssociateFeeForYear(associate, currentYear))} / ${formatCurrency(associate.annualAmount || 0)}</p>
+        <p class="muted">Persona interna: ${campusMember ? escapeHtml(campusMember.name) : "No vinculada"} | Cuenta: ${campusAccount ? `${escapeHtml(campusAccount.email)} (${escapeHtml(formatCampusAccountRole(campusAccount.role))})` : "No creada"} | Total ${currentYear}: ${formatCurrency(getAssociateFeeForYear(associate, currentYear))} / ${formatCurrency(associate.annualAmount || 0)}</p>
+        ${
+          campusAccount && ownAccountRoleLocked
+            ? `<p class="status-note warning">Estas viendo tu propia cuenta. Para evitar bloquearte por error, el rol se cambia desde otra cuenta administradora.</p>`
+            : !campusAccount
+              ? `<p class="status-note warning">Crea primero el acceso al campus para poder asignar rol.</p>`
+              : `<p class="status-note">El rol define si esta cuenta entra como socio/alumno o como administracion.</p>`
+        }
         <button class="primary-button" type="submit">Guardar ficha de socio</button>
       </form>
 
@@ -9775,6 +9931,36 @@ function renderReports() {
             `
             : `<p class="muted">No se ha podido leer la informacion del almacenamiento.</p>`
         }
+        <div class="stack gap-12">
+          <div class="status-note warning">
+            <strong>Prepublicacion limpia:</strong> usa esto solo en la web de prueba si quieres borrar socios demo,
+            cursos demo, alumnado ficticio y avisos antes de cargar el Excel real.
+          </div>
+          <div class="inline-actions">
+            <button type="button" class="ghost-button" data-action="prepare-clean-prepublication">Preparar web limpia para Excel real</button>
+          </div>
+          <p class="muted">
+            Si la web de prueba sigue en modo demo, sube aqui el
+            <strong>state.json</strong> real de tu equipo para cargar socios, cursos, diplomas y accesos reales.
+          </p>
+          <label class="field">
+            <span>Snapshot real del campus</span>
+            <input id="storageStateSnapshotFile" type="file" accept=".json,application/json" />
+          </label>
+          ${
+            storageImportDraftFile
+              ? `<p class="muted">Archivo preparado: ${storageImportDraftFile.name} (${formatFileSize(storageImportDraftFile.size)})</p>`
+              : ""
+          }
+          ${
+            storageImportStatus
+              ? `<p class="muted">${storageImportStatus}</p>`
+              : `<p class="muted">Despues de importarlo, el campus cerrara la sesion demo para que vuelvas a entrar con tus credenciales reales.</p>`
+          }
+          <div class="inline-actions">
+            <button type="button" data-action="import-storage-state">Importar state.json real</button>
+          </div>
+        </div>
       </div>
       `
           : ""
@@ -11786,6 +11972,7 @@ function renderCourseWorkbench(course) {
             <span class="small-chip">${getCourseTemplateLabel(course.contentTemplate || inferCourseTemplate(course))}</span>
             <span class="small-chip">${escapeHtml(getCourseClassLabel(course.courseClass))}</span>
             <span class="small-chip">${escapeHtml(course.status)}</span>
+            <button class="ghost-button danger-button" type="button" data-action="delete-course" data-course-id="${course.id}">Eliminar curso</button>
           </div>
         </div>
         ${
@@ -12373,6 +12560,7 @@ function renderCourseWorkbench(course) {
 
         <div class="chip-row">
           <button class="ghost-button" type="button" data-action="generate-course-blueprint" data-template="${escapeHtml(course.contentTemplate || inferCourseTemplate(course))}">Rehacer estructura del curso</button>
+          <button class="ghost-button danger-button" type="button" data-action="delete-course" data-course-id="${course.id}">Eliminar curso</button>
           <button class="primary-button" type="submit">Guardar curso</button>
         </div>
       </form>
@@ -12412,6 +12600,7 @@ function renderSelectedCourse(course) {
           <button class="ghost-button" data-action="open-course-workbench-tab" data-course-id="${course.id}" data-mode="certificate">Certificado</button>
           <button class="ghost-button" data-action="nav" data-view="operations" data-course-id="${course.id}">Asistencia</button>
           <button class="ghost-button" data-action="nav" data-view="diplomas" data-course-id="${course.id}">Diplomas</button>
+          <button class="ghost-button danger-button" data-action="delete-course" data-course-id="${course.id}">Eliminar curso</button>
         </div>
       </div>
     `;
@@ -13678,6 +13867,17 @@ function deleteMember(memberId) {
   if (session?.memberId === memberId) {
     clearSession();
     loginStatus = "La cuenta activa fue eliminada. Inicia sesion de nuevo.";
+  }
+}
+
+function deleteCourse(courseId) {
+  state.courses = (state.courses || []).filter((course) => course.id !== courseId);
+  state.emailOutbox = (state.emailOutbox || []).filter((mail) => mail.courseId !== courseId);
+  state.automationInbox = (state.automationInbox || []).filter((item) => item.courseId !== courseId);
+  state.manualCampusNotices = (state.manualCampusNotices || []).filter((notice) => notice.courseId !== courseId);
+
+  if (state.selectedCourseId === courseId) {
+    state.selectedCourseId = state.courses[0]?.id || null;
   }
 }
 
@@ -17053,6 +17253,26 @@ function getCurrentAssociate() {
   );
 }
 
+function normalizeCampusAccountRole(role) {
+  const normalized = String(role || "").trim().toLowerCase();
+  return normalized === "admin" ? "admin" : "member";
+}
+
+function formatCampusAccountRole(role) {
+  return CAMPUS_ACCOUNT_ROLE_LABELS[normalizeCampusAccountRole(role)] || CAMPUS_ACCOUNT_ROLE_LABELS.member;
+}
+
+function isAssociateAccessLimitedByQuota(associate) {
+  return Boolean(associate && getAssociateQuotaGap(associate) > 0);
+}
+
+function isCurrentMemberLimitedToAssociateProfile() {
+  if (isAdminView() || !session?.memberId) {
+    return false;
+  }
+  return isAssociateAccessLimitedByQuota(getCurrentAssociate());
+}
+
 function normalizeManualCampusNotice(notice, index = 0) {
   const normalizedAudience = ["all", "associates", "campus-only", "course"].includes(
     String(notice?.audience || "").trim()
@@ -17820,6 +18040,9 @@ function getCoursePendingDiplomaDeliveries(course) {
 function isViewAllowed(viewId) {
   if (isAdminView()) {
     return true;
+  }
+  if (isCurrentMemberLimitedToAssociateProfile()) {
+    return viewId === "join";
   }
   if (ADMIN_ONLY_VIEWS.has(viewId)) {
     return false;
