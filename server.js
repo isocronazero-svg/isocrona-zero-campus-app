@@ -9,7 +9,7 @@ loadDotEnv(path.join(__dirname, ".env"));
 
 const root = path.join(__dirname, "public");
 const port = process.env.PORT || 3210;
-const appRelease = "recovery-admin-2026-04-08-4";
+const appRelease = "recovery-admin-2026-04-08-5";
 const emergencyRecoveryPassword = "IZ-Rescate-72Zp91xQ";
 const automationIntervalMs = Number(process.env.AUTOMATION_INTERVAL_MS || 300000);
 const bundledDataDir = path.join(__dirname, "data");
