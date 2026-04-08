@@ -401,6 +401,35 @@ let viewRole = "admin";
 let campusAttachmentPreview = null;
 let campusPdfJsPromise = null;
 let campusPreviewRenderToken = 0;
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (input, init = {}) => {
+  const requestUrl =
+    typeof input === "string"
+      ? input
+      : input instanceof Request
+        ? input.url
+        : String(input?.url || "");
+  const isSameOriginRequest =
+    !requestUrl ||
+    requestUrl.startsWith("/") ||
+    requestUrl.startsWith(window.location.origin);
+
+  if (!isSameOriginRequest || !session?.sessionToken) {
+    return nativeFetch(input, init);
+  }
+
+  const headers = new Headers(
+    init.headers || (input instanceof Request ? input.headers : undefined) || {}
+  );
+  headers.set("X-IZ-Session", session.sessionToken);
+  return nativeFetch(input, {
+    ...init,
+    headers,
+    credentials: init.credentials || "same-origin"
+  });
+};
+
 const ASSOCIATE_PAGE_SIZE = {
   applications: 8,
   payments: 8,
@@ -4151,25 +4180,27 @@ function restoreSession() {
     const account = Array.isArray(state.accounts)
       ? state.accounts.find((item) => item.id === parsed.accountId)
       : null;
-    session = account
-      ? {
-          accountId: account.id,
-          name: account.name,
-          email: account.email,
-          role: account.role,
-          memberId: account.memberId,
-          associateId: account.associateId || "",
-          mustChangePassword: Boolean(account.mustChangePassword)
-        }
-      : {
-          accountId: String(parsed.accountId || ""),
-          name: String(parsed.name || ""),
-          email: String(parsed.email || ""),
-          role: parsed.role === "admin" ? "admin" : "member",
-          memberId: String(parsed.memberId || ""),
-          associateId: String(parsed.associateId || ""),
-          mustChangePassword: Boolean(parsed.mustChangePassword)
-        };
+      session = account
+        ? {
+            accountId: account.id,
+            name: account.name,
+            email: account.email,
+            role: account.role,
+            memberId: account.memberId,
+            associateId: account.associateId || "",
+            mustChangePassword: Boolean(account.mustChangePassword),
+            sessionToken: String(parsed.sessionToken || "")
+          }
+        : {
+            accountId: String(parsed.accountId || ""),
+            name: String(parsed.name || ""),
+            email: String(parsed.email || ""),
+            role: parsed.role === "admin" ? "admin" : "member",
+            memberId: String(parsed.memberId || ""),
+            associateId: String(parsed.associateId || ""),
+            mustChangePassword: Boolean(parsed.mustChangePassword),
+            sessionToken: String(parsed.sessionToken || "")
+          };
   } catch (error) {
     session = null;
   }
@@ -4232,15 +4263,16 @@ function applySessionToState() {
   }
 
   const account = state.accounts.find((item) => item.id === session.accountId);
-  if (account) {
-    session.name = account.name;
-    session.email = account.email;
-    session.role = account.role;
-    session.memberId = account.memberId;
-    session.associateId = account.associateId || "";
-    session.mustChangePassword = Boolean(account.mustChangePassword);
-    persistSession();
-  }
+    if (account) {
+      session.name = account.name;
+      session.email = account.email;
+      session.role = account.role;
+      session.memberId = account.memberId;
+      session.associateId = account.associateId || "";
+      session.mustChangePassword = Boolean(account.mustChangePassword);
+      session.sessionToken = String(session.sessionToken || "");
+      persistSession();
+    }
 
   if (session.role !== "admin") {
     viewRole = "member-self";

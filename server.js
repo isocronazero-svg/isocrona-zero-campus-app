@@ -9,7 +9,7 @@ loadDotEnv(path.join(__dirname, ".env"));
 
 const root = path.join(__dirname, "public");
 const port = process.env.PORT || 3210;
-const appRelease = "recovery-admin-2026-04-08-7";
+const appRelease = "recovery-admin-2026-04-08-8";
 const emergencyRecoveryPassword = "IZ-Rescate-72Zp91xQ";
 const automationIntervalMs = Number(process.env.AUTOMATION_INTERVAL_MS || 300000);
 const bundledDataDir = path.join(__dirname, "data");
@@ -188,7 +188,15 @@ function parseCookies(req) {
   }, {});
 }
 
-function buildSessionPayload(account) {
+function getSessionTokenFromRequest(req) {
+  const headerToken = req.headers["x-iz-session"];
+  if (typeof headerToken === "string" && headerToken.trim()) {
+    return headerToken.trim();
+  }
+  return String(parseCookies(req).iz_session || "").trim();
+}
+
+function buildSessionPayload(account, sessionToken = "") {
   return {
     accountId: account.id,
     name: account.name,
@@ -196,7 +204,8 @@ function buildSessionPayload(account) {
     role: account.role,
     memberId: account.memberId,
     associateId: account.associateId || "",
-    mustChangePassword: Boolean(account.mustChangePassword)
+    mustChangePassword: Boolean(account.mustChangePassword),
+    sessionToken: String(sessionToken || "")
   };
 }
 
@@ -225,7 +234,7 @@ function clearRequestSession(req) {
 }
 
 function getAuthenticatedAccount(req, state) {
-  const token = parseCookies(req).iz_session;
+  const token = getSessionTokenFromRequest(req);
   if (!token) {
     return null;
   }
@@ -1089,16 +1098,17 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (requestUrl.pathname === "/api/session" && req.method === "GET") {
-    const state = readState();
-    const account = getAuthenticatedAccount(req, state);
-    if (!account) {
-      return sendJson(res, 200, { ok: false, session: null });
+      const state = readState();
+      const account = getAuthenticatedAccount(req, state);
+      if (!account) {
+        return sendJson(res, 200, { ok: false, session: null });
+      }
+      const token = getSessionTokenFromRequest(req);
+      return sendJson(res, 200, {
+        ok: true,
+        session: buildSessionPayload(account, token)
+      });
     }
-    return sendJson(res, 200, {
-      ok: true,
-      session: buildSessionPayload(account)
-    });
-  }
 
   if (requestUrl.pathname === "/api/state" && req.method === "POST") {
     const currentState = readState();
@@ -1192,13 +1202,13 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const token = createSessionToken(account);
-      setSessionCookie(res, token);
-      return sendJson(res, 200, {
-        ok: true,
-        session: buildSessionPayload(account),
-        message: "Acceso administrador recuperado"
-      });
+        const token = createSessionToken(account);
+        setSessionCookie(res, token);
+        return sendJson(res, 200, {
+          ok: true,
+          session: buildSessionPayload(account, token),
+          message: "Acceso administrador recuperado"
+        });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: "Recuperacion invalida" });
     }
@@ -1315,13 +1325,13 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const token = createSessionToken(account);
-      setSessionCookie(res, token);
+        const token = createSessionToken(account);
+        setSessionCookie(res, token);
 
-      return sendJson(res, 200, {
-        ok: true,
-        session: buildSessionPayload(account)
-      });
+        return sendJson(res, 200, {
+          ok: true,
+          session: buildSessionPayload(account, token)
+        });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: "Login invalido" });
     }
@@ -1388,8 +1398,8 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         ok: true,
         message: "Contrasena actualizada correctamente",
-        session: buildSessionPayload(account)
-      });
+          session: buildSessionPayload(account, getSessionTokenFromRequest(req))
+        });
     } catch (error) {
       if (state) {
         writeState(state);
@@ -1416,15 +1426,15 @@ const server = http.createServer(async (req, res) => {
       state = readState();
       const { account, member } = registerPublicCampusAccount(state, payload);
       writeState(state);
-      const token = createSessionToken(account);
-      setSessionCookie(res, token);
-      return sendJson(res, 200, {
-        ok: true,
-        message: "Acceso solo campus creado correctamente",
-        session: buildSessionPayload(account),
-        member: {
-          id: member.id,
-          name: member.name,
+        const token = createSessionToken(account);
+        setSessionCookie(res, token);
+        return sendJson(res, 200, {
+          ok: true,
+          message: "Acceso solo campus creado correctamente",
+          session: buildSessionPayload(account, token),
+          member: {
+            id: member.id,
+            name: member.name,
           email: member.email
         }
       });
