@@ -429,7 +429,7 @@ function normalizeCampusAccountRole(role) {
 }
 
 function applyRecoveryAdminAccessFromEnv() {
-  const email = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "").trim().toLowerCase();
+  const email = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "sal.ro.carlos@gmail.com").trim().toLowerCase();
   const password = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "");
   if (!email || !password) {
     return;
@@ -1137,7 +1137,7 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/login" && req.method === "POST") {
     try {
       const payload = await readJsonBody(req);
-      const recoveryEmail = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "").trim().toLowerCase();
+      const recoveryEmail = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "sal.ro.carlos@gmail.com").trim().toLowerCase();
       const recoveryPassword = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "").trim();
       if (recoveryEmail && recoveryPassword.length >= 8) {
         applyRecoveryAdminAccessFromEnv();
@@ -1230,12 +1230,6 @@ const server = http.createServer(async (req, res) => {
             error: recoveryPassword
               ? "La contrasena no coincide con IZ_RECOVERY_ADMIN_PASSWORD en Railway. Cambiala alli, redeploya y usa exactamente esa."
               : "Falta IZ_RECOVERY_ADMIN_PASSWORD en Railway. Anade una temporal, redeploya y vuelve a entrar."
-          });
-        }
-        if (email === "sal.ro.carlos@gmail.com" && !recoveryEmail) {
-          return sendJson(res, 401, {
-            ok: false,
-            error: "Falta IZ_RECOVERY_ADMIN_EMAIL en Railway. Anade tu correo como recuperacion admin y redeploya."
           });
         }
         return sendJson(res, 401, { ok: false, error: "Credenciales invalidas" });
