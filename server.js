@@ -1164,6 +1164,63 @@ const server = http.createServer(async (req, res) => {
         account = (state.accounts || []).find(
           (item) => String(item.email || "").trim().toLowerCase() === email && item.password === password
         );
+        if (!account) {
+          state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
+          state.members = Array.isArray(state.members) ? state.members : [];
+          state.associates = Array.isArray(state.associates) ? state.associates : [];
+          const associate = state.associates.find(
+            (item) => String(item.email || "").trim().toLowerCase() === email
+          );
+          let member = state.members.find(
+            (item) =>
+              String(item.email || "").trim().toLowerCase() === email ||
+              (associate && item.associateId === associate.id)
+          );
+          if (!member) {
+            member = {
+              id: `member-recovery-login-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              name: associate ? getAssociateFullName(associate) : "Administrador recuperado",
+              role: "Administracion",
+              email,
+              certifications: [],
+              renewalsDue: 0,
+              associateId: associate?.id || "",
+              source: "recovery-login"
+            };
+            state.members.unshift(member);
+          } else {
+            member.email = email;
+            member.name = associate ? getAssociateFullName(associate) : member.name || "Administrador recuperado";
+            member.role = "Administracion";
+            member.associateId = associate?.id || member.associateId || "";
+          }
+
+          account = {
+            id: `account-recovery-login-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            name: member.name,
+            email,
+            password,
+            role: "admin",
+            memberId: member.id,
+            associateId: associate?.id || "",
+            mustChangePassword: false,
+            source: "recovery-login"
+          };
+          state.accounts.push(account);
+          if (associate) {
+            associate.linkedMemberId = member.id;
+            associate.linkedAccountId = account.id;
+            associate.campusAccessStatus = "active";
+            associate.temporaryPassword = "";
+          }
+          appendActivity(
+            state,
+            "system",
+            "Recuperacion",
+            `Acceso administrador recuperado durante login para ${email}`
+          );
+          writeState(state);
+        }
       }
 
       if (!account) {
