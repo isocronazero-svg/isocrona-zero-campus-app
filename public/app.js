@@ -4060,17 +4060,30 @@ document.addEventListener("submit", async (event) => {
 bootstrap();
 
 async function bootstrap() {
+  const bootUrl = new URL(window.location.href);
+  const recoveredFromRecoveryPage = bootUrl.searchParams.get("recovered") === "1";
   render();
   await loadPublicCampusCourses();
 
   try {
+    restoreSession();
+    restoreViewRole();
+    if (recoveredFromRecoveryPage || !session) {
+      await recoverSessionFromServer();
+    }
     const response = await fetch("/api/state");
     const data = await response.json();
     state = normalizeState(data);
     storageMeta = await loadStorageMeta();
     restoreSession();
     restoreViewRole();
+    if (recoveredFromRecoveryPage || !session) {
+      await recoverSessionFromServer();
+    }
     applySessionToState();
+    if (isAdminSession() && isAdminView()) {
+      await ensureAdminStateLoaded();
+    }
     hasLoaded = true;
     syncStatus = "Datos cargados";
   } catch (error) {
@@ -4079,6 +4092,12 @@ async function bootstrap() {
     storageMeta = null;
     hasLoaded = true;
     syncStatus = "Inicia sesion para cargar el campus";
+  }
+
+  if (recoveredFromRecoveryPage) {
+    bootUrl.searchParams.delete("recovered");
+    bootUrl.searchParams.delete("t");
+    window.history.replaceState({}, "", `${bootUrl.pathname}${bootUrl.search}${bootUrl.hash}`);
   }
 
   render();
@@ -4103,6 +4122,23 @@ async function loadPublicCampusCourses() {
   }
 }
 
+async function recoverSessionFromServer() {
+  try {
+    const response = await fetch("/api/session", { credentials: "include" });
+    const payload = await response.json();
+    if (!response.ok || !payload?.ok || !payload.session) {
+      return false;
+    }
+    session = payload.session;
+    viewRole = session.role === "admin" ? "admin" : "member-self";
+    persistSession();
+    persistViewRole();
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 function restoreSession() {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
@@ -4112,7 +4148,9 @@ function restoreSession() {
     }
 
     const parsed = JSON.parse(raw);
-    const account = state.accounts.find((item) => item.id === parsed.accountId);
+    const account = Array.isArray(state.accounts)
+      ? state.accounts.find((item) => item.id === parsed.accountId)
+      : null;
     session = account
       ? {
           accountId: account.id,
@@ -4123,7 +4161,15 @@ function restoreSession() {
           associateId: account.associateId || "",
           mustChangePassword: Boolean(account.mustChangePassword)
         }
-      : null;
+      : {
+          accountId: String(parsed.accountId || ""),
+          name: String(parsed.name || ""),
+          email: String(parsed.email || ""),
+          role: parsed.role === "admin" ? "admin" : "member",
+          memberId: String(parsed.memberId || ""),
+          associateId: String(parsed.associateId || ""),
+          mustChangePassword: Boolean(parsed.mustChangePassword)
+        };
   } catch (error) {
     session = null;
   }

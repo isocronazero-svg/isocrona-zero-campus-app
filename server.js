@@ -9,7 +9,7 @@ loadDotEnv(path.join(__dirname, ".env"));
 
 const root = path.join(__dirname, "public");
 const port = process.env.PORT || 3210;
-const appRelease = "recovery-admin-2026-04-08-6";
+const appRelease = "recovery-admin-2026-04-08-7";
 const emergencyRecoveryPassword = "IZ-Rescate-72Zp91xQ";
 const automationIntervalMs = Number(process.env.AUTOMATION_INTERVAL_MS || 300000);
 const bundledDataDir = path.join(__dirname, "data");
@@ -1086,6 +1086,18 @@ const server = http.createServer(async (req, res) => {
       }
     }
     return sendJson(res, 200, prepareStateForTransport(state, account));
+  }
+
+  if (requestUrl.pathname === "/api/session" && req.method === "GET") {
+    const state = readState();
+    const account = getAuthenticatedAccount(req, state);
+    if (!account) {
+      return sendJson(res, 200, { ok: false, session: null });
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      session: buildSessionPayload(account)
+    });
   }
 
   if (requestUrl.pathname === "/api/state" && req.method === "POST") {
