@@ -425,7 +425,7 @@ let storageImportDraftFile = null;
 let storageImportStatus = "";
 let hasLoaded = false;
 let syncStatus = "Cargando datos...";
-let loginStatus = "Usa una cuenta demo para entrar.";
+let loginStatus = "Introduce tus credenciales para entrar.";
 let passwordChangeStatus = "Debes cambiar la contrasena temporal para entrar al campus.";
 let saveSequence = Promise.resolve();
 let storageMeta = null;
@@ -4592,7 +4592,9 @@ function render() {
   memberSwitcher.closest(".switcher")?.toggleAttribute("hidden", isSelfMemberSession());
   roleSwitcher.value = isAdminView() ? "admin" : isMemberPreviewSession() ? "member-preview" : "member-self";
   roleSwitcher.disabled = !isAdminSession();
-  resetButton.disabled = !isAdminSession();
+  if (resetButton) {
+    resetButton.disabled = !isAdminSession();
+  }
   logoutButton.disabled = !session;
   renderMemberSwitcher();
   renderLoginOverlay();

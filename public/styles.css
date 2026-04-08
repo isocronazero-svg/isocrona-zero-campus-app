@@ -38,6 +38,10 @@ body {
   background-attachment: fixed;
 }
 
+.local-only {
+  display: none !important;
+}
+
 .login-screen {
   position: fixed;
   inset: 0;
