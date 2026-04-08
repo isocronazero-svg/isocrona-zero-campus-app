@@ -1138,7 +1138,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const payload = await readJsonBody(req);
       const recoveryEmail = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "").trim().toLowerCase();
-      const recoveryPassword = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "");
+      const recoveryPassword = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "").trim();
       if (recoveryEmail && recoveryPassword.length >= 8) {
         applyRecoveryAdminAccessFromEnv();
       }
@@ -1147,7 +1147,7 @@ const server = http.createServer(async (req, res) => {
         writeState(state);
       }
       const email = String(payload.email || "").trim().toLowerCase();
-      const password = String(payload.password || "");
+      const password = String(payload.password || "").trim();
       let account = (state.accounts || []).find(
         (item) => String(item.email || "").trim().toLowerCase() === email && item.password === password
       );
@@ -1224,6 +1224,20 @@ const server = http.createServer(async (req, res) => {
       }
 
       if (!account) {
+        if (email === recoveryEmail && recoveryEmail) {
+          return sendJson(res, 401, {
+            ok: false,
+            error: recoveryPassword
+              ? "La contrasena no coincide con IZ_RECOVERY_ADMIN_PASSWORD en Railway. Cambiala alli, redeploya y usa exactamente esa."
+              : "Falta IZ_RECOVERY_ADMIN_PASSWORD en Railway. Anade una temporal, redeploya y vuelve a entrar."
+          });
+        }
+        if (email === "sal.ro.carlos@gmail.com" && !recoveryEmail) {
+          return sendJson(res, 401, {
+            ok: false,
+            error: "Falta IZ_RECOVERY_ADMIN_EMAIL en Railway. Anade tu correo como recuperacion admin y redeploya."
+          });
+        }
         return sendJson(res, 401, { ok: false, error: "Credenciales invalidas" });
       }
 
