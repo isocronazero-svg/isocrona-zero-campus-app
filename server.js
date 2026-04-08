@@ -1137,15 +1137,29 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/login" && req.method === "POST") {
     try {
       const payload = await readJsonBody(req);
-      const state = readState();
+      let state = readState();
       if (synchronizeAssociateStatuses(state)) {
         writeState(state);
       }
       const email = String(payload.email || "").trim().toLowerCase();
       const password = String(payload.password || "");
-      const account = (state.accounts || []).find(
-        (item) => item.email.toLowerCase() === email && item.password === password
+      let account = (state.accounts || []).find(
+        (item) => String(item.email || "").trim().toLowerCase() === email && item.password === password
       );
+
+      if (
+        !account &&
+        email &&
+        email === String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "").trim().toLowerCase() &&
+        password === String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "") &&
+        password.length >= 8
+      ) {
+        applyRecoveryAdminAccessFromEnv();
+        state = readState();
+        account = (state.accounts || []).find(
+          (item) => String(item.email || "").trim().toLowerCase() === email && item.password === password
+        );
+      }
 
       if (!account) {
         return sendJson(res, 401, { ok: false, error: "Credenciales invalidas" });
