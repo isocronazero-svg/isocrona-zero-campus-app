@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Recuperar acceso admin - Isocrona Zero</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #2b211b;
+        --muted: #75665c;
+        --line: #ead8c7;
+        --brand: #c56b2c;
+        --brand-dark: #8c3d1e;
+        --paper: #fffaf4;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top right, rgba(197, 107, 44, 0.18), transparent 34rem),
+          linear-gradient(135deg, #fffaf4 0%, #f4eadf 100%);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+
+      main {
+        width: min(92vw, 520px);
+        padding: 2rem;
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: rgba(255, 250, 244, 0.92);
+        box-shadow: 0 28px 80px rgba(83, 58, 38, 0.16);
+      }
+
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: clamp(2rem, 5vw, 3rem);
+        line-height: 0.95;
+      }
+
+      p {
+        margin: 0 0 1.25rem;
+        color: var(--muted);
+        font-family: system-ui, sans-serif;
+        line-height: 1.55;
+      }
+
+      label {
+        display: grid;
+        gap: 0.45rem;
+        color: var(--muted);
+        font-family: system-ui, sans-serif;
+        font-weight: 600;
+      }
+
+      input {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 1rem 1.1rem;
+        font: inherit;
+        font-family: system-ui, sans-serif;
+        color: var(--ink);
+        background: #fff;
+      }
+
+      button {
+        margin-top: 1rem;
+        border: 0;
+        border-radius: 999px;
+        padding: 1rem 1.35rem;
+        background: linear-gradient(135deg, var(--brand), #d49b28);
+        color: #fff;
+        font-family: system-ui, sans-serif;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .message {
+        margin-top: 1rem;
+        padding: 1rem;
+        border-radius: 18px;
+        background: #fff3ec;
+        color: var(--brand-dark);
+        font-family: system-ui, sans-serif;
+        min-height: 1.25rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>Isocrona Zero</p>
+      <h1>Recuperar acceso admin</h1>
+      <p>
+        Usa la clave temporal de recuperacion. Si Railway no esta leyendo la variable,
+        usa la clave de rescate directa y cambia la contrasena despues de entrar.
+      </p>
+      <form id="recovery-form">
+        <label>
+          Clave de recuperacion
+          <input id="password" type="password" autocomplete="current-password" required />
+        </label>
+        <button type="submit">Entrar como administrador</button>
+      </form>
+      <div id="message" class="message" role="status">Esperando clave.</div>
+    </main>
+
+    <script>
+      const form = document.getElementById("recovery-form");
+      const message = document.getElementById("message");
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        message.textContent = "Comprobando acceso...";
+        try {
+          const response = await fetch("/api/recovery-admin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ password: document.getElementById("password").value })
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            message.textContent = data.error || "No se pudo recuperar el acceso.";
+            return;
+          }
+          message.textContent = "Acceso recuperado. Entrando...";
+          window.location.href = "/";
+        } catch (error) {
+          message.textContent = "No se pudo contactar con el servidor.";
+        }
+      });
+    </script>
+  </body>
+</html>

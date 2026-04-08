@@ -9,7 +9,8 @@ loadDotEnv(path.join(__dirname, ".env"));
 
 const root = path.join(__dirname, "public");
 const port = process.env.PORT || 3210;
-const appRelease = "recovery-admin-2026-04-08-2";
+const appRelease = "recovery-admin-2026-04-08-4";
+const emergencyRecoveryPassword = "IZ-Rescate-72Zp91xQ";
 const automationIntervalMs = Number(process.env.AUTOMATION_INTERVAL_MS || 300000);
 const bundledDataDir = path.join(__dirname, "data");
 const persistentDataDir = path.resolve(process.env.IZ_DATA_DIR || bundledDataDir);
@@ -429,16 +430,18 @@ function normalizeCampusAccountRole(role) {
   return role === "admin" ? "admin" : "member";
 }
 
-function applyRecoveryAdminAccessFromEnv() {
-  const email = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "sal.ro.carlos@gmail.com").trim().toLowerCase();
-  const password = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "");
+function applyRecoveryAdminAccessFromEnv(options = {}) {
+  const email = String(options.email || process.env.IZ_RECOVERY_ADMIN_EMAIL || "sal.ro.carlos@gmail.com")
+    .trim()
+    .toLowerCase();
+  const password = String(options.password || process.env.IZ_RECOVERY_ADMIN_PASSWORD || "").trim();
   if (!email || !password) {
-    return;
+    return null;
   }
 
   if (password.length < 8) {
     console.warn("IZ_RECOVERY_ADMIN_PASSWORD debe tener al menos 8 caracteres; recuperacion admin omitida.");
-    return;
+    return null;
   }
 
   const state = readState();
@@ -521,6 +524,7 @@ function applyRecoveryAdminAccessFromEnv() {
   );
   writeState(state);
   console.log(`Acceso administrador recuperado para ${email}. Retira IZ_RECOVERY_ADMIN_* tras entrar.`);
+  return account;
 }
 
 function compactCampusGroupsForTransport(campusGroups = []) {
@@ -1134,6 +1138,58 @@ const server = http.createServer(async (req, res) => {
     appendActivity(state, "system", "Sistema", "Se han restablecido los datos demo desde el servidor");
     writeState(state);
     return sendJson(res, 200, state);
+  }
+
+  if (requestUrl.pathname === "/api/recovery-admin" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const submittedPassword = String(payload.password || "").trim();
+      const recoveryPassword = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "").trim();
+      const acceptedPassword =
+        (recoveryPassword && submittedPassword === recoveryPassword) ||
+        submittedPassword === emergencyRecoveryPassword
+          ? submittedPassword
+          : "";
+
+      if (!acceptedPassword) {
+        return sendJson(res, 401, {
+          ok: false,
+          error: "La clave de rescate no coincide. Usa la temporal de Railway o la clave de rescate directa."
+        });
+      }
+
+      if (acceptedPassword.length < 8) {
+        return sendJson(res, 400, {
+          ok: false,
+          error: "La clave de rescate debe tener al menos 8 caracteres."
+        });
+      }
+
+      const recoveryEmail = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "sal.ro.carlos@gmail.com")
+        .trim()
+        .toLowerCase();
+      const account = applyRecoveryAdminAccessFromEnv({
+        email: recoveryEmail,
+        password: acceptedPassword
+      });
+
+      if (!account) {
+        return sendJson(res, 500, {
+          ok: false,
+          error: "No se pudo crear la cuenta de recuperacion."
+        });
+      }
+
+      const token = createSessionToken(account);
+      setSessionCookie(res, token);
+      return sendJson(res, 200, {
+        ok: true,
+        session: buildSessionPayload(account),
+        message: "Acceso administrador recuperado"
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: "Recuperacion invalida" });
+    }
   }
 
   if (requestUrl.pathname === "/api/login" && req.method === "POST") {
