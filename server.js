@@ -1137,6 +1137,11 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/login" && req.method === "POST") {
     try {
       const payload = await readJsonBody(req);
+      const recoveryEmail = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "").trim().toLowerCase();
+      const recoveryPassword = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "");
+      if (recoveryEmail && recoveryPassword.length >= 8) {
+        applyRecoveryAdminAccessFromEnv();
+      }
       let state = readState();
       if (synchronizeAssociateStatuses(state)) {
         writeState(state);
@@ -1150,8 +1155,8 @@ const server = http.createServer(async (req, res) => {
       if (
         !account &&
         email &&
-        email === String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "").trim().toLowerCase() &&
-        password === String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "") &&
+        email === recoveryEmail &&
+        password === recoveryPassword &&
         password.length >= 8
       ) {
         applyRecoveryAdminAccessFromEnv();
