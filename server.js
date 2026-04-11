@@ -3591,7 +3591,7 @@ setInterval(() => {
   runBackgroundAutomationSweep().catch(() => {});
 }, automationIntervalMs).unref();
 
-function readJsonBody(req, maxBytes = 30_000_000) {
+function readJsonBody(req, maxBytes = 100_000_000) {
   return new Promise((resolve, reject) => {
     let raw = "";
     let totalBytes = 0;
@@ -3928,8 +3928,28 @@ function getAssociateApplicationApprovalBlockers(state, application) {
   return blockers;
 }
 
+function countReplacementChars(text) {
+  return (String(text || "").match(/\uFFFD/g) || []).length;
+}
+
+function fixMojibakeText(value) {
+  const raw = String(value || "");
+  if (!/[\u00C0-\u00FF\uFFFD]/.test(raw)) {
+    return raw;
+  }
+  try {
+    const repaired = Buffer.from(raw, "latin1").toString("utf8");
+    if (countReplacementChars(repaired) <= countReplacementChars(raw)) {
+      return repaired;
+    }
+  } catch (error) {
+    // Ignore decoding issues and fall back to raw input.
+  }
+  return raw;
+}
+
 function normalizeLegacyWorkbookText(value) {
-  return String(value || "").replace(/\s+/g, " ").trim();
+  return fixMojibakeText(value).replace(/\s+/g, " ").trim();
 }
 
 function normalizeLegacyWorkbookMonth(value) {
@@ -5730,9 +5750,14 @@ function createAssociateApplication(state, payload) {
     storeAssociateAttachment(payload.paymentProof2File, "payment-proof-2") ||
     String(payload.paymentProof2 || "").trim();
   const submitterEmail = String(payload.submitterEmail || email).trim().toLowerCase();
+  const privacyConsent = Boolean(payload.privacyConsent);
+  const photoConsent = Boolean(payload.photoConsent);
 
   if (!firstName || !lastName || !phone || !email || !service) {
     throw new Error("Completa nombre, apellidos, telefono, email y servicio");
+  }
+  if (!privacyConsent) {
+    throw new Error("Debes aceptar la politica de privacidad para enviar la solicitud");
   }
 
   const existingAssociate = (state.associates || []).find(
@@ -5766,6 +5791,9 @@ function createAssociateApplication(state, payload) {
     paymentProof,
     paymentProof2,
     submitterEmail,
+    privacyConsent,
+    photoConsent,
+    consentAt: new Date().toISOString(),
     notes: "Solicitud recibida desde formulario web",
     receiptEmailStatus: "pending",
     receiptEmailSentAt: "",
@@ -6924,7 +6952,7 @@ function parseDelimitedText(input) {
   return lines.slice(1).map((line) => {
     const values = parseDelimitedLine(line, delimiter);
     return headers.reduce((accumulator, header, index) => {
-      accumulator[header] = String(values[index] || "").trim();
+      accumulator[header] = fixMojibakeText(String(values[index] || "").trim());
       return accumulator;
     }, {});
   });

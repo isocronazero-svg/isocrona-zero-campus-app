@@ -2,6 +2,8 @@ const joinForm = document.getElementById("joinForm");
 const joinNotice = document.getElementById("joinNotice");
 const joinStatus = document.getElementById("joinStatus");
 const joinTracking = document.getElementById("joinTracking");
+const joinPrivacyConsent = document.getElementById("joinPrivacyConsent");
+const joinPhotoConsent = document.getElementById("joinPhotoConsent");
 
 bootstrapJoin();
 
@@ -23,6 +25,11 @@ async function bootstrapJoin() {
 joinForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
+  if (joinPrivacyConsent && !joinPrivacyConsent.checked) {
+    joinStatus.textContent = "Necesitas aceptar la politica de privacidad para continuar.";
+    return;
+  }
+
   joinStatus.textContent = "Enviando solicitud...";
 
   const paymentProofFile = await readFileInput(document.getElementById("joinPaymentProof"));
@@ -37,7 +44,9 @@ joinForm.addEventListener("submit", async (event) => {
     service: document.getElementById("joinService").value.trim(),
     paymentProofFile,
     paymentProof2File,
-    submitterEmail: document.getElementById("joinSubmitterEmail").value.trim()
+    submitterEmail: document.getElementById("joinSubmitterEmail").value.trim(),
+    privacyConsent: Boolean(joinPrivacyConsent && joinPrivacyConsent.checked),
+    photoConsent: Boolean(joinPhotoConsent && joinPhotoConsent.checked)
   };
 
   try {

@@ -6,6 +6,7 @@ const OVERVIEW_SECTION_LINKS = [
   { id: "overviewSectionAttention", label: "Atencion hoy" },
   { id: "overviewSectionCourses", label: "Cursos" },
   { id: "overviewSectionAssociates", label: "Seguimiento" },
+  { id: "overviewSectionGuide", label: "Guia admin" },
   { id: "overviewSectionActivity", label: "Auditoria" }
 ];
 
@@ -996,7 +997,16 @@ document.addEventListener("click", async (event) => {
       clearCampusAttachmentPreview();
       let resolvedSrc = previewSrc;
       let objectUrl = "";
-      if (previewKind !== "pdf" && !previewSrc.startsWith("data:")) {
+      if (previewKind === "pdf" && previewSrc.startsWith("data:")) {
+        try {
+          const blob = dataUrlToBlob(previewSrc);
+          objectUrl = URL.createObjectURL(blob);
+          resolvedSrc = objectUrl;
+        } catch (error) {
+          showToast(error.message || "No se pudo preparar el PDF", "error");
+          return;
+        }
+      } else if (previewKind !== "pdf" && !previewSrc.startsWith("data:")) {
         try {
           const response = await fetch(previewSrc, { credentials: "same-origin" });
           if (!response.ok) {
@@ -5580,6 +5590,42 @@ function renderOverview() {
                 .join("")
             : `<p class="muted">Todavia no hay actividad registrada en el campus.</p>`
         }
+        </div>
+
+        <div class="mail-card compact-panel associate-anchor" id="overviewSectionGuide">
+          <div class="panel-header">
+            <div>
+              <h4>Guia rapida de administracion</h4>
+              <p class="muted">Los pasos clave para gestionar socios, cursos y diplomas sin perderte.</p>
+            </div>
+            <div class="chip-row">
+              <button class="mini-button" data-action="nav" data-view="associates">Socios</button>
+              <button class="mini-button" data-action="nav" data-view="courses">Cursos</button>
+              <button class="mini-button" data-action="nav" data-view="reports">Informes</button>
+            </div>
+          </div>
+          <div class="compact-list">
+            <div class="timeline-item compact-card">
+              <strong>1. Importa o revisa socios</strong>
+              <p class="muted">Socios y cuotas → Migracion. Analiza el Excel y pulsa Importar socios validos.</p>
+            </div>
+            <div class="timeline-item compact-card">
+              <strong>2. Crea o limpia cursos</strong>
+              <p class="muted">Campus → Crear y abrir estudio. Define fechas, plazas y responsable.</p>
+            </div>
+            <div class="timeline-item compact-card">
+              <strong>3. Publica inscripciones</strong>
+              <p class="muted">Campus → Curso activo → Abrir inscripcion cuando todo este listo.</p>
+            </div>
+            <div class="timeline-item compact-card">
+              <strong>4. Cierra y emite diplomas</strong>
+              <p class="muted">Operativa → Asistencia, aptos y diplomas → Generar y enviar.</p>
+            </div>
+            <div class="timeline-item compact-card">
+              <strong>5. Comunica y exporta</strong>
+              <p class="muted">Avisos manuales y reportes CSV para enviar a socios activos.</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -16007,6 +16053,20 @@ function hasCampusAttachment(attachment) {
   return Boolean(attachment && (attachment.contentBase64 || attachment.transportUrl));
 }
 
+function dataUrlToBlob(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("No se pudo leer el documento.");
+  }
+  const contentType = match[1] || "application/octet-stream";
+  const byteString = atob(match[2]);
+  const bytes = new Uint8Array(byteString.length);
+  for (let index = 0; index < byteString.length; index += 1) {
+    bytes[index] = byteString.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: contentType });
+}
+
 function getCampusAttachmentHref(attachment, options = {}) {
   if (!attachment) {
     return "";
@@ -16217,7 +16277,7 @@ async function mountCampusAttachmentPreview() {
     const pdfjsLib = await ensureCampusPdfJs();
     const pdf = await pdfjsLib
       .getDocument({
-        url: preview.originalSrc || preview.src,
+        url: preview.src,
         withCredentials: true
       })
       .promise;
@@ -16277,7 +16337,7 @@ function renderCampusAttachmentPreviewModal() {
   const pdfViewerHref =
     kind === "pdf"
       ? escapeHtml(
-          buildCampusPdfViewerUrl(campusAttachmentPreview.originalSrc || campusAttachmentPreview.src, campusAttachmentPreview.name)
+          buildCampusPdfViewerUrl(campusAttachmentPreview.src, campusAttachmentPreview.name)
         )
       : "";
   const openHref = kind === "pdf" ? pdfViewerHref : previewSrc;
@@ -16286,6 +16346,14 @@ function renderCampusAttachmentPreviewModal() {
       ? `<img class="campus-preview-image" src="${previewSrc}" alt="${previewName}" />`
       : kind === "pdf"
       ? `<iframe class="campus-preview-frame campus-preview-pdf-frame" src="${pdfViewerHref}" title="${previewName}"></iframe>`
+      : kind === "external"
+      ? `<div class="campus-preview-state">
+          Este formato no se puede previsualizar aqui. Usa "Abrir en pestaña" o descarga el archivo para verlo.
+          <div class="chip-row">
+            <a class="mini-button" target="_blank" rel="noreferrer" href="${previewSrc}">Abrir archivo</a>
+            <a class="mini-button" download="${previewName}" href="${previewSrc}">Descargar</a>
+          </div>
+        </div>`
       : `<iframe class="campus-preview-frame" src="${previewSrc}" title="${previewName}"></iframe>`;
   return `
     <div class="campus-preview-overlay">
@@ -18020,7 +18088,7 @@ function getCampusGroupFileAccept(category) {
 
 function getCampusGroupFileMaxBytes(category) {
   if (category === "documents" || category === "practiceSheets") {
-    return 10_000_000;
+    return 50_000_000;
   }
   return 0;
 }
@@ -18034,7 +18102,9 @@ async function applyCampusGroupFileSelection(file) {
   const maxBytes = getCampusGroupFileMaxBytes(category);
   if (maxBytes && Number(file.size || 0) > maxBytes) {
     pendingCampusGroupFileTarget = null;
-    throw new Error("El archivo supera el limite de 10 MB. Para videos usa un enlace y para documentos sube un archivo mas ligero.");
+    throw new Error(
+      `El archivo supera el limite de ${formatFileSize(maxBytes)}. Para videos usa un enlace y para documentos sube un archivo mas ligero.`
+    );
   }
   const group = state.campusGroups.find((item) => item.id === groupId) || null;
   if (!group || !moduleId || !category || !entryId) {
@@ -18639,12 +18709,34 @@ function formatDateTime(value) {
   });
 }
 
-function normalizeDisplayText(value) {
+function countReplacementChars(text) {
+  return (String(text || "").match(/\uFFFD/g) || []).length;
+}
+
+function fixMojibakeText(value) {
   const raw = String(value ?? "");
-  if (!raw.includes("?")) {
+  if (!/[\u00C0-\u00FF\uFFFD]/.test(raw)) {
     return raw;
   }
-  if (/^(https?:|data:|mailto:)/i.test(raw) || raw.includes("://")) {
+  try {
+    const bytes = Uint8Array.from(raw, (char) => char.charCodeAt(0));
+    const repaired = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    if (countReplacementChars(repaired) <= countReplacementChars(raw)) {
+      return repaired;
+    }
+  } catch (error) {
+    // Ignore decoding issues and fall back to raw input.
+  }
+  return raw;
+}
+
+function normalizeDisplayText(value) {
+  const rawValue = String(value ?? "");
+  if (/^(https?:|data:|mailto:)/i.test(rawValue) || rawValue.includes("://")) {
+    return rawValue;
+  }
+  const raw = fixMojibakeText(rawValue);
+  if (!raw.includes("?") && !raw.includes("\uFFFD")) {
     return raw;
   }
   const replacements = [
@@ -18690,7 +18782,13 @@ function normalizeDisplayText(value) {
     ["?Donde", "¿Dónde"],
     ["?Como", "¿Cómo"],
     ["?Por", "¿Por"],
-    ["?Se", "¿Se"]
+    ["?Se", "¿Se"],
+    ["m�quina", "máquina"],
+    ["m��quina", "máquina"],
+    ["M�quina", "Máquina"],
+    ["M��quina", "Máquina"],
+    ["tr�fico", "tráfico"],
+    ["Tr�fico", "Tráfico"]
   ];
   return replacements.reduce((result, [from, to]) => result.replaceAll(from, to), raw);
 }

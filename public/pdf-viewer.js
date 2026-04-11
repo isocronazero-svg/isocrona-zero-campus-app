@@ -15,6 +15,19 @@ viewerTitle.textContent = name;
 viewerDownload.href = source;
 viewerDownload.download = name;
 
+function dataUrlToArrayBuffer(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("No se ha podido leer el documento.");
+  }
+  const byteString = atob(match[2]);
+  const bytes = new Uint8Array(byteString.length);
+  for (let index = 0; index < byteString.length; index += 1) {
+    bytes[index] = byteString.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
 async function renderPdf() {
   if (!source) {
     viewerState.textContent = "No se ha indicado ningun documento para visualizar.";
@@ -22,11 +35,15 @@ async function renderPdf() {
   }
 
   try {
-    const response = await fetch(source, { credentials: "same-origin" });
-    if (!response.ok) {
-      throw new Error("No se ha podido cargar el documento.");
-    }
-    const pdfBuffer = await response.arrayBuffer();
+    const pdfBuffer = source.startsWith("data:")
+      ? dataUrlToArrayBuffer(source)
+      : await (async () => {
+          const response = await fetch(source, { credentials: "same-origin" });
+          if (!response.ok) {
+            throw new Error("No se ha podido cargar el documento.");
+          }
+          return response.arrayBuffer();
+        })();
     const loadingTask = pdfjsLib.getDocument({
       data: pdfBuffer
     });
