@@ -1,5 +1,7 @@
 ﻿const SESSION_KEY = "iz-campus-session";
 const VIEW_ROLE_KEY = "iz-campus-view-role";
+const SESSION_BACKUP_KEY = "iz-campus-session-backup";
+const VIEW_ROLE_BACKUP_KEY = "iz-campus-view-role-backup";
 
 const OVERVIEW_SECTION_LINKS = [
   { id: "overviewSectionDashboard", label: "Dashboard" },
@@ -2747,6 +2749,32 @@ document.addEventListener("click", async (event) => {
     shouldPersist = true;
   }
 
+  if (action === "delete-associate" && isAdminSession()) {
+    const associateId = actionTarget.dataset.associateId;
+    if (!associateId) {
+      return;
+    }
+    const associate = findAssociate(associateId);
+    if (!associate) {
+      syncStatus = "No encuentro ese socio para eliminarlo";
+      render();
+      return;
+    }
+    const expectedText = "ELIMINAR SOCIO";
+    const confirmation = window.prompt(
+      `Vas a eliminar al socio #${associate.associateNumber} (${getAssociateFullName(associate)}). Escribe ${expectedText} para continuar.`
+    );
+    if (String(confirmation || "").trim().toUpperCase() !== expectedText) {
+      syncStatus = "Eliminacion de socio cancelada";
+      render();
+      return;
+    }
+    deleteAssociate(associateId);
+    addActivity("admin", session.name, `Ha eliminado el socio #${associate.associateNumber} ${getAssociateFullName(associate)}`);
+    associatesSectionMode = "directory";
+    shouldPersist = true;
+  }
+
   if (action === "delete-course" && isAdminSession() && courseId) {
     const course = state.courses.find((item) => item.id === courseId);
     if (!course) {
@@ -3399,7 +3427,7 @@ document.addEventListener("submit", async (event) => {
       syncStatus = "Enviando justificante de cuota...";
       render();
         const proofFile = await readFileInput(document.getElementById("associatePaymentProof"), {
-          maxBytes: 12_000_000,
+          maxBytes: 50_000_000,
           label: "El justificante de cuota"
         });
       const response = await fetch("/api/associate-payments/submit", {
@@ -3508,7 +3536,7 @@ document.addEventListener("submit", async (event) => {
       syncStatus = "Enviando justificante...";
       render();
         const paymentProof = await readFileInput(document.getElementById("courseEnrollmentProofUpdate"), {
-          maxBytes: 12_000_000,
+          maxBytes: 50_000_000,
           label: "El justificante de inscripcion"
         });
       const response = await fetch(`/api/member/courses/${course.id}/enrollment-proof`, {
@@ -3553,7 +3581,7 @@ document.addEventListener("submit", async (event) => {
       syncStatus = "Registrando inscripcion...";
       render();
         const paymentProof = await readFileInput(document.getElementById("courseEnrollmentProof"), {
-          maxBytes: 12_000_000,
+          maxBytes: 50_000_000,
           label: "El justificante de inscripcion"
         });
       const response = await fetch(`/api/member/courses/${course.id}/enroll`, {
@@ -4127,10 +4155,14 @@ async function bootstrap() {
     syncStatus = "Datos cargados";
   } catch (error) {
     state = structuredClone(fallbackState);
-    clearSession();
     storageMeta = null;
     hasLoaded = true;
-    syncStatus = "Inicia sesion para cargar el campus";
+    if (!session) {
+      clearSession();
+      syncStatus = "Inicia sesion para cargar el campus";
+    } else {
+      syncStatus = error.message || "No se pudo cargar el campus. Reintenta en unos segundos.";
+    }
   }
 
   if (recoveredFromRecoveryPage) {
@@ -4181,12 +4213,21 @@ async function recoverSessionFromServer() {
 function restoreSession() {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) {
+    const backup =
+      raw ||
+      (() => {
+        try {
+          return localStorage.getItem(SESSION_BACKUP_KEY);
+        } catch (error) {
+          return null;
+        }
+      })();
+    if (!backup) {
       session = null;
       return;
     }
 
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(backup);
     const account = Array.isArray(state.accounts)
       ? state.accounts.find((item) => item.id === parsed.accountId)
       : null;
@@ -4229,7 +4270,15 @@ function restoreViewRole() {
   }
 
   try {
-    const stored = sessionStorage.getItem(VIEW_ROLE_KEY);
+    const stored =
+      sessionStorage.getItem(VIEW_ROLE_KEY) ||
+      (() => {
+        try {
+          return localStorage.getItem(VIEW_ROLE_BACKUP_KEY);
+        } catch (error) {
+          return null;
+        }
+      })();
     viewRole =
       stored === "member-preview" || stored === "member-self" || stored === "member"
         ? stored === "member" ? "member-preview" : stored
@@ -4242,20 +4291,38 @@ function restoreViewRole() {
 function persistSession() {
   if (!session) {
     sessionStorage.removeItem(SESSION_KEY);
+    try {
+      localStorage.removeItem(SESSION_BACKUP_KEY);
+    } catch (error) {
+    }
     return;
   }
 
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  const serialized = JSON.stringify(session);
+  sessionStorage.setItem(SESSION_KEY, serialized);
+  try {
+    localStorage.setItem(SESSION_BACKUP_KEY, serialized);
+  } catch (error) {
+  }
 }
 
 function persistViewRole() {
   try {
     if (!session) {
       sessionStorage.removeItem(VIEW_ROLE_KEY);
+      try {
+        localStorage.removeItem(VIEW_ROLE_BACKUP_KEY);
+      } catch (error) {
+      }
       return;
     }
 
-    sessionStorage.setItem(VIEW_ROLE_KEY, session.role === "admin" ? viewRole : "member-self");
+    const nextRole = session.role === "admin" ? viewRole : "member-self";
+    sessionStorage.setItem(VIEW_ROLE_KEY, nextRole);
+    try {
+      localStorage.setItem(VIEW_ROLE_BACKUP_KEY, nextRole);
+    } catch (error) {
+    }
   } catch (error) {
   }
 }
@@ -5653,9 +5720,9 @@ function renderMemberOverview() {
           <p class="muted">Aqui solo ves tu informacion operativa y administrativa basica.</p>
         </div>
         <div class="chip-row">
-          <button class="primary-button" data-action="nav" data-view="join">Mi ficha de socio</button>
-          <button class="ghost-button" data-action="set-campus-section-mode" data-mode="courses">Ver cursos</button>
-          <button class="ghost-button" data-action="set-campus-section-mode" data-mode="diplomas">Ver diplomas</button>
+          <button class="primary-button" type="button" data-action="nav" data-view="join">Mi ficha de socio</button>
+          <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="courses">Ver cursos</button>
+          <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="diplomas">Ver diplomas</button>
         </div>
       </div>
 
@@ -7628,6 +7695,7 @@ function renderAssociates() {
                                   ? `<button class="mini-button" data-action="send-associate-welcome" data-associate-id="${item.id}">Enviar bienvenida</button>`
                                   : ""
                               }
+                              <button class="mini-button danger-button" data-action="delete-associate" data-associate-id="${item.id}">Eliminar</button>
                             </div>
                           </td>
                         </tr>
@@ -14167,6 +14235,47 @@ function deleteMember(memberId) {
   }
 }
 
+function deleteAssociate(associateId) {
+  const associate = findAssociate(associateId);
+  if (!associate) {
+    return;
+  }
+
+  const linkedMemberId = associate.linkedMemberId;
+  const linkedAccountId = associate.linkedAccountId;
+  state.associates = state.associates.filter((item) => item.id !== associateId);
+  state.associateProfileRequests = (state.associateProfileRequests || []).filter(
+    (request) => request.associateId !== associateId
+  );
+  state.associatePaymentSubmissions = (state.associatePaymentSubmissions || []).filter(
+    (submission) => submission.associateId !== associateId
+  );
+  if (associate.applicationId) {
+    state.associateApplications = (state.associateApplications || []).filter(
+      (application) => application.id !== associate.applicationId
+    );
+  }
+
+  if (linkedMemberId) {
+    deleteMember(linkedMemberId);
+  }
+
+  if (linkedAccountId || associateId) {
+    state.accounts = (state.accounts || []).filter(
+      (account) => account.id !== linkedAccountId && account.associateId !== associateId
+    );
+  }
+
+  if (state.selectedAssociateId === associateId) {
+    state.selectedAssociateId = state.associates[0]?.id || null;
+  }
+
+  if (session?.associateId === associateId) {
+    clearSession();
+    loginStatus = "La cuenta activa fue eliminada. Inicia sesion de nuevo.";
+  }
+}
+
 function deleteCourse(courseId) {
   state.courses = (state.courses || []).filter((course) => course.id !== courseId);
   state.emailOutbox = (state.emailOutbox || []).filter((mail) => mail.courseId !== courseId);
@@ -16236,6 +16345,18 @@ function getCampusAttachmentPreviewKind(attachment) {
     return "image";
   }
   if (
+    mimeType.includes("powerpoint") ||
+    mimeType.includes("presentation") ||
+    mimeType.includes("msword") ||
+    mimeType.includes("wordprocessingml") ||
+    mimeType.includes("spreadsheetml") ||
+    mimeType.includes("excel") ||
+    mimeType.includes("officedocument") ||
+    [".ppt", ".pptx", ".pps", ".ppsx", ".doc", ".docx", ".xls", ".xlsx"].some((ext) => name.endsWith(ext))
+  ) {
+    return "office";
+  }
+  if (
     mimeType === "application/pdf" ||
     mimeType.startsWith("text/") ||
     mimeType.includes("json") ||
@@ -16251,6 +16372,13 @@ function buildCampusPdfViewerUrl(src, name) {
   params.set("src", src);
   params.set("name", name || "Documento PDF");
   return `/pdf-viewer.html?${params.toString()}`;
+}
+
+function buildOfficeViewerUrl(src) {
+  if (!src || src.startsWith("data:") || src.startsWith("blob:")) {
+    return "";
+  }
+  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(src)}`;
 }
 
 async function ensureCampusPdfJs() {
@@ -16340,12 +16468,23 @@ function renderCampusAttachmentPreviewModal() {
           buildCampusPdfViewerUrl(campusAttachmentPreview.src, campusAttachmentPreview.name)
         )
       : "";
+  const officeViewerHref = kind === "office" ? buildOfficeViewerUrl(campusAttachmentPreview.src) : "";
   const openHref = kind === "pdf" ? pdfViewerHref : previewSrc;
   const previewBody =
     kind === "image"
       ? `<img class="campus-preview-image" src="${previewSrc}" alt="${previewName}" />`
       : kind === "pdf"
       ? `<iframe class="campus-preview-frame campus-preview-pdf-frame" src="${pdfViewerHref}" title="${previewName}"></iframe>`
+      : kind === "office" && officeViewerHref
+      ? `<iframe class="campus-preview-frame campus-preview-office-frame" src="${escapeHtml(officeViewerHref)}" title="${previewName}"></iframe>`
+      : kind === "office"
+      ? `<div class="campus-preview-state">
+          No se ha podido abrir la vista previa de este documento.
+          <div class="chip-row">
+            <a class="mini-button" target="_blank" rel="noreferrer" href="${previewSrc}">Abrir archivo</a>
+            <a class="mini-button" download="${previewName}" href="${previewSrc}">Descargar</a>
+          </div>
+        </div>`
       : kind === "external"
       ? `<div class="campus-preview-state">
           Este formato no se puede previsualizar aqui. Usa "Abrir en pestaña" o descarga el archivo para verlo.
@@ -17930,13 +18069,13 @@ function renderMemberAlertAction(alert) {
   }
 
   if (alert.action === "nav") {
-    return `<button class="mini-button" data-action="nav" data-view="${escapeHtml(alert.view || "campus")}">${escapeHtml(alert.actionLabel || "Abrir")}</button>`;
+    return `<button class="mini-button" type="button" data-action="nav" data-view="${escapeHtml(alert.view || "campus")}">${escapeHtml(alert.actionLabel || "Abrir")}</button>`;
   }
   if (alert.action === "set-campus-section-mode") {
-    return `<button class="mini-button" data-action="set-campus-section-mode" data-mode="${escapeHtml(alert.mode || "courses")}">${escapeHtml(alert.actionLabel || "Abrir")}</button>`;
+    return `<button class="mini-button" type="button" data-action="set-campus-section-mode" data-mode="${escapeHtml(alert.mode || "courses")}">${escapeHtml(alert.actionLabel || "Abrir")}</button>`;
   }
   if (alert.action === "select-course") {
-    return `<button class="mini-button" data-action="select-course" data-course-id="${escapeHtml(alert.courseId || "")}">${escapeHtml(alert.actionLabel || "Abrir")}</button>`;
+    return `<button class="mini-button" type="button" data-action="select-course" data-course-id="${escapeHtml(alert.courseId || "")}">${escapeHtml(alert.actionLabel || "Abrir")}</button>`;
   }
   return "";
 }
