@@ -228,6 +228,11 @@ body {
   background: white;
 }
 
+.campus-preview-pdf-frame,
+.campus-preview-office-frame {
+  min-height: 68vh;
+}
+
 .campus-preview-pdf-shell {
   width: 100%;
   height: 100%;
@@ -1034,6 +1039,12 @@ a {
   border-color: rgba(60, 120, 78, 0.22);
   background: rgba(60, 120, 78, 0.08);
   color: #2d5a39;
+}
+
+.status-note.danger {
+  border-color: rgba(162, 31, 31, 0.24);
+  background: rgba(162, 31, 31, 0.08);
+  color: #8d2620;
 }
 
 .learner-preview-warning {
@@ -2990,6 +3001,10 @@ tr:last-child td {
     grid-template-columns: 1fr;
   }
 
+  .workspace {
+    gap: 12px;
+  }
+
   .metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3009,6 +3024,9 @@ tr:last-child td {
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
 
   .hero {
@@ -3073,6 +3091,10 @@ tr:last-child td {
     padding: 18px;
   }
 
+  .sidebar {
+    max-height: none;
+  }
+
   .panel,
   .course-card,
   .metric-card {
@@ -3098,5 +3120,44 @@ tr:last-child td {
 
   .module-head {
     flex-direction: column;
+  }
+
+  .chip-row {
+    width: 100%;
+  }
+
+  .chip-row > .primary-button,
+  .chip-row > .ghost-button,
+  .chip-row > .mini-button,
+  .chip-row > .button-link {
+    width: 100%;
+  }
+
+  .campus-preview-overlay {
+    padding: 12px;
+  }
+
+  .campus-preview-dialog {
+    width: 100%;
+    height: min(92vh, 100%);
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .campus-preview-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .campus-preview-pdf-frame,
+  .campus-preview-office-frame,
+  .campus-preview-frame {
+    min-height: 62vh;
+  }
+
+  .login-public-list {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
   }
 }

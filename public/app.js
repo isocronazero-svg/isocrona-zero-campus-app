@@ -455,6 +455,7 @@ let associateWorkbookDraftFile = null;
 let associateWorkbookImportStatus = "";
 let storageImportDraftFile = null;
 let storageImportStatus = "";
+let storageExportStatus = "";
 let hasLoaded = false;
 let syncStatus = "Cargando datos...";
 let loginStatus = "Introduce tus credenciales para entrar.";
@@ -1061,6 +1062,13 @@ document.addEventListener("click", async (event) => {
 
     if (action === "select-campus-group-module") {
       selectedCampusGroupModuleId = actionTarget.dataset.moduleId || "";
+      render();
+      return;
+    }
+
+    if (action === "open-member-campus-mode") {
+      campusSectionMode = actionTarget.dataset.mode || "courses";
+      state.activeView = "campus";
       render();
       return;
     }
@@ -2284,6 +2292,45 @@ document.addEventListener("click", async (event) => {
       storageImportStatus = error.message || "No se pudo importar el state.json del campus";
       syncStatus = storageImportStatus;
       showToast(storageImportStatus, "error");
+    }
+
+    render();
+    return;
+  }
+
+  if (action === "export-storage-state" && isAdminSession()) {
+    try {
+      storageExportStatus = "Preparando copia descargable del campus...";
+      syncStatus = storageExportStatus;
+      render();
+
+      const response = await fetch("/api/storage/export-state");
+      if (!response.ok) {
+        const payload = await readJsonResponse(
+          response,
+          "No se pudo descargar la copia del campus."
+        );
+        throw new Error(payload.error || "No se pudo descargar la copia del campus.");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const timestamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `campus-backup-${timestamp}.json`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+
+      storageExportStatus = "Copia descargada correctamente.";
+      syncStatus = storageExportStatus;
+      showToast("Copia del campus descargada", "success");
+    } catch (error) {
+      storageExportStatus = error.message || "No se pudo descargar la copia del campus.";
+      syncStatus = storageExportStatus;
+      showToast(storageExportStatus, "error");
     }
 
     render();
@@ -5464,6 +5511,7 @@ function renderOverview() {
   const pendingDiplomaCourses = state.courses
     .filter((course) => getCoursePendingDiplomaDeliveries(course) > 0)
     .slice(0, 5);
+  const storageSeemsEmpty = !isDemoSession() && (state.associates?.length || 0) === 0 && (state.courses?.length || 0) === 0;
   const nextAgentItem = pickNextAgentItem();
   const recentActivity = [...state.activityLog]
     .sort((a, b) => String(b.at).localeCompare(String(a.at)))
@@ -5502,6 +5550,27 @@ function renderOverview() {
       <div class="status-note info associate-anchor" id="overviewSectionAttention">
         Altas pendientes: ${pendingAssociateApplications.length}. Cambios de ficha: ${pendingProfileRequests.length}. Justificantes: ${pendingPaymentSubmissions.length}. Cursos por cerrar: ${closableCourses.length}. Diplomas pendientes: ${pendingDiplomaCourses.length}.
       </div>
+
+      <div class="status-note ${storageMeta && (state.associates?.length || 0) > 0 ? "success" : "warning"} associate-anchor" id="overviewSectionStorageStatus">
+        <strong>Almacenamiento activo:</strong>
+        ${
+          storageMeta
+            ? ` Base ${escapeHtml(storageMeta.dbPath)} | Snapshot ${escapeHtml(storageMeta.snapshotPath)} | Actualizado ${storageMeta.updatedAt ? escapeHtml(formatDateTime(storageMeta.updatedAt)) : "sin fecha"} | Socios ${state.associates?.length || 0} | Cursos ${state.courses?.length || 0}.`
+            : " No se ha podido leer la ruta del almacenamiento de este servicio."
+        }
+      </div>
+
+      ${
+        storageSeemsEmpty
+          ? `
+      <div class="status-note danger associate-anchor" id="overviewSectionStorageMismatch">
+        <strong>Atencion:</strong> este despliegue ahora mismo esta vacio o leyendo otro almacenamiento. Tus datos locales no tienen por que haberse perdido.
+        Revisa <strong>Informes y validacion > Almacenamiento</strong>, descarga una copia del estado actual y, si hace falta, vuelve a importar el
+        <strong>state.json</strong> real del campus en esta web.
+      </div>
+      `
+          : ""
+      }
 
       <div class="course-grid overview-admin-main">
         <div class="mail-card compact-panel">
@@ -5721,8 +5790,8 @@ function renderMemberOverview() {
         </div>
         <div class="chip-row">
           <button class="primary-button" type="button" data-action="nav" data-view="join">Mi ficha de socio</button>
-          <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="courses">Ver cursos</button>
-          <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="diplomas">Ver diplomas</button>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Ver cursos</button>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Ver diplomas</button>
         </div>
       </div>
 
@@ -5742,7 +5811,7 @@ function renderMemberOverview() {
               ${
                 featuredNotice.courseId
                   ? ` <button class="mini-button" type="button" data-action="select-course" data-course-id="${featuredNotice.courseId}">${escapeHtml(featuredNotice.actionLabel || "Abrir curso")}</button>`
-                  : ` <button class="mini-button" type="button" data-action="set-campus-section-mode" data-mode="alerts">Ver avisos</button>`
+                  : ` <button class="mini-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Ver avisos</button>`
               }
             </div>
           `
@@ -10214,7 +10283,25 @@ function renderReports() {
             `
             : `<p class="muted">No se ha podido leer la informacion del almacenamiento.</p>`
         }
+        ${
+          !isDemoSession() && (state.associates?.length || 0) === 0 && (state.courses?.length || 0) === 0
+            ? `
+              <div class="status-note danger">
+                Este servicio aparece con <strong>0 socios</strong> y <strong>0 cursos</strong>. Normalmente eso significa que Railway esta leyendo una base nueva,
+                otro disco o un despliegue sin los datos reales. Antes de tocar nada, descarga una copia y confirma la ruta mostrada arriba.
+              </div>
+            `
+            : ""
+        }
         <div class="stack gap-12">
+          <div class="inline-actions">
+            <a class="button-link" href="/api/storage/export-state">Descargar copia actual del campus</a>
+          </div>
+          ${
+            storageExportStatus
+              ? `<p class="muted">${escapeHtml(storageExportStatus)}</p>`
+              : `<p class="muted">Descarga una copia del estado actual antes de limpiar, migrar o tocar Railway.</p>`
+          }
           <div class="status-note warning">
             <strong>Prepublicacion limpia:</strong> usa esto solo en la web de prueba si quieres borrar socios demo,
             cursos demo, alumnado ficticio y avisos antes de cargar el Excel real.
@@ -10241,6 +10328,7 @@ function renderReports() {
               : `<p class="muted">Despues de importarlo, el campus cerrara la sesion demo para que vuelvas a entrar con tus credenciales reales.</p>`
           }
           <div class="inline-actions">
+            <button type="button" class="ghost-button" data-action="export-storage-state">Descargar state.json actual</button>
             <button type="button" data-action="import-storage-state">Importar state.json real</button>
           </div>
         </div>

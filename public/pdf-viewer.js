@@ -77,7 +77,21 @@ async function renderPdf() {
       }).promise;
     }
   } catch (error) {
-    viewerState.textContent = "No se ha podido renderizar el PDF en el visor interno.";
+    viewerState.innerHTML = "";
+    const message = document.createElement("div");
+    message.textContent = "No se ha podido renderizar el PDF en el visor interno. Probamos el visor nativo del navegador.";
+    viewerState.appendChild(message);
+    if (!source.startsWith("data:")) {
+      const nativeFrame = document.createElement("iframe");
+      nativeFrame.src = source;
+      nativeFrame.title = name;
+      nativeFrame.style.width = "100%";
+      nativeFrame.style.minHeight = "70vh";
+      nativeFrame.style.border = "0";
+      nativeFrame.style.borderRadius = "18px";
+      nativeFrame.style.marginTop = "16px";
+      viewerState.appendChild(nativeFrame);
+    }
     console.error(error);
   }
 }

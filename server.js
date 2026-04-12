@@ -3551,6 +3551,21 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     });
   }
 
+  if (requestUrl.pathname === "/api/storage/export-state" && req.method === "GET") {
+    const state = readState();
+    const account = requireAdminAccount(req, res, state);
+    if (!account) {
+      return;
+    }
+    const timestamp = new Date().toISOString().replaceAll(":", "-");
+    res.writeHead(200, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": `attachment; filename="campus-backup-${timestamp}.json"`
+    });
+    res.end(JSON.stringify(state, null, 2));
+    return;
+  }
+
   const emailMatch = requestUrl.pathname.match(/^\/api\/emails\/([^/]+)\.eml$/);
   if (emailMatch && req.method === "GET") {
     const emailId = emailMatch[1];
