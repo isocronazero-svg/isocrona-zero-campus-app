@@ -613,15 +613,15 @@ resetButton?.addEventListener("click", async () => {
     return;
   }
 
-  syncStatus = "Restableciendo datos demo...";
+  syncStatus = "Restableciendo entorno local...";
   render();
 
   const response = await fetch("/api/reset", { method: "POST" });
   state = normalizeState(await response.json());
   applySessionToState();
   hasLoaded = true;
-  syncStatus = "Datos demo restablecidos";
-  showToast("Datos demo restablecidos", "success");
+  syncStatus = "Entorno local restablecido";
+  showToast("Entorno local restablecido", "success");
   render();
 });
 
@@ -643,48 +643,6 @@ passwordLogoutButton.addEventListener("click", async () => {
   clearSession();
   loginStatus = "Sesion cerrada. Introduce tus credenciales.";
   passwordChangeStatus = "Debes cambiar la contrasena temporal para entrar al campus.";
-  render();
-});
-
-fillAdminLogin?.addEventListener("click", () => {
-  viewRole = "admin";
-  loginEmail.value = "admin@isocronazero.org";
-  loginPassword.value = "campus123";
-  loginStatus = "Credenciales demo de administracion cargadas.";
-  render();
-});
-
-fillCarlosLogin?.addEventListener("click", () => {
-  viewRole = "member-self";
-  const preferredAccount =
-    state.accounts.find((account) => String(account.email || "").toLowerCase() === "sal.ro.carlos@gmail.com") ||
-    state.accounts.find(
-      (account) =>
-        account.associateId &&
-        String(account.name || "").toLowerCase().includes("carlos salvador")
-    );
-
-  loginEmail.value = preferredAccount?.email || "sal.ro.carlos@gmail.com";
-  loginPassword.value = preferredAccount?.password || "IZ-carl-1";
-  loginStatus = preferredAccount
-    ? `Credenciales de ${preferredAccount.name} cargadas.`
-    : "Credenciales de Carlos cargadas.";
-  render();
-});
-
-fillMemberLogin?.addEventListener("click", () => {
-  viewRole = "member-self";
-  const preferredAssociate = state.associates.find((associate) => Number(associate.associateNumber) === 1);
-  const preferredAccount =
-    (preferredAssociate &&
-      state.accounts.find((account) => account.associateId === preferredAssociate.id && account.role === "member")) ||
-    state.accounts.find((account) => account.role === "member");
-
-  loginEmail.value = preferredAccount?.email || "lucia@isocronazero.org";
-  loginPassword.value = preferredAccount?.password || "bomberos123";
-  loginStatus = preferredAccount
-    ? `Credenciales demo de ${preferredAccount.name} cargadas.`
-    : "Credenciales demo de alumno cargadas.";
   render();
 });
 
@@ -4179,21 +4137,18 @@ async function bootstrap() {
   render();
   await loadPublicCampusCourses();
 
+  restoreSession();
+  restoreViewRole();
+  await syncSessionWithServer({
+    clearInvalid: true,
+    force: recoveredFromRecoveryPage || Boolean(session)
+  });
+
   try {
-    restoreSession();
-    restoreViewRole();
-    if (recoveredFromRecoveryPage || !session) {
-      await recoverSessionFromServer();
-    }
-    const response = await fetch("/api/state");
-    const data = await response.json();
-    state = normalizeState(data);
+    await refreshState();
     storageMeta = await loadStorageMeta();
     restoreSession();
     restoreViewRole();
-    if (recoveredFromRecoveryPage || !session) {
-      await recoverSessionFromServer();
-    }
     applySessionToState();
     if (isAdminSession() && isAdminView()) {
       await ensureAdminStateLoaded();
@@ -4219,6 +4174,27 @@ async function bootstrap() {
   }
 
   render();
+}
+
+async function syncSessionWithServer(options = {}) {
+  const clearInvalid = Boolean(options.clearInvalid);
+  const force = Boolean(options.force);
+  const hadStoredSession = Boolean(session?.accountId);
+
+  if (!force && !hadStoredSession) {
+    return false;
+  }
+
+  const recovered = await recoverSessionFromServer();
+  if (recovered) {
+    return true;
+  }
+
+  if (clearInvalid && hadStoredSession) {
+    clearSession();
+  }
+
+  return false;
 }
 
 async function loadPublicCampusCourses() {
@@ -4625,6 +4601,7 @@ function mergeScopedMemberChangesIntoFullState(fullState, scopedState, memberId)
 
 async function refreshState(options = {}) {
   const forceAdminState = Boolean(options.forceAdminState);
+  const retryAfterSessionSync = options.retryAfterSessionSync !== false;
   const stateUrl = new URL("/api/state", window.location.origin);
   if (!forceAdminState && session?.role === "admin" && viewRole === "member-self" && session?.memberId) {
     stateUrl.searchParams.set("mode", "self");
@@ -4633,7 +4610,22 @@ async function refreshState(options = {}) {
     stateUrl.searchParams.set("memberId", state.selectedMemberId);
   }
   const stateResponse = await fetch(`${stateUrl.pathname}${stateUrl.search}`);
-  const payload = await stateResponse.json();
+  let payload = null;
+  try {
+    payload = await stateResponse.json();
+  } catch (error) {
+    payload = null;
+  }
+  if (stateResponse.status === 401) {
+    const recovered = retryAfterSessionSync
+      ? await syncSessionWithServer({ clearInvalid: true, force: true })
+      : false;
+    if (recovered) {
+      return refreshState({ ...options, retryAfterSessionSync: false });
+    }
+    clearSession();
+    throw new Error("La sesion ha caducado. Vuelve a entrar.");
+  }
   if (!stateResponse.ok || (payload && payload.ok === false)) {
     throw new Error(payload?.error || "No se pudo cargar el estado del campus");
   }

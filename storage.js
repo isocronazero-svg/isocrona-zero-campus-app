@@ -9,6 +9,8 @@ const defaultStatePath = process.env.IZ_DEFAULT_STATE_PATH
   ? path.resolve(process.env.IZ_DEFAULT_STATE_PATH)
   : path.join(bundledDataDir, "default-state.json");
 const stateSnapshotPath = path.join(dataDir, "state.json");
+const stateBackupDir = path.join(dataDir, "backups");
+const maxAutomaticBackups = Number(process.env.IZ_MAX_AUTOMATIC_BACKUPS || 30);
 
 ensureDataDir();
 
@@ -49,6 +51,7 @@ function writeState(state) {
 
   // Keep a readable snapshot alongside the database for easy inspection and manual backups.
   fs.writeFileSync(stateSnapshotPath, serialized);
+  writeAutomaticBackup(serialized, now);
 }
 
 function resetState() {
@@ -63,6 +66,7 @@ function getStorageMeta() {
     dataDir,
     dbPath,
     snapshotPath: stateSnapshotPath,
+    backupDir: stateBackupDir,
     defaultStatePath,
     updatedAt: row ? row.updated_at : null
   };
@@ -72,6 +76,32 @@ function ensureDataDir() {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
+  if (!fs.existsSync(stateBackupDir)) {
+    fs.mkdirSync(stateBackupDir, { recursive: true });
+  }
+}
+
+function writeAutomaticBackup(serialized, timestamp) {
+  const safeTimestamp = String(timestamp || new Date().toISOString()).replace(/[:.]/g, "-");
+  const backupPath = path.join(stateBackupDir, `campus-backup-${safeTimestamp}.json`);
+  fs.writeFileSync(backupPath, serialized);
+  pruneAutomaticBackups();
+}
+
+function pruneAutomaticBackups() {
+  const backupFiles = fs
+    .readdirSync(stateBackupDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^campus-backup-.*\.json$/i.test(entry.name))
+    .map((entry) => ({
+      name: entry.name,
+      path: path.join(stateBackupDir, entry.name),
+      modifiedAt: fs.statSync(path.join(stateBackupDir, entry.name)).mtimeMs
+    }))
+    .sort((a, b) => b.modifiedAt - a.modifiedAt);
+
+  backupFiles.slice(maxAutomaticBackups).forEach((entry) => {
+    fs.rmSync(entry.path, { force: true });
+  });
 }
 
 function seedDatabaseIfNeeded() {
