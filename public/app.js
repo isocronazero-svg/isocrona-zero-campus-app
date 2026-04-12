@@ -84,6 +84,7 @@ const AUTOMATION_SECTION_LINKS = [
 const navItems = [
   { id: "overview", label: "Vision general", sections: OVERVIEW_SECTION_LINKS },
   { id: "join", label: "Hazte socio" },
+  { id: "test", label: "Test" },
   { id: "associates", label: "Socios y cuotas", sections: ASSOCIATE_SECTION_LINKS },
   { id: "members", label: "Personas y accesos", sections: MEMBER_SECTION_LINKS },
   { id: "campus", label: "Campus", sections: CAMPUS_SECTION_LINKS },
@@ -488,6 +489,7 @@ let diplomasSectionMode = "actions";
 let reportsSectionMode = "exports";
 let automationSectionMode = "status";
 let pendingInputFocusRestore = null;
+let pendingViewAnchorId = "";
 let reportValidationCode = "";
 let reportValidationResult = null;
 let toastMessage = "";
@@ -518,9 +520,6 @@ const loginForm = document.getElementById("loginForm");
 const loginEmail = document.getElementById("loginEmail");
 const loginPassword = document.getElementById("loginPassword");
 const loginStatusElement = document.getElementById("loginStatus");
-const fillCarlosLogin = document.getElementById("fillCarlosLogin");
-const fillAdminLogin = document.getElementById("fillAdminLogin");
-const fillMemberLogin = document.getElementById("fillMemberLogin");
 const publicCourseList = document.getElementById("publicCourseList");
 const publicCampusStatusElement = document.getElementById("publicCampusStatus");
 const publicCampusRegisterForm = document.getElementById("publicCampusRegisterForm");
@@ -544,8 +543,75 @@ const heroElement = document.getElementById("hero");
 const workspaceElement = document.getElementById("workspace");
 const isLocalEnvironment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
+function getFrontendBridge() {
+  return window.__IZ_FRONTEND_APP__ || null;
+}
+
+function getFrontendRole() {
+  return isAdminView() ? "admin" : "member";
+}
+
+function buildFrontendCurrentUser() {
+  if (!session) {
+    return null;
+  }
+
+  return {
+    id: session.memberId || session.accountId || session.email || session.name,
+    memberId: session.memberId || "",
+    email: session.email || "",
+    name: session.name || ""
+  };
+}
+
+function syncFrontendStore(overrides = {}) {
+  const bridge = getFrontendBridge();
+  if (!bridge?.store?.setState) {
+    return null;
+  }
+
+  return bridge.store.setState({
+    currentUser: buildFrontendCurrentUser(),
+    role: getFrontendRole(),
+    activeView: state.activeView,
+    campusSectionMode,
+    ...overrides
+  });
+}
+
+function navigateWithFrontendRouter(view) {
+  const bridge = getFrontendBridge();
+  if (!bridge?.router?.navigateTo) {
+    return null;
+  }
+
+  syncFrontendStore();
+  return bridge.router.navigateTo(view);
+}
+
+function renderFrontendTestView() {
+  const bridge = getFrontendBridge();
+  const renderTest = bridge?.views?.test;
+
+  if (typeof renderTest !== "function") {
+    mainPanel.innerHTML = '<div class="empty-state">La vista de test todavia no esta disponible.</div>';
+    return;
+  }
+
+  syncFrontendStore({ activeView: "test" });
+  mainPanel.innerHTML = "";
+  renderTest(mainPanel, getFrontendRole());
+}
+
 document.querySelectorAll(".local-only").forEach((element) => {
   element.hidden = !isLocalEnvironment;
+});
+
+document.addEventListener("iz:frontend-app-ready", () => {
+  syncFrontendStore();
+  if (session && state.activeView === "test") {
+    render();
+  }
 });
 
 function updateRoleSwitcherOptions() {
@@ -784,6 +850,7 @@ document.addEventListener("click", async (event) => {
 
   if (action === "nav") {
     const requestedView = actionTarget.dataset.view;
+    const requestedAnchorId = String(actionTarget.dataset.anchor || "").trim();
     const effectiveRequestedView = resolveCampusAliasView(requestedView);
     const navItem = navItems.find((item) => item.id === effectiveRequestedView);
 
@@ -809,6 +876,7 @@ document.addEventListener("click", async (event) => {
 
     if (isCurrentMemberLimitedToAssociateProfile() && effectiveRequestedView !== "join") {
       state.activeView = "join";
+      pendingViewAnchorId = "";
       syncStatus = "Tienes la cuota pendiente. Por ahora solo puedes revisar tu ficha de socio.";
       showToast(syncStatus, "warning");
       render();
@@ -825,16 +893,39 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    if (requestedView === "courses") {
+    if (requestedView === "test") {
+      const routeResult = navigateWithFrontendRouter("test");
+      pendingViewAnchorId = "";
+      state.activeView = routeResult?.activeView || "test";
+      setFocusedViewMode(state.activeView);
+      render();
+      return;
+    }
+
+    if (!isAdminView() && requestedView === "join") {
+      syncMemberContextSelection("join");
+      state.activeView = "join";
+      pendingViewAnchorId = requestedAnchorId;
+    } else if (!isAdminView() && requestedView === "courses") {
+      pendingViewAnchorId = "";
+      activateMemberCampusMode("courses", { focusCatalog: true });
+    } else if (!isAdminView() && requestedView === "diplomas") {
+      pendingViewAnchorId = "";
+      activateMemberCampusMode("diplomas");
+    } else if (requestedView === "courses") {
+      pendingViewAnchorId = "";
       state.activeView = "campus";
       campusSectionMode = "courses";
     } else if (requestedView === "operations") {
+      pendingViewAnchorId = "";
       state.activeView = "campus";
       campusSectionMode = "operations";
     } else if (requestedView === "diplomas") {
+      pendingViewAnchorId = "";
       state.activeView = "campus";
       campusSectionMode = "diplomas";
     } else {
+      pendingViewAnchorId = requestedAnchorId;
       state.activeView = requestedView;
       setFocusedViewMode(state.activeView);
     }
@@ -926,11 +1017,19 @@ document.addEventListener("click", async (event) => {
   }
 
     if (action === "set-campus-section-mode") {
-      state.activeView = "campus";
-      campusSectionMode = actionTarget.dataset.mode || "all";
-      if (campusSectionMode === "groups" && !getSelectedCampusGroup()) {
-        state.selectedCampusGroupId = state.campusGroups[0]?.id || null;
-        selectedCampusGroupModuleId = state.campusGroups[0]?.modules?.[0]?.id || "";
+      const nextMode = actionTarget.dataset.mode || "all";
+      if (isAdminView()) {
+        state.activeView = "campus";
+        campusSectionMode = nextMode;
+        if (campusSectionMode === "groups" && !getSelectedCampusGroup()) {
+          state.selectedCampusGroupId = state.campusGroups[0]?.id || null;
+          selectedCampusGroupModuleId = state.campusGroups[0]?.modules?.[0]?.id || "";
+        }
+      } else {
+        activateMemberCampusMode(nextMode, {
+          focusCatalog: nextMode === "courses",
+          focusWorkbench: nextMode === "courses" && actionTarget.dataset.focus === "workbench"
+        });
       }
       render();
       return;
@@ -967,7 +1066,7 @@ document.addEventListener("click", async (event) => {
           showToast(error.message || "No se pudo preparar el PDF", "error");
           return;
         }
-      } else if (previewKind !== "pdf" && !previewSrc.startsWith("data:")) {
+      } else if (previewKind !== "pdf" && previewKind !== "office" && !previewSrc.startsWith("data:")) {
         try {
           const response = await fetch(previewSrc, { credentials: "same-origin" });
           if (!response.ok) {
@@ -1025,14 +1124,36 @@ document.addEventListener("click", async (event) => {
     }
 
     if (action === "open-member-campus-mode") {
-      campusSectionMode = actionTarget.dataset.mode || "courses";
-      state.activeView = "campus";
+      activateMemberCampusMode(actionTarget.dataset.mode || "courses", {
+        focusCatalog: true
+      });
       render();
       return;
     }
 
   if (action === "set-course-section-mode") {
-    coursesSectionMode = actionTarget.dataset.mode || "all";
+    const nextMode = actionTarget.dataset.mode || "all";
+    if (!isAdminView()) {
+      const preferredCourse = syncMemberContextSelection("courses");
+      const memberId = state.selectedMemberId;
+      const hasOwnPreferredCourse = Boolean(
+        preferredCourse &&
+          memberId &&
+          (preferredCourse.enrolledIds.includes(memberId) || preferredCourse.waitingIds.includes(memberId))
+      );
+      if (nextMode === "workbench" && !hasOwnPreferredCourse) {
+        coursesSectionMode = "all";
+        learnerCourseDetailsMode = "overview";
+        syncStatus = "Todavia no tienes un aula activa. Te mostramos tus cursos visibles.";
+      } else if (nextMode === "details" && !preferredCourse) {
+        coursesSectionMode = "all";
+        learnerCourseDetailsMode = "overview";
+      } else {
+        coursesSectionMode = nextMode;
+      }
+    } else {
+      coursesSectionMode = nextMode;
+    }
     render();
     return;
   }
@@ -4385,6 +4506,12 @@ function applySessionToState() {
   if (session.memberId && isSelfMemberSession()) {
     state.selectedMemberId = session.memberId;
   }
+  if (isSelfMemberSession()) {
+    const currentAssociate = getCurrentAssociate();
+    if (currentAssociate?.id) {
+      state.selectedAssociateId = currentAssociate.id;
+    }
+  }
   if (session.memberId && !isMemberPreviewSession()) {
     const selectedCourse = state.courses.find((course) => course.id === state.selectedCourseId);
     const hasSelectedOwnCourse =
@@ -4402,6 +4529,116 @@ function applySessionToState() {
   if (!state.selectedCourseId && state.courses[0]) {
     state.selectedCourseId = state.courses[0].id;
   }
+}
+
+function getPreferredMemberCourseForMode(mode = "courses") {
+  const memberId = session?.memberId || state.selectedMemberId;
+  if (!memberId) {
+    return null;
+  }
+
+  const ownCourses = (state.courses || []).filter(
+    (course) => course.enrolledIds.includes(memberId) || course.waitingIds.includes(memberId)
+  );
+  const primaryCourse = getPrimaryMemberCourse(memberId);
+  const openCourses = (state.courses || []).filter(
+    (course) => !ownCourses.some((entry) => entry.id === course.id) && isCourseOpenForEnrollment(course)
+  );
+  const diplomaCourses = ownCourses.filter((course) => (course.diplomaReady || []).includes(memberId));
+
+  if (mode === "diplomas") {
+    return diplomaCourses[0] || ownCourses[0] || primaryCourse || openCourses[0] || null;
+  }
+
+  if (mode === "alerts") {
+    return primaryCourse || ownCourses[0] || openCourses[0] || null;
+  }
+
+  return primaryCourse || ownCourses[0] || openCourses[0] || null;
+}
+
+function syncMemberContextSelection(mode = "courses") {
+  if (isAdminView()) {
+    return null;
+  }
+
+  if (session?.memberId) {
+    state.selectedMemberId = session.memberId;
+  }
+
+  const currentAssociate = getCurrentAssociate();
+  if (currentAssociate?.id) {
+    state.selectedAssociateId = currentAssociate.id;
+  }
+
+  const preferredCourse = getPreferredMemberCourseForMode(mode);
+  if (preferredCourse?.id) {
+    state.selectedCourseId = preferredCourse.id;
+  }
+
+  return preferredCourse;
+}
+
+function activateMemberCampusMode(mode = "courses", options = {}) {
+  const normalizedMode =
+    campusOnlySession && mode === "groups"
+      ? "courses"
+      : ["courses", "diplomas", "alerts", "groups", "all"].includes(mode)
+        ? mode
+        : "courses";
+  const preferredCourse = syncMemberContextSelection(normalizedMode);
+  const memberId = state.selectedMemberId;
+  const hasOwnPreferredCourse = Boolean(
+    preferredCourse &&
+      memberId &&
+      (preferredCourse.enrolledIds.includes(memberId) || preferredCourse.waitingIds.includes(memberId))
+  );
+
+  state.activeView = "campus";
+  campusSectionMode = normalizedMode;
+  learnerEnrollmentIntent = false;
+
+  if (normalizedMode === "groups") {
+    if (!getSelectedCampusGroup()) {
+      state.selectedCampusGroupId = state.campusGroups[0]?.id || null;
+      selectedCampusGroupModuleId = state.campusGroups[0]?.modules?.[0]?.id || "";
+    }
+    return preferredCourse;
+  }
+
+  if (normalizedMode === "diplomas" || normalizedMode === "alerts") {
+    learnerCourseDetailsMode = "overview";
+    return preferredCourse;
+  }
+
+  if (normalizedMode === "all") {
+    coursesSectionMode = "all";
+    learnerCourseDetailsMode = "overview";
+    return preferredCourse;
+  }
+
+  if (options.focusWorkbench && hasOwnPreferredCourse) {
+    coursesSectionMode = "workbench";
+    learnerCourseWorkspaceMode = "roadmap";
+    learnerCourseDetailsMode = "overview";
+    return preferredCourse;
+  }
+
+  if (options.focusStatus && preferredCourse) {
+    coursesSectionMode = "details";
+    learnerCourseDetailsMode = "status";
+    return preferredCourse;
+  }
+
+  if (options.focusCatalog || !hasOwnPreferredCourse) {
+    coursesSectionMode = "all";
+    learnerCourseDetailsMode = "overview";
+    return preferredCourse;
+  }
+
+  coursesSectionMode = options.sectionMode || "details";
+  learnerCourseDetailsMode = "overview";
+  return preferredCourse;
 }
 
 function normalizeState(data) {
@@ -4809,7 +5046,13 @@ function render() {
   renderSidebarContextCard();
   renderNav();
   renderMetrics();
+  syncFrontendStore();
   renderMainPanel();
+  if (pendingViewAnchorId) {
+    const anchorId = pendingViewAnchorId;
+    pendingViewAnchorId = "";
+    requestAnimationFrame(() => focusElementById(anchorId));
+  }
   renderSidePanel();
   applyChromeProfile();
   if (pendingInputFocusRestore?.id) {
@@ -5029,7 +5272,8 @@ function renderNav() {
   const memberLabels = {
     overview: "Mi panel",
     join: campusOnlySession ? "Hazte socio" : "Mi ficha de socio",
-    campus: "Campus"
+    campus: "Campus",
+    test: "Test"
   };
   navElement.innerHTML = navItems
     .filter((item) => isViewAllowed(item.id))
@@ -5160,6 +5404,12 @@ function renderMainPanel() {
   }
 
   const selectedCourse = getSelectedCourse();
+  if (state.activeView === "test") {
+    renderFrontendTestView();
+    mainPanel.insertAdjacentHTML("beforeend", renderCampusAttachmentPreviewModal());
+    return;
+  }
+
   const views = {
     overview: renderOverview,
     join: renderJoinView,
@@ -5446,6 +5696,22 @@ function renderSidePanel() {
 
   const selectedCourse = getSelectedCourse();
   const selectedMember = findMember(state.selectedMemberId);
+  if (state.activeView === "test") {
+    sidePanel.className = "panel panel-side";
+    sidePanel.innerHTML = `
+      <div class="stack gap-md">
+        <p class="eyebrow">Entrenamiento</p>
+        <h3>Vista Test</h3>
+        <p class="muted">Practica una pregunta cada vez, con cronometro, correccion inmediata y puntuacion en directo.</p>
+        <div class="chip-row">
+          <button class="ghost-button" type="button" data-action="nav" data-view="overview">Volver al panel</button>
+          <button class="ghost-button" type="button" data-action="nav" data-view="campus">Ir al campus</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   const sideViews = {
     overview: () =>
       isAdminView()
@@ -5536,6 +5802,7 @@ function renderOverview() {
           <button class="primary-button" data-action="nav" data-view="associates">Socios y cuotas</button>
           <button class="ghost-button" data-action="nav" data-view="courses">Campus</button>
           <button class="ghost-button" data-action="nav" data-view="reports">Informes</button>
+          <button class="ghost-button" data-action="nav" data-view="test">Test</button>
         </div>
       </div>
 
@@ -5784,6 +6051,7 @@ function renderMemberOverview() {
           <button class="primary-button" type="button" data-action="nav" data-view="join">Mi ficha de socio</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Ver cursos</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Ver diplomas</button>
+          <button class="ghost-button" type="button" data-action="nav" data-view="test">Test</button>
         </div>
       </div>
 
@@ -6041,7 +6309,7 @@ function renderJoinView() {
           </div>
         </div>
 
-        <div class="status-note info">
+      <div class="status-note info">
           Estado ${escapeHtml(snapshot.status)} · ${escapeHtml(snapshot.associateNumber)} · ${
             selfEditWindow.active
               ? "Edicion directa activa"
@@ -6049,6 +6317,14 @@ function renderJoinView() {
           } · ${
             quotaGap > 0 ? `Cuota pendiente ${formatCurrency(quotaGap)}` : `${submissions.length} justificante(s) enviados`
           }.
+        </div>
+
+        <div class="chip-row member-quick-links">
+          <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionProfileStatus">Resumen</button>
+          <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionProfileEditor">Datos y cambios</button>
+          <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionPaymentProof">Cuota y justificante</button>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Mis cursos</button>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Mis diplomas</button>
         </div>
 
         <div class="course-grid associate-anchor" id="joinSectionProfileStatus">
@@ -14771,16 +15047,16 @@ function normalizeCourseBlock(block, moduleIndex, lessonIndex, blockIndex) {
   return {
     id: block.id || `block-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}`,
     type: block.type || "document",
-    title: block.title || `Bloque ${blockIndex + 1}`,
-    content: block.content || "",
+    title: normalizeDisplayText(block.title || `Bloque ${blockIndex + 1}`),
+    content: normalizeDisplayText(block.content || ""),
     url: block.url || "",
     questions: Array.isArray(block.questions)
       ? block.questions.map((question, questionIndex) => ({
           id: question.id || `question-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}-${questionIndex}`,
-          prompt: question.prompt || `Pregunta ${questionIndex + 1}`,
-          options: Array.isArray(question.options) ? question.options : [],
+          prompt: normalizeDisplayText(question.prompt || `Pregunta ${questionIndex + 1}`),
+          options: Array.isArray(question.options) ? question.options.map((option) => normalizeDisplayText(option)) : [],
           correctAnswer: question.correctAnswer || "",
-          explanation: question.explanation || "",
+          explanation: normalizeDisplayText(question.explanation || ""),
           ...question
         }))
       : [],
@@ -14807,15 +15083,15 @@ function normalizeCourseClass(value) {
 function normalizeCourseLesson(lesson, moduleIndex, lessonIndex) {
   return {
     id: lesson.id || `lesson-${Date.now()}-${moduleIndex}-${lessonIndex}`,
-    title: lesson.title || `Leccion ${lessonIndex + 1}`,
-    type: lesson.type || "Practica",
+    title: normalizeDisplayText(lesson.title || `Leccion ${lessonIndex + 1}`),
+    type: normalizeDisplayText(lesson.type || "Practica"),
     duration: Number(lesson.duration || 0),
-    resource: lesson.resource || "",
-    instructions: lesson.instructions || "",
-    body: lesson.body || "",
-    activity: lesson.activity || "",
-    takeaway: lesson.takeaway || "",
-    assetLabel: lesson.assetLabel || "",
+    resource: normalizeDisplayText(lesson.resource || ""),
+    instructions: normalizeDisplayText(lesson.instructions || ""),
+    body: normalizeDisplayText(lesson.body || ""),
+    activity: normalizeDisplayText(lesson.activity || ""),
+    takeaway: normalizeDisplayText(lesson.takeaway || ""),
+    assetLabel: normalizeDisplayText(lesson.assetLabel || ""),
     assetUrl: lesson.assetUrl || "",
     publicationStatus: lesson.publicationStatus || "draft",
     blocks: Array.isArray(lesson.blocks)
@@ -14829,10 +15105,10 @@ function normalizeCourseLesson(lesson, moduleIndex, lessonIndex) {
 function normalizeCourseModule(module, moduleIndex) {
   return {
     id: module.id || `module-${Date.now()}-${moduleIndex}`,
-    title: module.title || `Modulo ${moduleIndex + 1}`,
-    goal: module.goal || "",
-    format: module.format || "Sesion guiada",
-    deliverable: module.deliverable || "",
+    title: normalizeDisplayText(module.title || `Modulo ${moduleIndex + 1}`),
+    goal: normalizeDisplayText(module.goal || ""),
+    format: normalizeDisplayText(module.format || "Sesion guiada"),
+    deliverable: normalizeDisplayText(module.deliverable || ""),
     lessons: Array.isArray(module.lessons)
       ? module.lessons.map((lesson, lessonIndex) => normalizeCourseLesson(lesson, moduleIndex, lessonIndex))
       : [],
@@ -14843,10 +15119,10 @@ function normalizeCourseModule(module, moduleIndex) {
 function normalizeCourseResource(resource, resourceIndex) {
   return {
     id: resource.id || `resource-${Date.now()}-${resourceIndex}`,
-    label: resource.label || `Recurso ${resourceIndex + 1}`,
-    type: resource.type || "Documento",
+    label: normalizeDisplayText(resource.label || `Recurso ${resourceIndex + 1}`),
+    type: normalizeDisplayText(resource.type || "Documento"),
     url: resource.url || "",
-    description: resource.description || "",
+    description: normalizeDisplayText(resource.description || ""),
     visibility: resource.visibility || "alumnado",
     ...resource
   };
@@ -14937,35 +15213,35 @@ function normalizeCourse(course) {
     : [];
   return {
     id: course.id || `course-${Date.now()}`,
-    title: course.title || "",
+    title: normalizeDisplayText(course.title || ""),
     courseClass: normalizeCourseClass(course.courseClass || course.classType),
-    type: course.type || "",
-    status: course.status || "Planificacion",
-    summary: course.summary || "",
+    type: normalizeDisplayText(course.type || ""),
+    status: normalizeDisplayText(course.status || "Planificacion"),
+    summary: normalizeDisplayText(course.summary || ""),
     startDate: course.startDate || "",
     endDate: course.endDate || "",
     hours: Number(course.hours || 0),
     capacity: Number(course.capacity || 0),
-    modality: course.modality || "Presencial",
-    audience: course.audience || "Socios y voluntariado operativo",
+    modality: normalizeDisplayText(course.modality || "Presencial"),
+    audience: normalizeDisplayText(course.audience || "Socios y voluntariado operativo"),
     accessScope: normalizeCourseAccessScope(
       course.accessScope || course.enrollmentScope || course.visibility,
       course.audience || ""
     ),
     enrollmentOpensAt: normalizeDateTimeLocalInput(course.enrollmentOpensAt || ""),
-    coordinator: course.coordinator || "",
+    coordinator: normalizeDisplayText(course.coordinator || ""),
     contentTemplate: course.contentTemplate || "operativo",
-    objectives: Array.isArray(course.objectives) ? course.objectives : [],
+    objectives: Array.isArray(course.objectives) ? course.objectives.map((item) => normalizeDisplayText(item)) : [],
     sessions,
     modules,
     resources,
-    materials: Array.isArray(course.materials) ? course.materials : [],
-    evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria : [],
+    materials: Array.isArray(course.materials) ? course.materials.map((item) => normalizeDisplayText(item)) : [],
+    evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria.map((item) => normalizeDisplayText(item)) : [],
     contentStatus: course.contentStatus || "draft",
-    certificateCity: course.certificateCity || "",
-    certificateContents: Array.isArray(course.certificateContents) ? course.certificateContents : [],
+    certificateCity: normalizeDisplayText(course.certificateCity || ""),
+    certificateContents: Array.isArray(course.certificateContents) ? course.certificateContents.map((item) => normalizeDisplayText(item)) : [],
     enrollmentFee: Number(course.enrollmentFee || 0),
-    enrollmentPaymentInstructions: course.enrollmentPaymentInstructions || "",
+    enrollmentPaymentInstructions: normalizeDisplayText(course.enrollmentPaymentInstructions || ""),
     enrollmentSubmissions: Array.isArray(course.enrollmentSubmissions)
       ? course.enrollmentSubmissions.map((submission, submissionIndex) => ({
           id: submission.id || `enrollment-${Date.now()}-${submissionIndex}`,
@@ -17925,6 +18201,7 @@ function getMemberCampusAlerts(memberId) {
         detail: `Tienes ${formatCurrency(quotaGap)} pendiente(s). Puedes revisar tu ficha y subir el justificante desde el portal.`,
         action: "nav",
         view: "join",
+        joinAnchor: "joinSectionPaymentProof",
         actionLabel: "Ir a mi ficha"
       });
     }
@@ -17948,6 +18225,7 @@ function getMemberCampusAlerts(memberId) {
         detail: `Todavia te falta: ${missingProfileFields.join(", ")}. Esto puede bloquear inscripciones o diplomas.`,
         action: "nav",
         view: "join",
+        joinAnchor: "joinSectionProfileEditor",
         actionLabel: "Revisar ficha"
       });
     }
@@ -17966,6 +18244,7 @@ function getMemberCampusAlerts(memberId) {
         detail: "Tu justificante ya está enviado y pendiente de validación administrativa.",
         action: "nav",
         view: "join",
+        joinAnchor: "joinSectionPaymentProof",
         actionLabel: "Ver mi ficha"
       });
     }
@@ -17984,6 +18263,7 @@ function getMemberCampusAlerts(memberId) {
             : "Revisa la observación y vuelve a subir el justificante si hace falta.",
         action: "nav",
         view: "join",
+        joinAnchor: paymentSubmission.status === "Aprobado" ? "joinSectionProfileStatus" : "joinSectionPaymentProof",
         actionLabel: "Abrir cuota"
       });
     }
@@ -18014,6 +18294,7 @@ function getMemberCampusAlerts(memberId) {
           : "Puedes revisar el resultado en tu ficha.",
       action: "nav",
       view: "join",
+      joinAnchor: "joinSectionProfileEditor",
       actionLabel: "Abrir ficha"
     });
   }
@@ -18149,7 +18430,8 @@ function renderMemberAlertAction(alert) {
   }
 
   if (alert.action === "nav") {
-    return `<button class="mini-button" type="button" data-action="nav" data-view="${escapeHtml(alert.view || "campus")}">${escapeHtml(alert.actionLabel || "Abrir")}</button>`;
+    const anchorAttribute = alert.joinAnchor ? ` data-anchor="${escapeHtml(alert.joinAnchor)}"` : "";
+    return `<button class="mini-button" type="button" data-action="nav" data-view="${escapeHtml(alert.view || "campus")}"${anchorAttribute}>${escapeHtml(alert.actionLabel || "Abrir")}</button>`;
   }
   if (alert.action === "set-campus-section-mode") {
     return `<button class="mini-button" type="button" data-action="set-campus-section-mode" data-mode="${escapeHtml(alert.mode || "courses")}">${escapeHtml(alert.actionLabel || "Abrir")}</button>`;
@@ -18307,7 +18589,7 @@ function getCampusGroupFileAccept(category) {
 
 function getCampusGroupFileMaxBytes(category) {
   if (category === "documents" || category === "practiceSheets") {
-    return 50_000_000;
+    return 150_000_000;
   }
   return 0;
 }
@@ -18322,7 +18604,7 @@ async function applyCampusGroupFileSelection(file) {
   if (maxBytes && Number(file.size || 0) > maxBytes) {
     pendingCampusGroupFileTarget = null;
     throw new Error(
-      `El archivo supera el limite de ${formatFileSize(maxBytes)}. Para videos usa un enlace y para documentos sube un archivo mas ligero.`
+      `El archivo supera el limite de ${formatFileSize(maxBytes)}. Para videos muy pesados conviene usar un enlace externo, pero los documentos y practicas ya admiten bastante mas tamano.`
     );
   }
   const group = state.campusGroups.find((item) => item.id === groupId) || null;
@@ -18588,7 +18870,7 @@ function isViewAllowed(viewId) {
     return false;
   }
   if (isCampusOnlySession()) {
-    return ["overview", "join", "campus"].includes(viewId);
+    return ["overview", "join", "campus", "test"].includes(viewId);
   }
   return true;
 }
