@@ -3,7 +3,10 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 
 const bundledDataDir = path.join(__dirname, "data");
-const dataDir = path.resolve(process.env.IZ_DATA_DIR || bundledDataDir);
+const configuredDataDir = String(process.env.IZ_DATA_DIR || "").trim();
+const dataDir = path.resolve(configuredDataDir || "/data");
+const uploadsDir = path.join(dataDir, "uploads");
+const associateUploadsDir = path.join(uploadsDir, "associates");
 const dbPath = path.join(dataDir, "campus.db");
 const defaultStatePath = process.env.IZ_DEFAULT_STATE_PATH
   ? path.resolve(process.env.IZ_DEFAULT_STATE_PATH)
@@ -27,6 +30,7 @@ db.exec(`
 seedDatabaseIfNeeded();
 
 function readState() {
+  ensureDataDir();
   const row = db.prepare("SELECT value FROM app_state WHERE key = ?").get("campus_state");
   if (!row) {
     const seeded = loadSeedState();
@@ -38,6 +42,7 @@ function readState() {
 }
 
 function writeState(state) {
+  ensureDataDir();
   const normalized = normalizeState(state);
   const serialized = JSON.stringify(normalized, null, 2);
   const now = new Date().toISOString();
@@ -55,15 +60,20 @@ function writeState(state) {
 }
 
 function resetState() {
+  ensureDataDir();
   const seeded = JSON.parse(fs.readFileSync(defaultStatePath, "utf8"));
   writeState(seeded);
   return normalizeState(seeded);
 }
 
 function getStorageMeta() {
+  ensureDataDir();
   const row = db.prepare("SELECT updated_at FROM app_state WHERE key = ?").get("campus_state");
   return {
+    IZ_DATA_DIR: configuredDataDir,
     dataDir,
+    uploadsDir,
+    associateUploadsDir,
     dbPath,
     snapshotPath: stateSnapshotPath,
     backupDir: stateBackupDir,
@@ -73,12 +83,11 @@ function getStorageMeta() {
 }
 
 function ensureDataDir() {
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  if (!fs.existsSync(stateBackupDir)) {
-    fs.mkdirSync(stateBackupDir, { recursive: true });
-  }
+  [dataDir, uploadsDir, associateUploadsDir, stateBackupDir].forEach((targetPath) => {
+    if (!fs.existsSync(targetPath)) {
+      fs.mkdirSync(targetPath, { recursive: true });
+    }
+  });
 }
 
 function writeAutomaticBackup(serialized, timestamp) {
@@ -520,25 +529,62 @@ function normalizeState(state) {
     notificationSentAt: item.notificationSentAt || "",
     ...item
   }));
-  nextState.associateProfileRequests = (state.associateProfileRequests || []).map((item) => ({
-    id: item.id || `associate-profile-request-${Date.now()}`,
-    associateId: item.associateId || "",
-    memberId: item.memberId || "",
-    submittedAt: item.submittedAt || new Date().toISOString(),
-    status: item.status || "Pendiente de revision",
-    firstName: item.firstName || "",
-    lastName: item.lastName || "",
-    phone: item.phone || "",
-    email: item.email || "",
-    service: item.service || "",
-    note: item.note || "",
-    reviewedAt: item.reviewedAt || "",
-    reviewedBy: item.reviewedBy || "",
-    reviewNote: item.reviewNote || "",
-    notificationStatus: item.notificationStatus || "pending",
-    notificationSentAt: item.notificationSentAt || "",
-    ...item
-  }));
+  nextState.associateProfileRequests = (state.associateProfileRequests || []).map((item) => {
+    const proposedData = (() => {
+      if (item.proposedData && typeof item.proposedData === "object") {
+        return item.proposedData;
+      }
+      const raw = String(item.datos_propuestos_json || "").trim();
+      if (!raw) {
+        return {};
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : {};
+      } catch (error) {
+        return {};
+      }
+    })();
+    const statusFromEstado =
+      item.estado === "aprobada"
+        ? "Aprobado"
+        : item.estado === "rechazada"
+          ? "Rechazado"
+          : item.estado === "pendiente"
+            ? "Pendiente de revision"
+            : "";
+    const associateId = item.associateId || item.socio_id || "";
+    const submittedAt = item.submittedAt || item.fecha_solicitud || new Date().toISOString();
+    const reviewedAt = item.reviewedAt || item.fecha_resolucion || "";
+    const reviewNote = item.reviewNote || item.comentario_admin || "";
+    return {
+      ...item,
+      id: item.id || `associate-profile-request-${Date.now()}`,
+      socio_id: associateId,
+      associateId,
+      memberId: item.memberId || "",
+      datos_propuestos_json: item.datos_propuestos_json || JSON.stringify(proposedData),
+      proposedData,
+      estado: item.estado || "pendiente",
+      comentario_admin: item.comentario_admin || reviewNote,
+      fecha_solicitud: item.fecha_solicitud || submittedAt,
+      fecha_resolucion: item.fecha_resolucion || reviewedAt,
+      submittedAt,
+      status: item.status || statusFromEstado || "Pendiente de revision",
+      firstName: item.firstName || proposedData.firstName || "",
+      lastName: item.lastName || proposedData.lastName || "",
+      dni: item.dni || proposedData.dni || "",
+      phone: item.phone || proposedData.phone || "",
+      email: item.email || proposedData.email || "",
+      service: item.service || proposedData.service || "",
+      note: item.note || proposedData.note || "",
+      reviewedAt,
+      reviewedBy: item.reviewedBy || "",
+      reviewNote,
+      notificationStatus: item.notificationStatus || "pending",
+      notificationSentAt: item.notificationSentAt || ""
+    };
+  });
   nextState.associates = (state.associates || []).map((item) => {
     const payments = (item.payments || []).map((payment) => ({
       id: payment.id || `associate-payment-${Date.now()}`,
@@ -644,8 +690,66 @@ function normalizeState(state) {
   return nextState;
 }
 
+function pathExists(targetPath) {
+  return fs.existsSync(targetPath);
+}
+
+function pathWritable(targetPath) {
+  try {
+    const probePath = fs.existsSync(targetPath) ? targetPath : path.dirname(targetPath);
+    fs.accessSync(probePath, fs.constants.W_OK);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function getStorageDebugInfo() {
+  ensureDataDir();
+  return {
+    IZ_DATA_DIR: configuredDataDir,
+    resolvedDataDir: dataDir,
+    dataDir: {
+      path: dataDir,
+      exists: pathExists(dataDir),
+      writable: pathWritable(dataDir)
+    },
+    database: {
+      path: dbPath,
+      exists: pathExists(dbPath),
+      writable: pathWritable(dbPath)
+    },
+    uploads: {
+      path: associateUploadsDir,
+      exists: pathExists(associateUploadsDir),
+      writable: pathWritable(associateUploadsDir)
+    },
+    state: {
+      path: stateSnapshotPath,
+      exists: pathExists(stateSnapshotPath),
+      writable: pathWritable(stateSnapshotPath)
+    },
+    backups: {
+      path: stateBackupDir,
+      exists: pathExists(stateBackupDir),
+      writable: pathWritable(stateBackupDir)
+    },
+    defaultState: {
+      path: defaultStatePath,
+      exists: pathExists(defaultStatePath),
+      writable: pathWritable(defaultStatePath)
+    }
+  };
+}
+
 module.exports = {
+  associateUploadsDir,
+  dataDir,
+  dbPath,
   getStorageMeta,
+  getStorageDebugInfo,
+  stateBackupDir,
+  stateSnapshotPath,
   readState,
   resetState,
   writeState

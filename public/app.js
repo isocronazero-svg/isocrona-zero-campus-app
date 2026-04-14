@@ -26,6 +26,12 @@ const ASSOCIATE_SECTION_LINKS = [
   { id: "associateSectionAssociates", label: "Socios" }
 ];
 
+const VALIDATION_SECTION_LINKS = [
+  { id: "validationSectionApplications", label: "Altas" },
+  { id: "validationSectionProfiles", label: "Cambios" },
+  { id: "validationSectionPayments", label: "Cuotas" }
+];
+
 const MEMBER_SECTION_LINKS = [
   { id: "memberSectionWorkbench", label: "Ficha activa" },
   { id: "memberSectionCreate", label: "Alta" },
@@ -86,6 +92,7 @@ const navItems = [
   { id: "join", label: "Hazte socio" },
   { id: "test", label: "Test" },
   { id: "associates", label: "Socios y cuotas", sections: ASSOCIATE_SECTION_LINKS },
+  { id: "validations", label: "Validaciones", sections: VALIDATION_SECTION_LINKS },
   { id: "members", label: "Personas y accesos", sections: MEMBER_SECTION_LINKS },
   { id: "campus", label: "Campus", sections: CAMPUS_SECTION_LINKS },
   { id: "reports", label: "Informes y validacion", sections: REPORT_SECTION_LINKS },
@@ -169,7 +176,7 @@ const CAMPUS_ACCOUNT_ROLE_LABELS = {
   admin: "Administracion"
 };
 
-const ADMIN_ONLY_VIEWS = new Set(["associates", "members", "reports", "activity", "automation"]);
+const ADMIN_ONLY_VIEWS = new Set(["associates", "validations", "members", "reports", "activity", "automation"]);
 
 function buildDefaultCampusGroups() {
   return [
@@ -500,7 +507,7 @@ let pendingCampusGroupFileTarget = null;
 let pendingCampusGroupDraftClearGroupId = "";
 let publicCampusCourses = [];
 let publicCampusStatus = "Cargando cursos abiertos...";
-const ADMIN_ONLY_TOP_LEVEL_VIEWS = new Set(["associates", "members", "reports", "automation", "activity"]);
+const ADMIN_ONLY_TOP_LEVEL_VIEWS = new Set(["associates", "validations", "members", "reports", "automation", "activity"]);
 
 const navElement = document.getElementById("nav");
 const metricsElement = document.getElementById("metrics");
@@ -2660,8 +2667,16 @@ document.addEventListener("click", async (event) => {
 
   if (action === "approve-associate-profile-request" && isAdminSession()) {
     const requestId = actionTarget.dataset.requestId;
-    await invokeServerAction(
+    const reviewNote = window.prompt(
+      "Comentario para aprobar el cambio de ficha (opcional).",
+      "Solicitud validada y aplicada sobre la ficha del socio"
+    );
+    if (reviewNote === null) {
+      return;
+    }
+    await invokeJsonAction(
       `/api/associate-profile-requests/${requestId}/approve`,
+      { comentario_admin: String(reviewNote || "").trim() },
       "Actualizacion de ficha aprobada"
     );
     return;
@@ -2669,8 +2684,16 @@ document.addEventListener("click", async (event) => {
 
   if (action === "reject-associate-profile-request" && isAdminSession()) {
     const requestId = actionTarget.dataset.requestId;
-    await invokeServerAction(
+    const reviewNote = window.prompt(
+      "Comentario para rechazar el cambio de ficha.",
+      "Solicitud revisada. Mantener datos actuales hasta nueva revision"
+    );
+    if (reviewNote === null) {
+      return;
+    }
+    await invokeJsonAction(
       `/api/associate-profile-requests/${requestId}/reject`,
+      { comentario_admin: String(reviewNote || "").trim() },
       "Actualizacion de ficha rechazada"
     );
     return;
@@ -3592,8 +3615,7 @@ document.addEventListener("submit", async (event) => {
         const currentMember = getCurrentMember();
         const currentAssociate = getCurrentAssociate();
         const snapshot = getAssociatePortalSnapshot(currentAssociate, currentMember);
-        const selfEditWindow = getAssociateSelfEditWindow(currentAssociate);
-        syncStatus = selfEditWindow.active ? "Guardando cambios de ficha..." : "Enviando solicitud de actualizacion...";
+        syncStatus = "Enviando solicitud de actualizacion...";
         render();
         const form = event.target;
         const readField = (selector) => form.querySelector(selector)?.value?.trim() || "";
@@ -3639,7 +3661,7 @@ document.addEventListener("submit", async (event) => {
       }
       await refreshState();
       applySessionToState();
-      syncStatus = payload.message || (payload.mode === "direct" ? "Ficha actualizada" : "Solicitud de actualizacion enviada");
+      syncStatus = payload.message || "Solicitud de actualizacion enviada";
       showToast(syncStatus, "success");
       render();
     } catch (error) {
@@ -5281,7 +5303,7 @@ function renderNav() {
       (item) => `
         <div class="nav-item-group ${state.activeView === item.id ? "active" : ""}">
           <div class="nav-item-row">
-            <button class="nav-main-button ${state.activeView === item.id ? "active" : ""}" data-action="nav" data-view="${item.id}">
+            <button class="nav-main-button ${state.activeView === item.id ? "active" : ""}" type="button" data-action="nav" data-view="${item.id}">
               ${!isAdminView() && memberLabels[item.id] ? memberLabels[item.id] : item.label}
             </button>
             ${
@@ -5289,6 +5311,7 @@ function renderNav() {
                 ? `
                     <button
                       class="nav-toggle-button ${isNavGroupExpanded(item.id) ? "expanded" : ""}"
+                      type="button"
                       data-action="toggle-nav-group"
                       data-view="${item.id}"
                       aria-expanded="${isNavGroupExpanded(item.id) ? "true" : "false"}"
@@ -5307,7 +5330,7 @@ function renderNav() {
                     ${item.sections
                       .map(
                         (section) => `
-                          <button class="nav-subbutton" data-action="nav-section" data-view="${item.id}" data-section-id="${section.id}">
+                          <button class="nav-subbutton" type="button" data-action="nav-section" data-view="${item.id}" data-section-id="${section.id}">
                             ${section.label}
                           </button>
                         `
@@ -5414,6 +5437,7 @@ function renderMainPanel() {
     overview: renderOverview,
     join: renderJoinView,
     associates: renderAssociates,
+    validations: renderValidations,
     members: renderMembers,
     campus: renderCampus,
     courses: renderCourses,
@@ -5724,6 +5748,7 @@ function renderSidePanel() {
     courses: () => renderSelectedCourse(selectedCourse),
     operations: () => renderOperationsSummary(selectedCourse),
     diplomas: () => renderDiplomaPreview(selectedCourse),
+    validations: renderValidationsSide,
     reports: renderReportsSide,
     activity: renderActivitySide,
     automation: renderSettings
@@ -5800,6 +5825,7 @@ function renderOverview() {
         </div>
         <div class="chip-row">
           <button class="primary-button" data-action="nav" data-view="associates">Socios y cuotas</button>
+          <button class="ghost-button" data-action="nav" data-view="validations">Validaciones</button>
           <button class="ghost-button" data-action="nav" data-view="courses">Campus</button>
           <button class="ghost-button" data-action="nav" data-view="reports">Informes</button>
           <button class="ghost-button" data-action="nav" data-view="test">Test</button>
@@ -6189,7 +6215,6 @@ function renderJoinView() {
     const currentYear = String(new Date().getFullYear());
     const quotaGap = associate ? getAssociateQuotaGap(associate) : 0;
     const previewOnly = isMemberPreviewSession();
-    const selfEditWindow = getAssociateSelfEditWindow(associate);
     const activeModuleLessons = activeModule?.lessons || [];
     const activeLessonIndex = Math.max(0, activeModuleLessons.findIndex((lesson) => lesson.id === activeLessonId));
     const activeLesson = activeModuleLessons[activeLessonIndex] || activeModuleLessons[0] || null;
@@ -6311,10 +6336,8 @@ function renderJoinView() {
 
       <div class="status-note info">
           Estado ${escapeHtml(snapshot.status)} · ${escapeHtml(snapshot.associateNumber)} · ${
-            selfEditWindow.active
-              ? "Edicion directa activa"
-              : `${profileRequests.filter((item) => item.status === "Pendiente de revision").length} cambio(s) pendiente(s)`
-          } · ${
+            profileRequests.filter((item) => item.status === "Pendiente de revision").length
+          } cambio(s) pendiente(s) · ${
             quotaGap > 0 ? `Cuota pendiente ${formatCurrency(quotaGap)}` : `${submissions.length} justificante(s) enviados`
           }.
         </div>
@@ -6373,12 +6396,8 @@ function renderJoinView() {
         </div>
 
         <div class="mail-card associate-anchor" id="joinSectionProfileEditor">
-          <h4>${selfEditWindow.active ? "Actualizar tu ficha" : "Solicitar cambio de ficha"}</h4>
-          <p class="muted">${
-            selfEditWindow.active
-              ? `Durante el primer mes puedes editar directamente DNI/NIE, telefono, email, servicio o nombre. Esta ventana directa termina el ${escapeHtml(formatDate(selfEditWindow.endsAt))}.`
-              : "Puedes proponer cambios de DNI/NIE, telefono, email, servicio o nombre. Administracion los revisa antes de aplicarlos."
-          }</p>
+          <h4>Solicitar cambio de ficha</h4>
+          <p class="muted">Puedes proponer cambios de DNI/NIE, telefono, email, servicio o nombre. Administracion los revisa antes de aplicarlos en tu ficha oficial.</p>
           ${
             previewOnly
               ? `
@@ -6388,9 +6407,7 @@ function renderJoinView() {
                 </div>
                 <p><button class="ghost-button" type="button" data-action="switch-to-member-self">Cambiar a Mi perfil socio</button></p>
               `
-              : selfEditWindow.active
-                ? `<div class="status-note success">Los cambios se aplicaran directamente sobre tu ficha y tu acceso al campus.</div>`
-                : ""
+              : `<div class="status-note info">No puedes cambiar directamente numero de socio, rol, estado ni cuotas. Esos datos los valida administracion.</div>`
           }
           <form id="associateProfileRequestForm" class="stack">
             <fieldset ${previewOnly ? "disabled" : ""}>
@@ -6420,9 +6437,9 @@ function renderJoinView() {
             </label>
             <label class="inline-field">
               Nota
-              <textarea id="associateProfileNote" placeholder="${selfEditWindow.active ? "Opcional: anade una nota interna sobre el cambio" : "Explica brevemente que hay que corregir o actualizar"}"></textarea>
+              <textarea id="associateProfileNote" placeholder="Explica brevemente que hay que corregir o actualizar"></textarea>
             </label>
-            <button class="primary-button" type="submit">${selfEditWindow.active ? "Guardar cambios" : "Enviar a revision"}</button>
+            <button class="primary-button" type="submit">Enviar solicitud de cambio</button>
             </fieldset>
           </form>
         </div>
@@ -7710,6 +7727,7 @@ function renderAssociates() {
                 ? pagedProfileRequests.items
                     .map((item) => {
                       const associate = findAssociate(item.associateId);
+                      const proposed = getAssociateProfileRequestProposedData(item);
                       return `
                         <tr>
                           <td>
@@ -7721,7 +7739,7 @@ function renderAssociates() {
                           </td>
                           <td>${escapeHtml(associate ? getAssociateFullName(associate) : item.associateId)}</td>
                           <td>${escapeHtml(formatDateTime(item.submittedAt))}</td>
-                            <td>${escapeHtml(item.email)}<br><span class="muted">${escapeHtml(item.dni || "-")} | ${escapeHtml(item.phone)} | ${escapeHtml(item.service)}</span></td>
+                            <td>${escapeHtml(proposed.email || "-")}<br><span class="muted">${escapeHtml(proposed.dni || "-")} | ${escapeHtml(proposed.phone || "-")} | ${escapeHtml(proposed.service || "-")}</span></td>
                           <td>${escapeHtml(item.status)}</td>
                           <td>${escapeHtml(item.notificationStatus || "pending")}</td>
                           <td>
@@ -8236,6 +8254,7 @@ function renderAssociatesSide() {
           `
           : ""
       }
+      ${profileRequest ? renderAssociateProfileRequestComparison(profileRequest) : ""}
     </div>
   `;
 }
@@ -11187,6 +11206,189 @@ function renderMemberTimeline(course) {
           ? `<div class="timeline-item"><p>Prioridad</p><strong>${escapeHtml(alerts[0].title)}</strong></div>`
           : ""
       }
+    </div>
+  `;
+}
+
+function renderValidations() {
+  if (!isAdminView()) {
+    return `<div class="empty-state">Las validaciones solo estan disponibles para administracion.</div>`;
+  }
+
+  const pendingApplications = (state.associateApplications || []).filter((item) =>
+    isAssociateApplicationPending(item)
+  );
+  const pendingProfileRequests = (state.associateProfileRequests || []).filter(
+    (item) => item.status === "Pendiente de revision"
+  );
+  const pendingPaymentSubmissions = (state.associatePaymentSubmissions || []).filter(
+    (item) => item.status === "Pendiente de revision"
+  );
+
+  return `
+    <div class="panel-stack">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Validaciones</p>
+          <h3>Altas, cambios y cuotas pendientes</h3>
+          <p class="muted">Una vista rapida para que administracion resuelva lo pendiente sin perder contexto.</p>
+        </div>
+        <div class="chip-row">
+          <button class="ghost-button" type="button" data-action="nav" data-view="associates">Socios y cuotas</button>
+          <button class="ghost-button" type="button" data-action="nav" data-view="overview">Volver al panel</button>
+        </div>
+      </div>
+
+      <div class="status-note info">
+        ${pendingApplications.length} alta(s), ${pendingProfileRequests.length} cambio(s) y ${pendingPaymentSubmissions.length} justificante(s) pendientes.
+      </div>
+
+      <div class="course-grid">
+        <div class="mail-card associate-anchor" id="validationSectionApplications">
+          <div class="panel-header">
+            <div>
+              <h4>Solicitudes de alta</h4>
+              <p class="muted">Nuevas solicitudes de socio pendientes de revisar.</p>
+            </div>
+            <button class="ghost-button" type="button" data-action="nav-section" data-view="associates" data-section-id="associateSectionApplications">Ver tabla completa</button>
+          </div>
+          ${
+            pendingApplications.length
+              ? `<div class="compact-list">
+                  ${pendingApplications
+                    .slice(0, 10)
+                    .map((item) => {
+                      const readiness = getAssociateApplicationReadiness(item);
+                      return `
+                        <div class="timeline-item compact-timeline-item">
+                          <strong>${escapeHtml(getAssociateApplicantName(item))}</strong>
+                          <p>${escapeHtml(item.email || "-")} | ${escapeHtml(item.service || "-")}</p>
+                          <p class="muted">${formatDateTime(item.submittedAt)} | ${escapeHtml(item.status || "Pendiente")}</p>
+                          <div class="chip-row">${renderAssociateApplicationValidationChips(item)}</div>
+                          <div class="chip-row">
+                            <button class="mini-button" type="button" data-action="approve-associate" data-application-id="${item.id}" ${readiness.ready ? "" : "disabled"}>Aprobar</button>
+                            <button class="mini-button" type="button" data-action="reject-associate" data-application-id="${item.id}">Rechazar</button>
+                          </div>
+                        </div>
+                      `;
+                    })
+                    .join("")}
+                </div>`
+              : `<p class="muted">No hay solicitudes de alta pendientes.</p>`
+          }
+        </div>
+
+        <div class="mail-card associate-anchor" id="validationSectionProfiles">
+          <div class="panel-header">
+            <div>
+              <h4>Cambios de ficha</h4>
+              <p class="muted">Solicitudes enviadas por los socios para actualizar su ficha.</p>
+            </div>
+            <button class="ghost-button" type="button" data-action="nav-section" data-view="associates" data-section-id="associateSectionProfiles">Ver tabla completa</button>
+          </div>
+          ${
+            pendingProfileRequests.length
+              ? `<div class="compact-list">
+                  ${pendingProfileRequests
+                    .slice(0, 10)
+                    .map((request) => {
+                      const associate = findAssociate(request.associateId);
+                      const changedRows = getAssociateProfileRequestComparisonRows(request)
+                        .filter((row) => row.changed)
+                        .slice(0, 3);
+                      return `
+                        <div class="timeline-item compact-timeline-item">
+                          <strong>${escapeHtml(getAssociateFullName(associate) || request.email || "Cambio de ficha")}</strong>
+                          <p class="muted">${formatDateTime(request.submittedAt)} | ${escapeHtml(request.status || "Pendiente de revision")}</p>
+                          ${
+                            changedRows.length
+                              ? changedRows
+                                  .map(
+                                    (row) => `<p><strong>${escapeHtml(row.label)}:</strong> ${escapeHtml(row.current)} → <strong>${escapeHtml(row.proposed)}</strong></p>`
+                                  )
+                                  .join("")
+                              : `<p class="muted">Sin diferencias resumidas.</p>`
+                          }
+                          <div class="chip-row">
+                            <button class="mini-button" type="button" data-action="approve-associate-profile-request" data-request-id="${request.id}">Aprobar</button>
+                            <button class="mini-button" type="button" data-action="reject-associate-profile-request" data-request-id="${request.id}">Rechazar</button>
+                          </div>
+                        </div>
+                      `;
+                    })
+                    .join("")}
+                </div>`
+              : `<p class="muted">No hay cambios de ficha pendientes.</p>`
+          }
+        </div>
+      </div>
+
+      <div class="mail-card associate-anchor" id="validationSectionPayments">
+        <div class="panel-header">
+          <div>
+            <h4>Justificantes de cuota</h4>
+            <p class="muted">Valida los pagos enviados para mantener el acceso de los socios al dia.</p>
+          </div>
+          <button class="ghost-button" type="button" data-action="nav-section" data-view="associates" data-section-id="associateSectionPayments">Ver tabla completa</button>
+        </div>
+        ${
+          pendingPaymentSubmissions.length
+            ? `<div class="compact-list">
+                ${pendingPaymentSubmissions
+                  .slice(0, 10)
+                  .map((submission) => {
+                    const associate = findAssociate(submission.associateId);
+                    return `
+                      <div class="timeline-item compact-timeline-item">
+                        <strong>${escapeHtml(getAssociateFullName(associate) || "Socio")}</strong>
+                        <p>${escapeHtml(submission.year || "-")} | ${formatCurrency(Number(submission.amount || 0))} | ${escapeHtml(submission.method || "-")}</p>
+                        <p class="muted">${formatDateTime(submission.submittedAt)} | ${escapeHtml(submission.status || "Pendiente de revision")}</p>
+                        ${submission.note ? `<p class="muted">${escapeHtml(submission.note)}</p>` : ""}
+                        <div class="chip-row">
+                          <button class="mini-button" type="button" data-action="approve-associate-payment" data-submission-id="${submission.id}">Aprobar</button>
+                          <button class="mini-button" type="button" data-action="reject-associate-payment" data-submission-id="${submission.id}">Rechazar</button>
+                        </div>
+                      </div>
+                    `;
+                  })
+                  .join("")}
+              </div>`
+            : `<p class="muted">No hay justificantes de cuota pendientes.</p>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderValidationsSide() {
+  if (!isAdminView()) {
+    return `<div class="empty-state">Las validaciones solo estan disponibles para administracion.</div>`;
+  }
+
+  const pendingApplications = (state.associateApplications || []).filter((item) =>
+    isAssociateApplicationPending(item)
+  ).length;
+  const pendingProfileRequests = (state.associateProfileRequests || []).filter(
+    (item) => item.status === "Pendiente de revision"
+  ).length;
+  const pendingPaymentSubmissions = (state.associatePaymentSubmissions || []).filter(
+    (item) => item.status === "Pendiente de revision"
+  ).length;
+
+  return `
+    <div class="panel-stack">
+      <div>
+        <p class="eyebrow">Resumen de validaciones</p>
+        <h3>Operativa pendiente</h3>
+      </div>
+      <div class="status-note info">
+        ${pendingApplications} alta(s), ${pendingProfileRequests} cambio(s) y ${pendingPaymentSubmissions} justificante(s) en cola.
+      </div>
+      <div class="chip-row">
+        <button class="primary-button" type="button" data-action="nav-section" data-view="validations" data-section-id="validationSectionApplications">Altas</button>
+        <button class="ghost-button" type="button" data-action="nav-section" data-view="validations" data-section-id="validationSectionProfiles">Cambios</button>
+        <button class="ghost-button" type="button" data-action="nav-section" data-view="validations" data-section-id="validationSectionPayments">Cuotas</button>
+      </div>
     </div>
   `;
 }
@@ -14681,6 +14883,111 @@ function findAssociatePaymentSubmission(submissionId) {
 
 function findAssociateProfileRequest(requestId) {
   return state.associateProfileRequests.find((request) => request.id === requestId);
+}
+
+function getAssociateProfileRequestProposedData(request) {
+  if (!request) {
+    return {
+      firstName: "",
+      lastName: "",
+      dni: "",
+      phone: "",
+      email: "",
+      service: "",
+      note: ""
+    };
+  }
+  let parsed = {};
+  const raw = String(request.datos_propuestos_json || "").trim();
+  if (raw) {
+    try {
+      const candidate = JSON.parse(raw);
+      if (candidate && typeof candidate === "object") {
+        parsed = candidate;
+      }
+    } catch (error) {
+      parsed = {};
+    }
+  }
+  const proposed = request.proposedData && typeof request.proposedData === "object" ? request.proposedData : parsed;
+  return {
+    firstName: String(proposed.firstName || request.firstName || "").trim(),
+    lastName: String(proposed.lastName || request.lastName || "").trim(),
+    dni: String(proposed.dni || request.dni || "").trim(),
+    phone: String(proposed.phone || request.phone || "").trim(),
+    email: String(proposed.email || request.email || "").trim(),
+    service: String(proposed.service || request.service || "").trim(),
+    note: String(proposed.note || request.note || "").trim()
+  };
+}
+
+function getAssociateProfileRequestComparisonRows(request) {
+  if (!request) {
+    return [];
+  }
+  const associate = findAssociate(request.associateId || request.socio_id);
+  const member = associate?.linkedMemberId
+    ? findMember(associate.linkedMemberId)
+    : findMember(request.memberId);
+  const current = getAssociatePortalSnapshot(associate, member);
+  const proposed = getAssociateProfileRequestProposedData(request);
+  return [
+    { label: "Nombre", current: current.firstName || "-", proposed: proposed.firstName || "-" },
+    { label: "Apellidos", current: current.lastName || "-", proposed: proposed.lastName || "-" },
+    { label: "DNI/NIE", current: current.dni || "-", proposed: proposed.dni || "-" },
+    { label: "Telefono", current: current.phone || "-", proposed: proposed.phone || "-" },
+    { label: "Email", current: current.email || "-", proposed: proposed.email || "-" },
+    { label: "Servicio", current: current.service || "-", proposed: proposed.service || "-" }
+  ].map((row) => ({
+    ...row,
+    changed: String(row.current || "").trim() !== String(row.proposed || "").trim()
+  }));
+}
+
+function renderAssociateProfileRequestComparison(request) {
+  if (!request) {
+    return `<p class="muted">Selecciona un cambio de ficha para comparar los datos actuales con los propuestos.</p>`;
+  }
+  const rows = getAssociateProfileRequestComparisonRows(request);
+  const proposed = getAssociateProfileRequestProposedData(request);
+  return `
+    <div class="mail-card">
+      <h4>Comparativa del cambio</h4>
+      <p class="muted">Administracion valida aqui los datos oficiales frente a la propuesta enviada por el socio.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Campo</th>
+            <th>Actual</th>
+            <th>Propuesto</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `
+                <tr>
+                  <td>${escapeHtml(row.label)}</td>
+                  <td>${escapeHtml(row.current)}</td>
+                  <td>${row.changed ? `<strong>${escapeHtml(row.proposed)}</strong>` : escapeHtml(row.proposed)}</td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+      ${
+        proposed.note
+          ? `<p class="muted"><strong>Nota del socio:</strong> ${escapeHtml(proposed.note)}</p>`
+          : `<p class="muted">El socio no ha anadido comentario extra.</p>`
+      }
+      ${
+        request.reviewNote
+          ? `<p class="muted"><strong>Comentario admin:</strong> ${escapeHtml(request.reviewNote)}</p>`
+          : ""
+      }
+    </div>
+  `;
 }
 
 function getAssociateApplicantName(application) {
@@ -18514,27 +18821,6 @@ function getAssociatePortalSnapshot(associate, member) {
     service: associate?.service || "",
     campusAccessStatus: associate?.campusAccessStatus || "activo",
     welcomeStatus: associate?.welcomeEmailStatus || "no aplica"
-  };
-}
-
-function getAssociateSelfEditWindow(associate) {
-  const openedAt = associate?.joinedAt ? new Date(associate.joinedAt) : null;
-  if (!openedAt || Number.isNaN(openedAt.getTime())) {
-    return {
-      active: false,
-      openedAt: "",
-      endsAt: "",
-      daysRemaining: 0
-    };
-  }
-
-  const endsAt = new Date(openedAt.getTime() + 30 * 24 * 60 * 60 * 1000);
-  const remainingMs = endsAt.getTime() - Date.now();
-  return {
-    active: remainingMs > 0,
-    openedAt: openedAt.toISOString(),
-    endsAt: endsAt.toISOString(),
-    daysRemaining: Math.max(0, Math.ceil(remainingMs / (24 * 60 * 60 * 1000)))
   };
 }
 

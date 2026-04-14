@@ -2,8 +2,30 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
-const { getStorageMeta, readState, resetState, writeState } = require("./storage");
+const {
+  associateUploadsDir,
+  getStorageDebugInfo,
+  getStorageMeta,
+  readState,
+  resetState,
+  writeState
+} = require("./storage");
 const { sendMail } = require("./smtp");
+const {
+  authenticateUser,
+  createUser,
+  findUserByEmail,
+  findUserById,
+  initDatabase,
+  isDatabaseEnabled,
+  listTestResultsForUser,
+  listUsers,
+  normalizeRole: normalizePlatformRole,
+  saveTestResult,
+  signAuthToken,
+  updateUser,
+  verifyAuthToken
+} = require("./db");
 
 loadDotEnv(path.join(__dirname, ".env"));
 
@@ -13,8 +35,6 @@ const appRelease = "recovery-admin-2026-04-08-8";
 const emergencyRecoveryPassword = "IZ-Rescate-72Zp91xQ";
 const automationIntervalMs = Number(process.env.AUTOMATION_INTERVAL_MS || 300000);
 const bundledDataDir = path.join(__dirname, "data");
-const persistentDataDir = path.resolve(process.env.IZ_DATA_DIR || bundledDataDir);
-const uploadRoot = path.join(persistentDataDir, "uploads", "associates");
 const associateSelfEditWindowDays = Number(process.env.IZ_ASSOCIATE_SELF_EDIT_DAYS || 30);
 const campusBaseUrl = normalizeBaseUrl(process.env.IZ_BASE_URL || `http://localhost:${port}`);
 const legacyAssociateWorkbookPath =
@@ -111,9 +131,13 @@ ensureUploadDir();
 const activeSessions = new Map();
 const campusGroupResourceCategories = ["documents", "practiceSheets", "videos", "links"];
 
+initDatabase().catch((error) => {
+  console.warn("No se pudo inicializar PostgreSQL:", error.message);
+});
+
 function ensureUploadDir() {
-  if (!fs.existsSync(uploadRoot)) {
-    fs.mkdirSync(uploadRoot, { recursive: true });
+  if (!fs.existsSync(associateUploadsDir)) {
+    fs.mkdirSync(associateUploadsDir, { recursive: true });
   }
 }
 
@@ -279,6 +303,201 @@ function requireAdminAccount(req, res, state) {
     return null;
   }
   return account;
+}
+
+function getBearerTokenFromRequest(req) {
+  const header = String(req.headers.authorization || "").trim();
+  if (!/^Bearer\s+/i.test(header)) {
+    return "";
+  }
+  return header.replace(/^Bearer\s+/i, "").trim();
+}
+
+async function getAuthenticatedDbUser(req) {
+  if (!isDatabaseEnabled()) {
+    return null;
+  }
+  const token = getBearerTokenFromRequest(req);
+  if (!token) {
+    return null;
+  }
+  const payload = verifyAuthToken(token);
+  if (!payload?.sub) {
+    return null;
+  }
+  return findUserById(payload.sub);
+}
+
+async function requireAuthenticatedDbUser(req, res) {
+  const user = await getAuthenticatedDbUser(req);
+  if (!user) {
+    sendJson(res, 401, { ok: false, error: "Inicia sesion para continuar" });
+    return null;
+  }
+  return user;
+}
+
+async function requireAdminDbUser(req, res) {
+  const user = await requireAuthenticatedDbUser(req, res);
+  if (!user) {
+    return null;
+  }
+  if (normalizePlatformRole(user.role) !== "admin") {
+    sendJson(res, 403, { ok: false, error: "Esta accion esta reservada a administracion" });
+    return null;
+  }
+  return user;
+}
+
+function mapPlatformRoleToLegacyAccountRole(role) {
+  return normalizePlatformRole(role) === "admin" ? "admin" : "member";
+}
+
+function mapPlatformRoleToLegacyMemberRole(role) {
+  const normalizedRole = normalizePlatformRole(role);
+  if (normalizedRole === "admin") {
+    return "Administracion";
+  }
+  if (normalizedRole === "instructor") {
+    return "Instructor";
+  }
+  return "Socio";
+}
+
+function generateLegacyId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function ensureLegacyAccountForDbUser(state, dbUser, options = {}) {
+  state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
+  state.members = Array.isArray(state.members) ? state.members : [];
+  state.associates = Array.isArray(state.associates) ? state.associates : [];
+  state.testResults = Array.isArray(state.testResults) ? state.testResults : [];
+
+  const normalizedEmail = String(dbUser?.email || "").trim().toLowerCase();
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const matchedAssociate =
+    (dbUser.associateId && state.associates.find((item) => item.id === dbUser.associateId)) ||
+    state.associates.find((item) => String(item.email || "").trim().toLowerCase() === normalizedEmail) ||
+    null;
+
+  let member =
+    (dbUser.memberId && state.members.find((item) => item.id === dbUser.memberId)) ||
+    state.members.find((item) => String(item.email || "").trim().toLowerCase() === normalizedEmail) ||
+    (matchedAssociate &&
+      state.members.find(
+        (item) => item.associateId === matchedAssociate.id || item.id === matchedAssociate.linkedMemberId
+      )) ||
+    null;
+
+  if (!member) {
+    member = {
+      id: generateLegacyId("member-db"),
+      name: dbUser.name,
+      role: mapPlatformRoleToLegacyMemberRole(dbUser.role),
+      email: dbUser.email,
+      certifications: [],
+      renewalsDue: 0,
+      associateId: matchedAssociate?.id || "",
+      source: "postgres",
+      phone: dbUser.phone || ""
+    };
+    state.members.unshift(member);
+  } else {
+    member.name = dbUser.name || member.name;
+    member.email = dbUser.email || member.email;
+    member.role = mapPlatformRoleToLegacyMemberRole(dbUser.role);
+    member.associateId = matchedAssociate?.id || member.associateId || "";
+    member.phone = dbUser.phone || member.phone || "";
+    member.source = member.source || "postgres";
+  }
+
+  let account =
+    state.accounts.find((item) => String(item.email || "").trim().toLowerCase() === normalizedEmail) ||
+    state.accounts.find((item) => item.memberId === member.id) ||
+    null;
+
+  if (!account) {
+    account = {
+      id: generateLegacyId("account-db"),
+      name: dbUser.name,
+      email: dbUser.email,
+      password: String(options.password || ""),
+      role: mapPlatformRoleToLegacyAccountRole(dbUser.role),
+      memberId: member.id,
+      associateId: matchedAssociate?.id || "",
+      mustChangePassword: false,
+      source: "postgres"
+    };
+    state.accounts.unshift(account);
+  } else {
+    account.name = dbUser.name || account.name;
+    account.email = dbUser.email || account.email;
+    account.role = mapPlatformRoleToLegacyAccountRole(dbUser.role);
+    account.memberId = member.id;
+    account.associateId = matchedAssociate?.id || account.associateId || "";
+    account.source = "postgres";
+    if (typeof options.password === "string" && options.password.trim()) {
+      account.password = options.password.trim();
+    }
+  }
+
+  if (matchedAssociate) {
+    matchedAssociate.linkedMemberId = member.id;
+    matchedAssociate.linkedAccountId = account.id;
+    matchedAssociate.campusAccessStatus = "active";
+  }
+
+  return { account, member, associate: matchedAssociate };
+}
+
+function buildPlatformSessionPayload(account, sessionToken = "", extras = {}) {
+  return {
+    ...buildSessionPayload(account, sessionToken),
+    userId: String(extras.userId || ""),
+    jwt: String(extras.jwt || ""),
+    platformRole: normalizePlatformRole(extras.platformRole || (account.role === "admin" ? "admin" : "socio"))
+  };
+}
+
+function listLegacyUsersFromState(state) {
+  const accounts = Array.isArray(state.accounts) ? state.accounts : [];
+  const members = Array.isArray(state.members) ? state.members : [];
+  return accounts.map((account) => {
+    const member = members.find((item) => item.id === account.memberId) || null;
+    return {
+      id: account.id,
+      name: account.name,
+      email: account.email,
+      role: account.role === "admin" ? "admin" : member?.role === "Instructor" ? "instructor" : "socio",
+      status: "active",
+      phone: member?.phone || "",
+      service: member?.service || "",
+      memberId: account.memberId || "",
+      associateId: account.associateId || ""
+    };
+  });
+}
+
+function buildLegacyCurrentUser(account, state) {
+  if (!account) {
+    return null;
+  }
+  const member = (state.members || []).find((item) => item.id === account.memberId) || null;
+  return {
+    id: account.id,
+    name: account.name,
+    email: account.email,
+    role: account.role === "admin" ? "admin" : member?.role === "Instructor" ? "instructor" : "socio",
+    status: "active",
+    phone: member?.phone || "",
+    service: member?.service || "",
+    memberId: account.memberId || "",
+    associateId: account.associateId || ""
+  };
 }
 
 function normalizeCourseAccessScope(value, fallbackAudience = "") {
@@ -1071,6 +1290,16 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  if (requestUrl.pathname === "/api/debug/storage" && req.method === "GET") {
+    const debugInfo = getStorageDebugInfo();
+    return sendJson(res, 200, {
+      ok: true,
+      service: "isocrona-zero-campus",
+      release: appRelease,
+      ...debugInfo
+    });
+  }
+
   if (requestUrl.pathname === "/api/state" && req.method === "GET") {
     const state = readState();
     if (synchronizeAssociateStatuses(state)) {
@@ -1098,17 +1327,321 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (requestUrl.pathname === "/api/session" && req.method === "GET") {
+    const state = readState();
+    const account = getAuthenticatedAccount(req, state);
+    if (!account) {
+      return sendJson(res, 200, { ok: false, session: null });
+    }
+    const token = getSessionTokenFromRequest(req);
+    let platformRole = account.role === "admin" ? "admin" : "socio";
+    let userId = "";
+    let jwtToken = "";
+    if (isDatabaseEnabled()) {
+      try {
+        const dbUser = await findUserByEmail(account.email);
+        if (dbUser) {
+          platformRole = normalizePlatformRole(dbUser.role);
+          userId = dbUser.id;
+          jwtToken = signAuthToken(dbUser);
+        }
+      } catch (error) {
+      }
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      session: buildPlatformSessionPayload(account, token, {
+        userId,
+        jwt: jwtToken,
+        platformRole
+      })
+    });
+  }
+
+  if (requestUrl.pathname === "/api/auth/register" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const role = normalizePlatformRole(payload.role || "socio");
+      const user = isDatabaseEnabled()
+        ? await createUser({
+            name: payload.name,
+            email: payload.email,
+            password: payload.password,
+            role,
+            phone: payload.phone,
+            service: payload.service
+          })
+        : null;
+
+      if (!user) {
+        return sendJson(res, 503, { ok: false, error: "DATABASE_URL no configurada para registro persistente" });
+      }
+
+      const state = readState();
+      const ensured = ensureLegacyAccountForDbUser(state, user, { password: payload.password });
+      writeState(state);
+
+      return sendJson(res, 201, {
+        ok: true,
+        user,
+        accountId: ensured?.account?.id || ""
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar el usuario" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/auth/login" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const email = String(payload.email || "").trim().toLowerCase();
+      const password = String(payload.password || "").trim();
+      if (!isDatabaseEnabled()) {
+        return sendJson(res, 503, { ok: false, error: "DATABASE_URL no configurada" });
+      }
+      const dbUser = await authenticateUser(email, password);
+      if (!dbUser) {
+        return sendJson(res, 401, { ok: false, error: "Credenciales invalidas" });
+      }
+
+      const state = readState();
+      const ensured = ensureLegacyAccountForDbUser(state, dbUser, { password });
+      writeState(state);
+      const token = createSessionToken(ensured.account);
+      const jwtToken = signAuthToken(dbUser);
+      setSessionCookie(res, token);
+
+      return sendJson(res, 200, {
+        ok: true,
+        user: dbUser,
+        session: buildPlatformSessionPayload(ensured.account, token, {
+          userId: dbUser.id,
+          jwt: jwtToken,
+          platformRole: dbUser.role
+        })
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "Login invalido" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/auth/me" && req.method === "GET") {
+    try {
+      if (isDatabaseEnabled()) {
+        const dbUser = await getAuthenticatedDbUser(req);
+        if (dbUser) {
+          return sendJson(res, 200, { ok: true, user: dbUser });
+        }
+      }
+
       const state = readState();
       const account = getAuthenticatedAccount(req, state);
       if (!account) {
-        return sendJson(res, 200, { ok: false, session: null });
+        return sendJson(res, 401, { ok: false, error: "Inicia sesion para continuar" });
       }
-      const token = getSessionTokenFromRequest(req);
-      return sendJson(res, 200, {
-        ok: true,
-        session: buildSessionPayload(account, token)
-      });
+      return sendJson(res, 200, { ok: true, user: buildLegacyCurrentUser(account, state) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cargar el usuario actual" });
     }
+  }
+
+  if (requestUrl.pathname === "/api/admin/users" && req.method === "GET") {
+    try {
+      if (isDatabaseEnabled()) {
+        const user = await requireAdminDbUser(req, res);
+        if (!user) {
+          return;
+        }
+        return sendJson(res, 200, { ok: true, users: await listUsers() });
+      }
+
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      return sendJson(res, 200, { ok: true, users: listLegacyUsersFromState(state) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo listar usuarios" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/admin/users" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+
+      if (isDatabaseEnabled()) {
+        const adminUser = await requireAdminDbUser(req, res);
+        if (!adminUser) {
+          return;
+        }
+        const user = await createUser({
+          name: payload.name,
+          email: payload.email,
+          password: payload.password,
+          role: payload.role,
+          phone: payload.phone,
+          service: payload.service,
+          memberId: payload.memberId,
+          associateId: payload.associateId
+        });
+        const state = readState();
+        ensureLegacyAccountForDbUser(state, user, { password: payload.password });
+        writeState(state);
+        return sendJson(res, 201, { ok: true, user });
+      }
+
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
+      state.members = Array.isArray(state.members) ? state.members : [];
+      const memberId = payload.memberId || generateLegacyId("member-manual");
+      const existingMember = state.members.find((item) => item.id === memberId);
+      if (!existingMember) {
+        state.members.unshift({
+          id: memberId,
+          name: String(payload.name || "").trim(),
+          role: mapPlatformRoleToLegacyMemberRole(payload.role),
+          email: String(payload.email || "").trim(),
+          certifications: [],
+          renewalsDue: 0,
+          associateId: String(payload.associateId || ""),
+          source: "manual-admin",
+          phone: String(payload.phone || "")
+        });
+      }
+      const legacyAccount = {
+        id: generateLegacyId("account-manual"),
+        name: String(payload.name || "").trim(),
+        email: String(payload.email || "").trim().toLowerCase(),
+        password: String(payload.password || "").trim(),
+        role: mapPlatformRoleToLegacyAccountRole(payload.role),
+        memberId,
+        associateId: String(payload.associateId || ""),
+        mustChangePassword: false,
+        source: "manual-admin"
+      };
+      state.accounts.unshift(legacyAccount);
+      writeState(state);
+      return sendJson(res, 201, { ok: true, user: buildLegacyCurrentUser(legacyAccount, state) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear el usuario" });
+    }
+  }
+
+  if (/^\/api\/admin\/users\/[^/]+$/.test(requestUrl.pathname) && req.method === "PUT") {
+    try {
+      const payload = await readJsonBody(req);
+      const userId = decodeURIComponent(requestUrl.pathname.split("/").pop() || "");
+
+      if (isDatabaseEnabled()) {
+        const adminUser = await requireAdminDbUser(req, res);
+        if (!adminUser) {
+          return;
+        }
+        const user = await updateUser(userId, payload);
+        const state = readState();
+        ensureLegacyAccountForDbUser(state, user, {
+          password: typeof payload.password === "string" ? payload.password : ""
+        });
+        writeState(state);
+        return sendJson(res, 200, { ok: true, user });
+      }
+
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      const legacyAccount = (state.accounts || []).find((item) => item.id === userId);
+      if (!legacyAccount) {
+        return sendJson(res, 404, { ok: false, error: "Usuario no encontrado" });
+      }
+      legacyAccount.name = String(payload.name || legacyAccount.name || "").trim();
+      legacyAccount.email = String(payload.email || legacyAccount.email || "").trim().toLowerCase();
+      legacyAccount.role = mapPlatformRoleToLegacyAccountRole(payload.role || legacyAccount.role);
+      if (typeof payload.password === "string" && payload.password.trim()) {
+        legacyAccount.password = payload.password.trim();
+      }
+      const member = (state.members || []).find((item) => item.id === legacyAccount.memberId);
+      if (member) {
+        member.name = legacyAccount.name;
+        member.email = legacyAccount.email;
+        member.role = mapPlatformRoleToLegacyMemberRole(payload.role || legacyAccount.role);
+        member.phone = String(payload.phone || member.phone || "");
+      }
+      writeState(state);
+      return sendJson(res, 200, { ok: true, user: buildLegacyCurrentUser(legacyAccount, state) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo actualizar el usuario" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-results/me" && req.method === "GET") {
+    try {
+      if (isDatabaseEnabled()) {
+        const user = await requireAuthenticatedDbUser(req, res);
+        if (!user) {
+          return;
+        }
+        return sendJson(res, 200, { ok: true, results: await listTestResultsForUser(user.id) });
+      }
+
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      const results = (state.testResults || []).filter((item) => item.userId === account.id || item.memberId === account.memberId);
+      return sendJson(res, 200, { ok: true, results });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar los resultados" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-results" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      if (isDatabaseEnabled()) {
+        const user = await requireAuthenticatedDbUser(req, res);
+        if (!user) {
+          return;
+        }
+        const result = await saveTestResult({
+          userId: user.id,
+          score: payload.score,
+          total: payload.total,
+          percentage: payload.percentage,
+          answers: payload.answers
+        });
+        return sendJson(res, 201, { ok: true, result });
+      }
+
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      state.testResults = Array.isArray(state.testResults) ? state.testResults : [];
+      const result = {
+        id: generateLegacyId("test-result"),
+        userId: account.id,
+        memberId: account.memberId || "",
+        score: Number(payload.score || 0),
+        total: Number(payload.total || 0),
+        percentage: Number(payload.percentage || 0),
+        answers: Array.isArray(payload.answers) ? payload.answers : [],
+        createdAt: new Date().toISOString()
+      };
+      state.testResults.unshift(result);
+      writeState(state);
+      return sendJson(res, 201, { ok: true, result });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el resultado" });
+    }
+  }
 
   if (requestUrl.pathname === "/api/state" && req.method === "POST") {
     const currentState = readState();
@@ -1637,25 +2170,6 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 404, { ok: false, error: "No se ha encontrado tu ficha de socio" });
       }
 
-      if (canAssociateSelfEditDirectly(associate)) {
-        const result = applyAssociateProfileUpdate(state, associate, account, payload, {
-          actorType: "member",
-          actorName: account.name,
-          activityMessage: `Ha actualizado directamente su ficha de socio (${associate.email || account.email})`
-        });
-        const statusMessage = result.statusTransition?.changed
-          ? `. Tu estado pasa a ${result.statusTransition.nextStatus}`
-          : "";
-        writeState(state);
-        return sendJson(res, 200, {
-          ok: true,
-          mode: "direct",
-          message: `Ficha actualizada correctamente${statusMessage}`,
-          associateId: result.associate.id,
-          associateStatus: result.associate.status
-        });
-      }
-
       const request = createAssociateProfileRequest(state, account, payload);
       appendActivity(
         state,
@@ -1802,10 +2316,12 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
+      const payload = await readJsonBody(req).catch(() => ({}));
       const result = approveAssociateProfileRequest(
         state,
         approveAssociateProfileRequestMatch[1],
-        account.name
+        account.name,
+        payload?.comentario_admin || payload?.reviewNote || ""
       );
       await maybeSendAssociateProfileRequestNotification(
         state,
@@ -1848,10 +2364,12 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
+      const payload = await readJsonBody(req).catch(() => ({}));
       const result = rejectAssociateProfileRequest(
         state,
         rejectAssociateProfileRequestMatch[1],
-        account.name
+        account.name,
+        payload?.comentario_admin || payload?.reviewNote || ""
       );
       await maybeSendAssociateProfileRequestNotification(
         state,
@@ -3667,9 +4185,9 @@ function serveStatic(urlPath, res) {
 
 function serveAssociateFile(fileName, res) {
   const safeName = path.basename(String(fileName || ""));
-  const filePath = path.join(uploadRoot, safeName);
+  const filePath = path.join(associateUploadsDir, safeName);
 
-  if (!filePath.startsWith(uploadRoot)) {
+  if (!filePath.startsWith(associateUploadsDir)) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Forbidden");
     return;
@@ -5979,15 +6497,18 @@ function createAssociateProfileRequest(state, account, payload) {
     throw new Error("Ya tienes una solicitud de actualizacion pendiente de revision");
   }
 
-  const firstName = String(payload.firstName || associate.firstName || resolvedFirstName || "").trim();
-  const lastName = String(payload.lastName || associate.lastName || resolvedLastName || "").trim();
-  const dni = normalizeDniValue(payload.dni || associate.dni || linkedMember?.dni || "");
-  const phone = String(payload.phone || associate.phone || linkedMember?.phone || "").trim();
-  const email = String(payload.email || associate.email || linkedMember?.email || linkedAccount?.email || account.email || "")
-    .trim()
-    .toLowerCase();
-  const service = String(payload.service || associate.service || "").trim();
-  const note = String(payload.note || "").trim();
+  const proposedData = sanitizeAssociateProfileProposal(
+    {
+      associate,
+      linkedMember,
+      linkedAccount,
+      account,
+      resolvedFirstName,
+      resolvedLastName
+    },
+    payload
+  );
+  const { firstName, lastName, dni, phone, email, service, note } = proposedData;
   const previousFirstName = String(associate.firstName || resolvedFirstName || "").trim();
   const previousLastName = String(associate.lastName || resolvedLastName || "").trim();
   const previousDni = normalizeDniValue(associate.dni || linkedMember?.dni || "");
@@ -6015,8 +6536,15 @@ function createAssociateProfileRequest(state, account, payload) {
 
   const request = {
     id: `associate-profile-request-${Date.now()}`,
+    socio_id: associate.id,
     associateId: associate.id,
     memberId: account.memberId || associate.linkedMemberId || "",
+    datos_propuestos_json: JSON.stringify(proposedData),
+    proposedData,
+    estado: "pendiente",
+    comentario_admin: "",
+    fecha_solicitud: new Date().toISOString(),
+    fecha_resolucion: "",
     submittedAt: new Date().toISOString(),
     status: "Pendiente de revision",
     firstName,
@@ -6064,6 +6592,55 @@ function canAssociateSelfEditDirectly(associate) {
   return getAssociateSelfEditWindow(associate).active;
 }
 
+function sanitizeAssociateProfileProposal(context, payload) {
+  const {
+    associate,
+    linkedMember,
+    linkedAccount,
+    account,
+    resolvedFirstName = "",
+    resolvedLastName = ""
+  } = context || {};
+  return {
+    firstName: String(payload.firstName || associate?.firstName || resolvedFirstName || "").trim(),
+    lastName: String(payload.lastName || associate?.lastName || resolvedLastName || "").trim(),
+    dni: normalizeDniValue(payload.dni || associate?.dni || linkedMember?.dni || ""),
+    phone: String(payload.phone || associate?.phone || linkedMember?.phone || "").trim(),
+    email: String(payload.email || associate?.email || linkedMember?.email || linkedAccount?.email || account?.email || "")
+      .trim()
+      .toLowerCase(),
+    service: String(payload.service || associate?.service || "").trim(),
+    note: String(payload.note || "").trim()
+  };
+}
+
+function getAssociateProfileRequestProposedData(request = {}) {
+  const fromJson = (() => {
+    const raw = String(request.datos_propuestos_json || "").trim();
+    if (!raw) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (error) {
+      return {};
+    }
+  })();
+  const proposedData = request.proposedData && typeof request.proposedData === "object"
+    ? request.proposedData
+    : fromJson;
+  return {
+    firstName: String(proposedData.firstName || request.firstName || "").trim(),
+    lastName: String(proposedData.lastName || request.lastName || "").trim(),
+    dni: normalizeDniValue(proposedData.dni || request.dni || ""),
+    phone: String(proposedData.phone || request.phone || "").trim(),
+    email: String(proposedData.email || request.email || "").trim().toLowerCase(),
+    service: String(proposedData.service || request.service || "").trim(),
+    note: String(proposedData.note || request.note || "").trim()
+  };
+}
+
 function applyAssociateProfileUpdate(state, associate, account, payload, options = {}) {
   const linkedMember = associate.linkedMemberId
     ? (state.members || []).find((item) => item.id === associate.linkedMemberId)
@@ -6076,15 +6653,18 @@ function applyAssociateProfileUpdate(state, associate, account, payload, options
   const resolvedFirstName = resolvedNameParts.slice(0, -1).join(" ") || resolvedNameParts[0] || "";
   const resolvedLastName = resolvedNameParts.length > 1 ? resolvedNameParts.slice(-1).join(" ") : "";
 
-  const firstName = String(payload.firstName || associate.firstName || resolvedFirstName || "").trim();
-  const lastName = String(payload.lastName || associate.lastName || resolvedLastName || "").trim();
-  const dni = normalizeDniValue(payload.dni || associate.dni || linkedMember?.dni || "");
-  const phone = String(payload.phone || associate.phone || linkedMember?.phone || "").trim();
-  const email = String(payload.email || associate.email || linkedMember?.email || linkedAccount?.email || account?.email || "")
-    .trim()
-    .toLowerCase();
-  const service = String(payload.service || associate.service || "").trim();
-  const note = String(payload.note || "").trim();
+  const proposedData = sanitizeAssociateProfileProposal(
+    {
+      associate,
+      linkedMember,
+      linkedAccount,
+      account,
+      resolvedFirstName,
+      resolvedLastName
+    },
+    payload
+  );
+  const { firstName, lastName, dni, phone, email, service, note } = proposedData;
   const previousFirstName = String(associate.firstName || resolvedFirstName || "").trim();
   const previousLastName = String(associate.lastName || resolvedLastName || "").trim();
   const previousDni = normalizeDniValue(associate.dni || linkedMember?.dni || "");
@@ -6191,7 +6771,7 @@ function syncAssociateLinkedIdentity(state, associate) {
   }
 }
 
-function approveAssociateProfileRequest(state, requestId, reviewerName) {
+function approveAssociateProfileRequest(state, requestId, reviewerName, adminComment = "") {
   const request = (state.associateProfileRequests || []).find((item) => item.id === requestId);
   if (!request) {
     throw new Error("Solicitud de actualizacion no encontrada");
@@ -6205,12 +6785,18 @@ function approveAssociateProfileRequest(state, requestId, reviewerName) {
     throw new Error("Socio no encontrado para esta actualizacion");
   }
 
-  const applyResult = applyAssociateProfileUpdate(state, associate, null, request);
+  const proposedData = getAssociateProfileRequestProposedData(request);
+  const applyResult = applyAssociateProfileUpdate(state, associate, null, proposedData);
 
+  const resolutionNote = String(adminComment || "").trim();
+  const finalComment = resolutionNote || "Solicitud validada y aplicada sobre la ficha del socio";
+  request.estado = "aprobada";
   request.status = "Aprobado";
+  request.comentario_admin = finalComment;
+  request.fecha_resolucion = new Date().toISOString();
   request.reviewedAt = new Date().toISOString();
   request.reviewedBy = reviewerName || "Administracion";
-  request.reviewNote = "Solicitud validada y aplicada sobre la ficha del socio";
+  request.reviewNote = finalComment;
 
   appendActivity(
     state,
@@ -6229,17 +6815,26 @@ function approveAssociateProfileRequest(state, requestId, reviewerName) {
   };
 }
 
-function rejectAssociateProfileRequest(state, requestId, reviewerName) {
+function rejectAssociateProfileRequest(state, requestId, reviewerName, adminComment = "") {
   const request = (state.associateProfileRequests || []).find((item) => item.id === requestId);
   if (!request) {
     throw new Error("Solicitud de actualizacion no encontrada");
   }
 
+  if (request.status === "Rechazado") {
+    throw new Error("Esta solicitud ya esta rechazada");
+  }
+
   const associate = (state.associates || []).find((item) => item.id === request.associateId);
+  const resolutionNote = String(adminComment || "").trim();
+  const finalComment = resolutionNote || "Solicitud revisada. Mantener datos actuales hasta nueva revision";
+  request.estado = "rechazada";
   request.status = "Rechazado";
+  request.comentario_admin = finalComment;
+  request.fecha_resolucion = new Date().toISOString();
   request.reviewedAt = new Date().toISOString();
   request.reviewedBy = reviewerName || "Administracion";
-  request.reviewNote = "Solicitud revisada. Mantener datos actuales hasta nueva revision";
+  request.reviewNote = finalComment;
 
   appendActivity(
     state,
@@ -6274,7 +6869,7 @@ function storeAssociateAttachment(file, label) {
     `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}${extension || ""}`
   );
 
-  fs.writeFileSync(path.join(uploadRoot, storedName), Buffer.from(base64, "base64"));
+  fs.writeFileSync(path.join(associateUploadsDir, storedName), Buffer.from(base64, "base64"));
   return storedName;
 }
 

@@ -12,5 +12,9 @@
     "start:local": "node server.js",
     "health": "node scripts/healthcheck.mjs",
     "smoke:campus-test": "node scripts/smoke-campus-test.mjs"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.20.0"
   }
 }
