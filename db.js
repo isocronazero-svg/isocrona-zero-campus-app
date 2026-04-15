@@ -14,6 +14,30 @@ function getJwtSecret() {
   return String(process.env.JWT_SECRET || process.env.IZ_JWT_SECRET || "").trim();
 }
 
+function isTrue(value) {
+  return String(value || "").trim().toLowerCase() === "true";
+}
+
+function getPostgresSslConfig() {
+  const useSsl = isTrue(process.env.DATABASE_SSL);
+  if (!useSsl) {
+    return false;
+  }
+
+  const isProduction = String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+  const allowSelfSigned = isTrue(process.env.DB_SSL_ALLOW_SELF_SIGNED);
+
+  if (isProduction && allowSelfSigned) {
+    throw new Error(
+      "Configuracion insegura: DB_SSL_ALLOW_SELF_SIGNED=true no esta permitido en produccion"
+    );
+  }
+
+  return {
+    rejectUnauthorized: allowSelfSigned ? false : true
+  };
+}
+
 function getPool() {
   if (!isDatabaseEnabled()) {
     return null;
@@ -21,10 +45,10 @@ function getPool() {
 
   if (!pool) {
     const connectionString = String(process.env.DATABASE_URL || "").trim();
-    const useSsl = String(process.env.DATABASE_SSL || "").trim().toLowerCase() === "true";
+
     pool = new Pool({
       connectionString,
-      ssl: useSsl ? { rejectUnauthorized: false } : false
+      ssl: getPostgresSslConfig()
     });
   }
 
