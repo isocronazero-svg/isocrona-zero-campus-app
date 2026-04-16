@@ -2,6 +2,7 @@
 const VIEW_ROLE_KEY = "iz-campus-view-role";
 const SESSION_BACKUP_KEY = "iz-campus-session-backup";
 const VIEW_ROLE_BACKUP_KEY = "iz-campus-view-role-backup";
+const UI_SNAPSHOT_KEY = "iz-campus-ui-snapshot";
 
 const OVERVIEW_SECTION_LINKS = [
   { id: "overviewSectionDashboard", label: "Dashboard" },
@@ -586,6 +587,69 @@ function syncFrontendStore(overrides = {}) {
   });
 }
 
+function saveUiSnapshot() {
+  try {
+    const snapshot = {
+      activeView: String(state.activeView || "").trim(),
+      associatesSectionMode: String(associatesSectionMode || "").trim(),
+      selectedAssociateId: String(state.selectedAssociateId || "").trim(),
+      selectedCampusGroupId: String(state.selectedCampusGroupId || "").trim(),
+      selectedCampusGroupModuleId: String(selectedCampusGroupModuleId || "").trim(),
+      campusSectionMode: String(campusSectionMode || "").trim()
+    };
+    sessionStorage.setItem(UI_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch (error) {
+  }
+}
+
+function restoreUiSnapshot() {
+  try {
+    const raw = sessionStorage.getItem(UI_SNAPSHOT_KEY);
+    if (!raw) {
+      return;
+    }
+
+    const snapshot = JSON.parse(raw);
+    const requestedView = resolveCampusAliasView(String(snapshot?.activeView || "").trim());
+    if (requestedView && isViewAllowed(requestedView)) {
+      state.activeView = requestedView;
+    }
+
+    const nextAssociatesSectionMode = String(snapshot?.associatesSectionMode || "").trim();
+    if (nextAssociatesSectionMode) {
+      associatesSectionMode = nextAssociatesSectionMode;
+    }
+
+    const nextCampusSectionMode = String(snapshot?.campusSectionMode || "").trim();
+    if (nextCampusSectionMode) {
+      campusSectionMode = nextCampusSectionMode;
+    }
+
+    const selectedAssociateId = String(snapshot?.selectedAssociateId || "").trim();
+    if (selectedAssociateId && findAssociate(selectedAssociateId)) {
+      state.selectedAssociateId = selectedAssociateId;
+    }
+
+    const selectedGroupId = String(snapshot?.selectedCampusGroupId || "").trim();
+    const selectedGroup =
+      (selectedGroupId && state.campusGroups.find((group) => group.id === selectedGroupId)) || null;
+    if (selectedGroup) {
+      state.selectedCampusGroupId = selectedGroup.id;
+    }
+
+    const selectedModuleId = String(snapshot?.selectedCampusGroupModuleId || "").trim();
+    const activeGroup = getSelectedCampusGroup();
+    const selectedModule =
+      activeGroup && selectedModuleId
+        ? (activeGroup.modules || []).find((module) => module.id === selectedModuleId) || null
+        : null;
+    if (selectedModule) {
+      selectedCampusGroupModuleId = selectedModule.id;
+    }
+  } catch (error) {
+  }
+}
+
 function navigateWithFrontendRouter(view) {
   const bridge = getFrontendBridge();
   if (!bridge?.router?.navigateTo) {
@@ -890,6 +954,15 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
+    if (requestedView === state.activeView && effectiveRequestedView === "overview") {
+      expandedNavViews.add("overview");
+      pendingViewAnchorId = "";
+      render();
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+      saveUiSnapshot();
+      return;
+    }
+
     if (requestedView === state.activeView && navItem?.sections?.length) {
       if (expandedNavViews.has(requestedView)) {
         expandedNavViews.delete(requestedView);
@@ -897,6 +970,7 @@ document.addEventListener("click", async (event) => {
         expandedNavViews.add(requestedView);
       }
       renderNav();
+      saveUiSnapshot();
       return;
     }
 
@@ -960,6 +1034,7 @@ document.addEventListener("click", async (event) => {
     if (memberId) {
       state.selectedMemberId = memberId;
     }
+    saveUiSnapshot();
     render();
     return;
   }
@@ -984,6 +1059,7 @@ document.addEventListener("click", async (event) => {
     if (associatesSectionMode === "all") {
       associatesSectionMode = "directory";
     }
+    saveUiSnapshot();
     render();
     if (associatesSectionMode === "workbench" && !findAssociate(state.selectedAssociateId)) {
       requestAnimationFrame(() => document.getElementById("associateSearchFilter")?.focus({ preventScroll: true }));
@@ -1038,6 +1114,7 @@ document.addEventListener("click", async (event) => {
           focusWorkbench: nextMode === "courses" && actionTarget.dataset.focus === "workbench"
         });
       }
+      saveUiSnapshot();
       render();
       return;
     }
@@ -1126,6 +1203,7 @@ document.addEventListener("click", async (event) => {
 
     if (action === "select-campus-group-module") {
       selectedCampusGroupModuleId = actionTarget.dataset.moduleId || "";
+      saveUiSnapshot();
       render();
       return;
     }
@@ -1291,6 +1369,7 @@ document.addEventListener("click", async (event) => {
     associatesSectionMode = "workbench";
     expandedNavViews.add("associates");
     syncStatus = "Ficha de socio cargada en la zona central";
+    saveUiSnapshot();
     render();
     requestAnimationFrame(() => focusAssociatesWorkbench());
     return;
@@ -1437,6 +1516,7 @@ document.addEventListener("click", async (event) => {
       campusGroupContentMode = campusGroupContentMode || "documents";
       expandedNavViews.add("campus");
       syncStatus = "Grupo interno cargado";
+      saveUiSnapshot();
       render();
       return;
     }
@@ -2175,6 +2255,7 @@ document.addEventListener("click", async (event) => {
     state.selectedAssociateId = actionTarget.dataset.associateId;
     associatesSectionMode = "workbench";
     syncStatus = "Ficha de socio cargada en la zona central";
+    saveUiSnapshot();
     render();
     requestAnimationFrame(() => focusAssociatesWorkbench());
     return;
@@ -4293,9 +4374,11 @@ async function bootstrap() {
     restoreSession();
     restoreViewRole();
     applySessionToState();
+    restoreUiSnapshot();
     if (isAdminSession() && isAdminView()) {
       await ensureAdminStateLoaded();
     }
+    saveUiSnapshot();
     hasLoaded = true;
     syncStatus = "Datos cargados";
   } catch (error) {
@@ -4495,6 +4578,10 @@ function clearSession() {
   viewRole = "admin";
   persistSession();
   persistViewRole();
+  try {
+    sessionStorage.removeItem(UI_SNAPSHOT_KEY);
+  } catch (error) {
+  }
 }
 
 function applySessionToState() {
@@ -5561,12 +5648,14 @@ function scrollToViewSection(viewId, sectionId) {
   if (state.activeView !== effectiveViewId) {
     state.activeView = effectiveViewId;
     expandedNavViews.add(effectiveViewId);
+    saveUiSnapshot();
     render();
     requestAnimationFrame(() => scrollToViewSection(effectiveViewId, sectionId));
     return;
   }
 
   expandedNavViews.add(effectiveViewId);
+  saveUiSnapshot();
   render();
   requestAnimationFrame(() => {
     const target = document.getElementById(sectionId);
@@ -6691,6 +6780,7 @@ function openAssociateFromSearch(query) {
   state.selectedAssociateId = firstMatch.id;
   associatesSectionMode = "workbench";
   syncStatus = "Ficha de socio cargada desde el buscador";
+  saveUiSnapshot();
   render();
   requestAnimationFrame(() => focusAssociatesWorkbench());
 }
