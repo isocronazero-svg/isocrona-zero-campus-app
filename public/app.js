@@ -1509,7 +1509,7 @@ document.addEventListener("click", async (event) => {
         return;
       }
       state.selectedCampusGroupId = groupId;
-      const group = state.campusGroups.find((item) => item.id === groupId);
+      const group = loadCampusDraft(groupId) || state.campusGroups.find((item) => item.id === groupId);
       selectedCampusGroupModuleId = group?.modules?.[0]?.id || "";
       state.activeView = "campus";
       campusSectionMode = "groups";
@@ -1549,6 +1549,7 @@ document.addEventListener("click", async (event) => {
       state.campusGroups = state.campusGroups.map((item) => (item.id === group.id ? nextGroup : item));
       state.selectedCampusGroupId = nextGroup.id;
       selectedCampusGroupModuleId = nextModules[nextModules.length - 1]?.id || "";
+      saveCampusDraft(nextGroup.id, nextGroup);
       render();
       return;
     }
@@ -1591,6 +1592,7 @@ document.addEventListener("click", async (event) => {
     state.campusGroups = state.campusGroups.map((item) => (item.id === group.id ? nextGroup : item));
     state.selectedCampusGroupId = nextGroup.id;
     selectedCampusGroupModuleId = selectedModule.id;
+    saveCampusDraft(nextGroup.id, nextGroup);
     render();
     return;
   }
@@ -1628,6 +1630,7 @@ document.addEventListener("click", async (event) => {
     state.campusGroups = state.campusGroups.map((item) => (item.id === group.id ? nextGroup : item));
     state.selectedCampusGroupId = nextGroup.id;
     selectedCampusGroupModuleId = selectedModule.id;
+    saveCampusDraft(nextGroup.id, nextGroup);
     render();
     return;
   }
@@ -3421,6 +3424,24 @@ document.addEventListener("input", (event) => {
     };
     render();
   }
+
+  if (
+    [
+      "campusGroupTitle",
+      "campusGroupSummary",
+      "campusGroupModuleTitle",
+      "campusGroupModuleSummary"
+    ].includes(event.target.id) ||
+    event.target.dataset.campusGroupField === "title" ||
+    event.target.dataset.campusGroupField === "url" ||
+    event.target.dataset.campusGroupField === "note"
+  ) {
+    const group = getSelectedCampusGroup();
+    const draft = readCampusGroupEditorDraft(group);
+    if (draft?.id) {
+      saveCampusDraft(draft.id, draft);
+    }
+  }
 });
 
 document.addEventListener("keydown", (event) => {
@@ -4880,6 +4901,7 @@ async function persistAndRender(successMessage) {
             delete campusGroupAttachmentDrafts[key];
           }
         });
+        clearCampusDraft(pendingCampusGroupDraftClearGroupId);
         pendingCampusGroupDraftClearGroupId = "";
       }
 
@@ -9058,7 +9080,8 @@ function renderCampusGroupsSection() {
 
       <div class="group-selector-grid">
         ${state.campusGroups
-          .map((group) => {
+          .map((baseGroup) => {
+            const group = loadCampusDraft(baseGroup.id) || baseGroup;
             const totalItems = countCampusGroupResources(group);
             return `
               <button class="group-selector-card ${selectedGroup?.id === group.id ? "group-selector-card-active" : ""}" type="button" data-action="select-campus-group" data-group-id="${group.id}">
@@ -18255,6 +18278,10 @@ function isCampusOnlySession() {
   return !isAdminView() && Boolean(session?.memberId) && !getCurrentAssociate();
 }
 
+function isDemoSession() {
+  return isLocalEnvironment;
+}
+
 function buildDiplomaCode(course, member) {
   return `IZ-${course.startDate.slice(0, 4)}-${course.id.split("-")[1]}-${member.id.split("-")[1]}`;
 }
@@ -19093,6 +19120,112 @@ function countCampusGroupResources(group) {
   return (group?.modules || []).reduce((sum, module) => sum + countCampusGroupModuleResources(module), 0);
 }
 
+function getCampusDraftStorageKey(groupId) {
+  return `campus_draft_${String(groupId || "").trim()}`;
+}
+
+function sanitizeCampusDraftAttachment(attachment) {
+  if (!attachment) {
+    return null;
+  }
+
+  const transportUrl = String(attachment.transportUrl || "").trim();
+  const name = String(attachment.name || "").trim();
+  if (!transportUrl && !name) {
+    return null;
+  }
+
+  return {
+    name,
+    type: String(attachment.type || "application/octet-stream").trim(),
+    size: Number(attachment.size || 0),
+    transportUrl
+  };
+}
+
+function sanitizeCampusDraftEntry(entry, category, index) {
+  const normalizedEntry = normalizeCampusGroupEntry(entry, category, index);
+  return {
+    id: normalizedEntry.id,
+    title: normalizedEntry.title,
+    url: normalizedEntry.url,
+    note: normalizedEntry.note,
+    attachment: sanitizeCampusDraftAttachment(normalizedEntry.attachment)
+  };
+}
+
+function buildCampusDraftData(data) {
+  const normalizedGroup = normalizeCampusGroup(data, 0);
+  return {
+    id: normalizedGroup.id,
+    title: normalizedGroup.title,
+    summary: normalizedGroup.summary,
+    modules: (normalizedGroup.modules || []).map((module, moduleIndex) => ({
+      id: module.id,
+      title: module.title,
+      summary: module.summary,
+      documents: (module.documents || []).map((entry, entryIndex) =>
+        sanitizeCampusDraftEntry(entry, "documents", entryIndex)
+      ),
+      practiceSheets: (module.practiceSheets || []).map((entry, entryIndex) =>
+        sanitizeCampusDraftEntry(entry, "practiceSheets", entryIndex)
+      ),
+      videos: (module.videos || []).map((entry, entryIndex) =>
+        sanitizeCampusDraftEntry(entry, "videos", entryIndex)
+      ),
+      links: (module.links || []).map((entry, entryIndex) =>
+        sanitizeCampusDraftEntry(entry, "links", entryIndex)
+      )
+    }))
+  };
+}
+
+function saveCampusDraft(groupId, data) {
+  const normalizedGroupId = String(groupId || "").trim();
+  if (!normalizedGroupId || !data) {
+    return;
+  }
+
+  try {
+    sessionStorage.setItem(
+      getCampusDraftStorageKey(normalizedGroupId),
+      JSON.stringify(buildCampusDraftData({ ...data, id: normalizedGroupId }))
+    );
+  } catch (error) {
+  }
+}
+
+function loadCampusDraft(groupId) {
+  const normalizedGroupId = String(groupId || "").trim();
+  if (!normalizedGroupId) {
+    return null;
+  }
+
+  try {
+    const raw = sessionStorage.getItem(getCampusDraftStorageKey(normalizedGroupId));
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    return buildCampusDraftData({ ...parsed, id: normalizedGroupId });
+  } catch (error) {
+    return null;
+  }
+}
+
+function clearCampusDraft(groupId) {
+  const normalizedGroupId = String(groupId || "").trim();
+  if (!normalizedGroupId) {
+    return;
+  }
+
+  try {
+    sessionStorage.removeItem(getCampusDraftStorageKey(normalizedGroupId));
+  } catch (error) {
+  }
+}
+
 function normalizeCampusGroup(group, index = 0) {
   const groupId = group?.id || `campus-group-${Date.now()}-${index}`;
   const normalizedModules = Array.isArray(group?.modules) && group.modules.length
@@ -19112,11 +19245,15 @@ function normalizeCampusGroup(group, index = 0) {
 }
 
 function getSelectedCampusGroup() {
-  return (
+  const baseGroup =
     state.campusGroups.find((group) => group.id === state.selectedCampusGroupId) ||
     state.campusGroups[0] ||
-    null
-  );
+    null;
+  if (!baseGroup) {
+    return null;
+  }
+
+  return loadCampusDraft(baseGroup.id) || baseGroup;
 }
 
 function getSelectedCampusGroupModule(group = getSelectedCampusGroup()) {
