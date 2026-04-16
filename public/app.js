@@ -426,18 +426,18 @@ window.fetch = (input, init = {}) => {
     requestUrl.startsWith("/") ||
     requestUrl.startsWith(window.location.origin);
 
-  if (!isSameOriginRequest || !session?.sessionToken) {
+  if (!isSameOriginRequest) {
     return nativeFetch(input, init);
   }
 
-  const headers = new Headers(
-    init.headers || (input instanceof Request ? input.headers : undefined) || {}
-  );
-  headers.set("X-IZ-Session", session.sessionToken);
+  const requestCredentials = init.credentials || (input instanceof Request ? input.credentials : undefined);
+  if (requestCredentials || !session?.accountId) {
+    return nativeFetch(input, init);
+  }
+
   return nativeFetch(input, {
     ...init,
-    headers,
-    credentials: init.credentials || "same-origin"
+    credentials: "same-origin"
   });
 };
 
@@ -4378,22 +4378,13 @@ async function recoverSessionFromServer() {
 
 function restoreSession() {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-    const backup =
-      raw ||
-      (() => {
-        try {
-          return localStorage.getItem(SESSION_BACKUP_KEY);
-        } catch (error) {
-          return null;
-        }
-      })();
-    if (!backup) {
+    const stored = sessionStorage.getItem(SESSION_KEY);
+    if (!stored) {
       session = null;
       return;
     }
 
-    const parsed = JSON.parse(backup);
+    const parsed = JSON.parse(stored);
     const account = Array.isArray(state.accounts)
       ? state.accounts.find((item) => item.id === parsed.accountId)
       : null;
@@ -4405,8 +4396,7 @@ function restoreSession() {
             role: account.role,
             memberId: account.memberId,
             associateId: account.associateId || "",
-            mustChangePassword: Boolean(account.mustChangePassword),
-            sessionToken: String(parsed.sessionToken || "")
+            mustChangePassword: Boolean(account.mustChangePassword)
           }
         : {
             accountId: String(parsed.accountId || ""),
@@ -4415,8 +4405,7 @@ function restoreSession() {
             role: parsed.role === "admin" ? "admin" : "member",
             memberId: String(parsed.memberId || ""),
             associateId: String(parsed.associateId || ""),
-            mustChangePassword: Boolean(parsed.mustChangePassword),
-            sessionToken: String(parsed.sessionToken || "")
+            mustChangePassword: Boolean(parsed.mustChangePassword)
           };
   } catch (error) {
     session = null;
@@ -4464,10 +4453,18 @@ function persistSession() {
     return;
   }
 
-  const serialized = JSON.stringify(session);
+  const serialized = JSON.stringify({
+    accountId: String(session.accountId || ""),
+    name: String(session.name || ""),
+    email: String(session.email || ""),
+    role: session.role === "admin" ? "admin" : "member",
+    memberId: String(session.memberId || ""),
+    associateId: String(session.associateId || ""),
+    mustChangePassword: Boolean(session.mustChangePassword)
+  });
   sessionStorage.setItem(SESSION_KEY, serialized);
   try {
-    localStorage.setItem(SESSION_BACKUP_KEY, serialized);
+    localStorage.removeItem(SESSION_BACKUP_KEY);
   } catch (error) {
   }
 }
@@ -4513,7 +4510,6 @@ function applySessionToState() {
       session.memberId = account.memberId;
       session.associateId = account.associateId || "";
       session.mustChangePassword = Boolean(account.mustChangePassword);
-      session.sessionToken = String(session.sessionToken || "");
       persistSession();
     }
 
