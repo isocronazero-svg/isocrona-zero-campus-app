@@ -18278,6 +18278,10 @@ function isCampusOnlySession() {
   return !isAdminView() && Boolean(session?.memberId) && !getCurrentAssociate();
 }
 
+function isDemoSession() {
+  return isLocalEnvironment;
+}
+
 function buildDiplomaCode(course, member) {
   return `IZ-${course.startDate.slice(0, 4)}-${course.id.split("-")[1]}-${member.id.split("-")[1]}`;
 }
