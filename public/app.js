@@ -5945,7 +5945,7 @@ function renderOverview() {
           ? `
       <div class="status-note danger associate-anchor" id="overviewSectionStorageMismatch">
         <strong>Atencion:</strong> este despliegue ahora mismo esta vacio o leyendo otro almacenamiento. Tus datos locales no tienen por que haberse perdido.
-        Revisa <strong>Informes y validacion > Almacenamiento</strong>, descarga una copia del estado actual y, si hace falta, vuelve a importar el
+        Revisa <strong>Informes y validacion</strong> y abre la herramienta secundaria de <strong>Almacenamiento</strong>, descarga una copia del estado actual y, si hace falta, vuelve a importar el
         <strong>state.json</strong> real del campus en esta web.
       </div>
       `
@@ -10534,6 +10534,12 @@ function renderReports() {
         <button class="${reportsSectionMode === "validation" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="validation">Validacion</button>
       </div>
 
+      <div class="status-note">
+        <strong>Herramientas tecnicas:</strong>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
+      </div>
+
       ${
         showReportsSection("exports")
           ? `
@@ -11489,6 +11495,10 @@ function renderReportsSide() {
       <div class="chip-row">
         <button class="primary-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionExports">Exportaciones</button>
         <button class="ghost-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionValidation">Validacion</button>
+      </div>
+      <div class="chip-row">
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
     </div>
   `;
