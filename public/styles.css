@@ -3192,6 +3192,59 @@ tr:last-child td {
     grid-template-columns: 1fr;
   }
 
+  .campus-overview-grid,
+  .group-selector-grid,
+  .campus-member-hub,
+  .campus-group-editor-row .lesson-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .campus-shell-head {
+    padding: 14px;
+  }
+
+  .campus-shell-head .panel-header,
+  .campus-module-strip,
+  .campus-group-toolbar,
+  .campus-group-meta-row,
+  .campus-group-entry-tools {
+    width: 100%;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .campus-group-summary-strip .summary-card,
+  .campus-module-summary-card {
+    min-width: 0;
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .campus-library-card,
+  .campus-group-editor-row,
+  .campus-overview-card,
+  .group-selector-card {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .campus-library-card-topline {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .campus-library-card-kind {
+    min-width: 0;
+  }
+
+  .campus-group-toolbar > *,
+  .campus-module-strip > *,
+  .campus-group-entry-tools > * {
+    width: 100%;
+  }
+
   .module-head {
     flex-direction: column;
   }
