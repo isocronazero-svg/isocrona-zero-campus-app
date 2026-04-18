@@ -3052,6 +3052,13 @@ tr:last-child td {
     gap: 12px;
   }
 
+  .panel-side-sticky {
+    position: static;
+    top: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
   .metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3071,9 +3078,9 @@ tr:last-child td {
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--line);
-    position: sticky;
-    top: 0;
-    z-index: 10;
+    position: static;
+    top: auto;
+    z-index: auto;
   }
 
   .hero {
@@ -3162,7 +3169,9 @@ tr:last-child td {
 
   .panel,
   .course-card,
-  .metric-card {
+  .metric-card,
+  .mail-card,
+  .content-module {
     padding: 16px;
   }
 
@@ -3187,15 +3196,49 @@ tr:last-child td {
     flex-direction: column;
   }
 
-  .chip-row {
+  .panel-header,
+  .chip-row,
+  .compact-chip-row,
+  .compact-person-actions {
+    width: 100%;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .panel-header > div:first-child,
+  .compact-person-actions > div:first-child {
     width: 100%;
   }
 
   .chip-row > .primary-button,
   .chip-row > .ghost-button,
   .chip-row > .mini-button,
-  .chip-row > .button-link {
+  .chip-row > .button-link,
+  .compact-chip-row > .primary-button,
+  .compact-chip-row > .ghost-button,
+  .compact-chip-row > .mini-button,
+  .compact-chip-row > .button-link,
+  .compact-person-actions > .primary-button,
+  .compact-person-actions > .ghost-button,
+  .compact-person-actions > .mini-button,
+  .compact-person-actions > .button-link {
     width: 100%;
+    justify-content: center;
+  }
+
+  .table-card {
+    padding-bottom: 10px;
+    border-radius: 18px;
+    box-shadow: inset -10px 0 0 rgba(210, 184, 151, 0.18);
+  }
+
+  .table-card::after {
+    content: "Desliza horizontalmente para ver toda la tabla";
+    display: block;
+    margin-top: 10px;
+    font-size: 0.74rem;
+    color: var(--muted);
   }
 
   .campus-preview-overlay {
