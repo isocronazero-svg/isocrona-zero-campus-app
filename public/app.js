@@ -92,7 +92,6 @@ const navItems = [
   { id: "overview", label: "Vision general", sections: OVERVIEW_SECTION_LINKS },
   { id: "join", label: "Hazte socio" },
   { id: "associates", label: "Socios y cuotas", sections: ASSOCIATE_SECTION_LINKS },
-  { id: "members", label: "Personas y accesos", sections: MEMBER_SECTION_LINKS },
   { id: "campus", label: "Campus", sections: CAMPUS_SECTION_LINKS },
   { id: "reports", label: "Informes y validacion", sections: REPORT_SECTION_LINKS },
   { id: "automation", label: "Asistente y automatizacion", sections: AUTOMATION_SECTION_LINKS }
