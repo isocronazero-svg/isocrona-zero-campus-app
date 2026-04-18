@@ -48,10 +48,7 @@ const COURSE_SECTION_LINKS = [
 ];
 
 const CAMPUS_SECTION_LINKS = [
-  { id: "campusSectionAlerts", label: "Avisos" },
   { id: "campusSectionCourses", label: "Cursos" },
-  { id: "campusSectionOperations", label: "Operativa" },
-  { id: "campusSectionDiplomas", label: "Diplomas" },
   { id: "campusSectionGroups", label: "Grupos internos" }
 ];
 
@@ -9285,8 +9282,6 @@ function renderCampus() {
               </div>
               <div class="chip-row">
                 <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="courses">Cursos</button>
-                <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="operations">Operativa</button>
-                <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="diplomas">Diplomas</button>
                 <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="groups">Grupos internos</button>
               </div>
             `
@@ -9313,12 +9308,10 @@ function renderCampus() {
                   : ""
               }
               <div class="chip-row">
-                <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="alerts">Avisos</button>
                 <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="courses">Mis cursos</button>
-                <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="diplomas">Mis diplomas</button>
                 ${
                   campusOnlySession
-                    ? `<button class="ghost-button" type="button" data-action="nav" data-view="join">Hazte socio</button>`
+                    ? ""
                     : `<button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="groups">Grupos internos</button>`
                 }
               </div>
@@ -9369,11 +9362,7 @@ function renderCampus() {
             }</p>
           </div>
           <div class="chip-row compact-chip-row">
-            <button class="${effectiveCampusSectionMode === "all" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="all">Mapa</button>
-            ${!isAdminView() ? `<button class="${effectiveCampusSectionMode === "alerts" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="alerts">Avisos</button>` : ""}
             <button class="${effectiveCampusSectionMode === "courses" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="courses">Cursos</button>
-            ${isAdminView() ? `<button class="${effectiveCampusSectionMode === "operations" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="operations">Operativa</button>` : ""}
-            <button class="${effectiveCampusSectionMode === "diplomas" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="diplomas">${isAdminView() ? "Diplomas" : "Mis diplomas"}</button>
             ${!campusOnlySession ? `<button class="${effectiveCampusSectionMode === "groups" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="groups">Grupos internos</button>` : ""}
           </div>
         </div>
@@ -9411,7 +9400,7 @@ function renderCampusSide() {
     : 0;
   const campusNavigator = `
     <div class="status-note info">
-      ${isAdminView() ? "Salta entre cursos, operativa, diplomas y grupos internos desde este mismo espacio." : campusOnlySession ? "Salta entre tus cursos abiertos y diplomas desde este mismo espacio." : "Salta entre avisos, cursos, diplomas y grupos internos desde este mismo espacio."}
+      ${isAdminView() ? "Salta entre cursos y grupos internos desde este mismo espacio." : campusOnlySession ? "Desde aqui accedes a tus cursos abiertos." : "Salta entre cursos y grupos internos desde este mismo espacio."}
     </div>
     <div class="chip-row">
       ${CAMPUS_SECTION_LINKS.filter((section) => (isAdminView() || section.id !== "campusSectionOperations") && (!campusOnlySession || section.id !== "campusSectionGroups")).map(
