@@ -5929,10 +5929,8 @@ function renderOverview() {
         </div>
         <div class="chip-row">
           <button class="primary-button" data-action="nav" data-view="associates">Socios y cuotas</button>
-          <button class="ghost-button" data-action="nav" data-view="validations">Validaciones</button>
           <button class="ghost-button" data-action="nav" data-view="courses">Campus</button>
           <button class="ghost-button" data-action="nav" data-view="reports">Informes</button>
-          <button class="ghost-button" data-action="nav" data-view="test">Test</button>
         </div>
       </div>
 
@@ -6123,11 +6121,6 @@ function renderOverview() {
               <h4>Guia rapida de administracion</h4>
               <p class="muted">Los pasos clave para gestionar socios, cursos y diplomas sin perderte.</p>
             </div>
-            <div class="chip-row">
-              <button class="mini-button" data-action="nav" data-view="associates">Socios</button>
-              <button class="mini-button" data-action="nav" data-view="courses">Cursos</button>
-              <button class="mini-button" data-action="nav" data-view="reports">Informes</button>
-            </div>
           </div>
           <div class="compact-list">
             <div class="timeline-item compact-card">
@@ -6181,7 +6174,6 @@ function renderMemberOverview() {
           <button class="primary-button" type="button" data-action="nav" data-view="join">Mi ficha de socio</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Ver cursos</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Ver diplomas</button>
-          <button class="ghost-button" type="button" data-action="nav" data-view="test">Test</button>
         </div>
       </div>
 
