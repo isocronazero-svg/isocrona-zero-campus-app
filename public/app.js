@@ -7681,7 +7681,10 @@ function renderAssociates() {
             <h4>Cola rapida de revision</h4>
             <p class="muted">Solicitudes de alta pendientes listas para abrir, pedir documentacion o aprobar.</p>
           </div>
-          <button class="ghost-button" data-action="nav" data-view="associates">Ver todo</button>
+          <div class="chip-row">
+            <button class="ghost-button" data-action="nav" data-view="associates">Ver todo</button>
+            <button class="mini-button" data-action="nav" data-view="validations">Validaciones</button>
+          </div>
         </div>
         <p class="status-note">${approvableApplicationCount} lista(s) para aprobar y ${blockedApplicationCount} bloqueada(s) por datos o validacion.</p>
         ${
@@ -8221,6 +8224,9 @@ function renderAssociatesSide() {
       <div class="mail-card">
         <h4>Centro de control</h4>
         <p class="muted">Ve directo a la bandeja o ficha que necesitas trabajar ahora.</p>
+        <div class="chip-row">
+          <button class="mini-button" data-action="nav" data-view="validations">Abrir validaciones</button>
+        </div>
         <div class="stack">
           ${ASSOCIATE_SECTION_LINKS.map(
             (section) => `
