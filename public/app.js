@@ -69,9 +69,7 @@ const DIPLOMA_SECTION_LINKS = [
 
 const REPORT_SECTION_LINKS = [
   { id: "reportSectionExports", label: "Exportaciones" },
-  { id: "reportSectionValidation", label: "Validacion" },
-  { id: "reportSectionStorage", label: "Almacenamiento" },
-  { id: "reportSectionAgent", label: "Agente" }
+  { id: "reportSectionValidation", label: "Validacion" }
 ];
 
 const ACTIVITY_SECTION_LINKS = [{ id: "activitySectionTimeline", label: "Registro" }];
@@ -10533,11 +10531,8 @@ function renderReports() {
       </div>
 
       <div class="chip-row">
-        <button class="${reportsSectionMode === "all" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="all">Todo</button>
         <button class="${reportsSectionMode === "exports" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="exports">Exportaciones</button>
         <button class="${reportsSectionMode === "validation" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="validation">Validacion</button>
-        <button class="${reportsSectionMode === "storage" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="storage">Almacenamiento</button>
-        <button class="${reportsSectionMode === "agent" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="agent">Agente</button>
       </div>
 
       ${
@@ -11495,7 +11490,6 @@ function renderReportsSide() {
       <div class="chip-row">
         <button class="primary-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionExports">Exportaciones</button>
         <button class="ghost-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionValidation">Validacion</button>
-        <button class="ghost-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
     </div>
   `;
