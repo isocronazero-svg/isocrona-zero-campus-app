@@ -3052,6 +3052,13 @@ tr:last-child td {
     gap: 12px;
   }
 
+  .panel-side-sticky {
+    position: static;
+    top: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
   .metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3071,9 +3078,9 @@ tr:last-child td {
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--line);
-    position: sticky;
-    top: 0;
-    z-index: 10;
+    position: static;
+    top: auto;
+    z-index: auto;
   }
 
   .hero {
@@ -3162,7 +3169,9 @@ tr:last-child td {
 
   .panel,
   .course-card,
-  .metric-card {
+  .metric-card,
+  .mail-card,
+  .content-module {
     padding: 16px;
   }
 
@@ -3210,6 +3219,18 @@ tr:last-child td {
   .chip-row,
   .compact-person-actions,
   .inline-table-actions {
+  .panel-header,
+  .chip-row,
+  .compact-chip-row,
+  .compact-person-actions {
+    width: 100%;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .panel-header > div:first-child,
+  .compact-person-actions > div:first-child {
     width: 100%;
     gap: 10px;
     align-items: stretch;
@@ -3228,6 +3249,14 @@ tr:last-child td {
   .inline-table-actions > .mini-button,
   .inline-table-actions > .button-link,
   .inline-table-actions > button {
+  .compact-chip-row > .primary-button,
+  .compact-chip-row > .ghost-button,
+  .compact-chip-row > .mini-button,
+  .compact-chip-row > .button-link,
+  .compact-person-actions > .primary-button,
+  .compact-person-actions > .ghost-button,
+  .compact-person-actions > .mini-button,
+  .compact-person-actions > .button-link {
     width: 100%;
     justify-content: center;
   }
