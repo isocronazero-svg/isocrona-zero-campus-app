@@ -5945,7 +5945,7 @@ function renderOverview() {
           ? `
       <div class="status-note danger associate-anchor" id="overviewSectionStorageMismatch">
         <strong>Atencion:</strong> este despliegue ahora mismo esta vacio o leyendo otro almacenamiento. Tus datos locales no tienen por que haberse perdido.
-        Revisa <strong>Informes y validacion > Almacenamiento</strong>, descarga una copia del estado actual y, si hace falta, vuelve a importar el
+        Revisa <strong>Informes y validacion</strong> y abre la herramienta secundaria de <strong>Almacenamiento</strong>, descarga una copia del estado actual y, si hace falta, vuelve a importar el
         <strong>state.json</strong> real del campus en esta web.
       </div>
       `
@@ -10537,6 +10537,9 @@ function renderReports() {
       <div class="status-note">
         <strong>Herramientas avanzadas:</strong>
         <button class="mini-button" data-action="nav" data-view="automation">Automatizacion</button>
+        <strong>Herramientas tecnicas:</strong>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
 
       ${
@@ -11497,6 +11500,8 @@ function renderReportsSide() {
       </div>
       <div class="chip-row">
         <button class="mini-button" data-action="nav" data-view="automation">Automatizacion</button>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
     </div>
   `;
