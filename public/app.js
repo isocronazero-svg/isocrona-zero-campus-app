@@ -94,7 +94,6 @@ const navItems = [
   { id: "associates", label: "Socios y cuotas", sections: ASSOCIATE_SECTION_LINKS },
   { id: "campus", label: "Campus", sections: CAMPUS_SECTION_LINKS },
   { id: "reports", label: "Informes y validacion", sections: REPORT_SECTION_LINKS },
-  { id: "automation", label: "Asistente y automatizacion", sections: AUTOMATION_SECTION_LINKS }
 ];
 
 const VIEW_SECTION_MODES = {
