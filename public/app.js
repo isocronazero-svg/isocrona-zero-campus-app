@@ -10535,6 +10535,8 @@ function renderReports() {
       </div>
 
       <div class="status-note">
+        <strong>Herramientas avanzadas:</strong>
+        <button class="mini-button" data-action="nav" data-view="automation">Automatizacion</button>
         <strong>Herramientas tecnicas:</strong>
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
@@ -11497,6 +11499,7 @@ function renderReportsSide() {
         <button class="ghost-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionValidation">Validacion</button>
       </div>
       <div class="chip-row">
+        <button class="mini-button" data-action="nav" data-view="automation">Automatizacion</button>
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
