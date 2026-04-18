@@ -10534,6 +10534,11 @@ function renderReports() {
         <button class="${reportsSectionMode === "validation" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="validation">Validacion</button>
       </div>
 
+      <div class="status-note">
+        <strong>Herramientas avanzadas:</strong>
+        <button class="mini-button" data-action="nav" data-view="automation">Automatizacion</button>
+      </div>
+
       ${
         showReportsSection("exports")
           ? `
@@ -11489,6 +11494,9 @@ function renderReportsSide() {
       <div class="chip-row">
         <button class="primary-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionExports">Exportaciones</button>
         <button class="ghost-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionValidation">Validacion</button>
+      </div>
+      <div class="chip-row">
+        <button class="mini-button" data-action="nav" data-view="automation">Automatizacion</button>
       </div>
     </div>
   `;
