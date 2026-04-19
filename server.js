@@ -998,6 +998,13 @@ function findAssociateForAccount(state, account, member) {
   );
 }
 
+function resolveAssociateForAuthenticatedAccount(state, account) {
+  const member = account?.memberId
+    ? (state.members || []).find((item) => item.id === account.memberId) || null
+    : null;
+  return findAssociateForAccount(state, account, member);
+}
+
 function getAssociateCurrentYearQuotaGap(associate) {
   if (!associate) {
     return 0;
@@ -2123,12 +2130,13 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
-      if (!account.associateId) {
+      const associate = resolveAssociateForAuthenticatedAccount(state, account);
+      if (!associate) {
         return sendJson(res, 400, { ok: false, error: "Tu cuenta no tiene una ficha de socio vinculada" });
       }
 
       const payload = await readJsonBody(req);
-      const submission = createAssociatePaymentSubmission(state, account, payload);
+      const submission = createAssociatePaymentSubmission(state, account, payload, associate);
       appendActivity(
         state,
         "member",
@@ -2160,17 +2168,13 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
-      if (!account.associateId) {
+      const associate = resolveAssociateForAuthenticatedAccount(state, account);
+      if (!associate) {
         return sendJson(res, 400, { ok: false, error: "Tu cuenta no tiene una ficha de socio vinculada" });
       }
 
       const payload = await readJsonBody(req);
-      const associate = (state.associates || []).find((item) => item.id === account.associateId);
-      if (!associate) {
-        return sendJson(res, 404, { ok: false, error: "No se ha encontrado tu ficha de socio" });
-      }
-
-      const request = createAssociateProfileRequest(state, account, payload);
+      const request = createAssociateProfileRequest(state, account, payload, associate);
       appendActivity(
         state,
         "member",
@@ -6355,8 +6359,8 @@ function createAssociateApplication(state, payload) {
   return application;
 }
 
-function createAssociatePaymentSubmission(state, account, payload) {
-  const associate = (state.associates || []).find((item) => item.id === account.associateId);
+function createAssociatePaymentSubmission(state, account, payload, resolvedAssociate = null) {
+  const associate = resolvedAssociate || resolveAssociateForAuthenticatedAccount(state, account);
   if (!associate) {
     throw new Error("No se ha encontrado tu ficha de socio");
   }
@@ -6482,8 +6486,8 @@ function rejectAssociatePaymentSubmission(state, submissionId, reviewerName) {
   };
 }
 
-function createAssociateProfileRequest(state, account, payload) {
-  const associate = (state.associates || []).find((item) => item.id === account.associateId);
+function createAssociateProfileRequest(state, account, payload, resolvedAssociate = null) {
+  const associate = resolvedAssociate || resolveAssociateForAuthenticatedAccount(state, account);
   if (!associate) {
     throw new Error("No se ha encontrado tu ficha de socio");
   }
