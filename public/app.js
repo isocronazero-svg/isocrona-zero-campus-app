@@ -582,6 +582,16 @@ function syncFrontendStore(overrides = {}) {
   });
 }
 
+function shouldUseMemberProfileAsPrimaryView() {
+  return !isAdminView() && Boolean(getCurrentAssociate());
+}
+
+function normalizePrimaryMemberView() {
+  if (shouldUseMemberProfileAsPrimaryView() && state.activeView === "overview") {
+    state.activeView = "join";
+  }
+}
+
 function isMobileShellViewport() {
   return mobileShellMediaQuery.matches;
 }
@@ -786,7 +796,7 @@ roleSwitcher.addEventListener("change", async (event) => {
     viewRole = "member-preview";
   } else if (requestedRole === "member-self") {
     viewRole = "member-self";
-    state.activeView = "overview";
+    state.activeView = session?.associateId ? "join" : "overview";
   } else {
     viewRole = "admin";
   }
@@ -990,7 +1000,9 @@ document.addEventListener("click", async (event) => {
   if (action === "nav") {
     const requestedView = actionTarget.dataset.view;
     const requestedAnchorId = String(actionTarget.dataset.anchor || "").trim();
-    const effectiveRequestedView = resolveCampusAliasView(requestedView);
+    const normalizedRequestedView =
+      requestedView === "overview" && shouldUseMemberProfileAsPrimaryView() ? "join" : requestedView;
+    const effectiveRequestedView = resolveCampusAliasView(normalizedRequestedView);
     const navItem = navItems.find((item) => item.id === effectiveRequestedView);
 
     if (isAdminSession() && ADMIN_ONLY_TOP_LEVEL_VIEWS.has(effectiveRequestedView) && !isAdminView()) {
@@ -1023,7 +1035,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    if (requestedView === state.activeView && effectiveRequestedView === "overview") {
+    if (normalizedRequestedView === state.activeView && effectiveRequestedView === "overview") {
       expandedNavViews.add("overview");
       pendingViewAnchorId = "";
       closeMobileMenu();
@@ -1033,18 +1045,18 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    if (requestedView === state.activeView && navItem?.sections?.length) {
-      if (expandedNavViews.has(requestedView)) {
-        expandedNavViews.delete(requestedView);
+    if (normalizedRequestedView === state.activeView && navItem?.sections?.length) {
+      if (expandedNavViews.has(normalizedRequestedView)) {
+        expandedNavViews.delete(normalizedRequestedView);
       } else {
-        expandedNavViews.add(requestedView);
+        expandedNavViews.add(normalizedRequestedView);
       }
       renderNav();
       saveUiSnapshot();
       return;
     }
 
-    if (requestedView === "test") {
+    if (normalizedRequestedView === "test") {
       const routeResult = navigateWithFrontendRouter("test");
       pendingViewAnchorId = "";
       state.activeView = routeResult?.activeView || "test";
@@ -1054,31 +1066,31 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    if (!isAdminView() && requestedView === "join") {
+    if (!isAdminView() && normalizedRequestedView === "join") {
       syncMemberContextSelection("join");
       state.activeView = "join";
       pendingViewAnchorId = requestedAnchorId;
-    } else if (!isAdminView() && requestedView === "courses") {
+    } else if (!isAdminView() && normalizedRequestedView === "courses") {
       pendingViewAnchorId = "";
       activateMemberCampusMode("courses", { focusCatalog: true });
-    } else if (!isAdminView() && requestedView === "diplomas") {
+    } else if (!isAdminView() && normalizedRequestedView === "diplomas") {
       pendingViewAnchorId = "";
       activateMemberCampusMode("diplomas");
-    } else if (requestedView === "courses") {
+    } else if (normalizedRequestedView === "courses") {
       pendingViewAnchorId = "";
       state.activeView = "campus";
       campusSectionMode = "courses";
-    } else if (requestedView === "operations") {
+    } else if (normalizedRequestedView === "operations") {
       pendingViewAnchorId = "";
       state.activeView = "campus";
       campusSectionMode = "operations";
-    } else if (requestedView === "diplomas") {
+    } else if (normalizedRequestedView === "diplomas") {
       pendingViewAnchorId = "";
       state.activeView = "campus";
       campusSectionMode = "diplomas";
     } else {
       pendingViewAnchorId = requestedAnchorId;
-      state.activeView = requestedView;
+      state.activeView = normalizedRequestedView;
       setFocusedViewMode(state.activeView);
     }
 
@@ -5205,6 +5217,7 @@ async function invokeJsonAction(url, payload, successMessage) {
 function render() {
   const hasOwnMemberProfile = Boolean(session?.memberId);
   const currentAssociate = getCurrentAssociate();
+  normalizePrimaryMemberView();
   if (isSelfMemberSession() && currentAssociate) {
     const staleSelfMessages = [
       /no tiene una ficha de socio vinculada/i,
@@ -5410,7 +5423,7 @@ function renderSidebarContextCard() {
   const selectedCourse = getSelectedCourse();
   const selectedGroup = getSelectedCampusGroup();
   const viewLabelMap = {
-    overview: isAdminView() ? "Panel general" : "Mi panel",
+    overview: isAdminView() ? "Panel general" : "Mi ficha de socio",
     join: isAdminView() ? "Alta y seguimiento" : "Mi ficha de socio",
     associates: "Socios y cuotas",
     members: "Personas y accesos",
@@ -5468,14 +5481,16 @@ function renderSidebarContextCard() {
 
 function renderNav() {
   const campusOnlySession = isCampusOnlySession();
+  const memberPrimaryProfile = shouldUseMemberProfileAsPrimaryView();
   const memberLabels = {
-    overview: "Mi panel",
+    overview: "Mi ficha de socio",
     join: campusOnlySession ? "Hazte socio" : "Mi ficha de socio",
     campus: "Campus",
     test: "Test"
   };
   navElement.innerHTML = navItems
     .filter((item) => isViewAllowed(item.id))
+    .filter((item) => !(memberPrimaryProfile && item.id === "overview"))
     .map(
       (item) => `
         <div class="nav-item-group ${state.activeView === item.id ? "active" : ""}">
@@ -5940,7 +5955,7 @@ function renderSidePanel() {
 
 function renderOverview() {
   if (!isAdminView()) {
-    return renderMemberOverview();
+    return renderJoinView();
   }
 
   const recentCourses = state.courses.slice(0, 3);
