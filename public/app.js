@@ -6,11 +6,9 @@ const UI_SNAPSHOT_KEY = "iz-campus-ui-snapshot";
 
 const OVERVIEW_SECTION_LINKS = [
   { id: "overviewSectionDashboard", label: "Dashboard" },
-  { id: "overviewSectionAttention", label: "Atencion hoy" },
-  { id: "overviewSectionCourses", label: "Cursos" },
-  { id: "overviewSectionAssociates", label: "Seguimiento" },
-  { id: "overviewSectionGuide", label: "Guia admin" },
-  { id: "overviewSectionActivity", label: "Auditoria" }
+  { id: "overviewSectionApplications", label: "Altas" },
+  { id: "overviewSectionProfiles", label: "Cambios" },
+  { id: "overviewSectionPayments", label: "Cuotas" }
 ];
 
 const ASSOCIATE_SECTION_LINKS = [
@@ -5958,9 +5956,7 @@ function renderOverview() {
     return renderJoinView();
   }
 
-  const recentCourses = state.courses.slice(0, 3);
   const selectedMember = findMember(state.selectedMemberId);
-  const currentYear = String(new Date().getFullYear());
   const pendingAssociateApplications = state.associateApplications.filter((item) =>
     isAssociateApplicationPending(item)
   );
@@ -5970,49 +5966,78 @@ function renderOverview() {
   const pendingProfileRequests = state.associateProfileRequests.filter(
     (item) => item.status === "Pendiente de revision"
   );
-  const pendingQuotaAssociates = state.associates
-    .filter((item) => getAssociateQuotaGap(item) > 0)
-    .sort((a, b) => getAssociateQuotaGap(b) - getAssociateQuotaGap(a))
-    .slice(0, 5);
-  const pendingWelcomeAssociates = state.associates
-    .filter((item) => item.linkedAccountId && item.welcomeEmailStatus !== "sent")
-    .slice(0, 5);
-  const pendingLegacyReviewAssociates = state.associates
-    .filter(
-      (item) =>
-        item.status === "Revisar documentacion" &&
-        /Importado desde Excel legacy/i.test(String(item.observations || ""))
-    )
-    .slice(0, 5);
-  const closableCourses = state.courses
-    .filter((course) => course.status === "Cierre pendiente")
-    .slice(0, 5);
-  const pendingDiplomaCourses = state.courses
-    .filter((course) => getCoursePendingDiplomaDeliveries(course) > 0)
-    .slice(0, 5);
-  const storageSeemsEmpty = !isDemoSession() && (state.associates?.length || 0) === 0 && (state.courses?.length || 0) === 0;
-  const nextAgentItem = pickNextAgentItem();
-  const recentActivity = [...state.activityLog]
-    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
-    .slice(0, 5);
-  const startSummary = nextAgentItem?.detail
-    ? nextAgentItem.detail
-    : pendingAssociateApplications.length
-      ? "Empieza por las altas de socio pendientes."
-      : pendingProfileRequests.length
-        ? "Revisa los cambios de ficha que han enviado los socios."
-        : pendingPaymentSubmissions.length
-          ? "Valida justificantes y cuotas antes de seguir."
-          : closableCourses.length
-            ? "Hay cursos listos para cerrar y emitir diplomas."
-            : "No hay bloqueos fuertes ahora mismo. Puedes revisar cursos, socios o actividad reciente.";
+  const startSummary = pendingAssociateApplications.length
+    ? "Empieza por las altas de socio pendientes."
+    : pendingProfileRequests.length
+      ? "Revisa los cambios de ficha que han enviado los socios."
+      : pendingPaymentSubmissions.length
+        ? "Valida justificantes y cuotas antes de seguir."
+        : "La bandeja operativa esta al dia. Puedes revisar socios, campus o informes.";
+
+  const renderApplicationPreview = (item) => {
+    const readiness = getAssociateApplicationReadiness(item);
+    return `
+      <div class="timeline-item compact-card">
+        <strong>${escapeHtml(getAssociateApplicantName(item))}</strong>
+        <p>${escapeHtml(item.email || "-")} | ${escapeHtml(item.service || "-")}</p>
+        <p class="muted">${formatDateTime(item.submittedAt)} | ${escapeHtml(item.status || "Pendiente")}</p>
+        <div class="chip-row">${renderAssociateApplicationValidationChips(item)}</div>
+        <div class="chip-row">
+          <button class="mini-button" type="button" data-action="approve-associate" data-application-id="${item.id}" ${readiness.ready ? "" : "disabled"}>Aprobar</button>
+          <button class="mini-button" type="button" data-action="reject-associate" data-application-id="${item.id}">Rechazar</button>
+        </div>
+      </div>
+    `;
+  };
+
+  const renderProfileRequestPreview = (request) => {
+    const associate = findAssociate(request.associateId);
+    const changedRows = getAssociateProfileRequestComparisonRows(request)
+      .filter((row) => row.changed)
+      .slice(0, 2);
+    return `
+      <div class="timeline-item compact-card">
+        <strong>${escapeHtml(getAssociateFullName(associate) || request.email || "Cambio de ficha")}</strong>
+        <p class="muted">${formatDateTime(request.submittedAt)} | ${escapeHtml(request.status || "Pendiente de revision")}</p>
+        ${
+          changedRows.length
+            ? changedRows
+                .map(
+                  (row) => `<p><strong>${escapeHtml(row.label)}:</strong> ${escapeHtml(row.current)} → <strong>${escapeHtml(row.proposed)}</strong></p>`
+                )
+                .join("")
+            : `<p class="muted">Sin diferencias resumidas.</p>`
+        }
+        <div class="chip-row">
+          <button class="mini-button" type="button" data-action="approve-associate-profile-request" data-request-id="${request.id}">Aprobar</button>
+          <button class="mini-button" type="button" data-action="reject-associate-profile-request" data-request-id="${request.id}">Rechazar</button>
+        </div>
+      </div>
+    `;
+  };
+
+  const renderPaymentPreview = (submission) => {
+    const associate = findAssociate(submission.associateId);
+    return `
+      <div class="timeline-item compact-card">
+        <strong>${escapeHtml(getAssociateFullName(associate) || "Socio")}</strong>
+        <p>${escapeHtml(submission.year || "-")} | ${formatCurrency(Number(submission.amount || 0))} | ${escapeHtml(submission.method || "-")}</p>
+        <p class="muted">${formatDateTime(submission.submittedAt)} | ${escapeHtml(submission.status || "Pendiente de revision")}</p>
+        ${submission.note ? `<p class="muted">${escapeHtml(submission.note)}</p>` : ""}
+        <div class="chip-row">
+          <button class="mini-button" type="button" data-action="approve-associate-payment" data-submission-id="${submission.id}">Aprobar</button>
+          <button class="mini-button" type="button" data-action="reject-associate-payment" data-submission-id="${submission.id}">Rechazar</button>
+        </div>
+      </div>
+    `;
+  };
 
   return `
     <div class="panel-stack">
       <div class="panel-header associate-anchor" id="overviewSectionDashboard">
         <div>
           <p class="eyebrow">Panel de administracion</p>
-          <h3>Empieza por aqui</h3>
+          <h3>Bandeja operativa</h3>
           ${
             selectedMember
               ? `<p class="muted">Trabajando con la ficha de ${selectedMember.name}.</p>`
@@ -6022,220 +6047,58 @@ function renderOverview() {
         <div class="chip-row">
           <button class="primary-button" data-action="nav" data-view="associates">Socios y cuotas</button>
           <button class="ghost-button" data-action="nav" data-view="courses">Campus</button>
-          <button class="ghost-button" data-action="nav" data-view="reports">Informes</button>
+          <button class="ghost-button" data-action="nav" data-view="reports">Informes y validacion</button>
         </div>
       </div>
 
-      <div class="status-note info associate-anchor" id="overviewSectionAttention">
-        Altas pendientes: ${pendingAssociateApplications.length}. Cambios de ficha: ${pendingProfileRequests.length}. Justificantes: ${pendingPaymentSubmissions.length}. Cursos por cerrar: ${closableCourses.length}. Diplomas pendientes: ${pendingDiplomaCourses.length}.
-      </div>
-
-      <div class="status-note ${storageMeta && (state.associates?.length || 0) > 0 ? "success" : "warning"} associate-anchor" id="overviewSectionStorageStatus">
-        <strong>Almacenamiento activo:</strong>
-        ${
-          storageMeta
-            ? ` Base ${escapeHtml(storageMeta.dbPath)} | Snapshot ${escapeHtml(storageMeta.snapshotPath)} | Actualizado ${storageMeta.updatedAt ? escapeHtml(formatDateTime(storageMeta.updatedAt)) : "sin fecha"} | Socios ${state.associates?.length || 0} | Cursos ${state.courses?.length || 0}.`
-            : " No se ha podido leer la ruta del almacenamiento de este servicio."
-        }
-      </div>
-
-      ${
-        storageSeemsEmpty
-          ? `
-      <div class="status-note danger associate-anchor" id="overviewSectionStorageMismatch">
-        <strong>Atencion:</strong> este despliegue ahora mismo esta vacio o leyendo otro almacenamiento. Tus datos locales no tienen por que haberse perdido.
-        Revisa <strong>Informes y validacion</strong> y abre la herramienta secundaria de <strong>Almacenamiento</strong>, descarga una copia del estado actual y, si hace falta, vuelve a importar el
-        <strong>state.json</strong> real del campus en esta web.
-      </div>
-      `
-          : ""
-      }
-
-      <div class="course-grid overview-admin-main">
-        <div class="mail-card compact-panel">
-          <div class="panel-header">
-            <div>
-              <h4>Atencion de hoy</h4>
-              <p class="muted">Lo primero que conviene resolver para que el campus siga fluyendo.</p>
-            </div>
-            ${
-              nextAgentItem
-                ? `<button class="primary-button" data-action="agent-resolve-next">Resolver siguiente</button>`
-                : `<span class="small-chip">Sin tarea automatica prioritaria</span>`
-            }
-          </div>
-          <div class="stack compact-list">
-            <div class="timeline-item compact-card">
-              <span class="eyebrow">Siguiente tarea</span>
-              <strong>${escapeHtml(nextAgentItem?.title || "Sin prioridades bloqueantes")}</strong>
-              <p>${escapeHtml(startSummary)}</p>
-            </div>
-            <div class="timeline-item compact-card">
-              <span class="eyebrow">Bienvenidas pendientes</span>
-              <strong>${pendingWelcomeAssociates.length}</strong>
-              <p>${pendingWelcomeAssociates.length ? `${escapeHtml(getAssociateFullName(pendingWelcomeAssociates[0]))} y ${Math.max(pendingWelcomeAssociates.length - 1, 0)} mas` : "Todos los accesos con bienvenida al dia."}</p>
-            </div>
-            <div class="timeline-item compact-card">
-              <span class="eyebrow">Cursos por cerrar</span>
-              <strong>${closableCourses.length}</strong>
-              <p>${closableCourses.length ? `${escapeHtml(closableCourses[0].title)} y ${Math.max(closableCourses.length - 1, 0)} mas` : "No hay cierres pendientes."}</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="mail-card compact-panel associate-anchor" id="overviewSectionAssociates">
-          <div class="panel-header">
-            <div>
-              <h4>Socios que requieren seguimiento</h4>
-              <p class="muted">Pendientes por cuota, bienvenida o revision de socios legacy.</p>
-            </div>
-            <div class="chip-row">
-              <button class="mini-button" data-action="nav" data-view="associates">Abrir modulo</button>
-              <button class="mini-button" data-action="set-associate-filter-preset" data-preset="incidents">Solo incidencias</button>
-            </div>
-          </div>
-          ${
-            pendingQuotaAssociates.length || pendingWelcomeAssociates.length || pendingLegacyReviewAssociates.length
-              ? [
-                  ...pendingQuotaAssociates.map(
-                    (associate) => `
-                      <div class="timeline-item compact-card">
-                        <strong>${escapeHtml(getAssociateFullName(associate))}</strong>
-                        <p>Socio #${associate.associateNumber} | ${escapeHtml(associate.service || "-")}</p>
-                        <p class="muted">Pendiente ${formatCurrency(getAssociateQuotaGap(associate))} del ${currentYear} | Estado ${escapeHtml(associate.status)}</p>
-                      </div>
-                    `
-                  ),
-                  ...pendingLegacyReviewAssociates
-                    .filter(
-                      (associate) =>
-                        !pendingQuotaAssociates.some((item) => item.id === associate.id) &&
-                        !pendingWelcomeAssociates.some((item) => item.id === associate.id)
-                    )
-                    .slice(0, 3)
-                    .map(
-                      (associate) => `
-                        <div class="timeline-item compact-card">
-                          <strong>${escapeHtml(getAssociateFullName(associate))}</strong>
-                          <p>Socio #${associate.associateNumber} | ${escapeHtml(associate.service || "Sin servicio")}</p>
-                          <p class="muted">Revision legacy abierta | Campus ${escapeHtml(associate.campusAccessStatus || "sin acceso")}</p>
-                        </div>
-                      `
-                    ),
-                  ...pendingWelcomeAssociates
-                    .filter(
-                      (associate) =>
-                        !pendingQuotaAssociates.some((item) => item.id === associate.id) &&
-                        !pendingLegacyReviewAssociates.some((item) => item.id === associate.id)
-                    )
-                    .slice(0, 3)
-                    .map(
-                      (associate) => `
-                        <div class="timeline-item compact-card">
-                          <strong>${escapeHtml(getAssociateFullName(associate))}</strong>
-                          <p>Socio #${associate.associateNumber} | ${escapeHtml(associate.email)}</p>
-                          <p class="muted">Bienvenida ${escapeHtml(associate.welcomeEmailStatus || "pending")} | Acceso ${escapeHtml(associate.campusAccessStatus || "pending")}</p>
-                        </div>
-                      `
-                    )
-                ].join("")
-              : `<p class="muted">No hay socios con incidencias prioritarias ahora mismo.</p>`
-          }
-        </div>
+      <div class="status-note info">
+        Altas pendientes: ${pendingAssociateApplications.length}. Cambios de ficha: ${pendingProfileRequests.length}. Justificantes de cuota: ${pendingPaymentSubmissions.length}.
       </div>
 
       <div class="course-grid overview-admin-main">
-        <div class="mail-card compact-panel associate-anchor" id="overviewSectionCourses">
+        <div class="mail-card compact-panel associate-anchor" id="overviewSectionApplications">
           <div class="panel-header">
             <div>
-              <h4>Cursos que mover hoy</h4>
-              <p class="muted">Cierres, diplomas e inscripciones que conviene revisar.</p>
+              <h4>Altas pendientes</h4>
+              <p class="muted">Solicitudes de socio listas para revisar desde la portada.</p>
             </div>
-            <button class="mini-button" data-action="nav" data-view="courses">Ir a cursos</button>
+            <button class="mini-button" type="button" data-action="nav-section" data-view="associates" data-section-id="associateSectionApplications">Ver cola completa</button>
           </div>
           ${
-            closableCourses.length || pendingDiplomaCourses.length
-              ? [
-                  ...closableCourses.map(
-                    (course) => `
-                      <div class="timeline-item compact-card">
-                        <strong>${escapeHtml(course.title)}</strong>
-                        <p>${escapeHtml(describeCourseType(course))} | ${formatDate(course.endDate)}</p>
-                        <p class="muted">Cierre pendiente con ${getCourseEnrolledCount(course)} inscrito(s).</p>
-                      </div>
-                    `
-                  ),
-                  ...pendingDiplomaCourses
-                    .filter((course) => !closableCourses.some((item) => item.id === course.id))
-                    .slice(0, 3)
-                    .map(
-                      (course) => `
-                        <div class="timeline-item compact-card">
-                          <strong>${escapeHtml(course.title)}</strong>
-                          <p>${escapeHtml(describeCourseType(course))} | ${course.hours} h</p>
-                          <p class="muted">${getCoursePendingDiplomaDeliveries(course)} diploma(s) pendientes de enviar.</p>
-                        </div>
-                      `
-                    )
-                ].join("")
-              : `<p class="muted">Cursos al dia: no hay cierres ni envios urgentes.</p>`
+            pendingAssociateApplications.length
+              ? `<div class="compact-list">${pendingAssociateApplications.slice(0, 3).map(renderApplicationPreview).join("")}</div>`
+              : `<p class="muted">No hay altas pendientes ahora mismo.</p>`
           }
         </div>
 
-        <div class="mail-card compact-panel associate-anchor" id="overviewSectionActivity">
-        <div class="panel-header">
-          <div>
-            <h4>Atencion hoy</h4>
-            <p class="muted">Ultimos movimientos del campus para entender que ha pasado.</p>
-          </div>
-          <button class="mini-button" data-action="nav" data-view="activity">Abrir auditoria</button>
-        </div>
-        ${
-          recentActivity.length
-            ? recentActivity
-                .map(
-                  (item) => `
-                    <div class="timeline-item compact-card">
-                      <strong>${escapeHtml(item.actor)}</strong>
-                      <p>${escapeHtml(item.message)}</p>
-                      <p class="muted">${escapeHtml(item.type)} | ${formatDateTime(item.at)}</p>
-                    </div>
-                  `
-                )
-                .join("")
-            : `<p class="muted">Todavia no hay actividad registrada en el campus.</p>`
-        }
-        </div>
-
-        <div class="mail-card compact-panel associate-anchor" id="overviewSectionGuide">
+        <div class="mail-card compact-panel associate-anchor" id="overviewSectionProfiles">
           <div class="panel-header">
             <div>
-              <h4>Guia rapida de administracion</h4>
-              <p class="muted">Los pasos clave para gestionar socios, cursos y diplomas sin perderte.</p>
+              <h4>Cambios de ficha</h4>
+              <p class="muted">Solicitudes de actualizacion enviadas por los socios.</p>
             </div>
+            <button class="mini-button" type="button" data-action="nav-section" data-view="associates" data-section-id="associateSectionProfiles">Ver cola completa</button>
           </div>
-          <div class="compact-list">
-            <div class="timeline-item compact-card">
-              <strong>1. Importa o revisa socios</strong>
-              <p class="muted">Socios y cuotas → Migracion. Analiza el Excel y pulsa Importar socios validos.</p>
+          ${
+            pendingProfileRequests.length
+              ? `<div class="compact-list">${pendingProfileRequests.slice(0, 3).map(renderProfileRequestPreview).join("")}</div>`
+              : `<p class="muted">No hay cambios de ficha pendientes.</p>`
+          }
+        </div>
+
+        <div class="mail-card compact-panel associate-anchor" id="overviewSectionPayments">
+          <div class="panel-header">
+            <div>
+              <h4>Justificantes de cuota</h4>
+              <p class="muted">Pagos enviados pendientes de validacion administrativa.</p>
             </div>
-            <div class="timeline-item compact-card">
-              <strong>2. Crea o limpia cursos</strong>
-              <p class="muted">Campus → Crear y abrir estudio. Define fechas, plazas y responsable.</p>
-            </div>
-            <div class="timeline-item compact-card">
-              <strong>3. Publica inscripciones</strong>
-              <p class="muted">Campus → Curso activo → Abrir inscripcion cuando todo este listo.</p>
-            </div>
-            <div class="timeline-item compact-card">
-              <strong>4. Cierra y emite diplomas</strong>
-              <p class="muted">Operativa → Asistencia, aptos y diplomas → Generar y enviar.</p>
-            </div>
-            <div class="timeline-item compact-card">
-              <strong>5. Comunica y exporta</strong>
-              <p class="muted">Avisos manuales y reportes CSV para enviar a socios activos.</p>
-            </div>
+            <button class="mini-button" type="button" data-action="nav-section" data-view="associates" data-section-id="associateSectionPayments">Ver cola completa</button>
           </div>
+          ${
+            pendingPaymentSubmissions.length
+              ? `<div class="compact-list">${pendingPaymentSubmissions.slice(0, 3).map(renderPaymentPreview).join("")}</div>`
+              : `<p class="muted">No hay justificantes pendientes.</p>`
+          }
         </div>
       </div>
     </div>
