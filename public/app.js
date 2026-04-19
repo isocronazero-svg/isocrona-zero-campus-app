@@ -48,10 +48,7 @@ const COURSE_SECTION_LINKS = [
 ];
 
 const CAMPUS_SECTION_LINKS = [
-  { id: "campusSectionAlerts", label: "Avisos" },
   { id: "campusSectionCourses", label: "Cursos" },
-  { id: "campusSectionOperations", label: "Operativa" },
-  { id: "campusSectionDiplomas", label: "Diplomas" },
   { id: "campusSectionGroups", label: "Grupos internos" }
 ];
 
@@ -72,9 +69,7 @@ const DIPLOMA_SECTION_LINKS = [
 
 const REPORT_SECTION_LINKS = [
   { id: "reportSectionExports", label: "Exportaciones" },
-  { id: "reportSectionValidation", label: "Validacion" },
-  { id: "reportSectionStorage", label: "Almacenamiento" },
-  { id: "reportSectionAgent", label: "Agente" }
+  { id: "reportSectionValidation", label: "Validacion" }
 ];
 
 const ACTIVITY_SECTION_LINKS = [{ id: "activitySectionTimeline", label: "Registro" }];
@@ -91,14 +86,9 @@ const AUTOMATION_SECTION_LINKS = [
 const navItems = [
   { id: "overview", label: "Vision general", sections: OVERVIEW_SECTION_LINKS },
   { id: "join", label: "Hazte socio" },
-  { id: "test", label: "Test" },
   { id: "associates", label: "Socios y cuotas", sections: ASSOCIATE_SECTION_LINKS },
-  { id: "validations", label: "Validaciones", sections: VALIDATION_SECTION_LINKS },
-  { id: "members", label: "Personas y accesos", sections: MEMBER_SECTION_LINKS },
   { id: "campus", label: "Campus", sections: CAMPUS_SECTION_LINKS },
   { id: "reports", label: "Informes y validacion", sections: REPORT_SECTION_LINKS },
-  { id: "activity", label: "Actividad y auditoria", sections: ACTIVITY_SECTION_LINKS },
-  { id: "automation", label: "Asistente y automatizacion", sections: AUTOMATION_SECTION_LINKS }
 ];
 
 const VIEW_SECTION_MODES = {
@@ -550,6 +540,11 @@ const contentElement = document.getElementById("content");
 const heroElement = document.getElementById("hero");
 const workspaceElement = document.getElementById("workspace");
 const isLocalEnvironment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const mobileShellMediaQuery = window.matchMedia("(max-width: 900px)");
+let mobileShellBar = null;
+let mobileShellToggle = null;
+let mobileShellBackdrop = null;
+let isMobileMenuOpen = false;
 
 function getFrontendBridge() {
   return window.__IZ_FRONTEND_APP__ || null;
@@ -596,6 +591,79 @@ function normalizePrimaryMemberView() {
     state.activeView = "join";
   }
 }
+
+function isMobileShellViewport() {
+  return mobileShellMediaQuery.matches;
+}
+
+function setMobileMenuOpen(nextOpen) {
+  isMobileMenuOpen = Boolean(nextOpen) && isMobileShellViewport();
+  shellElement?.classList.toggle("shell-mobile-menu-open", isMobileMenuOpen);
+  document.body.classList.toggle("shell-mobile-lock", isMobileMenuOpen);
+  if (mobileShellToggle) {
+    mobileShellToggle.setAttribute("aria-expanded", isMobileMenuOpen ? "true" : "false");
+  }
+  if (mobileShellBackdrop) {
+    mobileShellBackdrop.hidden = !isMobileMenuOpen;
+  }
+}
+
+function closeMobileMenu() {
+  setMobileMenuOpen(false);
+}
+
+function toggleMobileMenu() {
+  setMobileMenuOpen(!isMobileMenuOpen);
+}
+
+function ensureMobileShellControls() {
+  if (!shellElement || !contentElement) {
+    return;
+  }
+
+  if (!mobileShellBar) {
+    mobileShellBar = document.createElement("div");
+    mobileShellBar.className = "mobile-shell-bar";
+    mobileShellBar.innerHTML = `
+      <button
+        class="ghost-button mobile-shell-toggle"
+        id="mobileShellToggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="sidebar"
+        aria-label="Abrir o cerrar menu"
+      >
+        Menu
+      </button>
+      <span class="mobile-shell-title">Isocrona Zero</span>
+    `;
+    contentElement.insertBefore(mobileShellBar, heroElement || contentElement.firstChild);
+    mobileShellToggle = mobileShellBar.querySelector("#mobileShellToggle");
+    mobileShellToggle?.addEventListener("click", () => toggleMobileMenu());
+  }
+
+  if (!mobileShellBackdrop) {
+    mobileShellBackdrop = document.createElement("button");
+    mobileShellBackdrop.type = "button";
+    mobileShellBackdrop.className = "shell-mobile-backdrop";
+    mobileShellBackdrop.setAttribute("aria-label", "Cerrar menu");
+    mobileShellBackdrop.hidden = true;
+    mobileShellBackdrop.addEventListener("click", () => closeMobileMenu());
+    shellElement.appendChild(mobileShellBackdrop);
+  }
+
+  setMobileMenuOpen(isMobileMenuOpen);
+}
+
+function syncMobileShellViewport() {
+  ensureMobileShellControls();
+  if (!isMobileShellViewport()) {
+    closeMobileMenu();
+  }
+}
+
+mobileShellMediaQuery.addEventListener("change", syncMobileShellViewport);
+ensureMobileShellControls();
 
 function saveUiSnapshot() {
   try {
@@ -962,6 +1030,7 @@ document.addEventListener("click", async (event) => {
       pendingViewAnchorId = "";
       syncStatus = "Tienes la cuota pendiente. Por ahora solo puedes revisar tu ficha de socio.";
       showToast(syncStatus, "warning");
+      closeMobileMenu();
       render();
       return;
     }
@@ -969,6 +1038,7 @@ document.addEventListener("click", async (event) => {
     if (normalizedRequestedView === state.activeView && effectiveRequestedView === "overview") {
       expandedNavViews.add("overview");
       pendingViewAnchorId = "";
+      closeMobileMenu();
       render();
       requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
       saveUiSnapshot();
@@ -991,6 +1061,7 @@ document.addEventListener("click", async (event) => {
       pendingViewAnchorId = "";
       state.activeView = routeResult?.activeView || "test";
       setFocusedViewMode(state.activeView);
+      closeMobileMenu();
       render();
       return;
     }
@@ -1047,6 +1118,7 @@ document.addEventListener("click", async (event) => {
       state.selectedMemberId = memberId;
     }
     saveUiSnapshot();
+    closeMobileMenu();
     render();
     return;
   }
@@ -5686,6 +5758,7 @@ function scrollToViewSection(viewId, sectionId) {
     state.activeView = effectiveViewId;
     expandedNavViews.add(effectiveViewId);
     saveUiSnapshot();
+    closeMobileMenu();
     render();
     requestAnimationFrame(() => scrollToViewSection(effectiveViewId, sectionId));
     return;
@@ -5693,6 +5766,7 @@ function scrollToViewSection(viewId, sectionId) {
 
   expandedNavViews.add(effectiveViewId);
   saveUiSnapshot();
+  closeMobileMenu();
   render();
   requestAnimationFrame(() => {
     const target = document.getElementById(sectionId);
@@ -5947,10 +6021,8 @@ function renderOverview() {
         </div>
         <div class="chip-row">
           <button class="primary-button" data-action="nav" data-view="associates">Socios y cuotas</button>
-          <button class="ghost-button" data-action="nav" data-view="validations">Validaciones</button>
           <button class="ghost-button" data-action="nav" data-view="courses">Campus</button>
           <button class="ghost-button" data-action="nav" data-view="reports">Informes</button>
-          <button class="ghost-button" data-action="nav" data-view="test">Test</button>
         </div>
       </div>
 
@@ -5972,7 +6044,7 @@ function renderOverview() {
           ? `
       <div class="status-note danger associate-anchor" id="overviewSectionStorageMismatch">
         <strong>Atencion:</strong> este despliegue ahora mismo esta vacio o leyendo otro almacenamiento. Tus datos locales no tienen por que haberse perdido.
-        Revisa <strong>Informes y validacion > Almacenamiento</strong>, descarga una copia del estado actual y, si hace falta, vuelve a importar el
+        Revisa <strong>Informes y validacion</strong> y abre la herramienta secundaria de <strong>Almacenamiento</strong>, descarga una copia del estado actual y, si hace falta, vuelve a importar el
         <strong>state.json</strong> real del campus en esta web.
       </div>
       `
@@ -6141,11 +6213,6 @@ function renderOverview() {
               <h4>Guia rapida de administracion</h4>
               <p class="muted">Los pasos clave para gestionar socios, cursos y diplomas sin perderte.</p>
             </div>
-            <div class="chip-row">
-              <button class="mini-button" data-action="nav" data-view="associates">Socios</button>
-              <button class="mini-button" data-action="nav" data-view="courses">Cursos</button>
-              <button class="mini-button" data-action="nav" data-view="reports">Informes</button>
-            </div>
           </div>
           <div class="compact-list">
             <div class="timeline-item compact-card">
@@ -6199,7 +6266,6 @@ function renderMemberOverview() {
           <button class="primary-button" type="button" data-action="nav" data-view="join">Mi ficha de socio</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Ver cursos</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Ver diplomas</button>
-          <button class="ghost-button" type="button" data-action="nav" data-view="test">Test</button>
         </div>
       </div>
 
@@ -7714,7 +7780,10 @@ function renderAssociates() {
             <h4>Cola rapida de revision</h4>
             <p class="muted">Solicitudes de alta pendientes listas para abrir, pedir documentacion o aprobar.</p>
           </div>
-          <button class="ghost-button" data-action="nav" data-view="associates">Ver todo</button>
+          <div class="chip-row">
+            <button class="ghost-button" data-action="nav" data-view="associates">Ver todo</button>
+            <button class="mini-button" data-action="nav" data-view="validations">Validaciones</button>
+          </div>
         </div>
         <p class="status-note">${approvableApplicationCount} lista(s) para aprobar y ${blockedApplicationCount} bloqueada(s) por datos o validacion.</p>
         ${
@@ -8254,6 +8323,9 @@ function renderAssociatesSide() {
       <div class="mail-card">
         <h4>Centro de control</h4>
         <p class="muted">Ve directo a la bandeja o ficha que necesitas trabajar ahora.</p>
+        <div class="chip-row">
+          <button class="mini-button" data-action="nav" data-view="validations">Abrir validaciones</button>
+        </div>
         <div class="stack">
           ${ASSOCIATE_SECTION_LINKS.map(
             (section) => `
@@ -9312,8 +9384,6 @@ function renderCampus() {
               </div>
               <div class="chip-row">
                 <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="courses">Cursos</button>
-                <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="operations">Operativa</button>
-                <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="diplomas">Diplomas</button>
                 <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="groups">Grupos internos</button>
               </div>
             `
@@ -9340,12 +9410,10 @@ function renderCampus() {
                   : ""
               }
               <div class="chip-row">
-                <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="alerts">Avisos</button>
                 <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="courses">Mis cursos</button>
-                <button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="diplomas">Mis diplomas</button>
                 ${
                   campusOnlySession
-                    ? `<button class="ghost-button" type="button" data-action="nav" data-view="join">Hazte socio</button>`
+                    ? ""
                     : `<button class="ghost-button" type="button" data-action="set-campus-section-mode" data-mode="groups">Grupos internos</button>`
                 }
               </div>
@@ -9396,11 +9464,7 @@ function renderCampus() {
             }</p>
           </div>
           <div class="chip-row compact-chip-row">
-            <button class="${effectiveCampusSectionMode === "all" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="all">Mapa</button>
-            ${!isAdminView() ? `<button class="${effectiveCampusSectionMode === "alerts" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="alerts">Avisos</button>` : ""}
             <button class="${effectiveCampusSectionMode === "courses" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="courses">Cursos</button>
-            ${isAdminView() ? `<button class="${effectiveCampusSectionMode === "operations" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="operations">Operativa</button>` : ""}
-            <button class="${effectiveCampusSectionMode === "diplomas" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="diplomas">${isAdminView() ? "Diplomas" : "Mis diplomas"}</button>
             ${!campusOnlySession ? `<button class="${effectiveCampusSectionMode === "groups" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="groups">Grupos internos</button>` : ""}
           </div>
         </div>
@@ -9438,7 +9502,7 @@ function renderCampusSide() {
     : 0;
   const campusNavigator = `
     <div class="status-note info">
-      ${isAdminView() ? "Salta entre cursos, operativa, diplomas y grupos internos desde este mismo espacio." : campusOnlySession ? "Salta entre tus cursos abiertos y diplomas desde este mismo espacio." : "Salta entre avisos, cursos, diplomas y grupos internos desde este mismo espacio."}
+      ${isAdminView() ? "Salta entre cursos y grupos internos desde este mismo espacio." : campusOnlySession ? "Desde aqui accedes a tus cursos abiertos." : "Salta entre cursos y grupos internos desde este mismo espacio."}
     </div>
     <div class="chip-row">
       ${CAMPUS_SECTION_LINKS.filter((section) => (isAdminView() || section.id !== "campusSectionOperations") && (!campusOnlySession || section.id !== "campusSectionGroups")).map(
@@ -10571,11 +10635,16 @@ function renderReports() {
       </div>
 
       <div class="chip-row">
-        <button class="${reportsSectionMode === "all" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="all">Todo</button>
         <button class="${reportsSectionMode === "exports" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="exports">Exportaciones</button>
         <button class="${reportsSectionMode === "validation" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="validation">Validacion</button>
-        <button class="${reportsSectionMode === "storage" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="storage">Almacenamiento</button>
-        <button class="${reportsSectionMode === "agent" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="agent">Agente</button>
+      </div>
+
+      <div class="status-note">
+        <strong>Herramientas avanzadas:</strong>
+        <button class="mini-button" data-action="nav" data-view="automation">Automatizacion</button>
+        <strong>Herramientas tecnicas:</strong>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
 
       ${
@@ -11533,7 +11602,11 @@ function renderReportsSide() {
       <div class="chip-row">
         <button class="primary-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionExports">Exportaciones</button>
         <button class="ghost-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionValidation">Validacion</button>
-        <button class="ghost-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
+      </div>
+      <div class="chip-row">
+        <button class="mini-button" data-action="nav" data-view="automation">Automatizacion</button>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
+        <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
     </div>
   `;
