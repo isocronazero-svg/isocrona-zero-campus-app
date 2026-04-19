@@ -6405,6 +6405,9 @@ function approveAssociatePaymentSubmission(state, submissionId, reviewerName) {
   if (submission.status === "Aprobado") {
     throw new Error("Este justificante ya esta aprobado");
   }
+  if (submission.status === "Rechazado") {
+    throw new Error("Este justificante ya esta rechazado y no puede aprobarse despues");
+  }
 
   const associate = (state.associates || []).find((item) => item.id === submission.associateId);
   if (!associate) {
@@ -6449,6 +6452,12 @@ function rejectAssociatePaymentSubmission(state, submissionId, reviewerName) {
   const submission = (state.associatePaymentSubmissions || []).find((item) => item.id === submissionId);
   if (!submission) {
     throw new Error("Justificante de cuota no encontrado");
+  }
+  if (submission.status === "Aprobado") {
+    throw new Error("Este justificante ya esta aprobado y no puede rechazarse despues");
+  }
+  if (submission.status === "Rechazado") {
+    throw new Error("Este justificante ya esta rechazado");
   }
 
   const associate = (state.associates || []).find((item) => item.id === submission.associateId);
@@ -6779,6 +6788,9 @@ function approveAssociateProfileRequest(state, requestId, reviewerName, adminCom
   if (request.status === "Aprobado") {
     throw new Error("Esta solicitud ya esta aprobada");
   }
+  if (request.status === "Rechazado") {
+    throw new Error("Esta solicitud ya esta rechazada y no puede aprobarse despues");
+  }
 
   const associate = (state.associates || []).find((item) => item.id === request.associateId);
   if (!associate) {
@@ -6821,6 +6833,9 @@ function rejectAssociateProfileRequest(state, requestId, reviewerName, adminComm
     throw new Error("Solicitud de actualizacion no encontrada");
   }
 
+  if (request.status === "Aprobado") {
+    throw new Error("Esta solicitud ya esta aprobada y no puede rechazarse despues");
+  }
   if (request.status === "Rechazado") {
     throw new Error("Esta solicitud ya esta rechazada");
   }
