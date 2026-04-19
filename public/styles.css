@@ -822,6 +822,27 @@ body {
   display: none !important;
 }
 
+.mobile-shell-bar {
+  display: none;
+}
+
+.mobile-shell-toggle {
+  align-items: center;
+  justify-content: center;
+  min-width: 92px;
+}
+
+.mobile-shell-title {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--muted-strong);
+}
+
+.shell-mobile-backdrop {
+  display: none;
+}
+
 .content {
   padding: 18px 22px;
 }
@@ -3085,6 +3106,90 @@ tr:last-child td {
 
   .hero {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  body.shell-mobile-lock {
+    overflow: hidden;
+  }
+
+  .shell {
+    display: block;
+    position: relative;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(320px, calc(100vw - 52px));
+    max-width: 100%;
+    height: 100vh;
+    overflow-y: auto;
+    border-right: 1px solid var(--line);
+    border-bottom: none;
+    z-index: 80;
+    transform: translateX(calc(-100% - 18px));
+    transition: transform 0.22s ease;
+    box-shadow: 0 24px 56px rgba(35, 22, 12, 0.22);
+  }
+
+  .shell.shell-mobile-menu-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .shell-mobile-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    border: 0;
+    padding: 0;
+    background: rgba(31, 24, 18, 0.4);
+    cursor: pointer;
+  }
+
+  .shell.shell-mobile-menu-open .shell-mobile-backdrop {
+    display: block;
+  }
+
+  .content,
+  .content.content-compact {
+    width: 100%;
+    min-width: 0;
+    padding: 14px;
+  }
+
+  .mobile-shell-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    margin: 0 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 250, 244, 0.96)),
+      var(--panel-strong);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .workspace,
+  .workspace.workspace-single {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .panel-side,
+  .panel-side-sticky {
+    position: static;
+    top: auto;
+    max-height: none;
+    overflow: visible;
   }
 }
 

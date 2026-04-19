@@ -540,6 +540,11 @@ const contentElement = document.getElementById("content");
 const heroElement = document.getElementById("hero");
 const workspaceElement = document.getElementById("workspace");
 const isLocalEnvironment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const mobileShellMediaQuery = window.matchMedia("(max-width: 900px)");
+let mobileShellBar = null;
+let mobileShellToggle = null;
+let mobileShellBackdrop = null;
+let isMobileMenuOpen = false;
 
 function getFrontendBridge() {
   return window.__IZ_FRONTEND_APP__ || null;
@@ -576,6 +581,79 @@ function syncFrontendStore(overrides = {}) {
     ...overrides
   });
 }
+
+function isMobileShellViewport() {
+  return mobileShellMediaQuery.matches;
+}
+
+function setMobileMenuOpen(nextOpen) {
+  isMobileMenuOpen = Boolean(nextOpen) && isMobileShellViewport();
+  shellElement?.classList.toggle("shell-mobile-menu-open", isMobileMenuOpen);
+  document.body.classList.toggle("shell-mobile-lock", isMobileMenuOpen);
+  if (mobileShellToggle) {
+    mobileShellToggle.setAttribute("aria-expanded", isMobileMenuOpen ? "true" : "false");
+  }
+  if (mobileShellBackdrop) {
+    mobileShellBackdrop.hidden = !isMobileMenuOpen;
+  }
+}
+
+function closeMobileMenu() {
+  setMobileMenuOpen(false);
+}
+
+function toggleMobileMenu() {
+  setMobileMenuOpen(!isMobileMenuOpen);
+}
+
+function ensureMobileShellControls() {
+  if (!shellElement || !contentElement) {
+    return;
+  }
+
+  if (!mobileShellBar) {
+    mobileShellBar = document.createElement("div");
+    mobileShellBar.className = "mobile-shell-bar";
+    mobileShellBar.innerHTML = `
+      <button
+        class="ghost-button mobile-shell-toggle"
+        id="mobileShellToggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="sidebar"
+        aria-label="Abrir o cerrar menu"
+      >
+        Menu
+      </button>
+      <span class="mobile-shell-title">Isocrona Zero</span>
+    `;
+    contentElement.insertBefore(mobileShellBar, heroElement || contentElement.firstChild);
+    mobileShellToggle = mobileShellBar.querySelector("#mobileShellToggle");
+    mobileShellToggle?.addEventListener("click", () => toggleMobileMenu());
+  }
+
+  if (!mobileShellBackdrop) {
+    mobileShellBackdrop = document.createElement("button");
+    mobileShellBackdrop.type = "button";
+    mobileShellBackdrop.className = "shell-mobile-backdrop";
+    mobileShellBackdrop.setAttribute("aria-label", "Cerrar menu");
+    mobileShellBackdrop.hidden = true;
+    mobileShellBackdrop.addEventListener("click", () => closeMobileMenu());
+    shellElement.appendChild(mobileShellBackdrop);
+  }
+
+  setMobileMenuOpen(isMobileMenuOpen);
+}
+
+function syncMobileShellViewport() {
+  ensureMobileShellControls();
+  if (!isMobileShellViewport()) {
+    closeMobileMenu();
+  }
+}
+
+mobileShellMediaQuery.addEventListener("change", syncMobileShellViewport);
+ensureMobileShellControls();
 
 function saveUiSnapshot() {
   try {
@@ -940,6 +1018,7 @@ document.addEventListener("click", async (event) => {
       pendingViewAnchorId = "";
       syncStatus = "Tienes la cuota pendiente. Por ahora solo puedes revisar tu ficha de socio.";
       showToast(syncStatus, "warning");
+      closeMobileMenu();
       render();
       return;
     }
@@ -947,6 +1026,7 @@ document.addEventListener("click", async (event) => {
     if (requestedView === state.activeView && effectiveRequestedView === "overview") {
       expandedNavViews.add("overview");
       pendingViewAnchorId = "";
+      closeMobileMenu();
       render();
       requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
       saveUiSnapshot();
@@ -969,6 +1049,7 @@ document.addEventListener("click", async (event) => {
       pendingViewAnchorId = "";
       state.activeView = routeResult?.activeView || "test";
       setFocusedViewMode(state.activeView);
+      closeMobileMenu();
       render();
       return;
     }
@@ -1025,6 +1106,7 @@ document.addEventListener("click", async (event) => {
       state.selectedMemberId = memberId;
     }
     saveUiSnapshot();
+    closeMobileMenu();
     render();
     return;
   }
@@ -5661,6 +5743,7 @@ function scrollToViewSection(viewId, sectionId) {
     state.activeView = effectiveViewId;
     expandedNavViews.add(effectiveViewId);
     saveUiSnapshot();
+    closeMobileMenu();
     render();
     requestAnimationFrame(() => scrollToViewSection(effectiveViewId, sectionId));
     return;
@@ -5668,6 +5751,7 @@ function scrollToViewSection(viewId, sectionId) {
 
   expandedNavViews.add(effectiveViewId);
   saveUiSnapshot();
+  closeMobileMenu();
   render();
   requestAnimationFrame(() => {
     const target = document.getElementById(sectionId);
