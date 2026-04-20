@@ -11791,6 +11791,16 @@ function renderCourseModuleEditor(module, moduleIndex) {
                                           <span>Obligatorio</span>
                                           <input data-block-field="required" type="checkbox" ${block.required ? "checked" : ""} />
                                         </label>
+                                        ${
+                                          block.type === "evaluation"
+                                            ? `
+                                              <label class="inline-field">
+                                                <span>Marcar como test final</span>
+                                                <input data-block-field="finalTest" type="checkbox" ${block.finalTest ? "checked" : ""} />
+                                              </label>
+                                            `
+                                            : ""
+                                        }
                                         <label class="inline-field lesson-notes">
                                           Contenido del bloque
                                           <textarea data-block-field="content">${escapeHtml(block.content || "")}</textarea>
@@ -11801,7 +11811,7 @@ function renderCourseModuleEditor(module, moduleIndex) {
                                         </label>
                                       </div>
                                       <div class="block-admin-preview">
-                                        ${renderLessonBlockPreview(block, { admin: true })}
+                                        ${renderLessonBlockPreview(block, { course, lessonId: lesson.id, admin: true })}
                                       </div>
                                     </article>
                                   `
@@ -15491,8 +15501,10 @@ function normalizeCourseBlock(block, moduleIndex, lessonIndex, blockIndex) {
         }))
       : [],
     required: Boolean(block.required),
+    finalTest: Boolean(block.finalTest),
     ...block,
-    required: Boolean(block.required)
+    required: Boolean(block.required),
+    finalTest: Boolean(block.finalTest)
   };
 }
 
@@ -16295,6 +16307,7 @@ function buildDefaultLessonBlock(type, index = 0) {
       content: "Test integrado en el curso para comprobar este bloque.",
       url: "",
       required: true,
+      finalTest: false,
       questions: [
         {
           prompt: "Pregunta inicial de ejemplo",
@@ -16363,7 +16376,7 @@ function getEvaluationBlockUiMeta(course, lessonId, block, options = {}) {
   const isLastLesson = lessonIndex >= 0 && lessonIndex === lessonList.length - 1;
   const isLastEvaluationInLesson =
     evaluationBlocks.length > 0 && evaluationBlocks[evaluationBlocks.length - 1]?.id === block?.id;
-  const isFinalTest = Boolean(isLastLesson && isLastEvaluationInLesson && block?.required);
+  const isFinalTest = Boolean(block?.finalTest) || Boolean(isLastLesson && isLastEvaluationInLesson && block?.required);
 
   return {
     chipLabel: isFinalTest ? "Test final" : "Test del modulo",
@@ -18198,7 +18211,8 @@ function collectCourseModulesFromForm() {
                           content: blockNode.querySelector('[data-block-field="content"]')?.value.trim() || "",
                           url: blockNode.querySelector('[data-block-field="url"]')?.value.trim() || "",
                           questions: parseQuizQuestions(blockNode.querySelector('[data-block-field="questions"]')?.value || ""),
-                          required: Boolean(blockNode.querySelector('[data-block-field="required"]')?.checked)
+                          required: Boolean(blockNode.querySelector('[data-block-field="required"]')?.checked),
+                          finalTest: Boolean(blockNode.querySelector('[data-block-field="finalTest"]')?.checked)
                         },
                         moduleIndex,
                         lessonIndex,
