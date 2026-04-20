@@ -744,7 +744,7 @@ function renderFrontendTestView() {
   const renderTest = bridge?.views?.test;
 
   if (typeof renderTest !== "function") {
-    mainPanel.innerHTML = '<div class="empty-state">La vista de test todavia no esta disponible.</div>';
+    mainPanel.innerHTML = '<div class="empty-state">La practica libre de test todavia no esta disponible. La evaluacion principal vive dentro de Campus y de cada curso.</div>';
     return;
   }
 
@@ -3241,7 +3241,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
     if (isAdminView() || isMemberPreviewSession()) {
-      syncStatus = "La vista previa del aula no guarda respuestas reales del test.";
+      syncStatus = "La vista previa del aula no guarda respuestas reales de la evaluacion del curso.";
       render();
       return;
     }
@@ -3268,7 +3268,7 @@ document.addEventListener("click", async (event) => {
       }
       setCourseProgressEntry(course, memberId, entry);
     }
-    await persistAndRender(progress?.complete ? "Test completado correctamente" : "Respuesta guardada");
+    await persistAndRender(progress?.complete ? "Evaluacion del curso completada correctamente" : "Respuesta guardada");
     return;
   }
 
@@ -5501,7 +5501,7 @@ function renderNav() {
     overview: "Mi ficha de socio",
     join: campusOnlySession ? "Hazte socio" : "Mi ficha de socio",
     campus: "Campus",
-    test: "Test"
+    test: "Practica libre"
   };
   navElement.innerHTML = navItems
     .filter((item) => isViewAllowed(item.id))
@@ -5935,9 +5935,9 @@ function renderSidePanel() {
     sidePanel.className = "panel panel-side";
     sidePanel.innerHTML = `
       <div class="stack gap-md">
-        <p class="eyebrow">Entrenamiento</p>
-        <h3>Vista Test</h3>
-        <p class="muted">Practica una pregunta cada vez, con cronometro, correccion inmediata y puntuacion en directo.</p>
+        <p class="eyebrow">Practica libre</p>
+        <h3>Herramienta secundaria</h3>
+        <p class="muted">La evaluacion principal del campus vive dentro de cada curso. Esta vista queda solo como practica separada.</p>
         <div class="chip-row">
           <button class="ghost-button" type="button" data-action="nav" data-view="overview">Volver al panel</button>
           <button class="ghost-button" type="button" data-action="nav" data-view="campus">Ir al campus</button>
@@ -16291,8 +16291,8 @@ function buildDefaultLessonBlock(type, index = 0) {
     },
     evaluation: {
       type: "evaluation",
-      title: `Test ${index + 1}`,
-      content: "Bloque de evaluacion con preguntas autocontenidas.",
+      title: `Test del modulo ${index + 1}`,
+      content: "Test integrado en el curso para comprobar este bloque.",
       url: "",
       required: true,
       questions: [
@@ -16344,10 +16344,36 @@ function getBlockDisplayLabel(type) {
     video: "Video",
     checklist: "Checklist",
     download: "Descarga",
-    evaluation: "Test",
+    evaluation: "Evaluacion",
     practice: "Practica"
   };
   return labels[type] || "Bloque";
+}
+
+function getEvaluationBlockUiMeta(course, lessonId, block, options = {}) {
+  const previewOnly = Boolean(options.previewOnly);
+  const isAdminContext = Boolean(options.admin || previewOnly || !options.interactive);
+  const lessonList =
+    course && lessonId
+      ? (isAdminContext ? getCourseLessonList(course) : getLearnerCourseLessonList(course))
+      : [];
+  const lessonIndex = lessonList.findIndex((lesson) => lesson.id === lessonId);
+  const currentLesson = lessonIndex >= 0 ? lessonList[lessonIndex] : null;
+  const evaluationBlocks = (currentLesson?.blocks || []).filter((item) => String(item?.type || "") === "evaluation");
+  const isLastLesson = lessonIndex >= 0 && lessonIndex === lessonList.length - 1;
+  const isLastEvaluationInLesson =
+    evaluationBlocks.length > 0 && evaluationBlocks[evaluationBlocks.length - 1]?.id === block?.id;
+  const isFinalTest = Boolean(isLastLesson && isLastEvaluationInLesson && block?.required);
+
+  return {
+    chipLabel: isFinalTest ? "Test final" : "Test del modulo",
+    title: block?.title || (isFinalTest ? "Test final del curso" : "Test del modulo"),
+    description:
+      block?.content ||
+      (isFinalTest
+        ? "Prueba final integrada en el curso para cerrar la evaluacion del alumnado."
+        : "Prueba integrada en el curso para comprobar este modulo.")
+  };
 }
 
 function applyBlueprintToCourse(course, blueprint) {
@@ -18013,10 +18039,11 @@ function renderLessonBlockPreview(block, options = {}) {
   }
 
   if (type === "evaluation") {
+    const evaluationMeta = getEvaluationBlockUiMeta(course, lessonId, block, options);
     return `
       <div class="aula-block aula-block-evaluation">
         <div class="chip-row">
-          <span class="small-chip">${label}</span>
+          <span class="small-chip">${evaluationMeta.chipLabel}</span>
           ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
           ${
             quizProgress
@@ -18024,8 +18051,8 @@ function renderLessonBlockPreview(block, options = {}) {
               : ""
           }
         </div>
-        <strong>${escapeHtml(block.title || "Test")}</strong>
-        <p class="muted">${escapeHtml(block.content || "Bloque de evaluacion")}</p>
+        <strong>${escapeHtml(evaluationMeta.title)}</strong>
+        <p class="muted">${escapeHtml(evaluationMeta.description)}</p>
         ${
           block.questions?.length
             ? `
@@ -18107,11 +18134,11 @@ function renderLessonBlockPreview(block, options = {}) {
                     .join("")}
                 </div>
               `
-            : `<div class="empty-state">Este test todavia no tiene preguntas cargadas.</div>`
+            : `<div class="empty-state">Este bloque de evaluacion todavia no tiene preguntas cargadas.</div>`
         }
         ${
           quizProgress && !options.admin
-            ? `<p class="muted">${quizProgress.complete ? "Test completado. Este bloque ya cuenta para tu progreso." : `${quizProgress.answered}/${quizProgress.total} respondida(s).`}</p>`
+            ? `<p class="muted">${quizProgress.complete ? `${evaluationMeta.chipLabel} completado. Este bloque ya cuenta para tu progreso dentro del curso.` : `${quizProgress.answered}/${quizProgress.total} respondida(s).`}</p>`
             : ""
         }
       </div>
