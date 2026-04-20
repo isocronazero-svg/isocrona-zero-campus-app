@@ -162,8 +162,10 @@ function normalizeCourseLesson(lesson, moduleIndex, lessonIndex) {
               }))
             : [],
           required: Boolean(block.required),
+          finalTest: Boolean(block.finalTest),
           ...block,
-          required: Boolean(block.required)
+          required: Boolean(block.required),
+          finalTest: Boolean(block.finalTest)
         }))
       : [],
     ...lesson,
