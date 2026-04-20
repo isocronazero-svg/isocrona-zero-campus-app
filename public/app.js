@@ -447,6 +447,9 @@ let associateFilters = {
 let selectedAssociateApplicationIds = [];
 let selectedAssociatePaymentSubmissionIds = [];
 let selectedAssociateProfileRequestIds = [];
+let activeProfileReviewRequestId = "";
+let activeProfileReviewMode = "";
+let activeProfileReviewNote = "";
 let associateWorkbookPreview = null;
 let associateWorkbookDraftFile = null;
 let associateWorkbookImportStatus = "";
@@ -2833,35 +2836,42 @@ document.addEventListener("click", async (event) => {
 
   if (action === "approve-associate-profile-request" && isAdminSession()) {
     const requestId = actionTarget.dataset.requestId;
-    const reviewNote = window.prompt(
-      "Comentario para aprobar el cambio de ficha (opcional).",
-      "Solicitud validada y aplicada sobre la ficha del socio"
-    );
-    if (reviewNote === null) {
-      return;
-    }
-    await invokeJsonAction(
-      `/api/associate-profile-requests/${requestId}/approve`,
-      { comentario_admin: String(reviewNote || "").trim() },
-      "Actualizacion de ficha aprobada"
-    );
+    openProfileReviewEditor(requestId, "approve");
+    render();
     return;
   }
 
   if (action === "reject-associate-profile-request" && isAdminSession()) {
     const requestId = actionTarget.dataset.requestId;
-    const reviewNote = window.prompt(
-      "Comentario para rechazar el cambio de ficha.",
-      "Solicitud revisada. Mantener datos actuales hasta nueva revision"
-    );
-    if (reviewNote === null) {
+    openProfileReviewEditor(requestId, "reject");
+    render();
+    return;
+  }
+
+  if (action === "cancel-profile-review" && isAdminSession()) {
+    closeProfileReviewEditor();
+    render();
+    return;
+  }
+
+  if (action === "confirm-profile-review" && isAdminSession()) {
+    const requestId = actionTarget.dataset.requestId || activeProfileReviewRequestId;
+    if (!requestId || activeProfileReviewRequestId !== requestId || !activeProfileReviewMode) {
+      closeProfileReviewEditor();
+      render();
       return;
     }
-    await invokeJsonAction(
-      `/api/associate-profile-requests/${requestId}/reject`,
-      { comentario_admin: String(reviewNote || "").trim() },
-      "Actualizacion de ficha rechazada"
+
+    const isReject = activeProfileReviewMode === "reject";
+    const reviewCompleted = await invokeJsonAction(
+      `/api/associate-profile-requests/${requestId}/${isReject ? "reject" : "approve"}`,
+      { comentario_admin: String(activeProfileReviewNote || "").trim() },
+      isReject ? "Actualizacion de ficha rechazada" : "Actualizacion de ficha aprobada"
     );
+    if (reviewCompleted) {
+      closeProfileReviewEditor();
+      render();
+    }
     return;
   }
 
@@ -3495,6 +3505,11 @@ document.addEventListener("input", (event) => {
       end: typeof event.target.selectionEnd === "number" ? event.target.selectionEnd : null
     };
     render();
+  }
+
+  if (event.target.dataset.profileReviewNote === "true") {
+    activeProfileReviewNote = event.target.value || "";
+    return;
   }
 
   if (event.target.id === "campusGroupSearchQuery") {
@@ -5204,12 +5219,14 @@ async function invokeJsonAction(url, payload, successMessage) {
     syncAssociateSelectionTargets();
     syncStatus = result.message || successMessage;
     showToast(result.message || successMessage, "success");
+    render();
+    return true;
   } catch (error) {
     syncStatus = error.message || "Error en proceso por lotes";
     showToast(syncStatus, "error");
+    render();
+    return false;
   }
-
-  render();
 }
 
 function render() {
@@ -6007,14 +6024,15 @@ function renderOverview() {
                 )
                 .join("")
             : `<p class="muted">Sin diferencias resumidas.</p>`
-        }
-        <div class="chip-row">
-          <button class="mini-button" type="button" data-action="approve-associate-profile-request" data-request-id="${request.id}">Aprobar</button>
-          <button class="mini-button" type="button" data-action="reject-associate-profile-request" data-request-id="${request.id}">Rechazar</button>
+          }
+          <div class="chip-row">
+            <button class="mini-button" type="button" data-action="approve-associate-profile-request" data-request-id="${request.id}">Aprobar</button>
+            <button class="mini-button" type="button" data-action="reject-associate-profile-request" data-request-id="${request.id}">Rechazar</button>
+          </div>
+          ${renderProfileReviewInlineEditor(request.id)}
         </div>
-      </div>
-    `;
-  };
+      `;
+    };
 
   const renderPaymentPreview = (submission) => {
     const associate = findAssociate(submission.associateId);
@@ -7809,6 +7827,7 @@ function renderAssociates() {
                                   : `<button class="mini-button" data-action="notify-associate-profile-request" data-request-id="${item.id}">Reenviar aviso</button>`
                               }
                             </div>
+                            ${renderProfileReviewInlineEditor(item.id)}
                           </td>
                         </tr>
                       `;
@@ -8258,6 +8277,7 @@ function renderAssociatesSide() {
               : ""
           }
         </div>
+        ${profileRequest ? renderProfileReviewInlineEditor(profileRequest.id) : ""}
       </div>
 
       ${
@@ -8308,6 +8328,7 @@ function renderAssociatesSide() {
                     : ""
                 }
               </div>
+              ${profileRequest ? renderProfileReviewInlineEditor(profileRequest.id) : ""}
             </div>
           `
           : ""
@@ -11369,6 +11390,7 @@ function renderValidations() {
                             <button class="mini-button" type="button" data-action="approve-associate-profile-request" data-request-id="${request.id}">Aprobar</button>
                             <button class="mini-button" type="button" data-action="reject-associate-profile-request" data-request-id="${request.id}">Rechazar</button>
                           </div>
+                          ${renderProfileReviewInlineEditor(request.id)}
                         </div>
                       `;
                     })
@@ -15046,6 +15068,47 @@ function renderAssociateProfileRequestComparison(request) {
           ? `<p class="muted"><strong>Comentario admin:</strong> ${escapeHtml(request.reviewNote)}</p>`
           : ""
       }
+    </div>
+  `;
+}
+
+function openProfileReviewEditor(requestId, mode) {
+  activeProfileReviewRequestId = String(requestId || "");
+  activeProfileReviewMode = mode === "reject" ? "reject" : "approve";
+  activeProfileReviewNote =
+    activeProfileReviewMode === "reject"
+      ? "Solicitud revisada. Mantener datos actuales hasta nueva revision"
+      : "Solicitud validada y aplicada sobre la ficha del socio";
+}
+
+function closeProfileReviewEditor() {
+  activeProfileReviewRequestId = "";
+  activeProfileReviewMode = "";
+  activeProfileReviewNote = "";
+}
+
+function renderProfileReviewInlineEditor(requestId) {
+  if (activeProfileReviewRequestId !== String(requestId || "") || !activeProfileReviewMode) {
+    return "";
+  }
+
+  const isReject = activeProfileReviewMode === "reject";
+  return `
+    <div class="mail-card">
+      <label class="inline-field">
+        ${isReject ? "Comentario de rechazo" : "Comentario de aprobacion"}
+        <textarea
+          rows="3"
+          data-profile-review-note="true"
+          data-request-id="${escapeHtml(String(requestId || ""))}"
+        >${escapeHtml(activeProfileReviewNote)}</textarea>
+      </label>
+      <div class="chip-row">
+        <button class="primary-button" type="button" data-action="confirm-profile-review" data-request-id="${escapeHtml(String(requestId || ""))}">
+          ${isReject ? "Confirmar rechazo" : "Confirmar aprobacion"}
+        </button>
+        <button class="ghost-button" type="button" data-action="cancel-profile-review">Cancelar</button>
+      </div>
     </div>
   `;
 }
