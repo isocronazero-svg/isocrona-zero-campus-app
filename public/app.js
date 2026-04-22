@@ -2317,8 +2317,8 @@ document.addEventListener("click", async (event) => {
     const moduleIndex = moduleNode ? Number(moduleNode.dataset.courseModuleIndex || -1) : -1;
     const lessonIndex = lessonNode ? Number(lessonNode.dataset.courseLessonIndex || -1) : -1;
     const blockIndex = blockNode ? Number(blockNode.dataset.lessonBlockIndex || -1) : -1;
-    const questionIndex = Number(actionTarget.dataset.questionIndex || -1);
-    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || questionIndex < 0) {
+    const questionId = String(actionTarget.dataset.questionId || "");
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || !questionId) {
       return;
     }
 
@@ -2329,6 +2329,10 @@ document.addEventListener("click", async (event) => {
     }
 
     block.questions = Array.isArray(block.questions) ? block.questions : [];
+    const questionIndex = block.questions.findIndex((question) => String(question?.id || "") === questionId);
+    if (questionIndex < 0) {
+      return;
+    }
     block.questions.splice(questionIndex, 1);
     syncStatus = "Pregunta eliminada del borrador del test";
     render();
@@ -2354,15 +2358,15 @@ document.addEventListener("click", async (event) => {
     const moduleIndex = Number(actionTarget.dataset.moduleIndex || -1);
     const lessonIndex = Number(actionTarget.dataset.lessonIndex || -1);
     const blockIndex = Number(actionTarget.dataset.blockIndex || -1);
-    const questionIndex = Number(actionTarget.dataset.questionIndex || -1);
-    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || questionIndex < 0) {
+    const questionId = String(actionTarget.dataset.questionId || "");
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || !questionId) {
       return;
     }
 
     Object.assign(course, readCourseEditorDraft(course));
     const lesson = course.modules?.[moduleIndex]?.lessons?.[lessonIndex];
     const block = lesson?.blocks?.[blockIndex];
-    const question = block?.questions?.[questionIndex];
+    const question = (block?.questions || []).find((item) => String(item?.id || "") === questionId);
     if (!lesson || !block || block.type !== "evaluation" || !question) {
       return;
     }
@@ -2382,13 +2386,13 @@ document.addEventListener("click", async (event) => {
       (bankQuestion) => getCourseQuestionFingerprint(bankQuestion) === fingerprint
     );
     if (alreadyExists) {
-      syncStatus = "Esa pregunta ya estaba guardada en el banco del curso";
+      syncStatus = "Esa pregunta ya estaba en el banco del borrador del curso";
       showToast(syncStatus, "info");
       return;
     }
 
     course.questionBank.unshift(nextQuestion);
-    syncStatus = "Pregunta guardada en el banco del curso";
+    syncStatus = "Pregunta anadida al banco del borrador del curso";
     showToast(syncStatus, "success");
     render();
     return;
@@ -2420,7 +2424,7 @@ document.addEventListener("click", async (event) => {
         updatedAt: new Date().toISOString()
       })
     );
-    syncStatus = "Pregunta insertada desde el banco del curso";
+    syncStatus = "Pregunta insertada en el borrador del test";
     showToast(syncStatus, "success");
     render();
     return;
@@ -16087,8 +16091,8 @@ function renderEvaluationQuestionEditor(question, questionIndex, context = {}) {
           ${question?.label ? `<p class="muted">${escapeHtml(question.label)}</p>` : ""}
         </div>
         <div class="chip-row">
-          <button class="mini-button" type="button" data-action="save-question-to-bank" data-module-index="${context.moduleIndex}" data-lesson-index="${context.lessonIndex}" data-block-index="${context.blockIndex}" data-question-index="${questionIndex}">Guardar en banco</button>
-          <button class="mini-button" type="button" data-action="remove-evaluation-question" data-question-index="${questionIndex}">Eliminar pregunta</button>
+          <button class="mini-button" type="button" data-action="save-question-to-bank" data-module-index="${context.moduleIndex}" data-lesson-index="${context.lessonIndex}" data-block-index="${context.blockIndex}" data-question-id="${escapeHtml(question?.id || "")}">Guardar en banco</button>
+          <button class="mini-button" type="button" data-action="remove-evaluation-question" data-question-id="${escapeHtml(question?.id || "")}">Eliminar pregunta</button>
         </div>
       </div>
       <div class="lesson-grid">
@@ -16135,6 +16139,7 @@ function renderCourseQuestionBankPanel(course, moduleIndex, lessonIndex, blockIn
         </div>
         <button class="ghost-button" type="button" data-action="toggle-question-bank-panel" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Cerrar</button>
       </div>
+      <p class="muted">Estos cambios quedan en el borrador actual del curso y se guardaran de forma definitiva cuando guardes el curso.</p>
       ${
         questionBank.length
           ? `
