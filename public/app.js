@@ -3261,12 +3261,6 @@ document.addEventListener("click", async (event) => {
     }
     setCourseQuizAnswer(course, memberId, blockId, questionIndex, answer);
     const block = getCourseBlockList(course).find((item) => item.id === blockId);
-    if (block) {
-      const totalQuestions = (block.questions || []).length;
-      if (questionIndex < totalQuestions - 1) {
-        setActiveQuizQuestionIndex(blockId, totalQuestions, questionIndex + 1);
-      }
-    }
     const progress = block ? getQuizBlockProgress(course, memberId, block) : null;
     if (block) {
       const entry = getCourseProgressEntry(course, memberId);
@@ -16552,6 +16546,28 @@ function setActiveQuizQuestionIndex(blockId, questionCount, nextIndex) {
   };
 }
 
+function getQuizBlockReviewIndexes(course, memberId, block) {
+  const questions = Array.isArray(block?.questions) ? block.questions : [];
+  const pendingIndexes = [];
+  const wrongIndexes = [];
+
+  questions.forEach((question, questionIndex) => {
+    const answer = getCourseQuizAnswer(course, memberId, block.id, questionIndex);
+    if (!answer) {
+      pendingIndexes.push(questionIndex);
+      return;
+    }
+    if (answer !== (question.correctAnswer || "")) {
+      wrongIndexes.push(questionIndex);
+    }
+  });
+
+  return {
+    pendingIndexes,
+    wrongIndexes
+  };
+}
+
 function getQuizBlockProgress(course, memberId, block) {
   const questions = Array.isArray(block?.questions) ? block.questions : [];
   const answers = questions.map((question, questionIndex) => ({
@@ -18118,6 +18134,9 @@ function renderLessonBlockPreview(block, options = {}) {
       ? getActiveQuizQuestionIndex(course, memberId, block)
       : 0;
     const activeQuestion = questions[activeQuestionIndex] || null;
+    const reviewIndexes = useSequentialPracticeMode
+      ? getQuizBlockReviewIndexes(course, memberId, block)
+      : { pendingIndexes: [], wrongIndexes: [] };
     const selectedAnswer = activeQuestion && course && memberId
       ? getCourseQuizAnswer(course, memberId, block.id, activeQuestionIndex)
       : "";
@@ -18193,8 +18212,8 @@ function renderLessonBlockPreview(block, options = {}) {
                                     activeQuestion.explanation
                                       ? escapeHtml(activeQuestion.explanation)
                                       : selectedAnswerIsCorrect
-                                        ? "Buen trabajo. Esta pregunta ya cuenta dentro de tu progreso."
-                                        : "Puedes cambiar la respuesta o continuar con la siguiente pregunta."
+                                      ? "Buen trabajo. Esta pregunta ya cuenta dentro de tu progreso."
+                                        : "Puedes corregirla ahora o pasar a otra pregunta para repasar el bloque."
                                   }</p>
                                 </div>
                               `
@@ -18227,9 +18246,53 @@ function renderLessonBlockPreview(block, options = {}) {
                           ${
                             activeQuestionIndex >= questions.length - 1 || quizProgress?.complete
                               ? `
-                                <div class="status-note ${quizProgress?.complete ? "success" : "info"}">
+                                <div class="status-note ${quizProgress?.complete ? "success" : reviewIndexes.wrongIndexes.length ? "warning" : "info"}">
                                   <strong>Resumen del bloque</strong>
-                                  <p class="muted">Respondidas: ${quizProgress?.answered || 0}/${quizProgress?.total || questions.length} · Correctas: ${quizProgress?.correct || 0}/${quizProgress?.total || questions.length} · Estado: ${escapeHtml(blockStateLabel)}</p>
+                                  <p class="muted">Respondidas: ${quizProgress?.answered || 0}/${quizProgress?.total || questions.length} · Correctas: ${quizProgress?.correct || 0}/${quizProgress?.total || questions.length} · Pendientes: ${reviewIndexes.pendingIndexes.length} · Estado: ${escapeHtml(blockStateLabel)}</p>
+                                  <div class="chip-row compact-chip-row">
+                                    ${
+                                      reviewIndexes.pendingIndexes.length
+                                        ? `
+                                          <button
+                                            class="ghost-button"
+                                            type="button"
+                                            data-action="set-course-quiz-question-step"
+                                            data-course-id="${course.id}"
+                                            data-block-id="${block.id}"
+                                            data-question-index="${reviewIndexes.pendingIndexes[0]}"
+                                          >
+                                            Repasar pendientes
+                                          </button>
+                                        `
+                                        : ""
+                                    }
+                                    ${
+                                      reviewIndexes.wrongIndexes.length
+                                        ? `
+                                          <button
+                                            class="ghost-button"
+                                            type="button"
+                                            data-action="set-course-quiz-question-step"
+                                            data-course-id="${course.id}"
+                                            data-block-id="${block.id}"
+                                            data-question-index="${reviewIndexes.wrongIndexes[0]}"
+                                          >
+                                            Repasar falladas
+                                          </button>
+                                        `
+                                        : ""
+                                    }
+                                    <button
+                                      class="ghost-button"
+                                      type="button"
+                                      data-action="set-course-quiz-question-step"
+                                      data-course-id="${course.id}"
+                                      data-block-id="${block.id}"
+                                      data-question-index="0"
+                                    >
+                                      Volver al inicio
+                                    </button>
+                                  </div>
                                 </div>
                               `
                               : ""
