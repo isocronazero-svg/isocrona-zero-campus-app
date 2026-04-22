@@ -152,14 +152,12 @@ function normalizeCourseLesson(lesson, moduleIndex, lessonIndex) {
           content: block.content || "",
           url: block.url || "",
           questions: Array.isArray(block.questions)
-            ? block.questions.map((question, questionIndex) => ({
-                id: question.id || `question-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}-${questionIndex}`,
-                prompt: question.prompt || `Pregunta ${questionIndex + 1}`,
-                options: Array.isArray(question.options) ? question.options : [],
-                correctAnswer: question.correctAnswer || "",
-                explanation: question.explanation || "",
-                ...question
-              }))
+            ? block.questions.map((question, questionIndex) =>
+                normalizeCourseQuestion(
+                  question,
+                  `question-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}-${questionIndex}`
+                )
+              )
             : [],
           required: Boolean(block.required),
           finalTest: Boolean(block.finalTest),
@@ -170,6 +168,22 @@ function normalizeCourseLesson(lesson, moduleIndex, lessonIndex) {
       : [],
     ...lesson,
     duration: Number(lesson.duration || 0)
+  };
+}
+
+function normalizeCourseQuestion(question, fallbackId = "") {
+  return {
+    id: question?.id || fallbackId || `question-${Date.now()}`,
+    prompt: question?.prompt || "Pregunta",
+    options: Array.isArray(question?.options) ? question.options.filter(Boolean) : [],
+    correctAnswer: question?.correctAnswer || "",
+    explanation: question?.explanation || "",
+    label: question?.label || question?.prompt || "",
+    sourceModuleId: question?.sourceModuleId || "",
+    sourceLessonId: question?.sourceLessonId || "",
+    createdAt: question?.createdAt || "",
+    updatedAt: question?.updatedAt || "",
+    ...question
   };
 }
 
@@ -291,6 +305,11 @@ function normalizeCourse(course) {
   const resources = Array.isArray(course.resources)
     ? course.resources.map((resource, resourceIndex) => normalizeCourseResource(resource, resourceIndex))
     : [];
+  const questionBank = Array.isArray(course.questionBank)
+    ? course.questionBank.map((question, questionIndex) =>
+        normalizeCourseQuestion(question, `question-bank-${Date.now()}-${questionIndex}`)
+      )
+    : [];
   const feedbackResponses = Array.isArray(course.feedbackResponses)
     ? course.feedbackResponses.map((response, responseIndex) => ({
         id: response.id || `feedback-${Date.now()}-${responseIndex}`,
@@ -327,6 +346,7 @@ function normalizeCourse(course) {
     sessions,
     modules,
     resources,
+    questionBank,
     materials: Array.isArray(course.materials) ? course.materials : [],
     evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria : [],
     contentStatus: course.contentStatus || "draft",
@@ -375,6 +395,7 @@ function normalizeCourse(course) {
     sessions,
     modules,
     resources,
+    questionBank,
     materials: Array.isArray(course.materials) ? course.materials : [],
     evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria : [],
     contentStatus: course.contentStatus || "draft",

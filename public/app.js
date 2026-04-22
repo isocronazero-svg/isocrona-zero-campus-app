@@ -450,6 +450,7 @@ let selectedAssociateProfileRequestIds = [];
 let activeProfileReviewRequestId = "";
 let activeProfileReviewMode = "";
 let activeProfileReviewNote = "";
+let activeCourseQuestionBankTarget = "";
 let associateWorkbookPreview = null;
 let associateWorkbookDraftFile = null;
 let associateWorkbookImportStatus = "";
@@ -2284,6 +2285,149 @@ document.addEventListener("click", async (event) => {
 
     lesson.blocks.splice(blockIndex, 1);
     await persistAndRender("Bloque eliminado de la leccion");
+    return;
+  }
+
+  if (action === "add-evaluation-question" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const moduleIndex = Number(actionTarget.dataset.moduleIndex || -1);
+    const lessonIndex = Number(actionTarget.dataset.lessonIndex || -1);
+    const blockIndex = Number(actionTarget.dataset.blockIndex || -1);
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const block = course.modules?.[moduleIndex]?.lessons?.[lessonIndex]?.blocks?.[blockIndex];
+    if (!block || block.type !== "evaluation") {
+      return;
+    }
+
+    block.questions = Array.isArray(block.questions) ? block.questions : [];
+    block.questions.push(buildEmptyQuizQuestion(block.questions.length));
+    syncStatus = "Pregunta anadida al borrador del test";
+    render();
+    return;
+  }
+
+  if (action === "remove-evaluation-question" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const blockNode = actionTarget.closest("[data-lesson-block-index]");
+    const lessonNode = actionTarget.closest("[data-course-lesson-index]");
+    const moduleNode = actionTarget.closest("[data-course-module-index]");
+    const moduleIndex = moduleNode ? Number(moduleNode.dataset.courseModuleIndex || -1) : -1;
+    const lessonIndex = lessonNode ? Number(lessonNode.dataset.courseLessonIndex || -1) : -1;
+    const blockIndex = blockNode ? Number(blockNode.dataset.lessonBlockIndex || -1) : -1;
+    const questionId = String(actionTarget.dataset.questionId || "");
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || !questionId) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const block = course.modules?.[moduleIndex]?.lessons?.[lessonIndex]?.blocks?.[blockIndex];
+    if (!block || block.type !== "evaluation") {
+      return;
+    }
+
+    block.questions = Array.isArray(block.questions) ? block.questions : [];
+    const questionIndex = block.questions.findIndex((question) => String(question?.id || "") === questionId);
+    if (questionIndex < 0) {
+      return;
+    }
+    block.questions.splice(questionIndex, 1);
+    syncStatus = "Pregunta eliminada del borrador del test";
+    render();
+    return;
+  }
+
+  if (action === "toggle-question-bank-panel" && isAdminSession()) {
+    const panelKey = getCourseQuestionBankKey(
+      Number(actionTarget.dataset.moduleIndex || -1),
+      Number(actionTarget.dataset.lessonIndex || -1),
+      Number(actionTarget.dataset.blockIndex || -1)
+    );
+    if (panelKey.includes("-1")) {
+      return;
+    }
+    activeCourseQuestionBankTarget = activeCourseQuestionBankTarget === panelKey ? "" : panelKey;
+    render();
+    return;
+  }
+
+  if (action === "save-question-to-bank" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const moduleIndex = Number(actionTarget.dataset.moduleIndex || -1);
+    const lessonIndex = Number(actionTarget.dataset.lessonIndex || -1);
+    const blockIndex = Number(actionTarget.dataset.blockIndex || -1);
+    const questionId = String(actionTarget.dataset.questionId || "");
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || !questionId) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const lesson = course.modules?.[moduleIndex]?.lessons?.[lessonIndex];
+    const block = lesson?.blocks?.[blockIndex];
+    const question = (block?.questions || []).find((item) => String(item?.id || "") === questionId);
+    if (!lesson || !block || block.type !== "evaluation" || !question) {
+      return;
+    }
+
+    course.questionBank = Array.isArray(course.questionBank) ? course.questionBank : [];
+    const nextQuestion = normalizeCourseQuestion({
+      ...question,
+      id: `question-bank-${Date.now()}-${course.questionBank.length}`,
+      label: question.label || question.prompt || `Pregunta ${course.questionBank.length + 1}`,
+      sourceModuleId: course.modules?.[moduleIndex]?.id || "",
+      sourceLessonId: lesson.id || "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    const fingerprint = getCourseQuestionFingerprint(nextQuestion);
+    const alreadyExists = course.questionBank.some(
+      (bankQuestion) => getCourseQuestionFingerprint(bankQuestion) === fingerprint
+    );
+    if (alreadyExists) {
+      syncStatus = "Esa pregunta ya estaba en el banco del borrador del curso";
+      showToast(syncStatus, "info");
+      return;
+    }
+
+    course.questionBank.unshift(nextQuestion);
+    syncStatus = "Pregunta anadida al banco del borrador del curso";
+    showToast(syncStatus, "success");
+    render();
+    return;
+  }
+
+  if (action === "insert-question-from-bank" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const moduleIndex = Number(actionTarget.dataset.moduleIndex || -1);
+    const lessonIndex = Number(actionTarget.dataset.lessonIndex || -1);
+    const blockIndex = Number(actionTarget.dataset.blockIndex || -1);
+    const bankQuestionId = String(actionTarget.dataset.bankQuestionId || "");
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || !bankQuestionId) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const block = course.modules?.[moduleIndex]?.lessons?.[lessonIndex]?.blocks?.[blockIndex];
+    const bankQuestion = (course.questionBank || []).find((question) => question.id === bankQuestionId);
+    if (!block || block.type !== "evaluation" || !bankQuestion) {
+      return;
+    }
+
+    block.questions = Array.isArray(block.questions) ? block.questions : [];
+    block.questions.push(
+      normalizeCourseQuestion({
+        ...bankQuestion,
+        id: `question-${Date.now()}-${block.questions.length}`,
+        createdAt: bankQuestion.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })
+    );
+    syncStatus = "Pregunta insertada en el borrador del test";
+    showToast(syncStatus, "success");
+    render();
     return;
   }
 
@@ -6342,12 +6486,18 @@ function renderJoinView() {
                         .map((block) => {
                           const blockDone = entry.blockIds.includes(block.id);
                           const isLockedBlock = firstPendingBlock && !blockDone && block.id !== firstPendingBlock.id;
+                          const blockFlowMeta = getCourseBlockFlowMeta(course, activeLesson.id, block, {
+                            course,
+                            memberId,
+                            interactive,
+                            previewOnly
+                          });
                           return `
                             <div class="block-preview-item">
                               <div class="row-between">
                                 <strong>${escapeHtml(block.title || "Bloque")}</strong>
                                 <div class="chip-row">
-                                  <span class="small-chip">${escapeHtml(block.type || "document")}</span>
+                                  <span class="small-chip">${escapeHtml(blockFlowMeta.chipLabel)}</span>
                                   ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
                                   ${blockDone ? `<span class="small-chip">hecho</span>` : ""}
                                   ${isLockedBlock ? `<span class="small-chip">despues</span>` : ""}
@@ -6366,7 +6516,7 @@ function renderJoinView() {
                                 isLockedBlock
                                   ? `<p class="muted learner-lock-copy">Completa antes ${escapeHtml(firstPendingBlock?.title || "el bloque actual")} para abrir este contenido.</p>`
                                   : `
-                                      <p class="muted">${escapeHtml(block.content || "Sin contenido")}</p>
+                                      <p class="muted">${escapeHtml(blockFlowMeta.description)}</p>
                                       ${block.url ? `<p class="muted">${escapeHtml(block.url)}</p>` : ""}
                                       ${renderLessonBlockPreview(block, {
                                         course,
@@ -11656,7 +11806,7 @@ function renderSelectedMember(member) {
   `;
 }
 
-function renderCourseModuleEditor(module, moduleIndex) {
+function renderCourseModuleEditor(course, module, moduleIndex) {
   return `
     <article class="content-module" data-course-module-index="${moduleIndex}" data-module-id="${escapeHtml(module.id)}">
       <div class="module-head">
@@ -11757,13 +11907,13 @@ function renderCourseModuleEditor(module, moduleIndex) {
                       </div>
                       <div class="block-stack">
                         <div class="row-between">
-                          <strong>Bloques de contenido</strong>
+                          <strong>Itinerario de la leccion</strong>
                           <div class="chip-row">
                             ${[
-                              ["document", "PDF / Documento"],
+                              ["document", "Contenido"],
                               ["video", "Video"],
                               ["evaluation", "Test"],
-                              ["download", "Descarga"],
+                              ["download", "Recurso"],
                               ["practice", "Practica"]
                             ]
                               .map(
@@ -11784,7 +11934,14 @@ function renderCourseModuleEditor(module, moduleIndex) {
                                     <article class="block-card" data-lesson-block-index="${blockIndex}" data-block-id="${escapeHtml(block.id)}">
                                       <div class="row-between">
                                         <strong>Bloque ${blockIndex + 1}</strong>
-                                        <button class="mini-button" type="button" data-action="remove-lesson-block" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Eliminar</button>
+                                        <div class="chip-row">
+                                          ${
+                                            block.type === "evaluation"
+                                              ? `<button class="mini-button" type="button" data-action="toggle-question-bank-panel" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Insertar desde banco</button>`
+                                              : ""
+                                          }
+                                          <button class="mini-button" type="button" data-action="remove-lesson-block" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Eliminar</button>
+                                        </div>
                                       </div>
                                       <div class="lesson-grid">
                                         <label class="inline-field">
@@ -11819,10 +11976,48 @@ function renderCourseModuleEditor(module, moduleIndex) {
                                           Contenido del bloque
                                           <textarea data-block-field="content">${escapeHtml(block.content || "")}</textarea>
                                         </label>
-                                        <label class="inline-field lesson-notes">
-                                          Banco de preguntas
-                                          <textarea data-block-field="questions" placeholder="Pregunta | opcion A ; opcion B ; opcion C | respuesta correcta | explicacion">${escapeHtml(serializeQuizQuestions(block.questions || []))}</textarea>
-                                        </label>
+                                        ${
+                                          block.type === "evaluation"
+                                            ? `
+                                              <div class="mail-card lesson-notes">
+                                                <div class="row-between">
+                                                  <div>
+                                                    <p class="eyebrow">${block.finalTest ? "Test final" : "Test del modulo"}</p>
+                                                    <strong>Preguntas del test</strong>
+                                                  </div>
+                                                  <div class="chip-row">
+                                                    <span class="small-chip">${(course.questionBank || []).length} en banco</span>
+                                                    <button class="mini-button" type="button" data-action="add-evaluation-question" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Anadir pregunta</button>
+                                                  </div>
+                                                </div>
+                                                <p class="muted">Edita preguntas directamente y reutiliza las que guardes en el banco del curso.</p>
+                                                <div class="panel-stack">
+                                                  ${
+                                                    (block.questions || []).length
+                                                      ? (block.questions || [])
+                                                          .map((question, questionIndex) =>
+                                                            renderEvaluationQuestionEditor(question, questionIndex, {
+                                                              moduleIndex,
+                                                              lessonIndex,
+                                                              blockIndex
+                                                            })
+                                                          )
+                                                          .join("")
+                                                      : `<div class="empty-state">Todavia no hay preguntas en este test. Anade la primera o inserta una desde el banco.</div>`
+                                                  }
+                                                </div>
+                                                ${renderCourseQuestionBankPanel(course, moduleIndex, lessonIndex, blockIndex)}
+                                                <details>
+                                                  <summary>Formato tecnico (avanzado)</summary>
+                                                  <label class="inline-field lesson-notes">
+                                                    Banco de preguntas serializado
+                                                    <textarea data-block-field="questions" readonly>${escapeHtml(serializeQuizQuestions(block.questions || []))}</textarea>
+                                                  </label>
+                                                </details>
+                                              </div>
+                                            `
+                                            : ""
+                                        }
                                       </div>
                                       <div class="block-admin-preview">
                                         ${renderLessonBlockPreview(block, { course, lessonId: lesson.id, admin: true })}
@@ -11923,7 +12118,9 @@ function renderLearnerActionStrip(course, memberId, options = {}) {
   const activeSession = (course.sessions || [])[activeModuleIndex] || (course.sessions || [])[0] || null;
   const keyResource = getVisibleCourseResources(course, "member")[0] || null;
   const nextBlock = journey.nextStep?.block || null;
+  const finalTestStatus = getCourseFinalTestStatus(course, memberId);
   const nextLessonTitle = journey.nextStep?.lessonTitle || "Revisar ruta";
+  const nextBlockMeta = nextBlock ? getCourseBlockFlowMeta(course, journey.nextStep?.lesson?.id || "", nextBlock, options) : null;
   const sessionLabel = activeSession?.date
     ? `${formatDate(activeSession.date)} · ${activeSession.duration || 0} h`
     : activeSession?.duration
@@ -11933,7 +12130,7 @@ function renderLearnerActionStrip(course, memberId, options = {}) {
 
   return `
     <div class="status-note info learner-action-strip">
-      Ahora toca <strong>${escapeHtml(nextBlock?.title || nextLessonTitle)}</strong>.
+      Ahora toca <strong>${escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : nextLessonTitle)}</strong>.
       ${
         activeSession
           ? ` Sesion actual: ${escapeHtml(activeSession.title || "Sin sesion definida")} (${escapeHtml(sessionLabel)}).`
@@ -11943,6 +12140,11 @@ function renderLearnerActionStrip(course, memberId, options = {}) {
         keyResource?.url
           ? ` Recurso visible: ${escapeHtml(resourceLabel)}.`
           : ` Biblioteca disponible: ${getVisibleCourseResources(course, "member").length} recurso(s).`
+      }
+      ${
+        finalTestStatus.exists
+          ? ` Hito de cierre: test final ${escapeHtml(finalTestStatus.stateLabel.toLowerCase())}.`
+          : ""
       }
     </div>
     <div class="chip-row learner-action-strip">
@@ -12050,8 +12252,11 @@ function renderLearnerWorkspaceHighlights(course, memberId, options = {}) {
   const activeModuleIndex = getLearnerActiveModuleIndex(course, memberId, modules);
   const activeSession = (course.sessions || [])[activeModuleIndex] || (course.sessions || [])[0] || null;
   const keyResource = getVisibleCourseResources(course, "member")[0] || null;
+  const finalTestStatus = getCourseFinalTestStatus(course, memberId);
   const finalState = journey.hasDiploma
     ? "Diploma disponible"
+    : finalTestStatus.exists
+      ? `Test final ${finalTestStatus.stateLabel.toLowerCase()}`
     : course.feedbackEnabled && !journey.feedbackSubmitted
       ? "Valoracion pendiente"
       : "Revisar certificado";
@@ -12503,12 +12708,19 @@ function renderCourseRoadmap(course, options = {}) {
                                         .map((block) => {
                                           const blockDone = entry.blockIds.includes(block.id);
                                           const blockLocked = role === "member" && isActiveLesson && firstPendingBlock && !blockDone && block.id !== firstPendingBlock.id;
+                                          const blockFlowMeta = getCourseBlockFlowMeta(course, lesson.id, block, {
+                                            course,
+                                            memberId,
+                                            interactive,
+                                            previewOnly,
+                                            admin: role === "admin"
+                                          });
                                           return `
                                             <div class="block-preview-item">
                                               <div class="row-between">
                                                 <strong>${escapeHtml(block.title || "Bloque")}</strong>
                                                 <div class="chip-row">
-                                                  <span class="small-chip">${escapeHtml(block.type || "document")}</span>
+                                                  <span class="small-chip">${escapeHtml(blockFlowMeta.chipLabel)}</span>
                                                   ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
                                                   ${entry.blockIds.includes(block.id) ? `<span class="small-chip">hecho</span>` : ""}
                                                   ${blockLocked ? `<span class="small-chip">despues</span>` : ""}
@@ -12527,7 +12739,7 @@ function renderCourseRoadmap(course, options = {}) {
                                                 blockLocked
                                                   ? `<p class="muted learner-lock-copy">Este bloque se abrira cuando cierres ${escapeHtml(firstPendingBlock?.title || "el paso actual")}.</p>`
                                                   : `
-                                                    <p class="muted">${escapeHtml(block.content || "Sin contenido")}</p>
+                                                    <p class="muted">${escapeHtml(blockFlowMeta.description)}</p>
                                                     ${block.url ? `<p class="muted">${escapeHtml(block.url)}</p>` : ""}
                                                     ${renderLessonBlockPreview(block, {
                                                       course,
@@ -12619,6 +12831,15 @@ function getCourseWorkbenchChecks(course) {
         ? `${sessions.length} sesion(es) planificadas.`
         : "Todavia no hay sesiones de curso definidas."
     });
+    const finalTest = getCourseFinalTestDescriptor(course, { admin: true, previewOnly: true });
+    checks.push({
+      key: "finalTest",
+      label: "Test final",
+      ok: Boolean(finalTest),
+      detail: finalTest
+        ? `${finalTest.meta.title} listo como hito visible de cierre del curso.`
+        : "Conviene definir o marcar un test final para cerrar mejor la evaluacion del curso."
+    });
   }
   checks.push({
     key: "resources",
@@ -12664,6 +12885,7 @@ function getWorkbenchModeForCheck(checkKey, courseClass = "") {
       return "ficha";
     case "modules":
     case "resources":
+    case "finalTest":
       return "curriculum";
     case "sessions":
       return isPracticalCourse ? "curriculum" : "sessions";
@@ -12721,9 +12943,13 @@ function renderCourseWorkbench(course) {
     : isPracticalCourse
       ? "resources"
       : "modules";
+  const pedagogicalReadiness = getCoursePedagogicalReadiness(course);
   const workbenchChecks = getCourseWorkbenchChecks(course);
   const completedChecks = workbenchChecks.filter((item) => item.ok).length;
   const nextCheck = workbenchChecks.find((item) => !item.ok) || null;
+  const finalTestStatus = !isPracticalCourse
+    ? getCourseFinalTestStatus(course, previewMember?.id, { admin: true, previewOnly: true })
+    : null;
   const enrollmentSubmissions = (course.enrollmentSubmissions || []).slice().reverse();
   const pendingEnrollmentSubmissions = enrollmentSubmissions.filter((submission) =>
     ["pending-review", "pending-proof", "waiting"].includes(String(submission.status || "").trim())
@@ -13011,8 +13237,57 @@ function renderCourseWorkbench(course) {
               <div class="status-note info course-admin-next-steps">
                 ${escapeHtml(courseAdminSteps.find((step) => step.mode === normalizedWorkbenchMode)?.title || "Curso activo")} · ${escapeHtml(courseAdminSteps.find((step) => step.mode === normalizedWorkbenchMode)?.detail || "Trabaja el bloque actual del curso desde esta vista.")}
               </div>
+              ${
+                finalTestStatus
+                  ? `
+                    <div class="status-note ${finalTestStatus.exists ? (finalTestStatus.stateLabel === "Completado" ? "success" : "info") : "warning"}">
+                      <strong>${escapeHtml(finalTestStatus.exists ? "Test final del curso" : "Test final pendiente de definir")}</strong>
+                      <p class="muted">${
+                        finalTestStatus.exists
+                          ? escapeHtml(finalTestStatus.detail)
+                          : "Sin este hito el cierre evaluativo del curso queda menos claro para alumnado e instructor."
+                      }</p>
+                      <div class="chip-row compact-chip-row">
+                        <span class="small-chip">${escapeHtml(finalTestStatus.stateLabel)}</span>
+                        ${
+                          finalTestStatus.lesson
+                            ? `<span class="small-chip">${escapeHtml(finalTestStatus.lesson.title || "Leccion final")}</span>`
+                            : ""
+                        }
+                        ${
+                          previewMember
+                            ? `<span class="small-chip">Vista alumno: ${escapeHtml(previewMember.name)}</span>`
+                            : ""
+                        }
+                      </div>
+                    </div>
+                  `
+                  : ""
+              }
             `
         }
+        <div class="mail-card">
+          <div class="row-between">
+            <div>
+              <p class="eyebrow">Salud pedagogica</p>
+              <h5>${pedagogicalReadiness.completed}/${pedagogicalReadiness.total} puntos listos</h5>
+            </div>
+            <span class="small-chip">${pedagogicalReadiness.nextIssue ? `Siguiente foco: ${pedagogicalReadiness.nextIssue.label}` : "Curso bien preparado"}</span>
+          </div>
+          <div class="course-grid course-grid-tight">
+            ${pedagogicalReadiness.checks
+              .map(
+                (item) => `
+                  <div class="timeline-item compact-timeline-item">
+                    <p>${escapeHtml(item.label)}</p>
+                    <strong>${item.ok ? "Listo" : "Pendiente"}</strong>
+                    <p class="muted">${escapeHtml(item.detail)}</p>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
         <div class="workbench-tabs">
           ${workbenchTabs
             .map(
@@ -13208,7 +13483,7 @@ function renderCourseWorkbench(course) {
                   <div class="content-studio">
                     ${
                       (course.modules || []).length
-                        ? course.modules.map((module, moduleIndex) => renderCourseModuleEditor(module, moduleIndex)).join("")
+                        ? course.modules.map((module, moduleIndex) => renderCourseModuleEditor(course, module, moduleIndex)).join("")
                         : `<div class="empty-state">Todavia no hay modulos. Usa una plantilla o anade el primero manualmente.</div>`
                     }
                   </div>
@@ -14227,6 +14502,7 @@ function renderLearnerProgressGuard(course, memberId, options = {}) {
   const previewOnly = Boolean(options.previewOnly);
   const journey = getLearnerCourseJourney(course, memberId);
   const isPracticalCourse = normalizeCourseClass(course.courseClass) === "practico";
+  const finalTestStatus = getCourseFinalTestStatus(course, memberId);
   const nextLabel = journey.nextStep?.block?.title || journey.nextStep?.lessonTitle || "";
   const warningText = journey.pendingSteps[0] || "";
   let primaryActionHtml = "";
@@ -14266,11 +14542,17 @@ function renderLearnerProgressGuard(course, memberId, options = {}) {
               ? `No podras avanzar hasta completar esto: ${escapeHtml(warningText)}.`
               : "No hay bloqueos activos. Sigue con el curso."
         }</p>
+        ${
+          finalTestStatus.exists && !journey.hasDiploma
+            ? `<p class="muted"><strong>Test final:</strong> ${escapeHtml(finalTestStatus.stateLabel)}. ${escapeHtml(finalTestStatus.detail)}</p>`
+            : ""
+        }
       </div>
       <div class="chip-row">
         <span class="small-chip">Contenido ${journey.progress.blocksCompleted}/${journey.progress.blocksTotal}</span>
         <span class="small-chip">Asistencia ${journey.attendance}%</span>
         <span class="small-chip">Evaluacion ${escapeHtml(journey.evaluation)}</span>
+        ${finalTestStatus.exists ? `<span class="small-chip">Test final ${escapeHtml(finalTestStatus.stateLabel)}</span>` : ""}
         ${previewOnly ? `<span class="small-chip">Vista previa</span>` : ""}
       </div>
       ${previewOnly ? "" : `<div class="chip-row learner-progress-guard-actions">${primaryActionHtml}</div>`}
@@ -15497,6 +15779,25 @@ const LESSON_PUBLICATION_STATUSES = ["draft", "review", "published"];
 const COURSE_RESOURCE_VISIBILITIES = ["alumnado", "interno"];
 const LESSON_BLOCK_TYPES = ["document", "video", "checklist", "download", "evaluation", "practice"];
 
+function normalizeCourseQuestion(question, fallbackId = "") {
+  const prompt = normalizeDisplayText(question?.prompt || "");
+  return {
+    id: question?.id || fallbackId || `question-${Date.now()}`,
+    prompt: prompt || "Pregunta",
+    options: Array.isArray(question?.options)
+      ? question.options.map((option) => normalizeDisplayText(option)).filter(Boolean)
+      : [],
+    correctAnswer: normalizeDisplayText(question?.correctAnswer || ""),
+    explanation: normalizeDisplayText(question?.explanation || ""),
+    label: normalizeDisplayText(question?.label || prompt || ""),
+    sourceModuleId: question?.sourceModuleId || "",
+    sourceLessonId: question?.sourceLessonId || "",
+    createdAt: question?.createdAt || "",
+    updatedAt: question?.updatedAt || "",
+    ...question
+  };
+}
+
 function normalizeCourseBlock(block, moduleIndex, lessonIndex, blockIndex) {
   return {
     id: block.id || `block-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}`,
@@ -15505,14 +15806,12 @@ function normalizeCourseBlock(block, moduleIndex, lessonIndex, blockIndex) {
     content: normalizeDisplayText(block.content || ""),
     url: block.url || "",
     questions: Array.isArray(block.questions)
-      ? block.questions.map((question, questionIndex) => ({
-          id: question.id || `question-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}-${questionIndex}`,
-          prompt: normalizeDisplayText(question.prompt || `Pregunta ${questionIndex + 1}`),
-          options: Array.isArray(question.options) ? question.options.map((option) => normalizeDisplayText(option)) : [],
-          correctAnswer: question.correctAnswer || "",
-          explanation: normalizeDisplayText(question.explanation || ""),
-          ...question
-        }))
+      ? block.questions.map((question, questionIndex) =>
+          normalizeCourseQuestion(
+            question,
+            `question-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}-${questionIndex}`
+          )
+        )
       : [],
     required: Boolean(block.required),
     finalTest: Boolean(block.finalTest),
@@ -15650,6 +15949,11 @@ function normalizeCourse(course) {
   const resources = Array.isArray(course.resources)
     ? course.resources.map((resource, resourceIndex) => normalizeCourseResource(resource, resourceIndex))
     : [];
+  const questionBank = Array.isArray(course.questionBank)
+    ? course.questionBank.map((question, questionIndex) =>
+        normalizeCourseQuestion(question, `question-bank-${Date.now()}-${questionIndex}`)
+      )
+    : [];
   const feedbackResponses = Array.isArray(course.feedbackResponses)
     ? course.feedbackResponses.map((response, responseIndex) => ({
         id: response.id || `feedback-${Date.now()}-${responseIndex}`,
@@ -15691,6 +15995,7 @@ function normalizeCourse(course) {
     sessions,
     modules,
     resources,
+    questionBank,
     materials: Array.isArray(course.materials) ? course.materials.map((item) => normalizeDisplayText(item)) : [],
     evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria.map((item) => normalizeDisplayText(item)) : [],
     contentStatus: course.contentStatus || "draft",
@@ -15728,7 +16033,8 @@ function normalizeCourse(course) {
     diplomaTemplate: course.diplomaTemplate || "Aprovechamiento",
     diplomaReady: Array.isArray(course.diplomaReady) ? course.diplomaReady : [],
     mailsSent: Array.isArray(course.mailsSent) ? course.mailsSent : [],
-    ...course
+    ...course,
+    questionBank
   };
 }
 
@@ -15833,6 +16139,19 @@ function parseQuizQuestions(value) {
     });
 }
 
+function buildEmptyQuizQuestion(index = 0) {
+  return normalizeCourseQuestion({
+    id: `question-${Date.now()}-${index}`,
+    prompt: "",
+    options: ["", "", "", ""],
+    correctAnswer: "",
+    explanation: "",
+    label: "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+}
+
 function serializeQuizQuestions(questions) {
   return (questions || [])
     .map((question) =>
@@ -15844,6 +16163,148 @@ function serializeQuizQuestions(questions) {
       ].join(" | ")
     )
     .join("\n");
+}
+
+function getEditableQuizOptions(question) {
+  const source = Array.isArray(question?.options) ? question.options.slice() : [];
+  while (source.length < 4) {
+    source.push("");
+  }
+  return source;
+}
+
+function getCourseQuestionBankKey(moduleIndex, lessonIndex, blockIndex) {
+  return `${moduleIndex}:${lessonIndex}:${blockIndex}`;
+}
+
+function getCourseQuestionFingerprint(question) {
+  const normalized = normalizeCourseQuestion(question);
+  return [
+    normalized.prompt.toLowerCase(),
+    normalized.options.map((option) => option.toLowerCase()).join("|"),
+    normalized.correctAnswer.toLowerCase()
+  ].join("::");
+}
+
+function renderEvaluationQuestionEditor(question, questionIndex, context = {}) {
+  const editableOptions = getEditableQuizOptions(question);
+  const selectedAnswer = String(question?.correctAnswer || "");
+  const radioName = `course-evaluation-correct-${escapeHtml(question?.id || `question-${questionIndex}`)}`;
+  return `
+    <article class="lesson-card" data-evaluation-question-index="${questionIndex}" data-question-id="${escapeHtml(question?.id || "")}">
+      <div class="row-between">
+        <div>
+          <strong>Pregunta ${questionIndex + 1}</strong>
+          ${question?.label ? `<p class="muted">${escapeHtml(question.label)}</p>` : ""}
+        </div>
+        <div class="chip-row">
+          <button class="mini-button" type="button" data-action="save-question-to-bank" data-module-index="${context.moduleIndex}" data-lesson-index="${context.lessonIndex}" data-block-index="${context.blockIndex}" data-question-id="${escapeHtml(question?.id || "")}">Guardar en banco</button>
+          <button class="mini-button" type="button" data-action="remove-evaluation-question" data-question-id="${escapeHtml(question?.id || "")}">Eliminar pregunta</button>
+        </div>
+      </div>
+      <div class="lesson-grid">
+        <label class="inline-field studio-full">
+          Enunciado
+          <textarea data-question-field="prompt" placeholder="Escribe aqui el enunciado de la pregunta.">${escapeHtml(question?.prompt || "")}</textarea>
+        </label>
+        ${editableOptions
+          .map(
+            (option, optionIndex) => `
+              <label class="inline-field">
+                Opcion ${optionIndex + 1}
+                <input data-question-option-index="${optionIndex}" value="${escapeHtml(option || "")}" placeholder="Texto de la opcion ${optionIndex + 1}" />
+                <span class="inline-checkbox">
+                  <input type="radio" name="${radioName}" data-question-field="correctOption" value="${optionIndex}" ${selectedAnswer === String(option || "").trim() ? "checked" : ""} />
+                  Correcta
+                </span>
+              </label>
+            `
+          )
+          .join("")}
+        <label class="inline-field studio-full">
+          Explicacion
+          <textarea data-question-field="explanation" placeholder="Aclara por que esta es la respuesta correcta o que debe aprender el alumno.">${escapeHtml(question?.explanation || "")}</textarea>
+        </label>
+      </div>
+    </article>
+  `;
+}
+
+function renderCourseQuestionBankPanel(course, moduleIndex, lessonIndex, blockIndex) {
+  const panelKey = getCourseQuestionBankKey(moduleIndex, lessonIndex, blockIndex);
+  if (activeCourseQuestionBankTarget !== panelKey) {
+    return "";
+  }
+
+  const questionBank = Array.isArray(course?.questionBank) ? course.questionBank : [];
+  return `
+    <div class="mail-card lesson-notes">
+      <div class="row-between">
+        <div>
+          <p class="eyebrow">Banco de preguntas del curso</p>
+          <strong>${questionBank.length} pregunta(s) reutilizable(s)</strong>
+        </div>
+        <button class="ghost-button" type="button" data-action="toggle-question-bank-panel" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Cerrar</button>
+      </div>
+      <p class="muted">Estos cambios quedan en el borrador actual del curso y se guardaran de forma definitiva cuando guardes el curso.</p>
+      ${
+        questionBank.length
+          ? `
+            <div class="panel-stack">
+              ${questionBank
+                .map(
+                  (question) => `
+                    <article class="timeline-item compact-timeline-item">
+                      <p>${escapeHtml(question.label || question.prompt || "Pregunta guardada")}</p>
+                      <strong>${escapeHtml(question.prompt || "Pregunta")}</strong>
+                      <p class="muted">${escapeHtml((question.options || []).join(" · ") || "Sin opciones configuradas")}</p>
+                      <div class="chip-row">
+                        <button class="mini-button" type="button" data-action="insert-question-from-bank" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}" data-bank-question-id="${escapeHtml(question.id)}">Insertar</button>
+                      </div>
+                    </article>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+          : `<div class="empty-state">Todavia no hay preguntas guardadas en este curso. Guarda una desde el bloque actual para reutilizarla despues.</div>`
+      }
+    </div>
+  `;
+}
+
+function collectEvaluationQuestionsFromBlockNode(blockNode) {
+  return [...blockNode.querySelectorAll("[data-evaluation-question-index]")]
+    .map((questionNode, questionIndex) => {
+      const optionValues = [...questionNode.querySelectorAll("[data-question-option-index]")].map((optionNode) =>
+        String(optionNode.value || "").trim()
+      );
+      const options = optionValues.filter(Boolean);
+      const selectedCorrectIndex = Number(
+        questionNode.querySelector('[data-question-field="correctOption"]:checked')?.value || -1
+      );
+      const prompt = String(questionNode.querySelector('[data-question-field="prompt"]')?.value || "").trim();
+      const explanation = String(
+        questionNode.querySelector('[data-question-field="explanation"]')?.value || ""
+      ).trim();
+      const correctAnswer = selectedCorrectIndex >= 0 ? optionValues[selectedCorrectIndex] || "" : "";
+      if (!prompt && !options.length && !correctAnswer && !explanation) {
+        return null;
+      }
+      return normalizeCourseQuestion(
+        {
+          id: questionNode.dataset.questionId || `question-${Date.now()}-${questionIndex}`,
+          prompt,
+          options,
+          correctAnswer,
+          explanation,
+          label: prompt,
+          updatedAt: new Date().toISOString()
+        },
+        `question-${Date.now()}-${questionIndex}`
+      );
+    })
+    .filter(Boolean);
 }
 
 function inferCourseTemplate(course) {
@@ -16377,6 +16838,35 @@ function getBlockDisplayLabel(type) {
   return labels[type] || "Bloque";
 }
 
+function getCourseBlockFlowMeta(course, lessonId, block, options = {}) {
+  const type = String(block?.type || "document");
+  if (type === "evaluation") {
+    const evaluationMeta = getEvaluationBlockUiMeta(course, lessonId, block, options);
+    return {
+      chipLabel: evaluationMeta.chipLabel,
+      title: evaluationMeta.title,
+      description: evaluationMeta.description,
+      actionLabel: evaluationMeta.chipLabel
+    };
+  }
+
+  if (type === "practice" || type === "checklist") {
+    return {
+      chipLabel: "Practica",
+      title: block?.title || "Practica guiada",
+      description: block?.content || "Aplica lo aprendido en una dinamica, maniobra o checklist del curso.",
+      actionLabel: "Practica"
+    };
+  }
+
+  return {
+    chipLabel: "Contenido",
+    title: block?.title || "Contenido del curso",
+    description: block?.content || "Revisa este contenido antes de continuar con la practica o la evaluacion.",
+    actionLabel: "Contenido"
+  };
+}
+
 function getEvaluationBlockUiMeta(course, lessonId, block, options = {}) {
   const previewOnly = Boolean(options.previewOnly);
   const isAdminContext = Boolean(options.admin || previewOnly || !options.interactive);
@@ -16393,6 +16883,7 @@ function getEvaluationBlockUiMeta(course, lessonId, block, options = {}) {
   const isFinalTest = Boolean(block?.finalTest) || Boolean(isLastLesson && isLastEvaluationInLesson && block?.required);
 
   return {
+    isFinalTest,
     chipLabel: isFinalTest ? "Test final" : "Test del modulo",
     title: block?.title || (isFinalTest ? "Test final del curso" : "Test del modulo"),
     description:
@@ -16400,6 +16891,81 @@ function getEvaluationBlockUiMeta(course, lessonId, block, options = {}) {
       (isFinalTest
         ? "Prueba final integrada en el curso para cerrar la evaluacion del alumnado."
         : "Prueba integrada en el curso para comprobar este modulo.")
+  };
+}
+
+function getCourseFinalTestDescriptor(course, options = {}) {
+  if (!course) {
+    return null;
+  }
+
+  const previewOnly = Boolean(options.previewOnly);
+  const isAdminContext = Boolean(options.admin || previewOnly || !options.interactive);
+  const lessonList = isAdminContext ? getCourseLessonList(course) : getLearnerCourseLessonList(course);
+  let explicitMatch = null;
+  let fallbackMatch = null;
+
+  lessonList.forEach((lesson, lessonIndex) => {
+    const evaluationBlocks = (lesson.blocks || []).filter((item) => String(item?.type || "") === "evaluation");
+    evaluationBlocks.forEach((block, evaluationIndex) => {
+      if (!explicitMatch && block?.finalTest) {
+        explicitMatch = { lesson, block };
+      }
+      if (!fallbackMatch && lessonIndex === lessonList.length - 1 && evaluationIndex === evaluationBlocks.length - 1 && block?.required) {
+        fallbackMatch = { lesson, block };
+      }
+    });
+  });
+
+  const match = explicitMatch || fallbackMatch;
+  if (!match) {
+    return null;
+  }
+
+  const module = (course.modules || []).find((item) => (item.lessons || []).some((lesson) => lesson.id === match.lesson.id)) || null;
+  return {
+    ...match,
+    module,
+    meta: getEvaluationBlockUiMeta(course, match.lesson.id, match.block, options)
+  };
+}
+
+function getCourseFinalTestStatus(course, memberId, options = {}) {
+  const descriptor = getCourseFinalTestDescriptor(course, options);
+  if (!descriptor) {
+    return {
+      exists: false,
+      stateLabel: "Sin definir",
+      detail: "Conviene marcar un test final para dejar claro el cierre evaluativo del curso.",
+      tone: "warning",
+      block: null
+    };
+  }
+
+  const progress = memberId ? getQuizBlockProgress(course, memberId, descriptor.block) : null;
+  const complete = Boolean(progress?.complete);
+  const started = Boolean(progress?.answered);
+  const stateLabel = memberId
+    ? complete
+      ? "Completado"
+      : started
+        ? "En curso"
+        : "Pendiente"
+    : "Definido";
+
+  return {
+    exists: true,
+    stateLabel,
+    detail: memberId
+      ? complete
+        ? "El test final ya esta resuelto dentro del itinerario del curso."
+        : started
+          ? `Ya hay respuestas registradas (${progress.correct}/${progress.total} correctas).`
+          : "Sigue pendiente como hito de cierre dentro del aula."
+      : "El curso ya tiene identificado un test final dentro de su recorrido.",
+    tone: memberId ? (complete ? "success" : "warning") : "info",
+    progress,
+    ...descriptor
   };
 }
 
@@ -16856,14 +17422,19 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
   const allowProgressActions =
     !isMemberPreviewSession() && session?.role === "member" && session?.memberId === memberId;
   const nextBlock = journey.nextStep?.block || null;
+  const finalTestStatus = getCourseFinalTestStatus(course, memberId);
+  const nextStepIsFinalTest = Boolean(finalTestStatus.exists && nextBlock?.id === finalTestStatus.block?.id);
+  const nextBlockMeta = nextBlock ? getCourseBlockFlowMeta(course, journey.nextStep?.lesson?.id || "", nextBlock, options) : null;
   const headline = journey.hasDiploma
     ? "Diploma disponible"
     : !journey.enrolled && !journey.waiting
       ? "Pendiente de inscripcion"
     : journey.waiting
       ? "Pendiente de plaza"
+      : nextStepIsFinalTest
+        ? "Test final pendiente"
       : journey.nextStep?.block
-        ? escapeHtml(journey.nextStep.block.title || journey.nextStep.lessonTitle)
+        ? escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : journey.nextStep.block.title || journey.nextStep.lessonTitle)
         : journey.nextStep?.lessonTitle
           ? escapeHtml(journey.nextStep.lessonTitle)
           : "Curso completado";
@@ -16873,8 +17444,10 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
       ? "Todavia no estas inscrito en este curso. Puedes revisarlo y apuntarte si la inscripcion esta abierta."
       : journey.waiting
         ? "Tu solicitud esta en lista de espera. En cuanto se libere plaza, podras continuar."
+        : nextStepIsFinalTest
+          ? "Has llegado al hito de cierre del aula. Completar el test final deja mucho mas clara tu evaluacion dentro del curso."
         : journey.nextStep
-          ? `${escapeHtml(journey.nextStep.moduleTitle)} | ${escapeHtml(journey.nextStep.lessonTitle)}`
+          ? `${escapeHtml(journey.nextStep.moduleTitle)} | ${escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : journey.nextStep.lessonTitle)}`
           : "No quedan bloques pendientes en el aula publicada.";
   const progressText = `Contenido ${journey.progress.blockProgress}% | ${journey.progress.blocksCompleted}/${journey.progress.blocksTotal} bloques | Asistencia ${journey.attendance}% | Evaluacion ${escapeHtml(journey.evaluation)}`;
   const feedbackText = course.feedbackEnabled
@@ -16893,6 +17466,11 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
       <strong>${headline}</strong>
       <p class="muted">${summaryText}</p>
       ${!compact ? `<p class="muted">${progressText}</p>` : ""}
+      ${
+        !compact && finalTestStatus.exists
+          ? `<p class="muted"><strong>Test final:</strong> ${escapeHtml(finalTestStatus.stateLabel)}. ${escapeHtml(finalTestStatus.detail)}</p>`
+          : ""
+      }
       ${
         !compact && feedbackText
           ? `<p class="muted"><strong>Valoracion final:</strong> ${feedbackText}</p>`
@@ -17836,6 +18414,92 @@ function getCourseContentReadiness(course) {
   };
 }
 
+function getCoursePedagogicalReadiness(course) {
+  const modules = course.modules || [];
+  const lessons = getCourseLessonList(course);
+  const lessonCount = lessons.length;
+  const lessonWithContentCount = lessons.filter(
+    (lesson) =>
+      String(lesson.body || "").trim() ||
+      String(lesson.instructions || "").trim() ||
+      String(lesson.activity || "").trim() ||
+      String(lesson.takeaway || "").trim() ||
+      String(lesson.assetUrl || "").trim() ||
+      String(lesson.resource || "").trim() ||
+      (lesson.blocks || []).length
+  ).length;
+  const evaluationBlocks = lessons.flatMap((lesson) =>
+    (lesson.blocks || []).filter((block) => String(block?.type || "") === "evaluation")
+  );
+  const moduleTestCount = evaluationBlocks.filter((block) => !block?.finalTest).length;
+  const finalTestCount = evaluationBlocks.filter((block) => block?.finalTest).length;
+  const hasFallbackFinalTest =
+    finalTestCount === 0 &&
+    lessons.some((lesson) =>
+      (lesson.blocks || [])
+        .filter((block) => String(block?.type || "") === "evaluation")
+        .some((block) => getEvaluationBlockUiMeta(course, lesson.id, block).chipLabel === "Test final")
+    );
+  const certificateSections = getCertificateSections(course);
+  const hasCertificateContents =
+    (course.certificateContents || []).length > 0 || (certificateSections || []).length > 0;
+  const hasFeedbackConfigured = Boolean(course.feedbackEnabled);
+  const checks = [
+    {
+      label: "Modulos definidos",
+      ok: modules.length > 0,
+      detail: modules.length ? `${modules.length} modulo(s) creados` : "Todavia no hay modulos en el curso"
+    },
+    {
+      label: "Lecciones con contenido",
+      ok: lessonCount > 0 && lessonWithContentCount === lessonCount,
+      detail: lessonCount
+        ? `${lessonWithContentCount}/${lessonCount} leccion(es) con base de contenido`
+        : "Aun no hay lecciones desarrolladas"
+    },
+    {
+      label: "Tests de modulo",
+      ok: modules.length > 0 ? moduleTestCount > 0 : evaluationBlocks.length > 0,
+      detail: moduleTestCount
+        ? `${moduleTestCount} bloque(s) de evaluacion integrados`
+        : "Conviene definir al menos un test de modulo"
+    },
+    {
+      label: "Test final",
+      ok: finalTestCount > 0 || hasFallbackFinalTest,
+      detail: finalTestCount
+        ? `${finalTestCount} test final marcado de forma explicita`
+        : hasFallbackFinalTest
+          ? "Detectado por compatibilidad con cursos anteriores"
+          : "Aun falta dejar claro el test final del curso"
+    },
+    {
+      label: "Valoracion final",
+      ok: hasFeedbackConfigured,
+      detail: hasFeedbackConfigured
+        ? course.feedbackRequiredForDiploma
+          ? "Activa y requerida para cerrar diploma"
+          : "Activa como cierre complementario"
+        : "La valoracion final sigue desactivada"
+    },
+    {
+      label: "Cierre y diploma",
+      ok: Boolean(course.diplomaTemplate) && hasCertificateContents,
+      detail:
+        Boolean(course.diplomaTemplate) && hasCertificateContents
+          ? `${course.diplomaTemplate} listo con contenido acreditado`
+          : "Revisa plantilla de diploma y contenidos del certificado"
+    }
+  ];
+
+  return {
+    checks,
+    completed: checks.filter((item) => item.ok).length,
+    total: checks.length,
+    nextIssue: checks.find((item) => !item.ok) || null
+  };
+}
+
 function countCourseBlocksByType(course) {
   return getCourseBlockList(course).reduce((acc, block) => {
     const key = block.type || "document";
@@ -18082,6 +18746,7 @@ function renderLessonBlockPreview(block, options = {}) {
   const memberId = options.memberId || "";
   const lessonId = options.lessonId || "";
   const interactive = Boolean(options.interactive && course && memberId && !options.previewOnly);
+  const blockFlowMeta = getCourseBlockFlowMeta(course, lessonId, block, options);
   const quizProgress = type === "evaluation" && course && memberId
     ? getQuizBlockProgress(course, memberId, block)
     : null;
@@ -18090,11 +18755,11 @@ function renderLessonBlockPreview(block, options = {}) {
     return `
       <div class="aula-block aula-block-video">
         <div class="chip-row">
-          <span class="small-chip">${label}</span>
+          <span class="small-chip">${blockFlowMeta.chipLabel}</span>
           ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
         </div>
-        <strong>${escapeHtml(block.title || "Video")}</strong>
-        <p class="muted">${escapeHtml(block.content || "Video sin descripcion")}</p>
+        <strong>${escapeHtml(blockFlowMeta.title || "Video")}</strong>
+        <p class="muted">${escapeHtml(blockFlowMeta.description || "Video sin descripcion")}</p>
         ${
           embedUrl
             ? `<iframe class="resource-embed" src="${escapeHtml(embedUrl)}" title="${escapeHtml(block.title || "Video")}" allowfullscreen loading="lazy"></iframe>`
@@ -18109,11 +18774,11 @@ function renderLessonBlockPreview(block, options = {}) {
     return `
       <div class="aula-block aula-block-download">
         <div class="chip-row">
-          <span class="small-chip">${pdfLike ? "PDF" : label}</span>
+          <span class="small-chip">${pdfLike ? "Contenido" : blockFlowMeta.chipLabel}</span>
           ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
         </div>
-        <strong>${escapeHtml(block.title || "Descarga")}</strong>
-        <p class="muted">${escapeHtml(block.content || "Archivo o recurso descargable")}</p>
+        <strong>${escapeHtml(blockFlowMeta.title || "Descarga")}</strong>
+        <p class="muted">${escapeHtml(blockFlowMeta.description || "Archivo o recurso descargable")}</p>
         ${
           url
             ? `
@@ -18161,6 +18826,12 @@ function renderLessonBlockPreview(block, options = {}) {
         <p class="muted">${escapeHtml(evaluationMeta.description)}</p>
         ${
           questions.length
+          evaluationMeta.isFinalTest
+            ? `<div class="status-note info">Este bloque cuenta como <strong>test final</strong> y forma parte del cierre evaluativo del curso.</div>`
+            : ""
+        }
+        ${
+          block.questions?.length
             ? `
                 <div class="quiz-stack">
                   ${
@@ -18391,11 +19062,11 @@ function renderLessonBlockPreview(block, options = {}) {
   return `
     <div class="aula-block">
       <div class="chip-row">
-        <span class="small-chip">${label}</span>
+        <span class="small-chip">${blockFlowMeta.chipLabel}</span>
         ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
       </div>
-      <strong>${escapeHtml(block.title || "Bloque")}</strong>
-      <p class="muted">${escapeHtml(block.content || "Sin contenido")}</p>
+      <strong>${escapeHtml(blockFlowMeta.title || "Bloque")}</strong>
+      <p class="muted">${escapeHtml(blockFlowMeta.description || "Sin contenido")}</p>
       ${
         url
           ? `<a class="button-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Abrir recurso</a>`
@@ -18432,23 +19103,27 @@ function collectCourseModulesFromForm() {
                   assetUrl: lessonNode.querySelector('[data-lesson-field="assetUrl"]')?.value.trim() || "",
                   publicationStatus: lessonNode.querySelector('[data-lesson-field="publicationStatus"]')?.value || "draft",
                   blocks: [...lessonNode.querySelectorAll("[data-lesson-block-index]")]
-                    .map((blockNode, blockIndex) =>
-                      normalizeCourseBlock(
+                    .map((blockNode, blockIndex) => {
+                      const blockType = blockNode.querySelector('[data-block-field="type"]')?.value || "document";
+                      return normalizeCourseBlock(
                         {
                           id: blockNode.dataset.blockId || "",
-                          type: blockNode.querySelector('[data-block-field="type"]')?.value || "document",
+                          type: blockType,
                           title: blockNode.querySelector('[data-block-field="title"]')?.value.trim() || "",
                           content: blockNode.querySelector('[data-block-field="content"]')?.value.trim() || "",
                           url: blockNode.querySelector('[data-block-field="url"]')?.value.trim() || "",
-                          questions: parseQuizQuestions(blockNode.querySelector('[data-block-field="questions"]')?.value || ""),
+                          questions:
+                            blockType === "evaluation"
+                              ? collectEvaluationQuestionsFromBlockNode(blockNode)
+                              : parseQuizQuestions(blockNode.querySelector('[data-block-field="questions"]')?.value || ""),
                           required: Boolean(blockNode.querySelector('[data-block-field="required"]')?.checked),
                           finalTest: Boolean(blockNode.querySelector('[data-block-field="finalTest"]')?.checked)
                         },
                         moduleIndex,
                         lessonIndex,
                         blockIndex
-                      )
-                    )
+                      );
+                    })
                     .filter((block) => block.title || block.content || block.url)
                 },
                 moduleIndex,
