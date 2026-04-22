@@ -353,6 +353,7 @@ const fallbackState = {
       autoPromoteWaitlist: true,
       autoAdvanceCourseStatus: true,
       autoSendDiplomas: true,
+      autoSendFeeReminders: true,
       autoDetectRenewals: true,
       autoDetectFailedEmails: true,
       autoRunOnSave: true
@@ -4036,6 +4037,7 @@ document.addEventListener("submit", async (event) => {
       autoPromoteWaitlist: document.getElementById("settingAutoWaitlist").checked,
       autoAdvanceCourseStatus: document.getElementById("settingAutoAdvanceCourseStatus").checked,
       autoSendDiplomas: document.getElementById("settingAutoSendDiplomas").checked,
+      autoSendFeeReminders: document.getElementById("settingAutoFeeReminders").checked,
       autoDetectRenewals: document.getElementById("settingAutoRenewals").checked,
       autoDetectFailedEmails: document.getElementById("settingAutoFailedEmails").checked,
       autoRunOnSave: document.getElementById("settingAutoRunOnSave").checked
@@ -14548,6 +14550,7 @@ function renderSettings() {
             <label class="inline-field"><span>Promover espera</span><input id="settingAutoWaitlist" type="checkbox" ${state.settings.automation.autoPromoteWaitlist ? "checked" : ""} /></label>
             <label class="inline-field"><span>Mover estados</span><input id="settingAutoAdvanceCourseStatus" type="checkbox" ${state.settings.automation.autoAdvanceCourseStatus ? "checked" : ""} /></label>
             <label class="inline-field"><span>Enviar diplomas</span><input id="settingAutoSendDiplomas" type="checkbox" ${state.settings.automation.autoSendDiplomas ? "checked" : ""} /></label>
+            <label class="inline-field"><span>Avisar cuotas</span><input id="settingAutoFeeReminders" type="checkbox" ${state.settings.automation.autoSendFeeReminders !== false ? "checked" : ""} /></label>
             <label class="inline-field"><span>Detectar renovaciones</span><input id="settingAutoRenewals" type="checkbox" ${state.settings.automation.autoDetectRenewals ? "checked" : ""} /></label>
             <label class="inline-field"><span>Detectar fallos mail</span><input id="settingAutoFailedEmails" type="checkbox" ${state.settings.automation.autoDetectFailedEmails ? "checked" : ""} /></label>
             <label class="inline-field"><span>Ejecutar al guardar</span><input id="settingAutoRunOnSave" type="checkbox" ${state.settings.automation.autoRunOnSave ? "checked" : ""} /></label>

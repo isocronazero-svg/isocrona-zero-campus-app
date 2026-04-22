@@ -396,6 +396,7 @@ function normalizeState(state) {
     autoPromoteWaitlist: true,
     autoAdvanceCourseStatus: true,
     autoSendDiplomas: true,
+    autoSendFeeReminders: true,
     autoDetectRenewals: true,
     autoDetectFailedEmails: true,
     autoRunOnSave: true,
