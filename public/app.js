@@ -18828,8 +18828,7 @@ function renderLessonBlockPreview(block, options = {}) {
         <strong>${escapeHtml(evaluationMeta.title)}</strong>
         <p class="muted">${escapeHtml(evaluationMeta.description)}</p>
         ${
-          questions.length
-          evaluationMeta.isFinalTest
+          questions.length && evaluationMeta.isFinalTest
             ? `<div class="status-note info">Este bloque cuenta como <strong>test final</strong> y forma parte del cierre evaluativo del curso.</div>`
             : ""
         }
