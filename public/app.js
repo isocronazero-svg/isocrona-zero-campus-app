@@ -6472,12 +6472,18 @@ function renderJoinView() {
                         .map((block) => {
                           const blockDone = entry.blockIds.includes(block.id);
                           const isLockedBlock = firstPendingBlock && !blockDone && block.id !== firstPendingBlock.id;
+                          const blockFlowMeta = getCourseBlockFlowMeta(course, activeLesson.id, block, {
+                            course,
+                            memberId,
+                            interactive,
+                            previewOnly
+                          });
                           return `
                             <div class="block-preview-item">
                               <div class="row-between">
                                 <strong>${escapeHtml(block.title || "Bloque")}</strong>
                                 <div class="chip-row">
-                                  <span class="small-chip">${escapeHtml(block.type || "document")}</span>
+                                  <span class="small-chip">${escapeHtml(blockFlowMeta.chipLabel)}</span>
                                   ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
                                   ${blockDone ? `<span class="small-chip">hecho</span>` : ""}
                                   ${isLockedBlock ? `<span class="small-chip">despues</span>` : ""}
@@ -6496,7 +6502,7 @@ function renderJoinView() {
                                 isLockedBlock
                                   ? `<p class="muted learner-lock-copy">Completa antes ${escapeHtml(firstPendingBlock?.title || "el bloque actual")} para abrir este contenido.</p>`
                                   : `
-                                      <p class="muted">${escapeHtml(block.content || "Sin contenido")}</p>
+                                      <p class="muted">${escapeHtml(blockFlowMeta.description)}</p>
                                       ${block.url ? `<p class="muted">${escapeHtml(block.url)}</p>` : ""}
                                       ${renderLessonBlockPreview(block, {
                                         course,
@@ -11887,13 +11893,13 @@ function renderCourseModuleEditor(course, module, moduleIndex) {
                       </div>
                       <div class="block-stack">
                         <div class="row-between">
-                          <strong>Bloques de contenido</strong>
+                          <strong>Itinerario de la leccion</strong>
                           <div class="chip-row">
                             ${[
-                              ["document", "PDF / Documento"],
+                              ["document", "Contenido"],
                               ["video", "Video"],
                               ["evaluation", "Test"],
-                              ["download", "Descarga"],
+                              ["download", "Recurso"],
                               ["practice", "Practica"]
                             ]
                               .map(
@@ -12099,6 +12105,7 @@ function renderLearnerActionStrip(course, memberId, options = {}) {
   const keyResource = getVisibleCourseResources(course, "member")[0] || null;
   const nextBlock = journey.nextStep?.block || null;
   const nextLessonTitle = journey.nextStep?.lessonTitle || "Revisar ruta";
+  const nextBlockMeta = nextBlock ? getCourseBlockFlowMeta(course, journey.nextStep?.lesson?.id || "", nextBlock, options) : null;
   const sessionLabel = activeSession?.date
     ? `${formatDate(activeSession.date)} · ${activeSession.duration || 0} h`
     : activeSession?.duration
@@ -12108,7 +12115,7 @@ function renderLearnerActionStrip(course, memberId, options = {}) {
 
   return `
     <div class="status-note info learner-action-strip">
-      Ahora toca <strong>${escapeHtml(nextBlock?.title || nextLessonTitle)}</strong>.
+      Ahora toca <strong>${escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : nextLessonTitle)}</strong>.
       ${
         activeSession
           ? ` Sesion actual: ${escapeHtml(activeSession.title || "Sin sesion definida")} (${escapeHtml(sessionLabel)}).`
@@ -12678,12 +12685,19 @@ function renderCourseRoadmap(course, options = {}) {
                                         .map((block) => {
                                           const blockDone = entry.blockIds.includes(block.id);
                                           const blockLocked = role === "member" && isActiveLesson && firstPendingBlock && !blockDone && block.id !== firstPendingBlock.id;
+                                          const blockFlowMeta = getCourseBlockFlowMeta(course, lesson.id, block, {
+                                            course,
+                                            memberId,
+                                            interactive,
+                                            previewOnly,
+                                            admin: role === "admin"
+                                          });
                                           return `
                                             <div class="block-preview-item">
                                               <div class="row-between">
                                                 <strong>${escapeHtml(block.title || "Bloque")}</strong>
                                                 <div class="chip-row">
-                                                  <span class="small-chip">${escapeHtml(block.type || "document")}</span>
+                                                  <span class="small-chip">${escapeHtml(blockFlowMeta.chipLabel)}</span>
                                                   ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
                                                   ${entry.blockIds.includes(block.id) ? `<span class="small-chip">hecho</span>` : ""}
                                                   ${blockLocked ? `<span class="small-chip">despues</span>` : ""}
@@ -12702,7 +12716,7 @@ function renderCourseRoadmap(course, options = {}) {
                                                 blockLocked
                                                   ? `<p class="muted learner-lock-copy">Este bloque se abrira cuando cierres ${escapeHtml(firstPendingBlock?.title || "el paso actual")}.</p>`
                                                   : `
-                                                    <p class="muted">${escapeHtml(block.content || "Sin contenido")}</p>
+                                                    <p class="muted">${escapeHtml(blockFlowMeta.description)}</p>
                                                     ${block.url ? `<p class="muted">${escapeHtml(block.url)}</p>` : ""}
                                                     ${renderLessonBlockPreview(block, {
                                                       course,
@@ -12896,6 +12910,7 @@ function renderCourseWorkbench(course) {
     : isPracticalCourse
       ? "resources"
       : "modules";
+  const pedagogicalReadiness = getCoursePedagogicalReadiness(course);
   const workbenchChecks = getCourseWorkbenchChecks(course);
   const completedChecks = workbenchChecks.filter((item) => item.ok).length;
   const nextCheck = workbenchChecks.find((item) => !item.ok) || null;
@@ -13188,6 +13203,28 @@ function renderCourseWorkbench(course) {
               </div>
             `
         }
+        <div class="mail-card">
+          <div class="row-between">
+            <div>
+              <p class="eyebrow">Salud pedagogica</p>
+              <h5>${pedagogicalReadiness.completed}/${pedagogicalReadiness.total} puntos listos</h5>
+            </div>
+            <span class="small-chip">${pedagogicalReadiness.nextIssue ? `Siguiente foco: ${pedagogicalReadiness.nextIssue.label}` : "Curso bien preparado"}</span>
+          </div>
+          <div class="course-grid course-grid-tight">
+            ${pedagogicalReadiness.checks
+              .map(
+                (item) => `
+                  <div class="timeline-item compact-timeline-item">
+                    <p>${escapeHtml(item.label)}</p>
+                    <strong>${item.ok ? "Listo" : "Pendiente"}</strong>
+                    <p class="muted">${escapeHtml(item.detail)}</p>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
         <div class="workbench-tabs">
           ${workbenchTabs
             .map(
@@ -16731,6 +16768,35 @@ function getBlockDisplayLabel(type) {
   return labels[type] || "Bloque";
 }
 
+function getCourseBlockFlowMeta(course, lessonId, block, options = {}) {
+  const type = String(block?.type || "document");
+  if (type === "evaluation") {
+    const evaluationMeta = getEvaluationBlockUiMeta(course, lessonId, block, options);
+    return {
+      chipLabel: evaluationMeta.chipLabel,
+      title: evaluationMeta.title,
+      description: evaluationMeta.description,
+      actionLabel: evaluationMeta.chipLabel
+    };
+  }
+
+  if (type === "practice" || type === "checklist") {
+    return {
+      chipLabel: "Practica",
+      title: block?.title || "Practica guiada",
+      description: block?.content || "Aplica lo aprendido en una dinamica, maniobra o checklist del curso.",
+      actionLabel: "Practica"
+    };
+  }
+
+  return {
+    chipLabel: "Contenido",
+    title: block?.title || "Contenido del curso",
+    description: block?.content || "Revisa este contenido antes de continuar con la practica o la evaluacion.",
+    actionLabel: "Contenido"
+  };
+}
+
 function getEvaluationBlockUiMeta(course, lessonId, block, options = {}) {
   const previewOnly = Boolean(options.previewOnly);
   const isAdminContext = Boolean(options.admin || previewOnly || !options.interactive);
@@ -17149,6 +17215,7 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
   const allowProgressActions =
     !isMemberPreviewSession() && session?.role === "member" && session?.memberId === memberId;
   const nextBlock = journey.nextStep?.block || null;
+  const nextBlockMeta = nextBlock ? getCourseBlockFlowMeta(course, journey.nextStep?.lesson?.id || "", nextBlock, options) : null;
   const headline = journey.hasDiploma
     ? "Diploma disponible"
     : !journey.enrolled && !journey.waiting
@@ -17156,7 +17223,7 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
     : journey.waiting
       ? "Pendiente de plaza"
       : journey.nextStep?.block
-        ? escapeHtml(journey.nextStep.block.title || journey.nextStep.lessonTitle)
+        ? escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : journey.nextStep.block.title || journey.nextStep.lessonTitle)
         : journey.nextStep?.lessonTitle
           ? escapeHtml(journey.nextStep.lessonTitle)
           : "Curso completado";
@@ -17167,7 +17234,7 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
       : journey.waiting
         ? "Tu solicitud esta en lista de espera. En cuanto se libere plaza, podras continuar."
         : journey.nextStep
-          ? `${escapeHtml(journey.nextStep.moduleTitle)} | ${escapeHtml(journey.nextStep.lessonTitle)}`
+          ? `${escapeHtml(journey.nextStep.moduleTitle)} | ${escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : journey.nextStep.lessonTitle)}`
           : "No quedan bloques pendientes en el aula publicada.";
   const progressText = `Contenido ${journey.progress.blockProgress}% | ${journey.progress.blocksCompleted}/${journey.progress.blocksTotal} bloques | Asistencia ${journey.attendance}% | Evaluacion ${escapeHtml(journey.evaluation)}`;
   const feedbackText = course.feedbackEnabled
@@ -18129,6 +18196,92 @@ function getCourseContentReadiness(course) {
   };
 }
 
+function getCoursePedagogicalReadiness(course) {
+  const modules = course.modules || [];
+  const lessons = getCourseLessonList(course);
+  const lessonCount = lessons.length;
+  const lessonWithContentCount = lessons.filter(
+    (lesson) =>
+      String(lesson.body || "").trim() ||
+      String(lesson.instructions || "").trim() ||
+      String(lesson.activity || "").trim() ||
+      String(lesson.takeaway || "").trim() ||
+      String(lesson.assetUrl || "").trim() ||
+      String(lesson.resource || "").trim() ||
+      (lesson.blocks || []).length
+  ).length;
+  const evaluationBlocks = lessons.flatMap((lesson) =>
+    (lesson.blocks || []).filter((block) => String(block?.type || "") === "evaluation")
+  );
+  const moduleTestCount = evaluationBlocks.filter((block) => !block?.finalTest).length;
+  const finalTestCount = evaluationBlocks.filter((block) => block?.finalTest).length;
+  const hasFallbackFinalTest =
+    finalTestCount === 0 &&
+    lessons.some((lesson) =>
+      (lesson.blocks || [])
+        .filter((block) => String(block?.type || "") === "evaluation")
+        .some((block) => getEvaluationBlockUiMeta(course, lesson.id, block).chipLabel === "Test final")
+    );
+  const certificateSections = getCertificateSections(course);
+  const hasCertificateContents =
+    (course.certificateContents || []).length > 0 || (certificateSections || []).length > 0;
+  const hasFeedbackConfigured = Boolean(course.feedbackEnabled);
+  const checks = [
+    {
+      label: "Modulos definidos",
+      ok: modules.length > 0,
+      detail: modules.length ? `${modules.length} modulo(s) creados` : "Todavia no hay modulos en el curso"
+    },
+    {
+      label: "Lecciones con contenido",
+      ok: lessonCount > 0 && lessonWithContentCount === lessonCount,
+      detail: lessonCount
+        ? `${lessonWithContentCount}/${lessonCount} leccion(es) con base de contenido`
+        : "Aun no hay lecciones desarrolladas"
+    },
+    {
+      label: "Tests de modulo",
+      ok: modules.length > 0 ? moduleTestCount > 0 : evaluationBlocks.length > 0,
+      detail: moduleTestCount
+        ? `${moduleTestCount} bloque(s) de evaluacion integrados`
+        : "Conviene definir al menos un test de modulo"
+    },
+    {
+      label: "Test final",
+      ok: finalTestCount > 0 || hasFallbackFinalTest,
+      detail: finalTestCount
+        ? `${finalTestCount} test final marcado de forma explicita`
+        : hasFallbackFinalTest
+          ? "Detectado por compatibilidad con cursos anteriores"
+          : "Aun falta dejar claro el test final del curso"
+    },
+    {
+      label: "Valoracion final",
+      ok: hasFeedbackConfigured,
+      detail: hasFeedbackConfigured
+        ? course.feedbackRequiredForDiploma
+          ? "Activa y requerida para cerrar diploma"
+          : "Activa como cierre complementario"
+        : "La valoracion final sigue desactivada"
+    },
+    {
+      label: "Cierre y diploma",
+      ok: Boolean(course.diplomaTemplate) && hasCertificateContents,
+      detail:
+        Boolean(course.diplomaTemplate) && hasCertificateContents
+          ? `${course.diplomaTemplate} listo con contenido acreditado`
+          : "Revisa plantilla de diploma y contenidos del certificado"
+    }
+  ];
+
+  return {
+    checks,
+    completed: checks.filter((item) => item.ok).length,
+    total: checks.length,
+    nextIssue: checks.find((item) => !item.ok) || null
+  };
+}
+
 function countCourseBlocksByType(course) {
   return getCourseBlockList(course).reduce((acc, block) => {
     const key = block.type || "document";
@@ -18375,6 +18528,7 @@ function renderLessonBlockPreview(block, options = {}) {
   const memberId = options.memberId || "";
   const lessonId = options.lessonId || "";
   const interactive = Boolean(options.interactive && course && memberId && !options.previewOnly);
+  const blockFlowMeta = getCourseBlockFlowMeta(course, lessonId, block, options);
   const quizProgress = type === "evaluation" && course && memberId
     ? getQuizBlockProgress(course, memberId, block)
     : null;
@@ -18383,11 +18537,11 @@ function renderLessonBlockPreview(block, options = {}) {
     return `
       <div class="aula-block aula-block-video">
         <div class="chip-row">
-          <span class="small-chip">${label}</span>
+          <span class="small-chip">${blockFlowMeta.chipLabel}</span>
           ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
         </div>
-        <strong>${escapeHtml(block.title || "Video")}</strong>
-        <p class="muted">${escapeHtml(block.content || "Video sin descripcion")}</p>
+        <strong>${escapeHtml(blockFlowMeta.title || "Video")}</strong>
+        <p class="muted">${escapeHtml(blockFlowMeta.description || "Video sin descripcion")}</p>
         ${
           embedUrl
             ? `<iframe class="resource-embed" src="${escapeHtml(embedUrl)}" title="${escapeHtml(block.title || "Video")}" allowfullscreen loading="lazy"></iframe>`
@@ -18402,11 +18556,11 @@ function renderLessonBlockPreview(block, options = {}) {
     return `
       <div class="aula-block aula-block-download">
         <div class="chip-row">
-          <span class="small-chip">${pdfLike ? "PDF" : label}</span>
+          <span class="small-chip">${pdfLike ? "Contenido" : blockFlowMeta.chipLabel}</span>
           ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
         </div>
-        <strong>${escapeHtml(block.title || "Descarga")}</strong>
-        <p class="muted">${escapeHtml(block.content || "Archivo o recurso descargable")}</p>
+        <strong>${escapeHtml(blockFlowMeta.title || "Descarga")}</strong>
+        <p class="muted">${escapeHtml(blockFlowMeta.description || "Archivo o recurso descargable")}</p>
         ${
           url
             ? `
@@ -18529,11 +18683,11 @@ function renderLessonBlockPreview(block, options = {}) {
   return `
     <div class="aula-block">
       <div class="chip-row">
-        <span class="small-chip">${label}</span>
+        <span class="small-chip">${blockFlowMeta.chipLabel}</span>
         ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
       </div>
-      <strong>${escapeHtml(block.title || "Bloque")}</strong>
-      <p class="muted">${escapeHtml(block.content || "Sin contenido")}</p>
+      <strong>${escapeHtml(blockFlowMeta.title || "Bloque")}</strong>
+      <p class="muted">${escapeHtml(blockFlowMeta.description || "Sin contenido")}</p>
       ${
         url
           ? `<a class="button-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">Abrir recurso</a>`
