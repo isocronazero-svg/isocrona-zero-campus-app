@@ -2924,7 +2924,7 @@ const server = http.createServer(async (req, res) => {
         state,
         "system",
         "Motor de automatizacion",
-        `Se ha ejecutado el motor automatico: ${summary.updatedDiplomas} diploma(s), ${summary.promotedWaitlist} promocion(es) de espera, ${summary.sentDiplomas} envio(s), ${summary.inboxItems} item(s) en bandeja`
+        `Se ha ejecutado el motor automatico: ${summary.updatedDiplomas} diploma(s), ${summary.promotedWaitlist} promocion(es) de espera, ${summary.sentDiplomas} envio(s) de diploma, ${summary.sentFeeReminders || 0} recordatorio(s) de cuota y ${summary.inboxItems} item(s) en bandeja`
       );
       writeState(state);
       return sendJson(res, 200, {
@@ -7726,6 +7726,8 @@ async function runAutomationEngine(state) {
     advancedCourses: 0,
     closedCourses: 0,
     sentDiplomas: 0,
+    sentFeeReminders: 0,
+    failedFeeReminders: 0,
     failedDiplomas: 0,
     inboxItems: 0
   };
@@ -8097,6 +8099,16 @@ async function runAutomationEngine(state) {
       return !reminderIsRecent;
     })
     .forEach((associate) => {
+      const canSendReminder =
+        state.settings?.automation?.autoSendFeeReminders !== false &&
+        smtpReady &&
+        String(associate.email || "").trim() &&
+        isLikelyEmail(String(associate.email || "").trim());
+
+      if (canSendReminder) {
+        return;
+      }
+
       pushAutomationItem(state, {
         type: "associate_fee",
         title: `Cuota pendiente del socio #${associate.associateNumber}`,
@@ -8105,6 +8117,34 @@ async function runAutomationEngine(state) {
         key: `associate_fee:${associate.id}:${currentYear}`
       });
     });
+
+  if (state.settings?.automation?.autoSendFeeReminders !== false && smtpReady) {
+    for (const associate of state.associates || []) {
+      const pendingAmount = getAssociateYearFeeGap(associate, currentYear);
+      const reminderIsRecent = associate.lastQuotaReminderAt
+        ? Date.now() - new Date(associate.lastQuotaReminderAt).getTime() < 14 * 24 * 60 * 60 * 1000
+        : false;
+      if (
+        pendingAmount <= 0 ||
+        reminderIsRecent ||
+        !String(associate.email || "").trim() ||
+        !isLikelyEmail(String(associate.email || "").trim())
+      ) {
+        continue;
+      }
+
+      try {
+        const result = await maybeSendAssociateFeeReminder(state, associate, {
+          actor: "Motor de automatizacion"
+        });
+        if (result.status === "sent") {
+          summary.sentFeeReminders += 1;
+        }
+      } catch (error) {
+        summary.failedFeeReminders += 1;
+      }
+    }
+  }
 
   (state.associates || [])
     .filter(
@@ -8216,7 +8256,7 @@ function recordAutomationRun(state, reason, summary) {
 }
 
 function buildAutomationMessage(prefix, summary) {
-  return `${prefix}: ${summary.updatedDiplomas} diploma(s), ${summary.promotedWaitlist} promocion(es), ${summary.closedCourses} cierre(s), ${summary.sentDiplomas} envio(s) y ${summary.inboxItems} aviso(s).`;
+  return `${prefix}: ${summary.updatedDiplomas} diploma(s), ${summary.promotedWaitlist} promocion(es), ${summary.closedCourses} cierre(s), ${summary.sentDiplomas} envio(s) de diploma, ${summary.sentFeeReminders || 0} recordatorio(s) de cuota y ${summary.inboxItems} aviso(s).`;
 }
 
 async function runBackgroundAutomationSweep() {
@@ -8230,6 +8270,7 @@ async function runBackgroundAutomationSweep() {
       "system",
       "Motor de automatizacion",
       `Revision programada completada: ${summary.promotedWaitlist} promocion(es), ${summary.closedCourses} cierre(s), ${summary.sentDiplomas} envio(s)`
+      + `${summary.sentFeeReminders ? `, ${summary.sentFeeReminders} recordatorio(s) de cuota` : ""}`
     );
   }
 
@@ -8243,6 +8284,8 @@ function hasAutomationImpact(summary) {
       summary.advancedCourses ||
       summary.closedCourses ||
       summary.sentDiplomas ||
+      summary.sentFeeReminders ||
+      summary.failedFeeReminders ||
       summary.failedDiplomas ||
       summary.inboxItems
   );
@@ -8518,53 +8561,22 @@ async function resolveAssociateFeeItem(state, item) {
     throw new Error("El agente no tiene permiso para enviar avisos de cuota");
   }
 
-  if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de avisar cuotas pendientes");
-  }
-
   const associate = (state.associates || []).find((entry) => entry.id === item.memberId);
   if (!associate) {
     throw new Error("Socio no encontrado para el aviso de cuota");
   }
 
-  const currentYear = String(new Date().getFullYear());
-  const pendingAmount = getAssociateYearFeeGap(associate, currentYear);
-  if (pendingAmount <= 0) {
-    return {
-      type: item.type,
-      message: `La cuota de ${getAssociateFullName(associate)} ya esta al dia`
-    };
-  }
-
-  const email = {
-    id: `mail-${Date.now()}-${associate.id}-${Math.random().toString(36).slice(2, 7)}`,
-    courseId: "",
-    memberId: associate.linkedMemberId || "",
-    associateId: associate.id,
-    to: associate.email,
-    subject: `Recordatorio de cuota pendiente - ${state.settings?.organization || "Isocrona Zero"}`,
-    body: buildAssociateFeeReminderEmailBody(state, associate, currentYear, pendingAmount),
-    sentAt: new Date().toISOString(),
-    status: "queued",
-    transport: "smtp",
-    attemptCount: 0,
-    deliveryError: "",
-    deliveredAt: null
-  };
-
-  state.emailOutbox.unshift(email);
-  await deliverEmailRecord(state, email);
-  associate.lastQuotaReminderAt = new Date().toISOString();
-  appendActivity(
-    state,
-    "system",
-    "Bandeja automatica",
-    `Aviso de cuota enviado al socio #${associate.associateNumber} (${associate.email})`
-  );
+  const result = await maybeSendAssociateFeeReminder(state, associate, {
+    force: true,
+    strict: true,
+    actor: "Bandeja automatica"
+  });
 
   return {
     type: item.type,
-    message: `Se ha enviado un recordatorio de cuota a ${getAssociateFullName(associate)}`
+    message: result.status === "sent"
+      ? `Se ha enviado un recordatorio de cuota a ${getAssociateFullName(associate)}`
+      : `La cuota de ${getAssociateFullName(associate)} ya esta al dia`
   };
 }
 
@@ -9155,6 +9167,82 @@ function buildAssociateFeeReminderEmailBody(state, associate, year, pendingAmoun
     "",
     `Equipo de administracion - ${organization}`
   ].join("\n");
+}
+
+async function maybeSendAssociateFeeReminder(state, associate, options = {}) {
+  const force = Boolean(options.force);
+  const strict = Boolean(options.strict);
+  const actor = options.actor || "Motor de automatizacion";
+
+  if (!associate) {
+    if (strict) {
+      throw new Error("No se ha indicado el socio para el recordatorio de cuota");
+    }
+    return { status: "skipped", reason: "missing_associate" };
+  }
+
+  const currentYear = String(new Date().getFullYear());
+  const pendingAmount = getAssociateYearFeeGap(associate, currentYear);
+  if (pendingAmount <= 0) {
+    return { status: "skipped", reason: "already_paid" };
+  }
+
+  const email = String(associate.email || "").trim();
+  if (!email || !isLikelyEmail(email)) {
+    if (strict) {
+      throw new Error("El socio no tiene un email valido para el recordatorio de cuota");
+    }
+    return { status: "pending", reason: "missing_email" };
+  }
+
+  const lastReminderAt = associate.lastQuotaReminderAt
+    ? new Date(associate.lastQuotaReminderAt).getTime()
+    : 0;
+  const reminderIsRecent =
+    lastReminderAt && Date.now() - lastReminderAt < 14 * 24 * 60 * 60 * 1000;
+
+  if (!force && reminderIsRecent) {
+    return { status: "skipped", reason: "recent_reminder" };
+  }
+
+  if (!force && state.settings?.automation?.autoSendFeeReminders === false) {
+    return { status: "skipped", reason: "auto_disabled" };
+  }
+
+  if (!isSmtpConfigured(state)) {
+    if (strict) {
+      throw new Error("Configura el SMTP antes de enviar recordatorios de cuota");
+    }
+    return { status: "pending", reason: "smtp_missing" };
+  }
+
+  const message = {
+    id: `mail-${Date.now()}-${associate.id}-${Math.random().toString(36).slice(2, 7)}`,
+    courseId: "",
+    memberId: associate.linkedMemberId || "",
+    associateId: associate.id,
+    to: email,
+    subject: `Recordatorio de cuota pendiente - ${state.settings?.organization || "Isocrona Zero"}`,
+    body: buildAssociateFeeReminderEmailBody(state, associate, currentYear, pendingAmount),
+    sentAt: new Date().toISOString(),
+    status: "queued",
+    transport: "smtp",
+    attemptCount: 0,
+    deliveryError: "",
+    deliveredAt: null
+  };
+
+  state.emailOutbox.unshift(message);
+  await deliverEmailRecord(state, message);
+  associate.lastQuotaReminderAt = new Date().toISOString();
+  appendActivity(
+    state,
+    "system",
+    actor,
+    `Aviso de cuota enviado al socio #${associate.associateNumber} (${email})`
+  );
+
+  return { status: "sent", emailId: message.id };
 }
 
 async function maybeSendAssociatePaymentSubmissionNotification(
