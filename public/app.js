@@ -12707,6 +12707,7 @@ function renderCourseWorkbench(course) {
     : isPracticalCourse
       ? "resources"
       : "modules";
+  const pedagogicalReadiness = getCoursePedagogicalReadiness(course);
   const workbenchChecks = getCourseWorkbenchChecks(course);
   const completedChecks = workbenchChecks.filter((item) => item.ok).length;
   const nextCheck = workbenchChecks.find((item) => !item.ok) || null;
@@ -12999,6 +13000,28 @@ function renderCourseWorkbench(course) {
               </div>
             `
         }
+        <div class="mail-card">
+          <div class="row-between">
+            <div>
+              <p class="eyebrow">Salud pedagogica</p>
+              <h5>${pedagogicalReadiness.completed}/${pedagogicalReadiness.total} puntos listos</h5>
+            </div>
+            <span class="small-chip">${pedagogicalReadiness.nextIssue ? `Siguiente foco: ${pedagogicalReadiness.nextIssue.label}` : "Curso bien preparado"}</span>
+          </div>
+          <div class="course-grid course-grid-tight">
+            ${pedagogicalReadiness.checks
+              .map(
+                (item) => `
+                  <div class="timeline-item compact-timeline-item">
+                    <p>${escapeHtml(item.label)}</p>
+                    <strong>${item.ok ? "Listo" : "Pendiente"}</strong>
+                    <p class="muted">${escapeHtml(item.detail)}</p>
+                  </div>
+                `
+              )
+              .join("")}
+          </div>
+        </div>
         <div class="workbench-tabs">
           ${workbenchTabs
             .map(
@@ -17758,6 +17781,92 @@ function getCourseContentReadiness(course) {
     totalBlocks,
     visibleResources,
     readiness
+  };
+}
+
+function getCoursePedagogicalReadiness(course) {
+  const modules = course.modules || [];
+  const lessons = getCourseLessonList(course);
+  const lessonCount = lessons.length;
+  const lessonWithContentCount = lessons.filter(
+    (lesson) =>
+      String(lesson.body || "").trim() ||
+      String(lesson.instructions || "").trim() ||
+      String(lesson.activity || "").trim() ||
+      String(lesson.takeaway || "").trim() ||
+      String(lesson.assetUrl || "").trim() ||
+      String(lesson.resource || "").trim() ||
+      (lesson.blocks || []).length
+  ).length;
+  const evaluationBlocks = lessons.flatMap((lesson) =>
+    (lesson.blocks || []).filter((block) => String(block?.type || "") === "evaluation")
+  );
+  const moduleTestCount = evaluationBlocks.filter((block) => !block?.finalTest).length;
+  const finalTestCount = evaluationBlocks.filter((block) => block?.finalTest).length;
+  const hasFallbackFinalTest =
+    finalTestCount === 0 &&
+    lessons.some((lesson) =>
+      (lesson.blocks || [])
+        .filter((block) => String(block?.type || "") === "evaluation")
+        .some((block) => getEvaluationBlockUiMeta(course, lesson.id, block).chipLabel === "Test final")
+    );
+  const certificateSections = getCertificateSections(course);
+  const hasCertificateContents =
+    (course.certificateContents || []).length > 0 || (certificateSections || []).length > 0;
+  const hasFeedbackConfigured = Boolean(course.feedbackEnabled);
+  const checks = [
+    {
+      label: "Modulos definidos",
+      ok: modules.length > 0,
+      detail: modules.length ? `${modules.length} modulo(s) creados` : "Todavia no hay modulos en el curso"
+    },
+    {
+      label: "Lecciones con contenido",
+      ok: lessonCount > 0 && lessonWithContentCount === lessonCount,
+      detail: lessonCount
+        ? `${lessonWithContentCount}/${lessonCount} leccion(es) con base de contenido`
+        : "Aun no hay lecciones desarrolladas"
+    },
+    {
+      label: "Tests de modulo",
+      ok: modules.length > 0 ? moduleTestCount > 0 : evaluationBlocks.length > 0,
+      detail: moduleTestCount
+        ? `${moduleTestCount} bloque(s) de evaluacion integrados`
+        : "Conviene definir al menos un test de modulo"
+    },
+    {
+      label: "Test final",
+      ok: finalTestCount > 0 || hasFallbackFinalTest,
+      detail: finalTestCount
+        ? `${finalTestCount} test final marcado de forma explicita`
+        : hasFallbackFinalTest
+          ? "Detectado por compatibilidad con cursos anteriores"
+          : "Aun falta dejar claro el test final del curso"
+    },
+    {
+      label: "Valoracion final",
+      ok: hasFeedbackConfigured,
+      detail: hasFeedbackConfigured
+        ? course.feedbackRequiredForDiploma
+          ? "Activa y requerida para cerrar diploma"
+          : "Activa como cierre complementario"
+        : "La valoracion final sigue desactivada"
+    },
+    {
+      label: "Cierre y diploma",
+      ok: Boolean(course.diplomaTemplate) && hasCertificateContents,
+      detail:
+        Boolean(course.diplomaTemplate) && hasCertificateContents
+          ? `${course.diplomaTemplate} listo con contenido acreditado`
+          : "Revisa plantilla de diploma y contenidos del certificado"
+    }
+  ];
+
+  return {
+    checks,
+    completed: checks.filter((item) => item.ok).length,
+    total: checks.length,
+    nextIssue: checks.find((item) => !item.ok) || null
   };
 }
 
