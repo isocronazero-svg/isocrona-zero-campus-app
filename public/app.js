@@ -2286,6 +2286,54 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "add-evaluation-question" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const moduleIndex = Number(actionTarget.dataset.moduleIndex || -1);
+    const lessonIndex = Number(actionTarget.dataset.lessonIndex || -1);
+    const blockIndex = Number(actionTarget.dataset.blockIndex || -1);
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const block = course.modules?.[moduleIndex]?.lessons?.[lessonIndex]?.blocks?.[blockIndex];
+    if (!block || block.type !== "evaluation") {
+      return;
+    }
+
+    block.questions = Array.isArray(block.questions) ? block.questions : [];
+    block.questions.push(buildEmptyQuizQuestion(block.questions.length));
+    syncStatus = "Pregunta anadida al borrador del test";
+    render();
+    return;
+  }
+
+  if (action === "remove-evaluation-question" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const blockNode = actionTarget.closest("[data-lesson-block-index]");
+    const lessonNode = actionTarget.closest("[data-course-lesson-index]");
+    const moduleNode = actionTarget.closest("[data-course-module-index]");
+    const moduleIndex = moduleNode ? Number(moduleNode.dataset.courseModuleIndex || -1) : -1;
+    const lessonIndex = lessonNode ? Number(lessonNode.dataset.courseLessonIndex || -1) : -1;
+    const blockIndex = blockNode ? Number(blockNode.dataset.lessonBlockIndex || -1) : -1;
+    const questionIndex = Number(actionTarget.dataset.questionIndex || -1);
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || questionIndex < 0) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const block = course.modules?.[moduleIndex]?.lessons?.[lessonIndex]?.blocks?.[blockIndex];
+    if (!block || block.type !== "evaluation") {
+      return;
+    }
+
+    block.questions = Array.isArray(block.questions) ? block.questions : [];
+    block.questions.splice(questionIndex, 1);
+    syncStatus = "Pregunta eliminada del borrador del test";
+    render();
+    return;
+  }
+
   if (action === "select-member") {
     state.selectedMemberId = memberId;
     membersSectionMode = "workbench";
@@ -11805,10 +11853,36 @@ function renderCourseModuleEditor(module, moduleIndex) {
                                           Contenido del bloque
                                           <textarea data-block-field="content">${escapeHtml(block.content || "")}</textarea>
                                         </label>
-                                        <label class="inline-field lesson-notes">
-                                          Banco de preguntas
-                                          <textarea data-block-field="questions" placeholder="Pregunta | opcion A ; opcion B ; opcion C | respuesta correcta | explicacion">${escapeHtml(serializeQuizQuestions(block.questions || []))}</textarea>
-                                        </label>
+                                        ${
+                                          block.type === "evaluation"
+                                            ? `
+                                              <div class="mail-card lesson-notes">
+                                                <div class="row-between">
+                                                  <div>
+                                                    <p class="eyebrow">${block.finalTest ? "Test final" : "Test del modulo"}</p>
+                                                    <strong>Preguntas del test</strong>
+                                                  </div>
+                                                  <button class="mini-button" type="button" data-action="add-evaluation-question" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Anadir pregunta</button>
+                                                </div>
+                                                <p class="muted">Usa este editor para preparar la evaluacion del curso sin depender del formato tecnico.</p>
+                                                <div class="panel-stack">
+                                                  ${
+                                                    (block.questions || []).length
+                                                      ? (block.questions || []).map((question, questionIndex) => renderEvaluationQuestionEditor(question, questionIndex)).join("")
+                                                      : `<div class="empty-state">Todavia no hay preguntas en este test. Anade la primera para empezar.</div>`
+                                                  }
+                                                </div>
+                                                <details>
+                                                  <summary>Formato tecnico (avanzado)</summary>
+                                                  <label class="inline-field lesson-notes">
+                                                    Banco de preguntas serializado
+                                                    <textarea data-block-field="questions" readonly>${escapeHtml(serializeQuizQuestions(block.questions || []))}</textarea>
+                                                  </label>
+                                                </details>
+                                              </div>
+                                            `
+                                            : ""
+                                        }
                                       </div>
                                       <div class="block-admin-preview">
                                         ${renderLessonBlockPreview(block, { course, lessonId: lesson.id, admin: true })}
@@ -15819,6 +15893,16 @@ function parseQuizQuestions(value) {
     });
 }
 
+function buildEmptyQuizQuestion(index = 0) {
+  return {
+    id: `question-${Date.now()}-${index}`,
+    prompt: "",
+    options: ["", "", "", ""],
+    correctAnswer: "",
+    explanation: ""
+  };
+}
+
 function serializeQuizQuestions(questions) {
   return (questions || [])
     .map((question) =>
@@ -15830,6 +15914,82 @@ function serializeQuizQuestions(questions) {
       ].join(" | ")
     )
     .join("\n");
+}
+
+function getEditableQuizOptions(question) {
+  const source = Array.isArray(question?.options) ? question.options.slice() : [];
+  while (source.length < 4) {
+    source.push("");
+  }
+  return source;
+}
+
+function renderEvaluationQuestionEditor(question, questionIndex) {
+  const editableOptions = getEditableQuizOptions(question);
+  const selectedAnswer = String(question?.correctAnswer || "");
+  const radioName = `course-evaluation-correct-${escapeHtml(question?.id || `question-${questionIndex}`)}`;
+
+  return `
+    <article class="lesson-card" data-evaluation-question-index="${questionIndex}" data-question-id="${escapeHtml(question?.id || "")}">
+      <div class="row-between">
+        <strong>Pregunta ${questionIndex + 1}</strong>
+        <button class="mini-button" type="button" data-action="remove-evaluation-question" data-question-index="${questionIndex}">Eliminar pregunta</button>
+      </div>
+      <div class="lesson-grid">
+        <label class="inline-field studio-full">
+          Enunciado
+          <textarea data-question-field="prompt" placeholder="Escribe aqui el enunciado de la pregunta.">${escapeHtml(question?.prompt || "")}</textarea>
+        </label>
+        ${editableOptions
+          .map(
+            (option, optionIndex) => `
+              <label class="inline-field">
+                Opcion ${optionIndex + 1}
+                <input data-question-option-index="${optionIndex}" value="${escapeHtml(option || "")}" placeholder="Texto de la opcion ${optionIndex + 1}" />
+                <span class="inline-checkbox">
+                  <input type="radio" name="${radioName}" data-question-field="correctOption" value="${optionIndex}" ${selectedAnswer === String(option || "").trim() ? "checked" : ""} />
+                  Correcta
+                </span>
+              </label>
+            `
+          )
+          .join("")}
+        <label class="inline-field studio-full">
+          Explicacion
+          <textarea data-question-field="explanation" placeholder="Aclara por que esta es la respuesta correcta o que debe aprender el alumno.">${escapeHtml(question?.explanation || "")}</textarea>
+        </label>
+      </div>
+    </article>
+  `;
+}
+
+function collectEvaluationQuestionsFromBlockNode(blockNode) {
+  return [...blockNode.querySelectorAll("[data-evaluation-question-index]")]
+    .map((questionNode, questionIndex) => {
+      const optionValues = [...questionNode.querySelectorAll("[data-question-option-index]")].map((optionNode) =>
+        String(optionNode.value || "").trim()
+      );
+      const options = optionValues.filter(Boolean);
+      const selectedCorrectIndex = Number(
+        questionNode.querySelector('[data-question-field="correctOption"]:checked')?.value || -1
+      );
+      const prompt = String(questionNode.querySelector('[data-question-field="prompt"]')?.value || "").trim();
+      const explanation = String(
+        questionNode.querySelector('[data-question-field="explanation"]')?.value || ""
+      ).trim();
+      const correctAnswer = selectedCorrectIndex >= 0 ? optionValues[selectedCorrectIndex] || "" : "";
+      if (!prompt && !options.length && !correctAnswer && !explanation) {
+        return null;
+      }
+      return {
+        id: questionNode.dataset.questionId || `question-${Date.now()}-${questionIndex}`,
+        prompt: prompt || `Pregunta ${questionIndex + 1}`,
+        options,
+        correctAnswer,
+        explanation
+      };
+    })
+    .filter(Boolean);
 }
 
 function inferCourseTemplate(course) {
@@ -18202,23 +18362,27 @@ function collectCourseModulesFromForm() {
                   assetUrl: lessonNode.querySelector('[data-lesson-field="assetUrl"]')?.value.trim() || "",
                   publicationStatus: lessonNode.querySelector('[data-lesson-field="publicationStatus"]')?.value || "draft",
                   blocks: [...lessonNode.querySelectorAll("[data-lesson-block-index]")]
-                    .map((blockNode, blockIndex) =>
-                      normalizeCourseBlock(
+                    .map((blockNode, blockIndex) => {
+                      const blockType = blockNode.querySelector('[data-block-field="type"]')?.value || "document";
+                      return normalizeCourseBlock(
                         {
                           id: blockNode.dataset.blockId || "",
-                          type: blockNode.querySelector('[data-block-field="type"]')?.value || "document",
+                          type: blockType,
                           title: blockNode.querySelector('[data-block-field="title"]')?.value.trim() || "",
                           content: blockNode.querySelector('[data-block-field="content"]')?.value.trim() || "",
                           url: blockNode.querySelector('[data-block-field="url"]')?.value.trim() || "",
-                          questions: parseQuizQuestions(blockNode.querySelector('[data-block-field="questions"]')?.value || ""),
+                          questions:
+                            blockType === "evaluation"
+                              ? collectEvaluationQuestionsFromBlockNode(blockNode)
+                              : parseQuizQuestions(blockNode.querySelector('[data-block-field="questions"]')?.value || ""),
                           required: Boolean(blockNode.querySelector('[data-block-field="required"]')?.checked),
                           finalTest: Boolean(blockNode.querySelector('[data-block-field="finalTest"]')?.checked)
                         },
                         moduleIndex,
                         lessonIndex,
                         blockIndex
-                      )
-                    )
+                      );
+                    })
                     .filter((block) => block.title || block.content || block.url)
                 },
                 moduleIndex,
