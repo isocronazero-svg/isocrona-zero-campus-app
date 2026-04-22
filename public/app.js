@@ -12104,6 +12104,7 @@ function renderLearnerActionStrip(course, memberId, options = {}) {
   const activeSession = (course.sessions || [])[activeModuleIndex] || (course.sessions || [])[0] || null;
   const keyResource = getVisibleCourseResources(course, "member")[0] || null;
   const nextBlock = journey.nextStep?.block || null;
+  const finalTestStatus = getCourseFinalTestStatus(course, memberId);
   const nextLessonTitle = journey.nextStep?.lessonTitle || "Revisar ruta";
   const nextBlockMeta = nextBlock ? getCourseBlockFlowMeta(course, journey.nextStep?.lesson?.id || "", nextBlock, options) : null;
   const sessionLabel = activeSession?.date
@@ -12125,6 +12126,11 @@ function renderLearnerActionStrip(course, memberId, options = {}) {
         keyResource?.url
           ? ` Recurso visible: ${escapeHtml(resourceLabel)}.`
           : ` Biblioteca disponible: ${getVisibleCourseResources(course, "member").length} recurso(s).`
+      }
+      ${
+        finalTestStatus.exists
+          ? ` Hito de cierre: test final ${escapeHtml(finalTestStatus.stateLabel.toLowerCase())}.`
+          : ""
       }
     </div>
     <div class="chip-row learner-action-strip">
@@ -12232,8 +12238,11 @@ function renderLearnerWorkspaceHighlights(course, memberId, options = {}) {
   const activeModuleIndex = getLearnerActiveModuleIndex(course, memberId, modules);
   const activeSession = (course.sessions || [])[activeModuleIndex] || (course.sessions || [])[0] || null;
   const keyResource = getVisibleCourseResources(course, "member")[0] || null;
+  const finalTestStatus = getCourseFinalTestStatus(course, memberId);
   const finalState = journey.hasDiploma
     ? "Diploma disponible"
+    : finalTestStatus.exists
+      ? `Test final ${finalTestStatus.stateLabel.toLowerCase()}`
     : course.feedbackEnabled && !journey.feedbackSubmitted
       ? "Valoracion pendiente"
       : "Revisar certificado";
@@ -12808,6 +12817,15 @@ function getCourseWorkbenchChecks(course) {
         ? `${sessions.length} sesion(es) planificadas.`
         : "Todavia no hay sesiones de curso definidas."
     });
+    const finalTest = getCourseFinalTestDescriptor(course, { admin: true, previewOnly: true });
+    checks.push({
+      key: "finalTest",
+      label: "Test final",
+      ok: Boolean(finalTest),
+      detail: finalTest
+        ? `${finalTest.meta.title} listo como hito visible de cierre del curso.`
+        : "Conviene definir o marcar un test final para cerrar mejor la evaluacion del curso."
+    });
   }
   checks.push({
     key: "resources",
@@ -12853,6 +12871,7 @@ function getWorkbenchModeForCheck(checkKey, courseClass = "") {
       return "ficha";
     case "modules":
     case "resources":
+    case "finalTest":
       return "curriculum";
     case "sessions":
       return isPracticalCourse ? "curriculum" : "sessions";
@@ -12914,6 +12933,9 @@ function renderCourseWorkbench(course) {
   const workbenchChecks = getCourseWorkbenchChecks(course);
   const completedChecks = workbenchChecks.filter((item) => item.ok).length;
   const nextCheck = workbenchChecks.find((item) => !item.ok) || null;
+  const finalTestStatus = !isPracticalCourse
+    ? getCourseFinalTestStatus(course, previewMember?.id, { admin: true, previewOnly: true })
+    : null;
   const enrollmentSubmissions = (course.enrollmentSubmissions || []).slice().reverse();
   const pendingEnrollmentSubmissions = enrollmentSubmissions.filter((submission) =>
     ["pending-review", "pending-proof", "waiting"].includes(String(submission.status || "").trim())
@@ -13201,6 +13223,33 @@ function renderCourseWorkbench(course) {
               <div class="status-note info course-admin-next-steps">
                 ${escapeHtml(courseAdminSteps.find((step) => step.mode === normalizedWorkbenchMode)?.title || "Curso activo")} · ${escapeHtml(courseAdminSteps.find((step) => step.mode === normalizedWorkbenchMode)?.detail || "Trabaja el bloque actual del curso desde esta vista.")}
               </div>
+              ${
+                finalTestStatus
+                  ? `
+                    <div class="status-note ${finalTestStatus.exists ? (finalTestStatus.stateLabel === "Completado" ? "success" : "info") : "warning"}">
+                      <strong>${escapeHtml(finalTestStatus.exists ? "Test final del curso" : "Test final pendiente de definir")}</strong>
+                      <p class="muted">${
+                        finalTestStatus.exists
+                          ? escapeHtml(finalTestStatus.detail)
+                          : "Sin este hito el cierre evaluativo del curso queda menos claro para alumnado e instructor."
+                      }</p>
+                      <div class="chip-row compact-chip-row">
+                        <span class="small-chip">${escapeHtml(finalTestStatus.stateLabel)}</span>
+                        ${
+                          finalTestStatus.lesson
+                            ? `<span class="small-chip">${escapeHtml(finalTestStatus.lesson.title || "Leccion final")}</span>`
+                            : ""
+                        }
+                        ${
+                          previewMember
+                            ? `<span class="small-chip">Vista alumno: ${escapeHtml(previewMember.name)}</span>`
+                            : ""
+                        }
+                      </div>
+                    </div>
+                  `
+                  : ""
+              }
             `
         }
         <div class="mail-card">
@@ -14439,6 +14488,7 @@ function renderLearnerProgressGuard(course, memberId, options = {}) {
   const previewOnly = Boolean(options.previewOnly);
   const journey = getLearnerCourseJourney(course, memberId);
   const isPracticalCourse = normalizeCourseClass(course.courseClass) === "practico";
+  const finalTestStatus = getCourseFinalTestStatus(course, memberId);
   const nextLabel = journey.nextStep?.block?.title || journey.nextStep?.lessonTitle || "";
   const warningText = journey.pendingSteps[0] || "";
   let primaryActionHtml = "";
@@ -14478,11 +14528,17 @@ function renderLearnerProgressGuard(course, memberId, options = {}) {
               ? `No podras avanzar hasta completar esto: ${escapeHtml(warningText)}.`
               : "No hay bloqueos activos. Sigue con el curso."
         }</p>
+        ${
+          finalTestStatus.exists && !journey.hasDiploma
+            ? `<p class="muted"><strong>Test final:</strong> ${escapeHtml(finalTestStatus.stateLabel)}. ${escapeHtml(finalTestStatus.detail)}</p>`
+            : ""
+        }
       </div>
       <div class="chip-row">
         <span class="small-chip">Contenido ${journey.progress.blocksCompleted}/${journey.progress.blocksTotal}</span>
         <span class="small-chip">Asistencia ${journey.attendance}%</span>
         <span class="small-chip">Evaluacion ${escapeHtml(journey.evaluation)}</span>
+        ${finalTestStatus.exists ? `<span class="small-chip">Test final ${escapeHtml(finalTestStatus.stateLabel)}</span>` : ""}
         ${previewOnly ? `<span class="small-chip">Vista previa</span>` : ""}
       </div>
       ${previewOnly ? "" : `<div class="chip-row learner-progress-guard-actions">${primaryActionHtml}</div>`}
@@ -16813,6 +16869,7 @@ function getEvaluationBlockUiMeta(course, lessonId, block, options = {}) {
   const isFinalTest = Boolean(block?.finalTest) || Boolean(isLastLesson && isLastEvaluationInLesson && block?.required);
 
   return {
+    isFinalTest,
     chipLabel: isFinalTest ? "Test final" : "Test del modulo",
     title: block?.title || (isFinalTest ? "Test final del curso" : "Test del modulo"),
     description:
@@ -16820,6 +16877,81 @@ function getEvaluationBlockUiMeta(course, lessonId, block, options = {}) {
       (isFinalTest
         ? "Prueba final integrada en el curso para cerrar la evaluacion del alumnado."
         : "Prueba integrada en el curso para comprobar este modulo.")
+  };
+}
+
+function getCourseFinalTestDescriptor(course, options = {}) {
+  if (!course) {
+    return null;
+  }
+
+  const previewOnly = Boolean(options.previewOnly);
+  const isAdminContext = Boolean(options.admin || previewOnly || !options.interactive);
+  const lessonList = isAdminContext ? getCourseLessonList(course) : getLearnerCourseLessonList(course);
+  let explicitMatch = null;
+  let fallbackMatch = null;
+
+  lessonList.forEach((lesson, lessonIndex) => {
+    const evaluationBlocks = (lesson.blocks || []).filter((item) => String(item?.type || "") === "evaluation");
+    evaluationBlocks.forEach((block, evaluationIndex) => {
+      if (!explicitMatch && block?.finalTest) {
+        explicitMatch = { lesson, block };
+      }
+      if (!fallbackMatch && lessonIndex === lessonList.length - 1 && evaluationIndex === evaluationBlocks.length - 1 && block?.required) {
+        fallbackMatch = { lesson, block };
+      }
+    });
+  });
+
+  const match = explicitMatch || fallbackMatch;
+  if (!match) {
+    return null;
+  }
+
+  const module = (course.modules || []).find((item) => (item.lessons || []).some((lesson) => lesson.id === match.lesson.id)) || null;
+  return {
+    ...match,
+    module,
+    meta: getEvaluationBlockUiMeta(course, match.lesson.id, match.block, options)
+  };
+}
+
+function getCourseFinalTestStatus(course, memberId, options = {}) {
+  const descriptor = getCourseFinalTestDescriptor(course, options);
+  if (!descriptor) {
+    return {
+      exists: false,
+      stateLabel: "Sin definir",
+      detail: "Conviene marcar un test final para dejar claro el cierre evaluativo del curso.",
+      tone: "warning",
+      block: null
+    };
+  }
+
+  const progress = memberId ? getQuizBlockProgress(course, memberId, descriptor.block) : null;
+  const complete = Boolean(progress?.complete);
+  const started = Boolean(progress?.answered);
+  const stateLabel = memberId
+    ? complete
+      ? "Completado"
+      : started
+        ? "En curso"
+        : "Pendiente"
+    : "Definido";
+
+  return {
+    exists: true,
+    stateLabel,
+    detail: memberId
+      ? complete
+        ? "El test final ya esta resuelto dentro del itinerario del curso."
+        : started
+          ? `Ya hay respuestas registradas (${progress.correct}/${progress.total} correctas).`
+          : "Sigue pendiente como hito de cierre dentro del aula."
+      : "El curso ya tiene identificado un test final dentro de su recorrido.",
+    tone: memberId ? (complete ? "success" : "warning") : "info",
+    progress,
+    ...descriptor
   };
 }
 
@@ -17215,6 +17347,8 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
   const allowProgressActions =
     !isMemberPreviewSession() && session?.role === "member" && session?.memberId === memberId;
   const nextBlock = journey.nextStep?.block || null;
+  const finalTestStatus = getCourseFinalTestStatus(course, memberId);
+  const nextStepIsFinalTest = Boolean(finalTestStatus.exists && nextBlock?.id === finalTestStatus.block?.id);
   const nextBlockMeta = nextBlock ? getCourseBlockFlowMeta(course, journey.nextStep?.lesson?.id || "", nextBlock, options) : null;
   const headline = journey.hasDiploma
     ? "Diploma disponible"
@@ -17222,6 +17356,8 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
       ? "Pendiente de inscripcion"
     : journey.waiting
       ? "Pendiente de plaza"
+      : nextStepIsFinalTest
+        ? "Test final pendiente"
       : journey.nextStep?.block
         ? escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : journey.nextStep.block.title || journey.nextStep.lessonTitle)
         : journey.nextStep?.lessonTitle
@@ -17233,6 +17369,8 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
       ? "Todavia no estas inscrito en este curso. Puedes revisarlo y apuntarte si la inscripcion esta abierta."
       : journey.waiting
         ? "Tu solicitud esta en lista de espera. En cuanto se libere plaza, podras continuar."
+        : nextStepIsFinalTest
+          ? "Has llegado al hito de cierre del aula. Completar el test final deja mucho mas clara tu evaluacion dentro del curso."
         : journey.nextStep
           ? `${escapeHtml(journey.nextStep.moduleTitle)} | ${escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : journey.nextStep.lessonTitle)}`
           : "No quedan bloques pendientes en el aula publicada.";
@@ -17253,6 +17391,11 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
       <strong>${headline}</strong>
       <p class="muted">${summaryText}</p>
       ${!compact ? `<p class="muted">${progressText}</p>` : ""}
+      ${
+        !compact && finalTestStatus.exists
+          ? `<p class="muted"><strong>Test final:</strong> ${escapeHtml(finalTestStatus.stateLabel)}. ${escapeHtml(finalTestStatus.detail)}</p>`
+          : ""
+      }
       ${
         !compact && feedbackText
           ? `<p class="muted"><strong>Valoracion final:</strong> ${feedbackText}</p>`
@@ -18588,6 +18731,11 @@ function renderLessonBlockPreview(block, options = {}) {
         </div>
         <strong>${escapeHtml(evaluationMeta.title)}</strong>
         <p class="muted">${escapeHtml(evaluationMeta.description)}</p>
+        ${
+          evaluationMeta.isFinalTest
+            ? `<div class="status-note info">Este bloque cuenta como <strong>test final</strong> y forma parte del cierre evaluativo del curso.</div>`
+            : ""
+        }
         ${
           block.questions?.length
             ? `
