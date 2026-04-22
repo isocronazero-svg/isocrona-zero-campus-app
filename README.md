@@ -13,3 +13,7 @@
 - Si `DATABASE_SSL=true`, usa SSL con validacion estricta por defecto
 - `DB_SSL_ALLOW_SELF_SIGNED=true` solo debe usarse en desarrollo
 - En `production`, no se permite `DB_SSL_ALLOW_SELF_SIGNED=true`
+
+## Comprobacion minima de frontend
+
+- Ejecuta `npm run check:frontend-syntax` para validar la sintaxis de `public/app.js` antes de fusionar cambios del frontend.
