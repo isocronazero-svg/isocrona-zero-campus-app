@@ -483,6 +483,7 @@ let learnerCourseDetailsMode = "overview";
 let learnerEnrollmentIntent = false;
 let learnerCourseWorkspaceMode = "roadmap";
 let learnerRoadmapSelection = {};
+let activeCourseQuizStepByBlock = {};
 let operationsSectionMode = "summary";
 let diplomasSectionMode = "actions";
 let reportsSectionMode = "exports";
@@ -3231,6 +3232,19 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "set-course-quiz-question-step" && courseId) {
+    const course = state.courses.find((item) => item.id === courseId);
+    const blockId = actionTarget.dataset.blockId || "";
+    const nextIndex = Number(actionTarget.dataset.questionIndex || -1);
+    const block = course ? getCourseBlockList(course).find((item) => item.id === blockId) : null;
+    if (!block || nextIndex < 0) {
+      return;
+    }
+    setActiveQuizQuestionIndex(blockId, (block.questions || []).length, nextIndex);
+    render();
+    return;
+  }
+
   if (action === "answer-quiz-question" && courseId && memberId) {
     const course = state.courses.find((item) => item.id === courseId);
     const blockId = actionTarget.dataset.blockId || "";
@@ -3247,6 +3261,12 @@ document.addEventListener("click", async (event) => {
     }
     setCourseQuizAnswer(course, memberId, blockId, questionIndex, answer);
     const block = getCourseBlockList(course).find((item) => item.id === blockId);
+    if (block) {
+      const totalQuestions = (block.questions || []).length;
+      if (questionIndex < totalQuestions - 1) {
+        setActiveQuizQuestionIndex(blockId, totalQuestions, questionIndex + 1);
+      }
+    }
     const progress = block ? getQuizBlockProgress(course, memberId, block) : null;
     if (block) {
       const entry = getCourseProgressEntry(course, memberId);
@@ -16493,6 +16513,45 @@ function setCourseQuizAnswer(course, memberId, blockId, questionIndex, answer) {
   setCourseProgressEntry(course, memberId, entry);
 }
 
+function getDefaultQuizQuestionIndex(course, memberId, block) {
+  const questions = Array.isArray(block?.questions) ? block.questions : [];
+  if (!questions.length) {
+    return 0;
+  }
+
+  const firstUnansweredIndex = questions.findIndex(
+    (_, questionIndex) => !getCourseQuizAnswer(course, memberId, block.id, questionIndex)
+  );
+  return firstUnansweredIndex >= 0 ? firstUnansweredIndex : 0;
+}
+
+function getActiveQuizQuestionIndex(course, memberId, block) {
+  const questions = Array.isArray(block?.questions) ? block.questions : [];
+  if (!questions.length) {
+    return 0;
+  }
+
+  const storedIndex = Number(activeCourseQuizStepByBlock?.[block.id]);
+  if (Number.isInteger(storedIndex) && storedIndex >= 0 && storedIndex < questions.length) {
+    return storedIndex;
+  }
+
+  return getDefaultQuizQuestionIndex(course, memberId, block);
+}
+
+function setActiveQuizQuestionIndex(blockId, questionCount, nextIndex) {
+  const total = Math.max(0, Number(questionCount || 0));
+  if (!blockId || !total) {
+    return;
+  }
+
+  const safeIndex = Math.max(0, Math.min(total - 1, Number(nextIndex || 0)));
+  activeCourseQuizStepByBlock = {
+    ...activeCourseQuizStepByBlock,
+    [blockId]: safeIndex
+  };
+}
+
 function getQuizBlockProgress(course, memberId, block) {
   const questions = Array.isArray(block?.questions) ? block.questions : [];
   const answers = questions.map((question, questionIndex) => ({
@@ -18053,6 +18112,21 @@ function renderLessonBlockPreview(block, options = {}) {
 
   if (type === "evaluation") {
     const evaluationMeta = getEvaluationBlockUiMeta(course, lessonId, block, options);
+    const questions = Array.isArray(block.questions) ? block.questions : [];
+    const useSequentialPracticeMode = Boolean(course && memberId && !options.admin);
+    const activeQuestionIndex = useSequentialPracticeMode
+      ? getActiveQuizQuestionIndex(course, memberId, block)
+      : 0;
+    const activeQuestion = questions[activeQuestionIndex] || null;
+    const selectedAnswer = activeQuestion && course && memberId
+      ? getCourseQuizAnswer(course, memberId, block.id, activeQuestionIndex)
+      : "";
+    const selectedAnswerIsCorrect = Boolean(selectedAnswer) && selectedAnswer === (activeQuestion?.correctAnswer || "");
+    const blockStateLabel = quizProgress?.complete
+      ? `${evaluationMeta.chipLabel} completado`
+      : quizProgress?.answered
+        ? `${evaluationMeta.chipLabel} en practica`
+        : `${evaluationMeta.chipLabel} pendiente`;
     return `
       <div class="aula-block aula-block-evaluation">
         <div class="chip-row">
@@ -18067,84 +18141,177 @@ function renderLessonBlockPreview(block, options = {}) {
         <strong>${escapeHtml(evaluationMeta.title)}</strong>
         <p class="muted">${escapeHtml(evaluationMeta.description)}</p>
         ${
-          block.questions?.length
+          questions.length
             ? `
                 <div class="quiz-stack">
-                  ${block.questions
-                    .map(
-                      (question, questionIndex) => `
+                  ${
+                    useSequentialPracticeMode && activeQuestion
+                      ? `
                         <article class="quiz-card">
-                          <strong>${questionIndex + 1}. ${escapeHtml(question.prompt || "Pregunta")}</strong>
+                          <div class="row-between">
+                            <strong>Pregunta ${activeQuestionIndex + 1} de ${questions.length}</strong>
+                            <span class="small-chip">${escapeHtml(blockStateLabel)}</span>
+                          </div>
+                          <strong>${escapeHtml(activeQuestion.prompt || "Pregunta")}</strong>
                           <div class="quiz-options">
-                            ${(question.options || [])
-                              .map(
-                                (option) => {
-                                  const selectedAnswer = course && memberId
-                                    ? getCourseQuizAnswer(course, memberId, block.id, questionIndex)
-                                    : "";
-                                  const isSelected = selectedAnswer === option;
-                                  const isCorrect = question.correctAnswer === option;
-                                  const optionClass = [
-                                    "quiz-option",
-                                    options.admin && isCorrect ? "correct" : "",
-                                    isSelected ? "quiz-option-selected" : "",
-                                    selectedAnswer && isSelected && !isCorrect ? "quiz-option-wrong" : ""
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" ");
-                                  if (interactive) {
-                                    return `
-                                      <button
-                                        class="${optionClass}"
-                                        type="button"
-                                        data-action="answer-quiz-question"
-                                        data-course-id="${course.id}"
-                                        data-member-id="${memberId}"
-                                        data-lesson-id="${lessonId}"
-                                        data-block-id="${block.id}"
-                                        data-question-index="${questionIndex}"
-                                        data-answer="${escapeHtml(option)}"
-                                      >
-                                        ${escapeHtml(option)}
-                                      </button>
-                                    `;
-                                  }
-                                  return `
-                                    <div class="${optionClass}">
-                                      ${escapeHtml(option)}
-                                    </div>
-                                  `;
-                                }
-                              )
+                            ${(activeQuestion.options || [])
+                              .map((option) => {
+                                const isSelected = selectedAnswer === option;
+                                const isCorrect = activeQuestion.correctAnswer === option;
+                                const optionClass = [
+                                  "quiz-option",
+                                  isSelected ? "quiz-option-selected" : "",
+                                  selectedAnswer && isSelected && !isCorrect ? "quiz-option-wrong" : "",
+                                  selectedAnswer && isCorrect ? "correct" : ""
+                                ]
+                                  .filter(Boolean)
+                                  .join(" ");
+                                return `
+                                  <button
+                                    class="${optionClass}"
+                                    type="button"
+                                    data-action="answer-quiz-question"
+                                    data-course-id="${course.id}"
+                                    data-member-id="${memberId}"
+                                    data-lesson-id="${lessonId}"
+                                    data-block-id="${block.id}"
+                                    data-question-index="${activeQuestionIndex}"
+                                    data-answer="${escapeHtml(option)}"
+                                  >
+                                    ${escapeHtml(option)}
+                                  </button>
+                                `;
+                              })
                               .join("")}
                           </div>
                           ${
-                            interactive
-                              ? `<p class="muted">${
-                                  getCourseQuizAnswer(course, memberId, block.id, questionIndex)
-                                    ? getCourseQuizAnswer(course, memberId, block.id, questionIndex) === (question.correctAnswer || "")
-                                      ? "Respuesta correcta."
-                                      : "Respuesta guardada. Puedes cambiarla hasta acertar."
-                                    : "Selecciona una respuesta para continuar."
-                                }</p>`
-                              : options.previewOnly && !options.admin
-                                ? `<p class="muted">Vista previa: las respuestas no se guardan desde administracion.</p>`
-                                : ""
+                            selectedAnswer
+                              ? `
+                                <div class="status-note ${selectedAnswerIsCorrect ? "success" : "warning"}">
+                                  <strong>${selectedAnswerIsCorrect ? "Respuesta correcta" : "Respuesta para revisar"}</strong>
+                                  <p class="muted">${
+                                    activeQuestion.explanation
+                                      ? escapeHtml(activeQuestion.explanation)
+                                      : selectedAnswerIsCorrect
+                                        ? "Buen trabajo. Esta pregunta ya cuenta dentro de tu progreso."
+                                        : "Puedes cambiar la respuesta o continuar con la siguiente pregunta."
+                                  }</p>
+                                </div>
+                              `
+                              : `<p class="muted">Selecciona una respuesta para continuar con la practica.</p>`
                           }
+                          <div class="chip-row">
+                            <button
+                              class="ghost-button"
+                              type="button"
+                              data-action="set-course-quiz-question-step"
+                              data-course-id="${course.id}"
+                              data-block-id="${block.id}"
+                              data-question-index="${Math.max(0, activeQuestionIndex - 1)}"
+                              ${activeQuestionIndex === 0 ? "disabled" : ""}
+                            >
+                              Anterior
+                            </button>
+                            <button
+                              class="ghost-button"
+                              type="button"
+                              data-action="set-course-quiz-question-step"
+                              data-course-id="${course.id}"
+                              data-block-id="${block.id}"
+                              data-question-index="${Math.min(questions.length - 1, activeQuestionIndex + 1)}"
+                              ${activeQuestionIndex >= questions.length - 1 ? "disabled" : ""}
+                            >
+                              Siguiente
+                            </button>
+                          </div>
                           ${
-                            options.admin && question.correctAnswer
-                              ? `<p class="muted"><strong>Correcta:</strong> ${escapeHtml(question.correctAnswer)}</p>`
-                              : ""
-                          }
-                          ${
-                            options.admin && question.explanation
-                              ? `<p class="muted">${escapeHtml(question.explanation)}</p>`
+                            activeQuestionIndex >= questions.length - 1 || quizProgress?.complete
+                              ? `
+                                <div class="status-note ${quizProgress?.complete ? "success" : "info"}">
+                                  <strong>Resumen del bloque</strong>
+                                  <p class="muted">Respondidas: ${quizProgress?.answered || 0}/${quizProgress?.total || questions.length} · Correctas: ${quizProgress?.correct || 0}/${quizProgress?.total || questions.length} · Estado: ${escapeHtml(blockStateLabel)}</p>
+                                </div>
+                              `
                               : ""
                           }
                         </article>
                       `
-                    )
-                    .join("")}
+                      : questions
+                          .map(
+                            (question, questionIndex) => `
+                              <article class="quiz-card">
+                                <strong>${questionIndex + 1}. ${escapeHtml(question.prompt || "Pregunta")}</strong>
+                                <div class="quiz-options">
+                                  ${(question.options || [])
+                                    .map(
+                                      (option) => {
+                                        const currentSelectedAnswer = course && memberId
+                                          ? getCourseQuizAnswer(course, memberId, block.id, questionIndex)
+                                          : "";
+                                        const isSelected = currentSelectedAnswer === option;
+                                        const isCorrect = question.correctAnswer === option;
+                                        const optionClass = [
+                                          "quiz-option",
+                                          options.admin && isCorrect ? "correct" : "",
+                                          isSelected ? "quiz-option-selected" : "",
+                                          currentSelectedAnswer && isSelected && !isCorrect ? "quiz-option-wrong" : ""
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" ");
+                                        if (interactive) {
+                                          return `
+                                            <button
+                                              class="${optionClass}"
+                                              type="button"
+                                              data-action="answer-quiz-question"
+                                              data-course-id="${course.id}"
+                                              data-member-id="${memberId}"
+                                              data-lesson-id="${lessonId}"
+                                              data-block-id="${block.id}"
+                                              data-question-index="${questionIndex}"
+                                              data-answer="${escapeHtml(option)}"
+                                            >
+                                              ${escapeHtml(option)}
+                                            </button>
+                                          `;
+                                        }
+                                        return `
+                                          <div class="${optionClass}">
+                                            ${escapeHtml(option)}
+                                          </div>
+                                        `;
+                                      }
+                                    )
+                                    .join("")}
+                                </div>
+                                ${
+                                  interactive
+                                    ? `<p class="muted">${
+                                        getCourseQuizAnswer(course, memberId, block.id, questionIndex)
+                                          ? getCourseQuizAnswer(course, memberId, block.id, questionIndex) === (question.correctAnswer || "")
+                                            ? "Respuesta correcta."
+                                            : "Respuesta guardada. Puedes cambiarla hasta acertar."
+                                          : "Selecciona una respuesta para continuar."
+                                      }</p>`
+                                    : options.previewOnly && !options.admin
+                                      ? `<p class="muted">Vista previa: las respuestas no se guardan desde administracion.</p>`
+                                      : ""
+                                }
+                                ${
+                                  options.admin && question.correctAnswer
+                                    ? `<p class="muted"><strong>Correcta:</strong> ${escapeHtml(question.correctAnswer)}</p>`
+                                    : ""
+                                }
+                                ${
+                                  options.admin && question.explanation
+                                    ? `<p class="muted">${escapeHtml(question.explanation)}</p>`
+                                    : ""
+                                }
+                              </article>
+                            `
+                          )
+                          .join("")
+                  }
                 </div>
               `
             : `<div class="empty-state">Este bloque de evaluacion todavia no tiene preguntas cargadas.</div>`
