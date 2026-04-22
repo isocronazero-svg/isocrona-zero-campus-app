@@ -450,6 +450,7 @@ let selectedAssociateProfileRequestIds = [];
 let activeProfileReviewRequestId = "";
 let activeProfileReviewMode = "";
 let activeProfileReviewNote = "";
+let activeCourseQuestionBankTarget = "";
 let associateWorkbookPreview = null;
 let associateWorkbookDraftFile = null;
 let associateWorkbookImportStatus = "";
@@ -2283,6 +2284,145 @@ document.addEventListener("click", async (event) => {
 
     lesson.blocks.splice(blockIndex, 1);
     await persistAndRender("Bloque eliminado de la leccion");
+    return;
+  }
+
+  if (action === "add-evaluation-question" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const moduleIndex = Number(actionTarget.dataset.moduleIndex || -1);
+    const lessonIndex = Number(actionTarget.dataset.lessonIndex || -1);
+    const blockIndex = Number(actionTarget.dataset.blockIndex || -1);
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const block = course.modules?.[moduleIndex]?.lessons?.[lessonIndex]?.blocks?.[blockIndex];
+    if (!block || block.type !== "evaluation") {
+      return;
+    }
+
+    block.questions = Array.isArray(block.questions) ? block.questions : [];
+    block.questions.push(buildEmptyQuizQuestion(block.questions.length));
+    syncStatus = "Pregunta anadida al borrador del test";
+    render();
+    return;
+  }
+
+  if (action === "remove-evaluation-question" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const blockNode = actionTarget.closest("[data-lesson-block-index]");
+    const lessonNode = actionTarget.closest("[data-course-lesson-index]");
+    const moduleNode = actionTarget.closest("[data-course-module-index]");
+    const moduleIndex = moduleNode ? Number(moduleNode.dataset.courseModuleIndex || -1) : -1;
+    const lessonIndex = lessonNode ? Number(lessonNode.dataset.courseLessonIndex || -1) : -1;
+    const blockIndex = blockNode ? Number(blockNode.dataset.lessonBlockIndex || -1) : -1;
+    const questionIndex = Number(actionTarget.dataset.questionIndex || -1);
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || questionIndex < 0) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const block = course.modules?.[moduleIndex]?.lessons?.[lessonIndex]?.blocks?.[blockIndex];
+    if (!block || block.type !== "evaluation") {
+      return;
+    }
+
+    block.questions = Array.isArray(block.questions) ? block.questions : [];
+    block.questions.splice(questionIndex, 1);
+    syncStatus = "Pregunta eliminada del borrador del test";
+    render();
+    return;
+  }
+
+  if (action === "toggle-question-bank-panel" && isAdminSession()) {
+    const panelKey = getCourseQuestionBankKey(
+      Number(actionTarget.dataset.moduleIndex || -1),
+      Number(actionTarget.dataset.lessonIndex || -1),
+      Number(actionTarget.dataset.blockIndex || -1)
+    );
+    if (panelKey.includes("-1")) {
+      return;
+    }
+    activeCourseQuestionBankTarget = activeCourseQuestionBankTarget === panelKey ? "" : panelKey;
+    render();
+    return;
+  }
+
+  if (action === "save-question-to-bank" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const moduleIndex = Number(actionTarget.dataset.moduleIndex || -1);
+    const lessonIndex = Number(actionTarget.dataset.lessonIndex || -1);
+    const blockIndex = Number(actionTarget.dataset.blockIndex || -1);
+    const questionIndex = Number(actionTarget.dataset.questionIndex || -1);
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || questionIndex < 0) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const lesson = course.modules?.[moduleIndex]?.lessons?.[lessonIndex];
+    const block = lesson?.blocks?.[blockIndex];
+    const question = block?.questions?.[questionIndex];
+    if (!lesson || !block || block.type !== "evaluation" || !question) {
+      return;
+    }
+
+    course.questionBank = Array.isArray(course.questionBank) ? course.questionBank : [];
+    const nextQuestion = normalizeCourseQuestion({
+      ...question,
+      id: `question-bank-${Date.now()}-${course.questionBank.length}`,
+      label: question.label || question.prompt || `Pregunta ${course.questionBank.length + 1}`,
+      sourceModuleId: course.modules?.[moduleIndex]?.id || "",
+      sourceLessonId: lesson.id || "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    const fingerprint = getCourseQuestionFingerprint(nextQuestion);
+    const alreadyExists = course.questionBank.some(
+      (bankQuestion) => getCourseQuestionFingerprint(bankQuestion) === fingerprint
+    );
+    if (alreadyExists) {
+      syncStatus = "Esa pregunta ya estaba guardada en el banco del curso";
+      showToast(syncStatus, "info");
+      return;
+    }
+
+    course.questionBank.unshift(nextQuestion);
+    syncStatus = "Pregunta guardada en el banco del curso";
+    showToast(syncStatus, "success");
+    render();
+    return;
+  }
+
+  if (action === "insert-question-from-bank" && isAdminSession()) {
+    const course = getSelectedCourse();
+    const moduleIndex = Number(actionTarget.dataset.moduleIndex || -1);
+    const lessonIndex = Number(actionTarget.dataset.lessonIndex || -1);
+    const blockIndex = Number(actionTarget.dataset.blockIndex || -1);
+    const bankQuestionId = String(actionTarget.dataset.bankQuestionId || "");
+    if (!course || moduleIndex < 0 || lessonIndex < 0 || blockIndex < 0 || !bankQuestionId) {
+      return;
+    }
+
+    Object.assign(course, readCourseEditorDraft(course));
+    const block = course.modules?.[moduleIndex]?.lessons?.[lessonIndex]?.blocks?.[blockIndex];
+    const bankQuestion = (course.questionBank || []).find((question) => question.id === bankQuestionId);
+    if (!block || block.type !== "evaluation" || !bankQuestion) {
+      return;
+    }
+
+    block.questions = Array.isArray(block.questions) ? block.questions : [];
+    block.questions.push(
+      normalizeCourseQuestion({
+        ...bankQuestion,
+        id: `question-${Date.now()}-${block.questions.length}`,
+        createdAt: bankQuestion.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })
+    );
+    syncStatus = "Pregunta insertada desde el banco del curso";
+    showToast(syncStatus, "success");
+    render();
     return;
   }
 
@@ -11642,7 +11782,7 @@ function renderSelectedMember(member) {
   `;
 }
 
-function renderCourseModuleEditor(module, moduleIndex) {
+function renderCourseModuleEditor(course, module, moduleIndex) {
   return `
     <article class="content-module" data-course-module-index="${moduleIndex}" data-module-id="${escapeHtml(module.id)}">
       <div class="module-head">
@@ -11770,7 +11910,14 @@ function renderCourseModuleEditor(module, moduleIndex) {
                                     <article class="block-card" data-lesson-block-index="${blockIndex}" data-block-id="${escapeHtml(block.id)}">
                                       <div class="row-between">
                                         <strong>Bloque ${blockIndex + 1}</strong>
-                                        <button class="mini-button" type="button" data-action="remove-lesson-block" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Eliminar</button>
+                                        <div class="chip-row">
+                                          ${
+                                            block.type === "evaluation"
+                                              ? `<button class="mini-button" type="button" data-action="toggle-question-bank-panel" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Insertar desde banco</button>`
+                                              : ""
+                                          }
+                                          <button class="mini-button" type="button" data-action="remove-lesson-block" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Eliminar</button>
+                                        </div>
                                       </div>
                                       <div class="lesson-grid">
                                         <label class="inline-field">
@@ -11805,10 +11952,48 @@ function renderCourseModuleEditor(module, moduleIndex) {
                                           Contenido del bloque
                                           <textarea data-block-field="content">${escapeHtml(block.content || "")}</textarea>
                                         </label>
-                                        <label class="inline-field lesson-notes">
-                                          Banco de preguntas
-                                          <textarea data-block-field="questions" placeholder="Pregunta | opcion A ; opcion B ; opcion C | respuesta correcta | explicacion">${escapeHtml(serializeQuizQuestions(block.questions || []))}</textarea>
-                                        </label>
+                                        ${
+                                          block.type === "evaluation"
+                                            ? `
+                                              <div class="mail-card lesson-notes">
+                                                <div class="row-between">
+                                                  <div>
+                                                    <p class="eyebrow">${block.finalTest ? "Test final" : "Test del modulo"}</p>
+                                                    <strong>Preguntas del test</strong>
+                                                  </div>
+                                                  <div class="chip-row">
+                                                    <span class="small-chip">${(course.questionBank || []).length} en banco</span>
+                                                    <button class="mini-button" type="button" data-action="add-evaluation-question" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Anadir pregunta</button>
+                                                  </div>
+                                                </div>
+                                                <p class="muted">Edita preguntas directamente y reutiliza las que guardes en el banco del curso.</p>
+                                                <div class="panel-stack">
+                                                  ${
+                                                    (block.questions || []).length
+                                                      ? (block.questions || [])
+                                                          .map((question, questionIndex) =>
+                                                            renderEvaluationQuestionEditor(question, questionIndex, {
+                                                              moduleIndex,
+                                                              lessonIndex,
+                                                              blockIndex
+                                                            })
+                                                          )
+                                                          .join("")
+                                                      : `<div class="empty-state">Todavia no hay preguntas en este test. Anade la primera o inserta una desde el banco.</div>`
+                                                  }
+                                                </div>
+                                                ${renderCourseQuestionBankPanel(course, moduleIndex, lessonIndex, blockIndex)}
+                                                <details>
+                                                  <summary>Formato tecnico (avanzado)</summary>
+                                                  <label class="inline-field lesson-notes">
+                                                    Banco de preguntas serializado
+                                                    <textarea data-block-field="questions" readonly>${escapeHtml(serializeQuizQuestions(block.questions || []))}</textarea>
+                                                  </label>
+                                                </details>
+                                              </div>
+                                            `
+                                            : ""
+                                        }
                                       </div>
                                       <div class="block-admin-preview">
                                         ${renderLessonBlockPreview(block, { course, lessonId: lesson.id, admin: true })}
@@ -13194,7 +13379,7 @@ function renderCourseWorkbench(course) {
                   <div class="content-studio">
                     ${
                       (course.modules || []).length
-                        ? course.modules.map((module, moduleIndex) => renderCourseModuleEditor(module, moduleIndex)).join("")
+                        ? course.modules.map((module, moduleIndex) => renderCourseModuleEditor(course, module, moduleIndex)).join("")
                         : `<div class="empty-state">Todavia no hay modulos. Usa una plantilla o anade el primero manualmente.</div>`
                     }
                   </div>
@@ -15483,6 +15668,25 @@ const LESSON_PUBLICATION_STATUSES = ["draft", "review", "published"];
 const COURSE_RESOURCE_VISIBILITIES = ["alumnado", "interno"];
 const LESSON_BLOCK_TYPES = ["document", "video", "checklist", "download", "evaluation", "practice"];
 
+function normalizeCourseQuestion(question, fallbackId = "") {
+  const prompt = normalizeDisplayText(question?.prompt || "");
+  return {
+    id: question?.id || fallbackId || `question-${Date.now()}`,
+    prompt: prompt || "Pregunta",
+    options: Array.isArray(question?.options)
+      ? question.options.map((option) => normalizeDisplayText(option)).filter(Boolean)
+      : [],
+    correctAnswer: normalizeDisplayText(question?.correctAnswer || ""),
+    explanation: normalizeDisplayText(question?.explanation || ""),
+    label: normalizeDisplayText(question?.label || prompt || ""),
+    sourceModuleId: question?.sourceModuleId || "",
+    sourceLessonId: question?.sourceLessonId || "",
+    createdAt: question?.createdAt || "",
+    updatedAt: question?.updatedAt || "",
+    ...question
+  };
+}
+
 function normalizeCourseBlock(block, moduleIndex, lessonIndex, blockIndex) {
   return {
     id: block.id || `block-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}`,
@@ -15491,14 +15695,12 @@ function normalizeCourseBlock(block, moduleIndex, lessonIndex, blockIndex) {
     content: normalizeDisplayText(block.content || ""),
     url: block.url || "",
     questions: Array.isArray(block.questions)
-      ? block.questions.map((question, questionIndex) => ({
-          id: question.id || `question-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}-${questionIndex}`,
-          prompt: normalizeDisplayText(question.prompt || `Pregunta ${questionIndex + 1}`),
-          options: Array.isArray(question.options) ? question.options.map((option) => normalizeDisplayText(option)) : [],
-          correctAnswer: question.correctAnswer || "",
-          explanation: normalizeDisplayText(question.explanation || ""),
-          ...question
-        }))
+      ? block.questions.map((question, questionIndex) =>
+          normalizeCourseQuestion(
+            question,
+            `question-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}-${questionIndex}`
+          )
+        )
       : [],
     required: Boolean(block.required),
     finalTest: Boolean(block.finalTest),
@@ -15636,6 +15838,11 @@ function normalizeCourse(course) {
   const resources = Array.isArray(course.resources)
     ? course.resources.map((resource, resourceIndex) => normalizeCourseResource(resource, resourceIndex))
     : [];
+  const questionBank = Array.isArray(course.questionBank)
+    ? course.questionBank.map((question, questionIndex) =>
+        normalizeCourseQuestion(question, `question-bank-${Date.now()}-${questionIndex}`)
+      )
+    : [];
   const feedbackResponses = Array.isArray(course.feedbackResponses)
     ? course.feedbackResponses.map((response, responseIndex) => ({
         id: response.id || `feedback-${Date.now()}-${responseIndex}`,
@@ -15677,6 +15884,7 @@ function normalizeCourse(course) {
     sessions,
     modules,
     resources,
+    questionBank,
     materials: Array.isArray(course.materials) ? course.materials.map((item) => normalizeDisplayText(item)) : [],
     evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria.map((item) => normalizeDisplayText(item)) : [],
     contentStatus: course.contentStatus || "draft",
@@ -15714,7 +15922,8 @@ function normalizeCourse(course) {
     diplomaTemplate: course.diplomaTemplate || "Aprovechamiento",
     diplomaReady: Array.isArray(course.diplomaReady) ? course.diplomaReady : [],
     mailsSent: Array.isArray(course.mailsSent) ? course.mailsSent : [],
-    ...course
+    ...course,
+    questionBank
   };
 }
 
@@ -15819,6 +16028,19 @@ function parseQuizQuestions(value) {
     });
 }
 
+function buildEmptyQuizQuestion(index = 0) {
+  return normalizeCourseQuestion({
+    id: `question-${Date.now()}-${index}`,
+    prompt: "",
+    options: ["", "", "", ""],
+    correctAnswer: "",
+    explanation: "",
+    label: "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+}
+
 function serializeQuizQuestions(questions) {
   return (questions || [])
     .map((question) =>
@@ -15830,6 +16052,147 @@ function serializeQuizQuestions(questions) {
       ].join(" | ")
     )
     .join("\n");
+}
+
+function getEditableQuizOptions(question) {
+  const source = Array.isArray(question?.options) ? question.options.slice() : [];
+  while (source.length < 4) {
+    source.push("");
+  }
+  return source;
+}
+
+function getCourseQuestionBankKey(moduleIndex, lessonIndex, blockIndex) {
+  return `${moduleIndex}:${lessonIndex}:${blockIndex}`;
+}
+
+function getCourseQuestionFingerprint(question) {
+  const normalized = normalizeCourseQuestion(question);
+  return [
+    normalized.prompt.toLowerCase(),
+    normalized.options.map((option) => option.toLowerCase()).join("|"),
+    normalized.correctAnswer.toLowerCase()
+  ].join("::");
+}
+
+function renderEvaluationQuestionEditor(question, questionIndex, context = {}) {
+  const editableOptions = getEditableQuizOptions(question);
+  const selectedAnswer = String(question?.correctAnswer || "");
+  const radioName = `course-evaluation-correct-${escapeHtml(question?.id || `question-${questionIndex}`)}`;
+  return `
+    <article class="lesson-card" data-evaluation-question-index="${questionIndex}" data-question-id="${escapeHtml(question?.id || "")}">
+      <div class="row-between">
+        <div>
+          <strong>Pregunta ${questionIndex + 1}</strong>
+          ${question?.label ? `<p class="muted">${escapeHtml(question.label)}</p>` : ""}
+        </div>
+        <div class="chip-row">
+          <button class="mini-button" type="button" data-action="save-question-to-bank" data-module-index="${context.moduleIndex}" data-lesson-index="${context.lessonIndex}" data-block-index="${context.blockIndex}" data-question-index="${questionIndex}">Guardar en banco</button>
+          <button class="mini-button" type="button" data-action="remove-evaluation-question" data-question-index="${questionIndex}">Eliminar pregunta</button>
+        </div>
+      </div>
+      <div class="lesson-grid">
+        <label class="inline-field studio-full">
+          Enunciado
+          <textarea data-question-field="prompt" placeholder="Escribe aqui el enunciado de la pregunta.">${escapeHtml(question?.prompt || "")}</textarea>
+        </label>
+        ${editableOptions
+          .map(
+            (option, optionIndex) => `
+              <label class="inline-field">
+                Opcion ${optionIndex + 1}
+                <input data-question-option-index="${optionIndex}" value="${escapeHtml(option || "")}" placeholder="Texto de la opcion ${optionIndex + 1}" />
+                <span class="inline-checkbox">
+                  <input type="radio" name="${radioName}" data-question-field="correctOption" value="${optionIndex}" ${selectedAnswer === String(option || "").trim() ? "checked" : ""} />
+                  Correcta
+                </span>
+              </label>
+            `
+          )
+          .join("")}
+        <label class="inline-field studio-full">
+          Explicacion
+          <textarea data-question-field="explanation" placeholder="Aclara por que esta es la respuesta correcta o que debe aprender el alumno.">${escapeHtml(question?.explanation || "")}</textarea>
+        </label>
+      </div>
+    </article>
+  `;
+}
+
+function renderCourseQuestionBankPanel(course, moduleIndex, lessonIndex, blockIndex) {
+  const panelKey = getCourseQuestionBankKey(moduleIndex, lessonIndex, blockIndex);
+  if (activeCourseQuestionBankTarget !== panelKey) {
+    return "";
+  }
+
+  const questionBank = Array.isArray(course?.questionBank) ? course.questionBank : [];
+  return `
+    <div class="mail-card lesson-notes">
+      <div class="row-between">
+        <div>
+          <p class="eyebrow">Banco de preguntas del curso</p>
+          <strong>${questionBank.length} pregunta(s) reutilizable(s)</strong>
+        </div>
+        <button class="ghost-button" type="button" data-action="toggle-question-bank-panel" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}">Cerrar</button>
+      </div>
+      ${
+        questionBank.length
+          ? `
+            <div class="panel-stack">
+              ${questionBank
+                .map(
+                  (question) => `
+                    <article class="timeline-item compact-timeline-item">
+                      <p>${escapeHtml(question.label || question.prompt || "Pregunta guardada")}</p>
+                      <strong>${escapeHtml(question.prompt || "Pregunta")}</strong>
+                      <p class="muted">${escapeHtml((question.options || []).join(" · ") || "Sin opciones configuradas")}</p>
+                      <div class="chip-row">
+                        <button class="mini-button" type="button" data-action="insert-question-from-bank" data-module-index="${moduleIndex}" data-lesson-index="${lessonIndex}" data-block-index="${blockIndex}" data-bank-question-id="${escapeHtml(question.id)}">Insertar</button>
+                      </div>
+                    </article>
+                  `
+                )
+                .join("")}
+            </div>
+          `
+          : `<div class="empty-state">Todavia no hay preguntas guardadas en este curso. Guarda una desde el bloque actual para reutilizarla despues.</div>`
+      }
+    </div>
+  `;
+}
+
+function collectEvaluationQuestionsFromBlockNode(blockNode) {
+  return [...blockNode.querySelectorAll("[data-evaluation-question-index]")]
+    .map((questionNode, questionIndex) => {
+      const optionValues = [...questionNode.querySelectorAll("[data-question-option-index]")].map((optionNode) =>
+        String(optionNode.value || "").trim()
+      );
+      const options = optionValues.filter(Boolean);
+      const selectedCorrectIndex = Number(
+        questionNode.querySelector('[data-question-field="correctOption"]:checked')?.value || -1
+      );
+      const prompt = String(questionNode.querySelector('[data-question-field="prompt"]')?.value || "").trim();
+      const explanation = String(
+        questionNode.querySelector('[data-question-field="explanation"]')?.value || ""
+      ).trim();
+      const correctAnswer = selectedCorrectIndex >= 0 ? optionValues[selectedCorrectIndex] || "" : "";
+      if (!prompt && !options.length && !correctAnswer && !explanation) {
+        return null;
+      }
+      return normalizeCourseQuestion(
+        {
+          id: questionNode.dataset.questionId || `question-${Date.now()}-${questionIndex}`,
+          prompt,
+          options,
+          correctAnswer,
+          explanation,
+          label: prompt,
+          updatedAt: new Date().toISOString()
+        },
+        `question-${Date.now()}-${questionIndex}`
+      );
+    })
+    .filter(Boolean);
 }
 
 function inferCourseTemplate(course) {
@@ -18202,23 +18565,27 @@ function collectCourseModulesFromForm() {
                   assetUrl: lessonNode.querySelector('[data-lesson-field="assetUrl"]')?.value.trim() || "",
                   publicationStatus: lessonNode.querySelector('[data-lesson-field="publicationStatus"]')?.value || "draft",
                   blocks: [...lessonNode.querySelectorAll("[data-lesson-block-index]")]
-                    .map((blockNode, blockIndex) =>
-                      normalizeCourseBlock(
+                    .map((blockNode, blockIndex) => {
+                      const blockType = blockNode.querySelector('[data-block-field="type"]')?.value || "document";
+                      return normalizeCourseBlock(
                         {
                           id: blockNode.dataset.blockId || "",
-                          type: blockNode.querySelector('[data-block-field="type"]')?.value || "document",
+                          type: blockType,
                           title: blockNode.querySelector('[data-block-field="title"]')?.value.trim() || "",
                           content: blockNode.querySelector('[data-block-field="content"]')?.value.trim() || "",
                           url: blockNode.querySelector('[data-block-field="url"]')?.value.trim() || "",
-                          questions: parseQuizQuestions(blockNode.querySelector('[data-block-field="questions"]')?.value || ""),
+                          questions:
+                            blockType === "evaluation"
+                              ? collectEvaluationQuestionsFromBlockNode(blockNode)
+                              : parseQuizQuestions(blockNode.querySelector('[data-block-field="questions"]')?.value || ""),
                           required: Boolean(blockNode.querySelector('[data-block-field="required"]')?.checked),
                           finalTest: Boolean(blockNode.querySelector('[data-block-field="finalTest"]')?.checked)
                         },
                         moduleIndex,
                         lessonIndex,
                         blockIndex
-                      )
-                    )
+                      );
+                    })
                     .filter((block) => block.title || block.content || block.url)
                 },
                 moduleIndex,
