@@ -354,6 +354,7 @@ const fallbackState = {
       autoAdvanceCourseStatus: true,
       autoSendDiplomas: true,
       autoSendFeeReminders: true,
+      autoSendFeedbackReminders: true,
       autoDetectRenewals: true,
       autoDetectFailedEmails: true,
       autoRunOnSave: true
@@ -4038,6 +4039,7 @@ document.addEventListener("submit", async (event) => {
       autoAdvanceCourseStatus: document.getElementById("settingAutoAdvanceCourseStatus").checked,
       autoSendDiplomas: document.getElementById("settingAutoSendDiplomas").checked,
       autoSendFeeReminders: document.getElementById("settingAutoFeeReminders").checked,
+      autoSendFeedbackReminders: document.getElementById("settingAutoFeedbackReminders").checked,
       autoDetectRenewals: document.getElementById("settingAutoRenewals").checked,
       autoDetectFailedEmails: document.getElementById("settingAutoFailedEmails").checked,
       autoRunOnSave: document.getElementById("settingAutoRunOnSave").checked
@@ -11044,7 +11046,8 @@ function renderAutomation() {
             ? `
               <p class="muted">
                 Ultimo balance: ${lastSummary.updatedDiplomas || 0} diploma(s), ${lastSummary.promotedWaitlist || 0} promocion(es),
-                ${lastSummary.sentDiplomas || 0} envio(s), ${lastSummary.closedCourses || 0} cierre(s) y ${lastSummary.inboxItems || 0} aviso(s).
+                ${lastSummary.sentDiplomas || 0} envio(s), ${lastSummary.sentFeeReminders || 0} aviso(s) de cuota,
+                ${lastSummary.sentFeedbackReminders || 0} aviso(s) de valoracion, ${lastSummary.closedCourses || 0} cierre(s) y ${lastSummary.inboxItems || 0} aviso(s).
               </p>
             `
             : ""
@@ -14551,6 +14554,7 @@ function renderSettings() {
             <label class="inline-field"><span>Mover estados</span><input id="settingAutoAdvanceCourseStatus" type="checkbox" ${state.settings.automation.autoAdvanceCourseStatus ? "checked" : ""} /></label>
             <label class="inline-field"><span>Enviar diplomas</span><input id="settingAutoSendDiplomas" type="checkbox" ${state.settings.automation.autoSendDiplomas ? "checked" : ""} /></label>
             <label class="inline-field"><span>Avisar cuotas</span><input id="settingAutoFeeReminders" type="checkbox" ${state.settings.automation.autoSendFeeReminders !== false ? "checked" : ""} /></label>
+            <label class="inline-field"><span>Avisar valoracion final</span><input id="settingAutoFeedbackReminders" type="checkbox" ${state.settings.automation.autoSendFeedbackReminders !== false ? "checked" : ""} /></label>
             <label class="inline-field"><span>Detectar renovaciones</span><input id="settingAutoRenewals" type="checkbox" ${state.settings.automation.autoDetectRenewals ? "checked" : ""} /></label>
             <label class="inline-field"><span>Detectar fallos mail</span><input id="settingAutoFailedEmails" type="checkbox" ${state.settings.automation.autoDetectFailedEmails ? "checked" : ""} /></label>
             <label class="inline-field"><span>Ejecutar al guardar</span><input id="settingAutoRunOnSave" type="checkbox" ${state.settings.automation.autoRunOnSave ? "checked" : ""} /></label>
@@ -19518,6 +19522,7 @@ function getAutomationActionLabel(item) {
     associate_application_reply_notification: "Avisar admin",
     associate_application_decision: "Enviar resolucion",
     associate_fee: "Avisar cuota",
+    course_feedback_reminder: "Pedir valoracion",
     associate_legacy_access: "Crear acceso",
     associate_legacy_review: "Cerrar revision",
     associate_profile_notification: "Avisar ficha",
@@ -19534,7 +19539,7 @@ function pickNextAgentItem() {
     return null;
   }
 
-  const priorities = ["associate_legacy_access", "associate_legacy_review", "associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision", "associate_welcome", "associate_profile_notification", "associate_payment_notification", "associate_fee", "failed_email", "pending_diplomas", "renewal", "course_ready"];
+  const priorities = ["associate_legacy_access", "associate_legacy_review", "associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision", "associate_welcome", "associate_profile_notification", "associate_payment_notification", "associate_fee", "course_feedback_reminder", "failed_email", "pending_diplomas", "renewal", "course_ready"];
   const smtpReady = Boolean(
     state.settings?.smtp?.host && state.settings?.smtp?.port && state.settings?.smtp?.fromEmail
   );
@@ -19553,7 +19558,7 @@ function pickNextAgentItem() {
       continue;
     }
 
-    if (["associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision", "associate_welcome", "associate_profile_notification", "associate_payment_notification", "associate_fee", "failed_email", "pending_diplomas"].includes(type) && !state.settings.agent.canSendDiplomas) {
+    if (["associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision", "associate_welcome", "associate_profile_notification", "associate_payment_notification", "associate_fee", "course_feedback_reminder", "failed_email", "pending_diplomas"].includes(type) && !state.settings.agent.canSendDiplomas) {
       continue;
     }
 
@@ -19561,7 +19566,7 @@ function pickNextAgentItem() {
       continue;
     }
 
-    if (["associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision", "associate_welcome", "associate_profile_notification", "associate_payment_notification", "associate_fee", "failed_email", "pending_diplomas", "renewal"].includes(type) && !smtpReady) {
+    if (["associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision", "associate_welcome", "associate_profile_notification", "associate_payment_notification", "associate_fee", "course_feedback_reminder", "failed_email", "pending_diplomas", "renewal"].includes(type) && !smtpReady) {
       continue;
     }
 
