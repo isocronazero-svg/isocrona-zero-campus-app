@@ -2996,7 +2996,7 @@ const server = http.createServer(async (req, res) => {
       const smtpReady = isSmtpConfigured(state);
 
       for (const item of actionableItems) {
-        if (!smtpReady && ["pending_diplomas", "failed_email", "renewal", "associate_welcome", "associate_fee", "associate_payment_notification", "associate_profile_notification", "associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision"].includes(item.type)) {
+        if (!smtpReady && ["pending_diplomas", "failed_email", "renewal", "associate_welcome", "associate_fee", "course_feedback_reminder", "associate_payment_notification", "associate_profile_notification", "associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision"].includes(item.type)) {
           skipped += 1;
           details.push(`${item.title}: omitido hasta configurar SMTP`);
           continue;
@@ -7823,6 +7823,40 @@ async function runAutomationEngine(state) {
       }
     }
 
+    const feedbackReminderCandidates = getCourseFeedbackReminderCandidates(state, course, today);
+
+    feedbackReminderCandidates.forEach(({ member }) => {
+      const canAutoSendReminder =
+        state.settings?.automation?.autoSendFeedbackReminders !== false && smtpReady;
+      if (canAutoSendReminder) {
+        return;
+      }
+
+      pushAutomationItem(state, {
+        type: "course_feedback_reminder",
+        title: `Valoracion final pendiente: ${member.name} en ${course.title}`,
+        detail: "El curso ya esta listo para cierre salvo la valoracion final del alumno.",
+        courseId: course.id,
+        memberId: member.id,
+        key: `course_feedback_reminder:${course.id}:${member.id}`
+      });
+    });
+
+    if (state.settings?.automation?.autoSendFeedbackReminders !== false && smtpReady) {
+      for (const { member } of feedbackReminderCandidates) {
+        try {
+          const result = await maybeSendCourseFeedbackReminder(state, course, member, {
+            actor: "Motor de automatizacion"
+          });
+          if (result.status === "sent") {
+            summary.sentFeedbackReminders += 1;
+          }
+        } catch (error) {
+          summary.failedFeedbackReminders += 1;
+        }
+      }
+    }
+
     if (state.settings?.automation?.autoAdvanceCourseStatus &&
       course.status === "Cierre pendiente" &&
       enrolledIds.length &&
@@ -7845,6 +7879,17 @@ async function runAutomationEngine(state) {
         courseId: course.id,
         key: `course_ready:${course.id}`
       });
+    } else {
+      const closureNotice = getCourseClosureNoticeContext(state, course, today);
+      if (closureNotice) {
+        pushAutomationItem(state, {
+          type: "course_closure_notice",
+          title: `Curso revisable para cierre: ${course.title}`,
+          detail: buildCourseClosureNoticeDetail(closureNotice),
+          courseId: course.id,
+          key: `course_closure_notice:${course.id}`
+        });
+      }
     }
 
     let pendingDeliveries = isCourseDiplomaWindowOpen(course, today)
@@ -8286,6 +8331,122 @@ function isCourseDiplomaWindowOpen(course, today = new Date().toISOString().slic
   return Boolean(course.endDate && course.endDate < today);
 }
 
+function getCourseFeedbackReminderLastSentAt(course, memberId) {
+  if (!course || !memberId || !course.feedbackReminderLog || typeof course.feedbackReminderLog !== "object") {
+    return 0;
+  }
+
+  const sentAt = course.feedbackReminderLog[memberId];
+  return sentAt ? new Date(sentAt).getTime() : 0;
+}
+
+function isCourseFeedbackReminderEligible(state, course, member, today = new Date().toISOString().slice(0, 10)) {
+  if (!course || !member) {
+    return false;
+  }
+
+  if (!course.feedbackEnabled || !course.feedbackRequiredForDiploma) {
+    return false;
+  }
+
+  if (!isCourseDiplomaWindowOpen(course, today)) {
+    return false;
+  }
+
+  if (!(course.enrolledIds || []).includes(member.id)) {
+    return false;
+  }
+
+  if ((course.feedbackResponses || []).some((response) => response.memberId === member.id)) {
+    return false;
+  }
+
+  if (Number(course.attendance?.[member.id] || 0) < 75) {
+    return false;
+  }
+
+  if (course.evaluations?.[member.id] !== "Apto") {
+    return false;
+  }
+
+  return isMemberContentReadyForDiplomaServer(course, member.id);
+}
+
+function getCourseFeedbackReminderCandidates(state, course, today = new Date().toISOString().slice(0, 10)) {
+  if (!course) {
+    return [];
+  }
+
+  return (course.enrolledIds || [])
+    .map((memberId) => (state.members || []).find((entry) => entry.id === memberId))
+    .filter((member) => {
+      if (!member) {
+        return false;
+      }
+
+      if (!isCourseFeedbackReminderEligible(state, course, member, today)) {
+        return false;
+      }
+
+      const email = String(member.email || "").trim();
+      if (!email || !isLikelyEmail(email)) {
+        return false;
+      }
+
+      const lastReminderAt = getCourseFeedbackReminderLastSentAt(course, member.id);
+      const reminderIsRecent =
+        lastReminderAt && Date.now() - lastReminderAt < 14 * 24 * 60 * 60 * 1000;
+      return !reminderIsRecent;
+    })
+    .map((member) => ({ member }));
+}
+
+function getCourseClosureNoticeContext(state, course, today = new Date().toISOString().slice(0, 10)) {
+  if (!course || String(course.status || "") === "Cerrado" || !isCourseDiplomaWindowOpen(course, today)) {
+    return null;
+  }
+
+  const enrolledIds = Array.isArray(course.enrolledIds) ? course.enrolledIds : [];
+  if (!enrolledIds.length) {
+    return null;
+  }
+
+  const readyMemberIds = (course.diplomaReady || []).filter((memberId) => enrolledIds.includes(memberId));
+  const feedbackPendingCount = enrolledIds.filter((memberId) => {
+    if (readyMemberIds.includes(memberId)) {
+      return false;
+    }
+
+    const member = (state.members || []).find((entry) => entry.id === memberId);
+    return Boolean(member) && isCourseFeedbackReminderEligible(state, course, member, today);
+  }).length;
+
+  if (!readyMemberIds.length && !feedbackPendingCount) {
+    return null;
+  }
+
+  return {
+    readyCount: readyMemberIds.length,
+    feedbackPendingCount
+  };
+}
+
+function buildCourseClosureNoticeDetail(context) {
+  if (!context) {
+    return "";
+  }
+
+  if (context.readyCount && context.feedbackPendingCount) {
+    return `${context.readyCount} alumno(s) ya pueden revisarse para diploma o cierre y ${context.feedbackPendingCount} quedan listos salvo la valoracion final.`;
+  }
+
+  if (context.readyCount) {
+    return `${context.readyCount} alumno(s) ya pueden revisarse para diploma o cierre administrativo.`;
+  }
+
+  return `${context.feedbackPendingCount} alumno(s) quedan listos para cierre salvo la valoracion final.`;
+}
+
 function recordAutomationRun(state, reason, summary) {
   state.automationMeta = {
     lastRunAt: new Date().toISOString(),
@@ -8634,6 +8795,10 @@ async function resolveCourseFeedbackReminderItem(state, item) {
   if (!course) {
     throw new Error("Curso no encontrado para el recordatorio de valoracion");
   }
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
   const member = (state.members || []).find((entry) => entry.id === item.memberId);
   if (!member) {
     throw new Error("Alumno no encontrado para el recordatorio de valoracion");
@@ -8647,9 +8812,16 @@ async function resolveCourseFeedbackReminderItem(state, item) {
 
   return {
     type: item.type,
+<<<<<<< Updated upstream
     message: result.status === "sent"
       ? `Se ha enviado un recordatorio de valoracion a ${member.name}`
       : `La valoracion de ${member.name} ya no requiere aviso`
+=======
+    message:
+      result.status === "sent"
+        ? `Se ha pedido la valoracion final a ${member.name} en ${course.title}`
+        : `${member.name} ya no necesita recordatorio de valoracion final`
+>>>>>>> Stashed changes
   };
 }
 
@@ -9242,6 +9414,7 @@ function buildAssociateFeeReminderEmailBody(state, associate, year, pendingAmoun
   ].join("\n");
 }
 
+<<<<<<< Updated upstream
 function getCourseFeedbackReminderLastSentAt(course, memberId) {
   if (!course || !memberId) {
     return 0;
@@ -9405,6 +9578,29 @@ async function maybeSendCourseFeedbackReminder(state, course, member, options = 
   return { status: "sent", emailId: message.id };
 }
 
+=======
+function buildCourseFeedbackReminderEmailBody(state, member, course) {
+  const organization = state.settings?.organization || "Isocrona Zero";
+  const displayName = member?.name || "alumno";
+
+  return [
+    `Hola ${displayName},`,
+    "",
+    `Tu curso ${course.title} ya esta practicamente listo para cierre en ${organization}.`,
+    "Solo nos falta que completes la valoracion final del curso para cerrar correctamente tu seguimiento formativo.",
+    "",
+    "Que hacer ahora:",
+    "- Entra en el campus.",
+    `- Abre el curso ${course.title}.`,
+    "- Completa la valoracion final desde tu area del curso.",
+    "",
+    "Cuando quede enviada, el equipo podra continuar el cierre del curso con normalidad.",
+    "",
+    `Equipo de formacion - ${organization}`
+  ].join("\n");
+}
+
+>>>>>>> Stashed changes
 async function maybeSendAssociateFeeReminder(state, associate, options = {}) {
   const force = Boolean(options.force);
   const strict = Boolean(options.strict);
@@ -9476,6 +9672,82 @@ async function maybeSendAssociateFeeReminder(state, associate, options = {}) {
     "system",
     actor,
     `Aviso de cuota enviado al socio #${associate.associateNumber} (${email})`
+  );
+
+  return { status: "sent", emailId: message.id };
+}
+
+async function maybeSendCourseFeedbackReminder(state, course, member, options = {}) {
+  const force = Boolean(options.force);
+  const strict = Boolean(options.strict);
+  const actor = options.actor || "Motor de automatizacion";
+  const today = new Date().toISOString().slice(0, 10);
+
+  if (!course || !member) {
+    if (strict) {
+      throw new Error("No se ha indicado el curso o el alumno para el recordatorio de valoracion");
+    }
+    return { status: "skipped", reason: "missing_target" };
+  }
+
+  if (!isCourseFeedbackReminderEligible(state, course, member, today)) {
+    return { status: "skipped", reason: "not_eligible" };
+  }
+
+  const email = String(member.email || "").trim();
+  if (!email || !isLikelyEmail(email)) {
+    if (strict) {
+      throw new Error("El alumno no tiene un email valido para el recordatorio de valoracion");
+    }
+    return { status: "pending", reason: "missing_email" };
+  }
+
+  const lastReminderAt = getCourseFeedbackReminderLastSentAt(course, member.id);
+  const reminderIsRecent =
+    lastReminderAt && Date.now() - lastReminderAt < 14 * 24 * 60 * 60 * 1000;
+
+  if (!force && reminderIsRecent) {
+    return { status: "skipped", reason: "recent_reminder" };
+  }
+
+  if (!force && state.settings?.automation?.autoSendFeedbackReminders === false) {
+    return { status: "skipped", reason: "auto_disabled" };
+  }
+
+  if (!isSmtpConfigured(state)) {
+    if (strict) {
+      throw new Error("Configura el SMTP antes de enviar recordatorios de valoracion final");
+    }
+    return { status: "pending", reason: "smtp_missing" };
+  }
+
+  const message = {
+    id: `mail-${Date.now()}-${course.id}-${member.id}-${Math.random().toString(36).slice(2, 7)}`,
+    courseId: course.id,
+    memberId: member.id,
+    associateId: member.associateId || "",
+    to: email,
+    subject: `Valoracion final pendiente - ${course.title}`,
+    body: buildCourseFeedbackReminderEmailBody(state, member, course),
+    sentAt: new Date().toISOString(),
+    status: "queued",
+    transport: "smtp",
+    attemptCount: 0,
+    deliveryError: "",
+    deliveredAt: null
+  };
+
+  state.emailOutbox.unshift(message);
+  await deliverEmailRecord(state, message);
+  course.feedbackReminderLog = {
+    ...(course.feedbackReminderLog || {}),
+    [member.id]: new Date().toISOString()
+  };
+  appendActivity(
+    state,
+    "system",
+    actor,
+    `Recordatorio de valoracion final enviado a ${member.name} para ${course.title} (${email})`
   );
 
   return { status: "sent", emailId: message.id };
