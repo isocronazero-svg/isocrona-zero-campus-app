@@ -2924,7 +2924,7 @@ const server = http.createServer(async (req, res) => {
         state,
         "system",
         "Motor de automatizacion",
-        `Se ha ejecutado el motor automatico: ${summary.updatedDiplomas} diploma(s), ${summary.promotedWaitlist} promocion(es) de espera, ${summary.sentDiplomas} envio(s) de diploma, ${summary.sentFeeReminders || 0} recordatorio(s) de cuota y ${summary.inboxItems} item(s) en bandeja`
+        `Se ha ejecutado el motor automatico: ${summary.updatedDiplomas} diploma(s), ${summary.promotedWaitlist} promocion(es) de espera, ${summary.sentDiplomas} envio(s) de diploma, ${summary.sentFeeReminders || 0} recordatorio(s) de cuota, ${summary.sentFeedbackReminders || 0} recordatorio(s) de valoracion y ${summary.inboxItems} item(s) en bandeja`
       );
       writeState(state);
       return sendJson(res, 200, {
@@ -2986,7 +2986,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const actionableItems = (state.automationInbox || []).filter((item) =>
-        ["pending_diplomas", "failed_email", "renewal", "course_ready", "associate_welcome", "associate_fee", "associate_payment_notification", "associate_profile_notification", "associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision"].includes(item.type)
+        ["pending_diplomas", "failed_email", "renewal", "course_ready", "associate_welcome", "associate_fee", "course_feedback_reminder", "associate_payment_notification", "associate_profile_notification", "associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision"].includes(item.type)
       );
 
       let resolved = 0;

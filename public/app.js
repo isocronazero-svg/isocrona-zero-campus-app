@@ -11276,7 +11276,7 @@ function renderAutomation() {
                   .map(
                     (item) => `
                     <div class="timeline-item compact-timeline-item">
-                      <span class="eyebrow">${escapeHtml(item.type)}</span>
+                      <span class="eyebrow">${escapeHtml(getAutomationTypeLabel(item))}</span>
                       <strong>${escapeHtml(item.title)}</strong>
                       <p>${escapeHtml(item.detail)}</p>
                       <p class="muted">${formatDateTime(item.createdAt)}</p>
