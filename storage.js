@@ -327,6 +327,14 @@ function normalizeCourse(course) {
         ...response
       }))
     : [];
+  const feedbackReminderLog =
+    course.feedbackReminderLog && typeof course.feedbackReminderLog === "object"
+      ? Object.fromEntries(
+          Object.entries(course.feedbackReminderLog)
+            .map(([memberId, sentAt]) => [String(memberId || "").trim(), String(sentAt || "").trim()])
+            .filter(([memberId, sentAt]) => memberId && sentAt)
+        )
+      : {};
   return {
     id: course.id || `course-${Date.now()}`,
     title: course.title || "",
@@ -376,6 +384,7 @@ function normalizeCourse(course) {
           .map((item) => item.trim())
           .filter(Boolean),
     feedbackResponses,
+    feedbackReminderLog,
     contentProgress: course.contentProgress || {},
     enrolledIds: Array.isArray(course.enrolledIds) ? course.enrolledIds : [],
     waitingIds: Array.isArray(course.waitingIds) ? course.waitingIds : [],
@@ -418,6 +427,7 @@ function normalizeState(state) {
     autoAdvanceCourseStatus: true,
     autoSendDiplomas: true,
     autoSendFeeReminders: true,
+    autoSendFeedbackReminders: true,
     autoDetectRenewals: true,
     autoDetectFailedEmails: true,
     autoRunOnSave: true,
