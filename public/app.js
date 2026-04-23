@@ -11276,7 +11276,7 @@ function renderAutomation() {
                   .map(
                     (item) => `
                     <div class="timeline-item compact-timeline-item">
-                      <span class="eyebrow">${escapeHtml(item.type)}</span>
+                      <span class="eyebrow">${escapeHtml(getAutomationTypeLabel(item))}</span>
                       <strong>${escapeHtml(item.title)}</strong>
                       <p>${escapeHtml(item.detail)}</p>
                       <p class="muted">${formatDateTime(item.createdAt)}</p>
@@ -14850,7 +14850,11 @@ function renderSettings() {
             <label class="inline-field"><span>Mover estados</span><input id="settingAutoAdvanceCourseStatus" type="checkbox" ${state.settings.automation.autoAdvanceCourseStatus ? "checked" : ""} /></label>
             <label class="inline-field"><span>Enviar diplomas</span><input id="settingAutoSendDiplomas" type="checkbox" ${state.settings.automation.autoSendDiplomas ? "checked" : ""} /></label>
             <label class="inline-field"><span>Avisar cuotas</span><input id="settingAutoFeeReminders" type="checkbox" ${state.settings.automation.autoSendFeeReminders !== false ? "checked" : ""} /></label>
+<<<<<<< Updated upstream
             <label class="inline-field"><span>Avisar valoracion final</span><input id="settingAutoFeedbackReminders" type="checkbox" ${state.settings.automation.autoSendFeedbackReminders !== false ? "checked" : ""} /></label>
+=======
+            <label class="inline-field"><span>Pedir valoracion final</span><input id="settingAutoFeedbackReminders" type="checkbox" ${state.settings.automation.autoSendFeedbackReminders !== false ? "checked" : ""} /></label>
+>>>>>>> Stashed changes
             <label class="inline-field"><span>Detectar renovaciones</span><input id="settingAutoRenewals" type="checkbox" ${state.settings.automation.autoDetectRenewals ? "checked" : ""} /></label>
             <label class="inline-field"><span>Detectar fallos mail</span><input id="settingAutoFailedEmails" type="checkbox" ${state.settings.automation.autoDetectFailedEmails ? "checked" : ""} /></label>
             <label class="inline-field"><span>Ejecutar al guardar</span><input id="settingAutoRunOnSave" type="checkbox" ${state.settings.automation.autoRunOnSave ? "checked" : ""} /></label>
@@ -15978,6 +15982,14 @@ function normalizeCourse(course) {
         ...response
       }))
     : [];
+  const feedbackReminderLog =
+    course.feedbackReminderLog && typeof course.feedbackReminderLog === "object"
+      ? Object.fromEntries(
+          Object.entries(course.feedbackReminderLog)
+            .map(([memberId, sentAt]) => [String(memberId || "").trim(), String(sentAt || "").trim()])
+            .filter(([memberId, sentAt]) => memberId && sentAt)
+        )
+      : {};
   return {
     id: course.id || `course-${Date.now()}`,
     title: normalizeDisplayText(course.title || ""),
@@ -16032,6 +16044,7 @@ function normalizeCourse(course) {
           .map((item) => item.trim())
           .filter(Boolean),
     feedbackResponses,
+    feedbackReminderLog,
     contentProgress: course.contentProgress || {},
     enrolledIds: Array.isArray(course.enrolledIds) ? course.enrolledIds : [],
     waitingIds: Array.isArray(course.waitingIds) ? course.waitingIds : [],
@@ -16041,7 +16054,8 @@ function normalizeCourse(course) {
     diplomaReady: Array.isArray(course.diplomaReady) ? course.diplomaReady : [],
     mailsSent: Array.isArray(course.mailsSent) ? course.mailsSent : [],
     ...course,
-    questionBank
+    questionBank,
+    feedbackReminderLog
   };
 }
 
@@ -20436,6 +20450,20 @@ function getAutomationActionLabel(item) {
   };
 
   return labels[item.type] || "";
+}
+
+function getAutomationTypeLabel(item) {
+  const labels = {
+    course_closure_notice: "Cierre revisable",
+    course_feedback_reminder: "Valoracion final",
+    course_ready: "Cierre listo",
+    pending_diplomas: "Diplomas pendientes",
+    failed_email: "Correo fallido",
+    renewal: "Renovacion",
+    associate_fee: "Cuota pendiente"
+  };
+
+  return labels[item.type] || item.type;
 }
 
 function pickNextAgentItem() {
