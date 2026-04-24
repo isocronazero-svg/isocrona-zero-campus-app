@@ -14921,11 +14921,7 @@ function renderSettings() {
             <label class="inline-field"><span>Mover estados</span><input id="settingAutoAdvanceCourseStatus" type="checkbox" ${state.settings.automation.autoAdvanceCourseStatus ? "checked" : ""} /></label>
             <label class="inline-field"><span>Enviar diplomas</span><input id="settingAutoSendDiplomas" type="checkbox" ${state.settings.automation.autoSendDiplomas ? "checked" : ""} /></label>
             <label class="inline-field"><span>Avisar cuotas</span><input id="settingAutoFeeReminders" type="checkbox" ${state.settings.automation.autoSendFeeReminders !== false ? "checked" : ""} /></label>
-<<<<<<< Updated upstream
-            <label class="inline-field"><span>Avisar valoracion final</span><input id="settingAutoFeedbackReminders" type="checkbox" ${state.settings.automation.autoSendFeedbackReminders !== false ? "checked" : ""} /></label>
-=======
             <label class="inline-field"><span>Pedir valoracion final</span><input id="settingAutoFeedbackReminders" type="checkbox" ${state.settings.automation.autoSendFeedbackReminders !== false ? "checked" : ""} /></label>
->>>>>>> Stashed changes
             <label class="inline-field"><span>Detectar renovaciones</span><input id="settingAutoRenewals" type="checkbox" ${state.settings.automation.autoDetectRenewals ? "checked" : ""} /></label>
             <label class="inline-field"><span>Detectar fallos mail</span><input id="settingAutoFailedEmails" type="checkbox" ${state.settings.automation.autoDetectFailedEmails ? "checked" : ""} /></label>
             <label class="inline-field"><span>Ejecutar al guardar</span><input id="settingAutoRunOnSave" type="checkbox" ${state.settings.automation.autoRunOnSave ? "checked" : ""} /></label>
@@ -20607,17 +20603,6 @@ function getAutomationTypeLabel(item) {
   return labels[item.type] || item.type;
 }
 
-function findCourseFeedbackReminderInboxItem(courseId, memberId) {
-  return (
-    (state.automationInbox || []).find(
-      (item) =>
-        item.type === "course_feedback_reminder" &&
-        item.courseId === courseId &&
-        item.memberId === memberId
-    ) || null
-  );
-}
-
 async function requestCourseFeedbackReminder(courseId, memberId) {
   const course = state.courses.find((item) => item.id === courseId);
   const member = findMember(memberId);
@@ -20630,49 +20615,40 @@ async function requestCourseFeedbackReminder(courseId, memberId) {
   render();
 
   try {
-    let inboxItem = findCourseFeedbackReminderInboxItem(courseId, memberId);
-
-    if (!inboxItem) {
-      const runResponse = await fetch("/api/automation/run", { method: "POST" });
-      const runPayload = await runResponse.json();
-      if (!runResponse.ok || runPayload.ok === false) {
-        throw new Error(runPayload.error || "No se han podido ejecutar las automatizaciones");
+    const response = await fetch(
+      `/api/courses/${courseId}/members/${memberId}/request-feedback-reminder`,
+      {
+        method: "POST"
       }
+    );
+    const payload = await response.json();
 
-      await refreshState();
-      applySessionToState();
-      syncAssociateSelectionTargets();
-      inboxItem = findCourseFeedbackReminderInboxItem(courseId, memberId);
-    }
-
-    if (!inboxItem) {
-      syncStatus = `${member.name} no necesita ahora mismo un recordatorio de valoracion final.`;
-      showToast(syncStatus, "warning");
-      render();
-      return;
-    }
-
-    const resolveResponse = await fetch(`/api/automation/inbox/${inboxItem.id}/resolve`, {
-      method: "POST"
-    });
-    const resolvePayload = await resolveResponse.json();
-
-    if (!resolveResponse.ok || resolvePayload.ok === false) {
-      state.activeView = "automation";
-      automationSectionMode = "inbox";
-      expandedNavViews.add("automation");
-      syncStatus = `${
-        resolvePayload.error || "No se ha podido enviar el recordatorio"
-      }. Revisa la bandeja automatica para continuar.`;
-      showToast(syncStatus, "warning");
-      render();
-      return;
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.error || "No se ha podido pedir la valoracion final");
     }
 
     await refreshState();
     applySessionToState();
     syncAssociateSelectionTargets();
-    syncStatus = resolvePayload.message || `Recordatorio de valoracion preparado para ${member.name}`;
+
+    if (payload.status === "manual") {
+      state.activeView = "automation";
+      automationSectionMode = "inbox";
+      expandedNavViews.add("automation");
+      syncStatus = payload.message || `La solicitud queda preparada en la bandeja automatica para ${member.name}`;
+      showToast(syncStatus, "warning");
+      render();
+      return;
+    }
+
+    if (payload.status === "not_applicable") {
+      syncStatus = payload.message || `${member.name} ya no requiere recordatorio de valoracion final.`;
+      showToast(syncStatus, "info");
+      render();
+      return;
+    }
+
+    syncStatus = payload.message || `Recordatorio de valoracion preparado para ${member.name}`;
     showToast(syncStatus, "success");
   } catch (error) {
     syncStatus = error.message || "No se ha podido pedir la valoracion final";
