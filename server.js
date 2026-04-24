@@ -3458,6 +3458,41 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
+  const requestFeedbackReminderMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/members\/([^/]+)\/request-feedback-reminder$/);
+  if (requestFeedbackReminderMatch && req.method === "POST") {
+    const courseId = requestFeedbackReminderMatch[1];
+    const memberId = requestFeedbackReminderMatch[2];
+
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const result = await requestCourseFeedbackReminderForMember(state, courseId, memberId, {
+        actor: account.name || "Administracion"
+      });
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        status: result.status,
+        message: result.message,
+        courseId,
+        memberId
+      });
+    } catch (error) {
+      if (state) {
+        writeState(state);
+      }
+      return sendJson(res, 500, {
+        ok: false,
+        error: error.message || "No se pudo pedir la valoracion final"
+      });
+    }
+  }
+
   const deliverCourseMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/send-pending$/);
   if (deliverCourseMatch && req.method === "POST") {
     const courseId = deliverCourseMatch[1];
@@ -8408,6 +8443,94 @@ function buildCourseClosureNoticeDetail(context) {
   }
 
   return `${context.feedbackPendingCount} alumno(s) quedan listos para cierre salvo la valoracion final.`;
+}
+
+function ensureCourseFeedbackReminderInboxItem(state, course, member) {
+  if (!course || !member) {
+    return;
+  }
+
+  pushAutomationItem(state, {
+    type: "course_feedback_reminder",
+    title: `Valoracion final pendiente: ${member.name} en ${course.title}`,
+    detail: "El curso ya esta listo para cierre salvo la valoracion final del alumno.",
+    courseId: course.id,
+    memberId: member.id,
+    key: `course_feedback_reminder:${course.id}:${member.id}`
+  });
+}
+
+async function requestCourseFeedbackReminderForMember(state, courseId, memberId, options = {}) {
+  const actor = options.actor || "Administracion";
+  const course = (state.courses || []).find((entry) => entry.id === courseId);
+  const member = (state.members || []).find((entry) => entry.id === memberId);
+
+  if (!course || !member) {
+    throw new Error("Curso o alumno no encontrado");
+  }
+
+  if (!isCourseFeedbackReminderEligible(state, course, member)) {
+    return {
+      status: "not_applicable",
+      course,
+      member,
+      message: `${member.name} ya no necesita el recordatorio de valoracion final`
+    };
+  }
+
+  const email = String(member.email || "").trim();
+  if (!email || !isLikelyEmail(email)) {
+    return {
+      status: "not_applicable",
+      course,
+      member,
+      message: `${member.name} no tiene un email valido para pedir la valoracion final`
+    };
+  }
+
+  if (!isSmtpConfigured(state)) {
+    ensureCourseFeedbackReminderInboxItem(state, course, member);
+    return {
+      status: "manual",
+      course,
+      member,
+      message: `Se ha dejado el seguimiento manual de ${member.name} en la bandeja automatica`
+    };
+  }
+
+  try {
+    const result = await maybeSendCourseFeedbackReminder(state, course, member, {
+      force: true,
+      strict: true,
+      actor
+    });
+
+    if (result.status === "sent") {
+      return {
+        status: "sent",
+        course,
+        member,
+        message: `Se ha pedido la valoracion final a ${member.name} en ${course.title}`
+      };
+    }
+
+    ensureCourseFeedbackReminderInboxItem(state, course, member);
+    return {
+      status: "manual",
+      course,
+      member,
+      message: `Se ha dejado el seguimiento manual de ${member.name} en la bandeja automatica`
+    };
+  } catch (error) {
+    ensureCourseFeedbackReminderInboxItem(state, course, member);
+    return {
+      status: "fallback_manual",
+      course,
+      member,
+      message: `No se pudo enviar el recordatorio a ${member.name}. Se ha dejado en bandeja automatica.`,
+      error: error.message || "Error SMTP"
+    };
+  }
 }
 
 function recordAutomationRun(state, reason, summary) {
