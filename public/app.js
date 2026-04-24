@@ -10508,7 +10508,6 @@ function renderDiplomas(course) {
   const learnerPendingDiplomaItems = learnerPendingDiplomaReasons.filter((item) => !item.ok);
   const showDiplomaSection = (section) =>
     diplomasSectionMode === "all" || diplomasSectionMode === section;
-  const pendingDeliveries = getCoursePendingDiplomaDeliveries(course);
   const diplomaEligibleMembers = (course.enrolledIds || []).filter((memberId) => {
     const attendance = Number(course.attendance?.[memberId] || 0);
     const evaluation = String(course.evaluations?.[memberId] || "").toLowerCase();
@@ -10517,6 +10516,9 @@ function renderDiplomas(course) {
   }).length;
   const pendingGeneration = Math.max(diplomaEligibleMembers - (course.diplomaReady || []).length, 0);
   const generatedDiplomas = (course.diplomaReady || []).length;
+  const deliveryStatuses = (course.enrolledIds || []).map((memberId) => getDiplomaDeliveryStatus(course, memberId));
+  const failedDeliveries = deliveryStatuses.filter((item) => item.statusKey === "failed").length;
+  const pendingDeliveries = deliveryStatuses.filter((item) => item.statusKey === "issued_pending").length;
 
   return `
     <div class="panel-stack">
@@ -10543,8 +10545,30 @@ function renderDiplomas(course) {
       ${
         isAdminView()
           ? `
+            <div class="metrics-grid metrics-grid-inline metrics-grid-summary">
+              <article class="metric-card compact-card">
+                <p class="eyebrow">Listos para emitir</p>
+                <strong>${pendingGeneration}</strong>
+                <span class="muted">Cumplen requisitos y aun no estan emitidos</span>
+              </article>
+              <article class="metric-card compact-card">
+                <p class="eyebrow">Emitidos</p>
+                <strong>${generatedDiplomas}</strong>
+                <span class="muted">Alumnado incluido en la salida acreditativa</span>
+              </article>
+              <article class="metric-card compact-card">
+                <p class="eyebrow">Pendientes de enviar</p>
+                <strong>${pendingDeliveries}</strong>
+                <span class="muted">Emitidos sin entrega confirmada por correo</span>
+              </article>
+              <article class="metric-card compact-card ${failedDeliveries ? "metric-card-warning" : ""}">
+                <p class="eyebrow">Fallidos de envio</p>
+                <strong>${failedDeliveries}</strong>
+                <span class="muted">Ultimo intento SMTP con error</span>
+              </article>
+            </div>
             <div class="status-note info">
-              Ahora mismo: ${generatedDiplomas} emitido(s), ${pendingGeneration} listo(s) para emitir y ${pendingDeliveries} pendiente(s) de enviar.
+              Ahora mismo: ${generatedDiplomas} emitido(s), ${pendingGeneration} listo(s) para emitir, ${pendingDeliveries} pendiente(s) de enviar y ${failedDeliveries} con incidencia de entrega.
             </div>
           `
           : ""
@@ -10619,12 +10643,13 @@ function renderDiplomas(course) {
                         const mail = getLatestMailForMemberCourse(course.id, member.id);
                         const registry = buildRegistryNumber(course, member);
                         const isReady = course.diplomaReady.includes(member.id);
+                        const deliveryStatus = getDiplomaDeliveryStatus(course, member.id, mail);
                         return `
                         <tr>
                           <td>${member.name}</td>
                           <td>${isReady ? (course.evaluations[member.id] ?? "Apto") : `Pendiente | ${course.evaluations[member.id] ?? "Pendiente"}`}</td>
                           <td>${registry}<br><span class="muted">${buildDiplomaCode(course, member)}</span></td>
-                          <td>${isReady ? (course.mailsSent.includes(member.id) ? "Enviado" : "Pendiente") : "Sin emitir"}</td>
+                          <td><strong>${deliveryStatus.label}</strong><br><span class="muted">${escapeHtml(deliveryStatus.detail)}</span></td>
                           <td>
                             <div class="chip-row">
                               <a class="button-link" target="_blank" rel="noreferrer" href="/api/diplomas/${course.id}/${member.id}">${isReady ? "Abrir diploma" : "Ver requisitos"}</a>
@@ -20819,6 +20844,48 @@ function resendMail(mailId) {
 
 function getLatestMailForMemberCourse(courseId, memberId) {
   return state.emailOutbox.find((mail) => mail.courseId === courseId && mail.memberId === memberId) || null;
+}
+
+function getDiplomaDeliveryStatus(course, memberId, latestMail = getLatestMailForMemberCourse(course?.id, memberId)) {
+  const isIssued = Boolean(course?.diplomaReady?.includes(memberId));
+  if (!isIssued) {
+    return {
+      statusKey: "not_issued",
+      label: "Sin emitir",
+      detail: "Aun no cumple todos los requisitos para generar el diploma."
+    };
+  }
+
+  if (latestMail?.status === "failed") {
+    return {
+      statusKey: "failed",
+      label: "Fallido",
+      detail: latestMail.deliveryError || "El ultimo intento SMTP ha fallado."
+    };
+  }
+
+  const sentAt = latestMail?.deliveredAt || latestMail?.sentAt || "";
+  if (course?.mailsSent?.includes(memberId) || latestMail?.status === "sent") {
+    return {
+      statusKey: "sent",
+      label: "Enviado",
+      detail: sentAt ? `Entrega registrada ${formatDateTime(sentAt)}` : "Entrega registrada por correo."
+    };
+  }
+
+  if (latestMail?.status === "queued") {
+    return {
+      statusKey: "issued_pending",
+      label: "Emitido sin enviar",
+      detail: "Hay un correo preparado en salida pendiente de entrega SMTP."
+    };
+  }
+
+  return {
+    statusKey: "issued_pending",
+    label: "Emitido sin enviar",
+    detail: "El diploma ya esta emitido, pero sigue pendiente de envio."
+  };
 }
 
 function buildEmailBody(member, course) {
