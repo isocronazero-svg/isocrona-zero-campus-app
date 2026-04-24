@@ -20916,11 +20916,19 @@ function getDiplomaDeliveryStatus(course, memberId, latestMail = getLatestMailFo
   }
 
   const sentAt = latestMail?.deliveredAt || latestMail?.sentAt || "";
-  if (course?.mailsSent?.includes(memberId) || latestMail?.status === "sent") {
+  if (latestMail?.status === "sent") {
     return {
       statusKey: "sent",
       label: "Enviado",
       detail: sentAt ? `Entrega registrada ${formatDateTime(sentAt)}` : "Entrega registrada por correo."
+    };
+  }
+
+  if (course?.mailsSent?.includes(memberId)) {
+    return {
+      statusKey: "sent_unverified",
+      label: "Marcado como enviado",
+      detail: "Existe una marca historica de envio, pero no hay registro verificable en la bandeja de correo."
     };
   }
 
