@@ -3591,6 +3591,48 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "request-course-feedback-reminder" && isAdminSession() && courseId && memberId) {
+    syncStatus = "Pidiendo valoracion final...";
+    render();
+
+    try {
+      const response = await fetch(`/api/courses/${courseId}/members/${memberId}/request-feedback-reminder`, {
+        method: "POST"
+      });
+      const payload = await readJsonResponse(response, "No se pudo pedir la valoracion final.");
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || "No se pudo pedir la valoracion final.");
+      }
+
+      await refreshState();
+      applySessionToState();
+      syncAssociateSelectionTargets();
+
+      if (payload.status === "sent") {
+        syncStatus = payload.message || "Recordatorio de valoracion final enviado";
+        showToast(syncStatus, "success");
+      } else if (payload.status === "manual" || payload.status === "fallback_manual") {
+        state.activeView = "automation";
+        automationSectionMode = "inbox";
+        expandedNavViews.add("automation");
+        syncStatus = payload.message || "Se ha dejado seguimiento manual en la bandeja automatica";
+        showToast(syncStatus, "warning");
+      } else if (payload.status === "not_applicable") {
+        syncStatus = payload.message || "Este alumno ya no necesita pedir valoracion final";
+        showToast(syncStatus, "info");
+      } else {
+        syncStatus = payload.message || "Solicitud de valoracion procesada";
+        showToast(syncStatus, "success");
+      }
+    } catch (error) {
+      syncStatus = error.message || "No se pudo pedir la valoracion final";
+      showToast(syncStatus, "error");
+    }
+
+    render();
+    return;
+  }
+
   if (action === "send-single" && isAdminSession() && courseId && memberId) {
     const course = state.courses.find((item) => item.id === courseId);
     const member = findMember(memberId);
@@ -13370,6 +13412,11 @@ function renderCourseWorkbench(course) {
                             <td>
                               <div class="chip-row">
                                 <button class="mini-button" type="button" data-action="set-course-preview-member" data-course-id="${course.id}" data-member-id="${entry.member.id}" data-mode="learner">${entry.statusKey === "feedbackPending" ? "Revisar valoracion" : "Abrir alumno"}</button>
+                                ${
+                                  entry.statusKey === "feedbackPending"
+                                    ? `<button class="mini-button" type="button" data-action="request-course-feedback-reminder" data-course-id="${course.id}" data-member-id="${entry.member.id}">Pedir valoracion</button>`
+                                    : ""
+                                }
                                 ${
                                   entry.statusKey === "ready"
                                     ? `<button class="mini-button" type="button" data-action="close-member-course" data-course-id="${course.id}" data-member-id="${entry.member.id}">${isPracticalCourse ? "Cerrar practico" : "Cerrar curso"}</button>`

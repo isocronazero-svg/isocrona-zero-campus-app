@@ -858,11 +858,130 @@ function mergeCampusGroupAttachmentsFromCurrentState(currentGroups = [], nextGro
 }
 
 function prepareStateForTransport(state, account) {
-  const baseState = sanitizeStateForAccount(state, account);
+  const baseState = sanitizeStateForTransport(sanitizeStateForAccount(state, account));
   return {
     ...baseState,
     campusGroups: compactCampusGroupsForTransport(baseState.campusGroups || [])
   };
+}
+
+function stripAccountSecrets(account) {
+  if (!account || typeof account !== "object") {
+    return account;
+  }
+
+  const {
+    password,
+    passwordHash,
+    sessionToken,
+    resetToken,
+    authToken,
+    accessToken,
+    refreshToken,
+    ...safeAccount
+  } = account;
+
+  return safeAccount;
+}
+
+function stripSmtpSecrets(smtp) {
+  if (!smtp || typeof smtp !== "object") {
+    return smtp;
+  }
+
+  return {
+    ...smtp,
+    password: "",
+    clientSecret: "",
+    accessToken: "",
+    refreshToken: ""
+  };
+}
+
+function sanitizeStateForTransport(state) {
+  if (!state || typeof state !== "object") {
+    return state;
+  }
+
+  return {
+    ...state,
+    accounts: (state.accounts || []).map(stripAccountSecrets),
+    settings: {
+      ...(state.settings || {}),
+      smtp: stripSmtpSecrets(state.settings?.smtp || {})
+    }
+  };
+}
+
+function restoreTransportSanitizedSecrets(currentState, nextState) {
+  if (!nextState || typeof nextState !== "object") {
+    return nextState;
+  }
+
+  const currentAccounts = new Map((currentState.accounts || []).map((item) => [item.id, item]));
+  nextState.accounts = (nextState.accounts || []).map((account) => {
+    const currentAccount = currentAccounts.get(account.id);
+    if (!currentAccount) {
+      return account;
+    }
+
+    return {
+      ...account,
+      password:
+        typeof account.password === "string" && account.password.trim()
+          ? account.password
+          : currentAccount.password || "",
+      passwordHash:
+        typeof account.passwordHash === "string" && account.passwordHash.trim()
+          ? account.passwordHash
+          : currentAccount.passwordHash || "",
+      sessionToken:
+        typeof account.sessionToken === "string" && account.sessionToken.trim()
+          ? account.sessionToken
+          : currentAccount.sessionToken || "",
+      resetToken:
+        typeof account.resetToken === "string" && account.resetToken.trim()
+          ? account.resetToken
+          : currentAccount.resetToken || "",
+      authToken:
+        typeof account.authToken === "string" && account.authToken.trim()
+          ? account.authToken
+          : currentAccount.authToken || "",
+      accessToken:
+        typeof account.accessToken === "string" && account.accessToken.trim()
+          ? account.accessToken
+          : currentAccount.accessToken || "",
+      refreshToken:
+        typeof account.refreshToken === "string" && account.refreshToken.trim()
+          ? account.refreshToken
+          : currentAccount.refreshToken || ""
+    };
+  });
+
+  nextState.settings = {
+    ...(nextState.settings || {}),
+    smtp: {
+      ...(nextState.settings?.smtp || {}),
+      password:
+        typeof nextState.settings?.smtp?.password === "string" && nextState.settings.smtp.password.trim()
+          ? nextState.settings.smtp.password
+          : currentState.settings?.smtp?.password || "",
+      clientSecret:
+        typeof nextState.settings?.smtp?.clientSecret === "string" && nextState.settings.smtp.clientSecret.trim()
+          ? nextState.settings.smtp.clientSecret
+          : currentState.settings?.smtp?.clientSecret || "",
+      accessToken:
+        typeof nextState.settings?.smtp?.accessToken === "string" && nextState.settings.smtp.accessToken.trim()
+          ? nextState.settings.smtp.accessToken
+          : currentState.settings?.smtp?.accessToken || "",
+      refreshToken:
+        typeof nextState.settings?.smtp?.refreshToken === "string" && nextState.settings.smtp.refreshToken.trim()
+          ? nextState.settings.smtp.refreshToken
+          : currentState.settings?.smtp?.refreshToken || ""
+    }
+  };
+
+  return nextState;
 }
 
 function getPublicCampusCourses(state) {
@@ -1117,10 +1236,7 @@ function buildMemberScopedState(state, account, memberIdOverride) {
     ),
     accounts: (state.accounts || [])
       .filter((item) => item.id === account.id)
-      .map((item) => ({
-        ...item,
-        password: ""
-      })),
+      .map(stripAccountSecrets),
     members: (state.members || []).filter((item) => item.id === memberId),
     associates: (state.associates || []).filter(
       (item) => item.id === associateId || item.email.toLowerCase() === memberEmail
@@ -1130,7 +1246,7 @@ function buildMemberScopedState(state, account, memberIdOverride) {
       : (state.emailOutbox || []).filter((item) => item.memberId === memberId || item.associateId === associateId),
     settings: {
       ...state.settings,
-      smtp: {
+      smtp: stripSmtpSecrets({
         host: "",
         port: 0,
         secure: true,
@@ -1140,7 +1256,7 @@ function buildMemberScopedState(state, account, memberIdOverride) {
         fromEmail: "",
         fromName: state.settings?.organization || "Isocrona Zero Campus",
         testTo: ""
-      },
+      }),
       agent: {
         enabled: false,
         canResolveInbox: false,
@@ -1668,6 +1784,7 @@ const server = http.createServer(async (req, res) => {
               )
             }
           : mergeMemberScopedStateIntoFullState(currentState, payload, account);
+      restoreTransportSanitizedSecrets(currentState, state);
       let summary = null;
 
       if (state.settings?.automation?.autoRunOnSave !== false) {
@@ -1699,7 +1816,7 @@ const server = http.createServer(async (req, res) => {
     recordAutomationRun(state, "Restablecer datos demo", summary);
     appendActivity(state, "system", "Sistema", "Se han restablecido los datos demo desde el servidor");
     writeState(state);
-    return sendJson(res, 200, state);
+    return sendJson(res, 200, prepareStateForTransport(state, account));
   }
 
   if (requestUrl.pathname === "/api/recovery-admin" && req.method === "POST") {
@@ -3455,6 +3572,41 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         writeState(state);
       }
       return sendJson(res, 500, { ok: false, error: error.message || "No se pudo enviar" });
+    }
+  }
+
+  const requestFeedbackReminderMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/members\/([^/]+)\/request-feedback-reminder$/);
+  if (requestFeedbackReminderMatch && req.method === "POST") {
+    const courseId = requestFeedbackReminderMatch[1];
+    const memberId = requestFeedbackReminderMatch[2];
+
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const result = await requestCourseFeedbackReminderForMember(state, courseId, memberId, {
+        actor: account.name || "Administracion"
+      });
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        status: result.status,
+        message: result.message,
+        courseId,
+        memberId
+      });
+    } catch (error) {
+      if (state) {
+        writeState(state);
+      }
+      return sendJson(res, 500, {
+        ok: false,
+        error: error.message || "No se pudo pedir la valoracion final"
+      });
     }
   }
 
@@ -8408,6 +8560,94 @@ function buildCourseClosureNoticeDetail(context) {
   }
 
   return `${context.feedbackPendingCount} alumno(s) quedan listos para cierre salvo la valoracion final.`;
+}
+
+function ensureCourseFeedbackReminderInboxItem(state, course, member) {
+  if (!course || !member) {
+    return;
+  }
+
+  pushAutomationItem(state, {
+    type: "course_feedback_reminder",
+    title: `Valoracion final pendiente: ${member.name} en ${course.title}`,
+    detail: "El curso ya esta listo para cierre salvo la valoracion final del alumno.",
+    courseId: course.id,
+    memberId: member.id,
+    key: `course_feedback_reminder:${course.id}:${member.id}`
+  });
+}
+
+async function requestCourseFeedbackReminderForMember(state, courseId, memberId, options = {}) {
+  const actor = options.actor || "Administracion";
+  const course = (state.courses || []).find((entry) => entry.id === courseId);
+  const member = (state.members || []).find((entry) => entry.id === memberId);
+
+  if (!course || !member) {
+    throw new Error("Curso o alumno no encontrado");
+  }
+
+  if (!isCourseFeedbackReminderEligible(state, course, member)) {
+    return {
+      status: "not_applicable",
+      course,
+      member,
+      message: `${member.name} ya no necesita el recordatorio de valoracion final`
+    };
+  }
+
+  const email = String(member.email || "").trim();
+  if (!email || !isLikelyEmail(email)) {
+    return {
+      status: "not_applicable",
+      course,
+      member,
+      message: `${member.name} no tiene un email valido para pedir la valoracion final`
+    };
+  }
+
+  if (!isSmtpConfigured(state)) {
+    ensureCourseFeedbackReminderInboxItem(state, course, member);
+    return {
+      status: "manual",
+      course,
+      member,
+      message: `Se ha dejado el seguimiento manual de ${member.name} en la bandeja automatica`
+    };
+  }
+
+  try {
+    const result = await maybeSendCourseFeedbackReminder(state, course, member, {
+      force: true,
+      strict: true,
+      actor
+    });
+
+    if (result.status === "sent") {
+      return {
+        status: "sent",
+        course,
+        member,
+        message: `Se ha pedido la valoracion final a ${member.name} en ${course.title}`
+      };
+    }
+
+    ensureCourseFeedbackReminderInboxItem(state, course, member);
+    return {
+      status: "manual",
+      course,
+      member,
+      message: `Se ha dejado el seguimiento manual de ${member.name} en la bandeja automatica`
+    };
+  } catch (error) {
+    ensureCourseFeedbackReminderInboxItem(state, course, member);
+    return {
+      status: "fallback_manual",
+      course,
+      member,
+      message: `No se pudo enviar el recordatorio a ${member.name}. Se ha dejado en bandeja automatica.`,
+      error: error.message || "Error SMTP"
+    };
+  }
 }
 
 function recordAutomationRun(state, reason, summary) {
