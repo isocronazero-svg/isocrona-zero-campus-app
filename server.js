@@ -9628,11 +9628,27 @@ async function requestCourseFeedbackReminderForMember(state, course, member, act
     return { status: "not_applicable" };
   }
 
-  const result = await maybeSendCourseFeedbackReminder(state, course, member, {
-    force: true,
-    strict: false,
-    actor
-  });
+  let result = null;
+  try {
+    result = await maybeSendCourseFeedbackReminder(state, course, member, {
+      force: true,
+      strict: false,
+      actor
+    });
+  } catch (error) {
+    pushAutomationItem(state, {
+      type: "course_feedback_reminder",
+      title: `Valoracion final pendiente: ${member.name} en ${course.title}`,
+      detail: "El envio directo ha fallado y el recordatorio queda pendiente en la bandeja automatica.",
+      courseId: course.id,
+      memberId: member.id,
+      key: `course_feedback_reminder:${course.id}:${member.id}`
+    });
+    return {
+      status: "fallback_manual",
+      message: `El envio directo ha fallado. La solicitud queda preparada en la bandeja automatica para ${member.name}.`
+    };
+  }
 
   if (result.status === "sent") {
     removeCourseFeedbackReminderInboxItem(state, course.id, member.id);
