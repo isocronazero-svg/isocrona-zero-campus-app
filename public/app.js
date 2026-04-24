@@ -10535,7 +10535,7 @@ function renderDiplomas(course) {
                 <button class="ghost-button" data-action="nav-section" data-view="campus" data-section-id="campusSectionCourses">Curso activo</button>
                 <button class="ghost-button" data-action="set-campus-section-mode" data-mode="operations">${isPracticalCourse ? "Cerrar practico" : "Cerrar alumnado"}</button>
                 <button class="ghost-button" data-action="generate-diplomas" data-course-id="${course.id}">Emitir pendientes</button>
-                <button class="primary-button" data-action="smtp-send-course" data-course-id="${course.id}">Enviar por SMTP</button>
+                <button class="primary-button" data-action="smtp-send-course" data-course-id="${course.id}" ${pendingDeliveries ? "" : "disabled"}>${failedDeliveries ? `Enviar o reintentar pendientes (${pendingDeliveries})` : `Enviar diplomas pendientes (${pendingDeliveries})`}</button>
               </div>
             `
             : ""
@@ -10566,6 +10566,14 @@ function renderDiplomas(course) {
                 <strong>${failedDeliveries}</strong>
                 <span class="muted">Ultimo intento SMTP con error</span>
               </article>
+            </div>
+            <div class="chip-row">
+              <button class="primary-button" data-action="smtp-send-course" data-course-id="${course.id}" ${pendingDeliveries ? "" : "disabled"}>${failedDeliveries ? `Enviar o reintentar pendientes (${pendingDeliveries})` : `Enviar diplomas pendientes (${pendingDeliveries})`}</button>
+              ${
+                pendingDeliveries
+                  ? `<span class="small-chip">${failedDeliveries ? `${failedDeliveries} con incidencia` : "Solo se enviaran diplomas emitidos y aun no entregados"}</span>`
+                  : `<span class="small-chip">No hay diplomas pendientes de envio ahora mismo</span>`
+              }
             </div>
             <div class="status-note info">
               Ahora mismo: ${generatedDiplomas} emitido(s), ${pendingGeneration} listo(s) para emitir, ${pendingDeliveries} pendiente(s) de enviar y ${failedDeliveries} con incidencia de entrega.
