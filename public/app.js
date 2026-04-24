@@ -12952,6 +12952,10 @@ function renderCourseWorkbench(course) {
   const workbenchChecks = getCourseWorkbenchChecks(course);
   const completedChecks = workbenchChecks.filter((item) => item.ok).length;
   const nextCheck = workbenchChecks.find((item) => !item.ok) || null;
+  const closureStatusEntries = getCourseClosureStatusEntries(course);
+  const readyClosureCount = closureStatusEntries.filter((item) => item.statusKey === "ready").length;
+  const feedbackPendingOnlyCount = closureStatusEntries.filter((item) => item.statusKey === "feedbackPending").length;
+  const blockedClosureCount = closureStatusEntries.filter((item) => item.statusKey === "blocked").length;
   const finalTestStatus = !isPracticalCourse
     ? getCourseFinalTestStatus(course, previewMember?.id, { admin: true, previewOnly: true })
     : null;
@@ -13292,6 +13296,63 @@ function renderCourseWorkbench(course) {
               )
               .join("")}
           </div>
+        </div>
+        <div class="mail-card">
+          <div class="row-between">
+            <div>
+              <p class="eyebrow">Estado de cierre del curso</p>
+              <h5>${readyClosureCount} listo(s) · ${feedbackPendingOnlyCount} pendiente(s) solo de valoracion · ${blockedClosureCount} en progreso</h5>
+            </div>
+            <span class="small-chip">${closureStatusEntries.length} alumno(s) revisado(s)</span>
+          </div>
+          <div class="status-note info">
+            ${readyClosureCount} alumno(s) ya pueden revisarse para diploma o cierre, ${feedbackPendingOnlyCount} solo necesitan la valoracion final y ${blockedClosureCount} siguen bloqueados o en progreso.
+          </div>
+          ${
+            closureStatusEntries.length
+              ? `
+                <div class="table-card">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Alumno</th>
+                        <th>Estado</th>
+                        <th>Detalle</th>
+                        <th>Accion</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${closureStatusEntries
+                        .map((entry) => `
+                          <tr>
+                            <td>
+                              <strong>${escapeHtml(entry.member.name)}</strong><br>
+                              <span class="muted">${escapeHtml(entry.member.email || "Sin email")}</span>
+                            </td>
+                            <td>
+                              <span class="small-chip">${escapeHtml(entry.statusLabel)}</span><br>
+                              <span class="muted">Asistencia ${entry.attendance}% · ${escapeHtml(entry.evaluation)} · Valoracion ${entry.feedbackSent ? "enviada" : "pendiente"}</span>
+                            </td>
+                            <td>${escapeHtml(entry.detail)}</td>
+                            <td>
+                              <div class="chip-row">
+                                <button class="mini-button" type="button" data-action="set-course-preview-member" data-course-id="${course.id}" data-member-id="${entry.member.id}" data-mode="learner">${entry.statusKey === "feedbackPending" ? "Revisar valoracion" : "Abrir alumno"}</button>
+                                ${
+                                  entry.statusKey === "ready"
+                                    ? `<button class="mini-button" type="button" data-action="close-member-course" data-course-id="${course.id}" data-member-id="${entry.member.id}">${isPracticalCourse ? "Cerrar practico" : "Cerrar curso"}</button>`
+                                    : ""
+                                }
+                              </div>
+                            </td>
+                          </tr>
+                        `)
+                        .join("")}
+                    </tbody>
+                  </table>
+                </div>
+              `
+              : `<p class="muted">Todavia no hay alumnado inscrito para revisar el cierre del curso.</p>`
+          }
         </div>
         <div class="workbench-tabs">
           ${workbenchTabs
@@ -15132,6 +15193,76 @@ function getMemberDiplomaBlockingLabels(course, memberId) {
     blockers.push("DNI/NIE");
   }
   return blockers;
+}
+
+function getCourseClosureStatusEntries(course) {
+  if (!course) {
+    return [];
+  }
+
+  const enrolledIds = Array.isArray(course.enrolledIds) ? course.enrolledIds : [];
+  const statusOrder = {
+    ready: 0,
+    feedbackPending: 1,
+    blocked: 2
+  };
+
+  return enrolledIds
+    .map((memberId) => {
+      const member = findMember(memberId);
+      if (!member) {
+        return null;
+      }
+
+      const blockers = getMemberDiplomaBlockingLabels(course, memberId);
+      const ready = isMemberReadyForDiploma(course, memberId);
+      const feedbackPendingOnly =
+        !ready &&
+        blockers.length === 1 &&
+        blockers[0] === "valoracion final";
+      const attendance = Number(course.attendance?.[memberId] || 0);
+      const evaluation = String(course.evaluations?.[memberId] || "Pendiente").trim() || "Pendiente";
+      const feedbackSent = Boolean(getCourseFeedbackResponse(course, memberId));
+
+      let statusKey = "blocked";
+      let statusLabel = "En progreso";
+      let detail = blockers.length
+        ? `Pendiente: ${blockers.join(", ")}`
+        : "Aun falta revisar el cierre del alumno.";
+      let tone = "warning";
+
+      if (ready) {
+        statusKey = "ready";
+        statusLabel = "Listo para cierre";
+        detail = "Ya cumple contenido, evaluacion, asistencia, valoracion y documento para diploma/cierre.";
+        tone = "success";
+      } else if (feedbackPendingOnly) {
+        statusKey = "feedbackPending";
+        statusLabel = "Pendiente de valoracion";
+        detail = "Solo falta la valoracion final para dejar listo el cierre del curso.";
+        tone = "info";
+      }
+
+      return {
+        member,
+        statusKey,
+        statusLabel,
+        detail,
+        tone,
+        attendance,
+        evaluation,
+        feedbackSent
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const leftOrder = statusOrder[left.statusKey] ?? 99;
+      const rightOrder = statusOrder[right.statusKey] ?? 99;
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+      return left.member.name.localeCompare(right.member.name, "es");
+    });
 }
 
 function isMemberReadyForDiploma(course, memberId) {
