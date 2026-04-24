@@ -1377,6 +1377,11 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "request-course-feedback-reminder" && isAdminSession() && courseId && memberId) {
+    await requestCourseFeedbackReminder(courseId, memberId);
+    return;
+  }
+
   if (action === "set-course-curriculum-mode") {
     courseCurriculumMode = actionTarget.dataset.mode || "modules";
     render();
@@ -13336,7 +13341,12 @@ function renderCourseWorkbench(course) {
                             <td>${escapeHtml(entry.detail)}</td>
                             <td>
                               <div class="chip-row">
-                                <button class="mini-button" type="button" data-action="set-course-preview-member" data-course-id="${course.id}" data-member-id="${entry.member.id}" data-mode="learner">${entry.statusKey === "feedbackPending" ? "Revisar valoracion" : "Abrir alumno"}</button>
+                                ${
+                                  entry.statusKey === "feedbackPending"
+                                    ? `<button class="mini-button" type="button" data-action="request-course-feedback-reminder" data-course-id="${course.id}" data-member-id="${entry.member.id}">Pedir valoracion</button>`
+                                    : ""
+                                }
+                                <button class="mini-button" type="button" data-action="set-course-preview-member" data-course-id="${course.id}" data-member-id="${entry.member.id}" data-mode="learner">${entry.statusKey === "feedbackPending" ? "Revisar alumno" : "Abrir alumno"}</button>
                                 ${
                                   entry.statusKey === "ready"
                                     ? `<button class="mini-button" type="button" data-action="close-member-course" data-course-id="${course.id}" data-member-id="${entry.member.id}">${isPracticalCourse ? "Cerrar practico" : "Cerrar curso"}</button>`
@@ -20595,6 +20605,81 @@ function getAutomationTypeLabel(item) {
   };
 
   return labels[item.type] || item.type;
+}
+
+function findCourseFeedbackReminderInboxItem(courseId, memberId) {
+  return (
+    (state.automationInbox || []).find(
+      (item) =>
+        item.type === "course_feedback_reminder" &&
+        item.courseId === courseId &&
+        item.memberId === memberId
+    ) || null
+  );
+}
+
+async function requestCourseFeedbackReminder(courseId, memberId) {
+  const course = state.courses.find((item) => item.id === courseId);
+  const member = findMember(memberId);
+  if (!course || !member) {
+    showToast("No se ha encontrado el curso o el alumno para pedir la valoracion", "error");
+    return;
+  }
+
+  syncStatus = `Preparando recordatorio de valoracion para ${member.name}...`;
+  render();
+
+  try {
+    let inboxItem = findCourseFeedbackReminderInboxItem(courseId, memberId);
+
+    if (!inboxItem) {
+      const runResponse = await fetch("/api/automation/run", { method: "POST" });
+      const runPayload = await runResponse.json();
+      if (!runResponse.ok || runPayload.ok === false) {
+        throw new Error(runPayload.error || "No se han podido ejecutar las automatizaciones");
+      }
+
+      await refreshState();
+      applySessionToState();
+      syncAssociateSelectionTargets();
+      inboxItem = findCourseFeedbackReminderInboxItem(courseId, memberId);
+    }
+
+    if (!inboxItem) {
+      syncStatus = `${member.name} no necesita ahora mismo un recordatorio de valoracion final.`;
+      showToast(syncStatus, "warning");
+      render();
+      return;
+    }
+
+    const resolveResponse = await fetch(`/api/automation/inbox/${inboxItem.id}/resolve`, {
+      method: "POST"
+    });
+    const resolvePayload = await resolveResponse.json();
+
+    if (!resolveResponse.ok || resolvePayload.ok === false) {
+      state.activeView = "automation";
+      automationSectionMode = "inbox";
+      expandedNavViews.add("automation");
+      syncStatus = `${
+        resolvePayload.error || "No se ha podido enviar el recordatorio"
+      }. Revisa la bandeja automatica para continuar.`;
+      showToast(syncStatus, "warning");
+      render();
+      return;
+    }
+
+    await refreshState();
+    applySessionToState();
+    syncAssociateSelectionTargets();
+    syncStatus = resolvePayload.message || `Recordatorio de valoracion preparado para ${member.name}`;
+    showToast(syncStatus, "success");
+  } catch (error) {
+    syncStatus = error.message || "No se ha podido pedir la valoracion final";
+    showToast(syncStatus, "error");
+  }
+
+  render();
 }
 
 function pickNextAgentItem() {
