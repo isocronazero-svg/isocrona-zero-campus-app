@@ -14911,11 +14911,7 @@ function renderSettings() {
             <label class="inline-field"><span>Mover estados</span><input id="settingAutoAdvanceCourseStatus" type="checkbox" ${state.settings.automation.autoAdvanceCourseStatus ? "checked" : ""} /></label>
             <label class="inline-field"><span>Enviar diplomas</span><input id="settingAutoSendDiplomas" type="checkbox" ${state.settings.automation.autoSendDiplomas ? "checked" : ""} /></label>
             <label class="inline-field"><span>Avisar cuotas</span><input id="settingAutoFeeReminders" type="checkbox" ${state.settings.automation.autoSendFeeReminders !== false ? "checked" : ""} /></label>
-<<<<<<< Updated upstream
-            <label class="inline-field"><span>Avisar valoracion final</span><input id="settingAutoFeedbackReminders" type="checkbox" ${state.settings.automation.autoSendFeedbackReminders !== false ? "checked" : ""} /></label>
-=======
             <label class="inline-field"><span>Pedir valoracion final</span><input id="settingAutoFeedbackReminders" type="checkbox" ${state.settings.automation.autoSendFeedbackReminders !== false ? "checked" : ""} /></label>
->>>>>>> Stashed changes
             <label class="inline-field"><span>Detectar renovaciones</span><input id="settingAutoRenewals" type="checkbox" ${state.settings.automation.autoDetectRenewals ? "checked" : ""} /></label>
             <label class="inline-field"><span>Detectar fallos mail</span><input id="settingAutoFailedEmails" type="checkbox" ${state.settings.automation.autoDetectFailedEmails ? "checked" : ""} /></label>
             <label class="inline-field"><span>Ejecutar al guardar</span><input id="settingAutoRunOnSave" type="checkbox" ${state.settings.automation.autoRunOnSave ? "checked" : ""} /></label>
