@@ -1377,6 +1377,11 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "request-course-feedback-reminder" && isAdminSession() && courseId && memberId) {
+    await requestCourseFeedbackReminder(courseId, memberId);
+    return;
+  }
+
   if (action === "set-course-curriculum-mode") {
     courseCurriculumMode = actionTarget.dataset.mode || "modules";
     render();
@@ -13336,7 +13341,12 @@ function renderCourseWorkbench(course) {
                             <td>${escapeHtml(entry.detail)}</td>
                             <td>
                               <div class="chip-row">
-                                <button class="mini-button" type="button" data-action="set-course-preview-member" data-course-id="${course.id}" data-member-id="${entry.member.id}" data-mode="learner">${entry.statusKey === "feedbackPending" ? "Revisar valoracion" : "Abrir alumno"}</button>
+                                ${
+                                  entry.statusKey === "feedbackPending"
+                                    ? `<button class="mini-button" type="button" data-action="request-course-feedback-reminder" data-course-id="${course.id}" data-member-id="${entry.member.id}">Pedir valoracion</button>`
+                                    : ""
+                                }
+                                <button class="mini-button" type="button" data-action="set-course-preview-member" data-course-id="${course.id}" data-member-id="${entry.member.id}" data-mode="learner">${entry.statusKey === "feedbackPending" ? "Revisar alumno" : "Abrir alumno"}</button>
                                 ${
                                   entry.statusKey === "ready"
                                     ? `<button class="mini-button" type="button" data-action="close-member-course" data-course-id="${course.id}" data-member-id="${entry.member.id}">${isPracticalCourse ? "Cerrar practico" : "Cerrar curso"}</button>`
@@ -14911,11 +14921,7 @@ function renderSettings() {
             <label class="inline-field"><span>Mover estados</span><input id="settingAutoAdvanceCourseStatus" type="checkbox" ${state.settings.automation.autoAdvanceCourseStatus ? "checked" : ""} /></label>
             <label class="inline-field"><span>Enviar diplomas</span><input id="settingAutoSendDiplomas" type="checkbox" ${state.settings.automation.autoSendDiplomas ? "checked" : ""} /></label>
             <label class="inline-field"><span>Avisar cuotas</span><input id="settingAutoFeeReminders" type="checkbox" ${state.settings.automation.autoSendFeeReminders !== false ? "checked" : ""} /></label>
-<<<<<<< Updated upstream
-            <label class="inline-field"><span>Avisar valoracion final</span><input id="settingAutoFeedbackReminders" type="checkbox" ${state.settings.automation.autoSendFeedbackReminders !== false ? "checked" : ""} /></label>
-=======
             <label class="inline-field"><span>Pedir valoracion final</span><input id="settingAutoFeedbackReminders" type="checkbox" ${state.settings.automation.autoSendFeedbackReminders !== false ? "checked" : ""} /></label>
->>>>>>> Stashed changes
             <label class="inline-field"><span>Detectar renovaciones</span><input id="settingAutoRenewals" type="checkbox" ${state.settings.automation.autoDetectRenewals ? "checked" : ""} /></label>
             <label class="inline-field"><span>Detectar fallos mail</span><input id="settingAutoFailedEmails" type="checkbox" ${state.settings.automation.autoDetectFailedEmails ? "checked" : ""} /></label>
             <label class="inline-field"><span>Ejecutar al guardar</span><input id="settingAutoRunOnSave" type="checkbox" ${state.settings.automation.autoRunOnSave ? "checked" : ""} /></label>
@@ -20595,6 +20601,61 @@ function getAutomationTypeLabel(item) {
   };
 
   return labels[item.type] || item.type;
+}
+
+async function requestCourseFeedbackReminder(courseId, memberId) {
+  const course = state.courses.find((item) => item.id === courseId);
+  const member = findMember(memberId);
+  if (!course || !member) {
+    showToast("No se ha encontrado el curso o el alumno para pedir la valoracion", "error");
+    return;
+  }
+
+  syncStatus = `Preparando recordatorio de valoracion para ${member.name}...`;
+  render();
+
+  try {
+    const response = await fetch(
+      `/api/courses/${courseId}/members/${memberId}/request-feedback-reminder`,
+      {
+        method: "POST"
+      }
+    );
+    const payload = await response.json();
+
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.error || "No se ha podido pedir la valoracion final");
+    }
+
+    await refreshState();
+    applySessionToState();
+    syncAssociateSelectionTargets();
+
+    if (payload.status === "manual") {
+      state.activeView = "automation";
+      automationSectionMode = "inbox";
+      expandedNavViews.add("automation");
+      syncStatus = payload.message || `La solicitud queda preparada en la bandeja automatica para ${member.name}`;
+      showToast(syncStatus, "warning");
+      render();
+      return;
+    }
+
+    if (payload.status === "not_applicable") {
+      syncStatus = payload.message || `${member.name} ya no requiere recordatorio de valoracion final.`;
+      showToast(syncStatus, "info");
+      render();
+      return;
+    }
+
+    syncStatus = payload.message || `Recordatorio de valoracion preparado para ${member.name}`;
+    showToast(syncStatus, "success");
+  } catch (error) {
+    syncStatus = error.message || "No se ha podido pedir la valoracion final";
+    showToast(syncStatus, "error");
+  }
+
+  render();
 }
 
 function pickNextAgentItem() {
