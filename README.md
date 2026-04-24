@@ -17,3 +17,11 @@
 ## Comprobacion minima de frontend
 
 - Ejecuta `npm run check:frontend-syntax` para validar la sintaxis de `public/app.js` antes de fusionar cambios del frontend.
+
+## Comprobacion minima de app
+
+- Ejecuta `npm run check:app` antes de fusionar cambios para validar:
+  - sintaxis de `public/app.js`
+  - sintaxis de `server.js`
+  - sintaxis de `storage.js`
+  - ausencia de marcadores de conflicto en `public/app.js`, `server.js`, `storage.js`, `package.json` y `README.md`
