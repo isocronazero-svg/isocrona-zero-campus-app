@@ -13053,7 +13053,7 @@ function renderCourseWorkbench(course) {
     course.status === "Cerrado" ||
     courseHasEnded;
   const pendingDiplomaDeliveries = closureEligible
-    ? Math.max((course.diplomaReady || []).length - (course.mailsSent || []).length, 0)
+    ? getCoursePendingDiplomaDeliveries(course)
     : 0;
   const totalWaitingQueue = Math.max(waitingMembers.length, waitingEnrollmentSubmissions.length);
   const courseAdminSteps = [
@@ -15368,7 +15368,7 @@ function sendDiplomaMails(courseId) {
   }
 
   course.diplomaReady
-    .filter((memberId) => !course.mailsSent.includes(memberId))
+    .filter((memberId) => !hasVerifiedDiplomaDelivery(course, memberId))
     .forEach((memberId) => {
       queueEmailForMember(courseId, memberId, true);
     });
