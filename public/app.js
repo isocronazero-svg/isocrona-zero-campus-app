@@ -20899,8 +20899,14 @@ function getLatestMailForMemberCourse(courseId, memberId) {
   return state.emailOutbox.find((mail) => mail.courseId === courseId && mail.memberId === memberId) || null;
 }
 
-function hasVerifiedDiplomaDelivery(course, memberId, latestMail = getLatestMailForMemberCourse(course?.id, memberId)) {
-  return Boolean(course?.diplomaReady?.includes(memberId) && latestMail?.status === "sent");
+function hasVerifiedDiplomaDelivery(course, memberId) {
+  if (!course?.diplomaReady?.includes(memberId)) {
+    return false;
+  }
+
+  return (state.emailOutbox || []).some(
+    (mail) => mail.courseId === course.id && mail.memberId === memberId && mail.status === "sent"
+  );
 }
 
 function getDiplomaDeliveryStatus(course, memberId, latestMail = getLatestMailForMemberCourse(course?.id, memberId)) {
