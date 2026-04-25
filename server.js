@@ -8601,6 +8601,17 @@ function ensureCourseFeedbackReminderInboxItem(state, course, member) {
   });
 }
 
+function removeCourseFeedbackReminderInboxItem(state, courseId, memberId) {
+  state.automationInbox = (state.automationInbox || []).filter((item) => {
+    const isMatchingReminder =
+      item?.type === "course_feedback_reminder" &&
+      String(item.courseId || "") === String(courseId || "") &&
+      String(item.memberId || "") === String(memberId || "");
+    const isMatchingKey = String(item?.key || "") === `course_feedback_reminder:${courseId}:${memberId}`;
+    return !isMatchingReminder && !isMatchingKey;
+  });
+}
+
 async function requestCourseFeedbackReminderForMember(state, courseId, memberId, options = {}) {
   const actor = options.actor || "Administracion";
   const course = (state.courses || []).find((entry) => entry.id === courseId);
@@ -8611,6 +8622,7 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
   }
 
   if (!isCourseFeedbackReminderEligible(state, course, member)) {
+    removeCourseFeedbackReminderInboxItem(state, courseId, memberId);
     return {
       status: "not_applicable",
       course,
@@ -8621,6 +8633,7 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
 
   const email = String(member.email || "").trim();
   if (!email || !isLikelyEmail(email)) {
+    removeCourseFeedbackReminderInboxItem(state, courseId, memberId);
     return {
       status: "not_applicable",
       course,
@@ -8630,6 +8643,7 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
   }
 
   if (!isSmtpConfigured(state)) {
+    removeCourseFeedbackReminderInboxItem(state, courseId, memberId);
     ensureCourseFeedbackReminderInboxItem(state, course, member);
     return {
       status: "manual",
@@ -8647,6 +8661,7 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
     });
 
     if (result.status === "sent") {
+      removeCourseFeedbackReminderInboxItem(state, courseId, memberId);
       return {
         status: "sent",
         course,
@@ -8655,6 +8670,7 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
       };
     }
 
+    removeCourseFeedbackReminderInboxItem(state, courseId, memberId);
     ensureCourseFeedbackReminderInboxItem(state, course, member);
     return {
       status: "manual",
@@ -8663,6 +8679,7 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
       message: `Se ha dejado el seguimiento manual de ${member.name} en la bandeja automatica`
     };
   } catch (error) {
+    removeCourseFeedbackReminderInboxItem(state, courseId, memberId);
     ensureCourseFeedbackReminderInboxItem(state, course, member);
     return {
       status: "fallback_manual",
