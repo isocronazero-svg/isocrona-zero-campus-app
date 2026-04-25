@@ -1446,8 +1446,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (account.role === "admin" && !stateMode) {
-      const summary = await materializeAutomationInboxSafely(state);
-      recordAutomationRun(state, "Materializacion segura de bandeja", summary);
+      await materializeAutomationInboxSafely(state);
       writeState(state);
     }
     return sendJson(res, 200, prepareStateForTransport(state, account));
