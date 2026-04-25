@@ -8640,6 +8640,12 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
   if (!isSmtpConfigured(state)) {
     removeCourseFeedbackReminderInboxItem(state, courseId, memberId);
     ensureCourseFeedbackReminderInboxItem(state, course, member);
+    appendActivity(
+      state,
+      "system",
+      actor,
+      `Recordatorio de valoracion final dejado en bandeja para ${member.name} en ${course.title}`
+    );
     return {
       status: "manual",
       course,
@@ -8667,6 +8673,12 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
 
     removeCourseFeedbackReminderInboxItem(state, courseId, memberId);
     ensureCourseFeedbackReminderInboxItem(state, course, member);
+    appendActivity(
+      state,
+      "system",
+      actor,
+      `Recordatorio de valoracion final dejado en bandeja para ${member.name} en ${course.title}`
+    );
     return {
       status: "manual",
       course,
@@ -8676,6 +8688,12 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
   } catch (error) {
     removeCourseFeedbackReminderInboxItem(state, courseId, memberId);
     ensureCourseFeedbackReminderInboxItem(state, course, member);
+    appendActivity(
+      state,
+      "system",
+      actor,
+      `Fallo al enviar el recordatorio de valoracion final a ${member.name} en ${course.title}. Queda en bandeja automatica`
+    );
     return {
       status: "fallback_manual",
       course,
