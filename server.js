@@ -9556,10 +9556,6 @@ async function deliverEmailRecord(state, email) {
     email.deliveryError = "";
     email.smtpMessageId = result.messageId || "";
 
-    const course = state.courses.find((item) => item.id === email.courseId);
-    if (course) {
-      course.mailsSent = [...new Set([...(course.mailsSent || []), email.memberId])];
-    }
   } catch (error) {
     email.status = "failed";
     email.deliveryError = error.message || "Error SMTP";
