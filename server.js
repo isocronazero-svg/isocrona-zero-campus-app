@@ -8306,6 +8306,7 @@ async function runAutomationEngine(state, options = {}) {
     })
     .forEach((associate) => {
       const canSendReminder =
+        !detectOnly &&
         state.settings?.automation?.autoSendFeeReminders !== false &&
         smtpReady &&
         String(associate.email || "").trim() &&
@@ -8324,7 +8325,7 @@ async function runAutomationEngine(state, options = {}) {
       });
     });
 
-  if (state.settings?.automation?.autoSendFeeReminders !== false && smtpReady) {
+  if (!detectOnly && state.settings?.automation?.autoSendFeeReminders !== false && smtpReady) {
     for (const associate of state.associates || []) {
       const pendingAmount = getAssociateYearFeeGap(associate, currentYear);
       const reminderIsRecent = associate.lastQuotaReminderAt
