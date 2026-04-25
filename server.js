@@ -213,10 +213,6 @@ function parseCookies(req) {
 }
 
 function getSessionTokenFromRequest(req) {
-  const headerToken = req.headers["x-iz-session"];
-  if (typeof headerToken === "string" && headerToken.trim()) {
-    return headerToken.trim();
-  }
   return String(parseCookies(req).iz_session || "").trim();
 }
 
