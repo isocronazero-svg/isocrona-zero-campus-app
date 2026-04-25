@@ -20746,9 +20746,6 @@ function queueEmailForMember(courseId, memberId, markSent) {
   };
 
   state.emailOutbox.unshift(email);
-  if (markSent) {
-    course.mailsSent = [...new Set([...course.mailsSent, memberId])];
-  }
   return email;
 }
 
