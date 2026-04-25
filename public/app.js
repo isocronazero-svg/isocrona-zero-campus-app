@@ -9425,7 +9425,7 @@ function renderCampus() {
       : campusSectionMode;
   const showCampusSection = (section) => effectiveCampusSectionMode === section;
   const pendingDiplomas = state.courses.reduce(
-    (sum, course) => sum + Math.max((course.diplomaReady || []).length - (course.mailsSent || []).length, 0),
+    (sum, course) => sum + getCoursePendingDiplomaDeliveries(course),
     0
   );
   const activeStudentCourseCount = state.courses.filter((course) => (course.enrolledIds || []).length > 0).length;
@@ -10560,7 +10560,9 @@ function renderDiplomas(course) {
   const generatedDiplomas = (course.diplomaReady || []).length;
   const deliveryStatuses = (course.enrolledIds || []).map((memberId) => getDiplomaDeliveryStatus(course, memberId));
   const failedDeliveries = deliveryStatuses.filter((item) => item.statusKey === "failed").length;
-  const pendingDeliveries = deliveryStatuses.filter((item) => item.statusKey === "issued_pending").length;
+  const pendingDeliveries = deliveryStatuses.filter(
+    (item) => item.statusKey !== "sent" && item.statusKey !== "not_issued"
+  ).length;
 
   return `
     <div class="panel-stack">
@@ -11465,7 +11467,7 @@ function renderTimeline(course) {
     (item) => item.status === "Pendiente de revision"
   ).length;
   const pendingDiplomas = state.courses.reduce(
-    (sum, entry) => sum + Math.max(entry.diplomaReady.length - entry.mailsSent.length, 0),
+    (sum, entry) => sum + getCoursePendingDiplomaDeliveries(entry),
     0
   );
 
@@ -20552,7 +20554,7 @@ function getCoursePendingDiplomaDeliveries(course) {
   if (!isCourseDiplomaWindowOpen(course)) {
     return 0;
   }
-  return Math.max((course.diplomaReady || []).length - (course.mailsSent || []).length, 0);
+  return (course.diplomaReady || []).filter((memberId) => !hasVerifiedDiplomaDelivery(course, memberId)).length;
 }
 
 function isViewAllowed(viewId) {
@@ -20895,6 +20897,10 @@ function resendMail(mailId) {
 
 function getLatestMailForMemberCourse(courseId, memberId) {
   return state.emailOutbox.find((mail) => mail.courseId === courseId && mail.memberId === memberId) || null;
+}
+
+function hasVerifiedDiplomaDelivery(course, memberId, latestMail = getLatestMailForMemberCourse(course?.id, memberId)) {
+  return Boolean(course?.diplomaReady?.includes(memberId) && latestMail?.status === "sent");
 }
 
 function getDiplomaDeliveryStatus(course, memberId, latestMail = getLatestMailForMemberCourse(course?.id, memberId)) {
