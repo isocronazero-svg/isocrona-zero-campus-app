@@ -228,8 +228,7 @@ function buildSessionPayload(account, sessionToken = "") {
     role: account.role,
     memberId: account.memberId,
     associateId: account.associateId || "",
-    mustChangePassword: Boolean(account.mustChangePassword),
-    sessionToken: String(sessionToken || "")
+    mustChangePassword: Boolean(account.mustChangePassword)
   };
 }
 
