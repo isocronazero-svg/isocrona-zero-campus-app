@@ -1922,7 +1922,6 @@ const server = http.createServer(async (req, res) => {
       let state = readState();
       let stateChanged = false;
       if (synchronizeAssociateStatuses(state)) {
-        writeState(state);
         stateChanged = true;
       }
       const email = String(payload.email || "").trim().toLowerCase();
