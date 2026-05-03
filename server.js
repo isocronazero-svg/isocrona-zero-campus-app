@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const zlib = require("zlib");
 const {
   associateUploadsDir,
@@ -227,6 +228,80 @@ function buildSessionPayload(account, sessionToken = "") {
   };
 }
 
+function hashLegacyAccountPassword(password) {
+  const rawPassword = String(password || "");
+  const salt = crypto.randomBytes(16);
+  const derivedKey = crypto.scryptSync(rawPassword, salt, 64);
+  return `scrypt:${salt.toString("hex")}:${derivedKey.toString("hex")}`;
+}
+
+function isScryptPasswordHash(value) {
+  const normalized = String(value || "").trim();
+  return /^scrypt:[0-9a-f]+:[0-9a-f]+$/i.test(normalized);
+}
+
+function isLegacySha256PasswordHash(value) {
+  const normalized = String(value || "").trim();
+  return /^[0-9a-f]{64}$/i.test(normalized);
+}
+
+function hasLegacyAccountPasswordHash(account) {
+  return Boolean(String(account?.passwordHash || "").trim());
+}
+
+function needsPasswordHashUpgrade(account) {
+  const storedHash = String(account?.passwordHash || "").trim();
+  if (!storedHash) {
+    return Boolean(String(account?.password || "").trim());
+  }
+
+  return !isScryptPasswordHash(storedHash);
+}
+
+function verifyLegacyAccountPassword(account, submittedPassword) {
+  const candidate = String(submittedPassword || "");
+  if (!candidate) {
+    return false;
+  }
+
+  if (hasLegacyAccountPasswordHash(account)) {
+    const storedHash = String(account.passwordHash || "").trim();
+    if (isScryptPasswordHash(storedHash)) {
+      const [, saltHex, hashHex] = storedHash.split(":");
+      if (!saltHex || !hashHex) {
+        return false;
+      }
+
+      const expectedHash = Buffer.from(hashHex, "hex");
+      const derivedHash = crypto.scryptSync(candidate, Buffer.from(saltHex, "hex"), expectedHash.length);
+      if (expectedHash.length !== derivedHash.length) {
+        return false;
+      }
+      return crypto.timingSafeEqual(expectedHash, derivedHash);
+    }
+
+    if (isLegacySha256PasswordHash(storedHash)) {
+      const legacyHash = crypto.createHash("sha256").update(candidate, "utf8").digest("hex");
+      return crypto.timingSafeEqual(Buffer.from(storedHash, "hex"), Buffer.from(legacyHash, "hex"));
+    }
+
+    return false;
+  }
+
+  return String(account?.password || "") === candidate;
+}
+
+function setLegacyAccountPassword(account, password) {
+  if (!account) {
+    return account;
+  }
+
+  const rawPassword = String(password || "").trim();
+  account.passwordHash = rawPassword ? hashLegacyAccountPassword(rawPassword) : "";
+  account.password = "";
+  return account;
+}
+
 function createSessionToken(account) {
   const token = `izs_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
   activeSessions.set(token, {
@@ -419,7 +494,8 @@ function ensureLegacyAccountForDbUser(state, dbUser, options = {}) {
       id: generateLegacyId("account-db"),
       name: dbUser.name,
       email: dbUser.email,
-      password: String(options.password || ""),
+      password: "",
+      passwordHash: "",
       role: mapPlatformRoleToLegacyAccountRole(dbUser.role),
       memberId: member.id,
       associateId: matchedAssociate?.id || "",
@@ -434,9 +510,10 @@ function ensureLegacyAccountForDbUser(state, dbUser, options = {}) {
     account.memberId = member.id;
     account.associateId = matchedAssociate?.id || account.associateId || "";
     account.source = "postgres";
-    if (typeof options.password === "string" && options.password.trim()) {
-      account.password = options.password.trim();
-    }
+  }
+
+  if (typeof options.password === "string" && options.password.trim()) {
+    setLegacyAccountPassword(account, options.password);
   }
 
   if (matchedAssociate) {
@@ -729,18 +806,20 @@ function applyRecoveryAdminAccessFromEnv(options = {}) {
       id: `account-recovery-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: member.name,
       email,
-      password,
+      password: "",
+      passwordHash: "",
       role: "admin",
       memberId: member.id,
       associateId: associate?.id || "",
       mustChangePassword: false,
       source: "recovery"
     };
+    setLegacyAccountPassword(account, password);
     state.accounts.push(account);
   } else {
     account.name = member.name || account.name || "Administrador recuperado";
     account.email = email;
-    account.password = password;
+    setLegacyAccountPassword(account, password);
     account.role = "admin";
     account.memberId = member.id;
     account.associateId = associate?.id || account.associateId || "";
@@ -1090,13 +1169,15 @@ function registerPublicCampusAccount(state, payload) {
     id: `account-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     name: member.name,
     email,
-    password,
+    password: "",
+    passwordHash: "",
     role: "member",
     memberId: member.id,
     associateId: "",
     mustChangePassword: false,
     source: "public-campus"
   };
+  setLegacyAccountPassword(account, password);
   state.accounts.push(account);
 
   appendActivity(
@@ -1654,13 +1735,15 @@ const server = http.createServer(async (req, res) => {
         id: generateLegacyId("account-manual"),
         name: String(payload.name || "").trim(),
         email: String(payload.email || "").trim().toLowerCase(),
-        password: String(payload.password || "").trim(),
+        password: "",
+        passwordHash: "",
         role: mapPlatformRoleToLegacyAccountRole(payload.role),
         memberId,
         associateId: String(payload.associateId || ""),
         mustChangePassword: false,
         source: "manual-admin"
       };
+      setLegacyAccountPassword(legacyAccount, payload.password);
       state.accounts.unshift(legacyAccount);
       writeState(state);
       return sendJson(res, 201, { ok: true, user: buildLegacyCurrentUser(legacyAccount, state) });
@@ -1701,7 +1784,7 @@ const server = http.createServer(async (req, res) => {
       legacyAccount.email = String(payload.email || legacyAccount.email || "").trim().toLowerCase();
       legacyAccount.role = mapPlatformRoleToLegacyAccountRole(payload.role || legacyAccount.role);
       if (typeof payload.password === "string" && payload.password.trim()) {
-        legacyAccount.password = payload.password.trim();
+        setLegacyAccountPassword(legacyAccount, payload.password);
       }
       const member = (state.members || []).find((item) => item.id === legacyAccount.memberId);
       if (member) {
@@ -1895,14 +1978,21 @@ const server = http.createServer(async (req, res) => {
         applyRecoveryAdminAccessFromEnv();
       }
       let state = readState();
+      let stateChanged = false;
       if (synchronizeAssociateStatuses(state)) {
-        writeState(state);
+        stateChanged = true;
       }
       const email = String(payload.email || "").trim().toLowerCase();
       const password = String(payload.password || "").trim();
       let account = (state.accounts || []).find(
-        (item) => String(item.email || "").trim().toLowerCase() === email && item.password === password
+        (item) =>
+          String(item.email || "").trim().toLowerCase() === email &&
+          verifyLegacyAccountPassword(item, password)
       );
+      if (account && needsPasswordHashUpgrade(account)) {
+        setLegacyAccountPassword(account, password);
+        stateChanged = true;
+      }
 
       if (
         !account &&
@@ -1915,7 +2005,9 @@ const server = http.createServer(async (req, res) => {
         applyRecoveryAdminAccessFromEnv();
         state = readState();
         account = (state.accounts || []).find(
-          (item) => String(item.email || "").trim().toLowerCase() === email && item.password === password
+          (item) =>
+            String(item.email || "").trim().toLowerCase() === email &&
+            verifyLegacyAccountPassword(item, password)
         );
         if (!account) {
           state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
@@ -1952,13 +2044,15 @@ const server = http.createServer(async (req, res) => {
             id: `account-recovery-login-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             name: member.name,
             email,
-            password,
+            password: "",
+            passwordHash: "",
             role: "admin",
             memberId: member.id,
             associateId: associate?.id || "",
             mustChangePassword: false,
             source: "recovery-login"
           };
+          setLegacyAccountPassword(account, password);
           state.accounts.push(account);
           if (associate) {
             associate.linkedMemberId = member.id;
@@ -1996,6 +2090,10 @@ const server = http.createServer(async (req, res) => {
           ok: false,
           error: "Tu acceso al campus esta bloqueado temporalmente. Contacta con administracion."
         });
+      }
+
+      if (stateChanged) {
+        writeState(state);
       }
 
         const token = createSessionToken(account);
@@ -2037,7 +2135,7 @@ const server = http.createServer(async (req, res) => {
       if (account.id !== authenticatedAccount.id) {
         throw new Error("No puedes modificar otra cuenta");
       }
-      if (account.password !== currentPassword) {
+      if (!verifyLegacyAccountPassword(account, currentPassword)) {
         throw new Error("La contrasena actual no coincide");
       }
       if (newPassword.length < 8) {
@@ -2050,7 +2148,7 @@ const server = http.createServer(async (req, res) => {
         throw new Error("La nueva contrasena debe ser distinta de la temporal");
       }
 
-      account.password = newPassword;
+      setLegacyAccountPassword(account, newPassword);
       account.mustChangePassword = false;
 
       const associate = account.associateId
@@ -7424,12 +7522,14 @@ function provisionAssociateCampusAccess(state, associate, options = {}) {
       id: `account-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: member.name,
       email: associate.email,
-      password: tempPassword,
+      password: "",
+      passwordHash: "",
       role: requestedAccountRole || "member",
       memberId: member.id,
       associateId: associate.id,
       mustChangePassword: true
     };
+    setLegacyAccountPassword(account, tempPassword);
     state.accounts.push(account);
     associate.temporaryPassword = tempPassword;
   } else {
@@ -7440,10 +7540,11 @@ function provisionAssociateCampusAccess(state, associate, options = {}) {
     if (requestedAccountRole) {
       account.role = requestedAccountRole;
     }
-    if (!account.password) {
-      account.password = buildTemporaryCampusPassword(associate);
+    if (!account.passwordHash && !account.password) {
+      const tempPassword = buildTemporaryCampusPassword(associate);
+      setLegacyAccountPassword(account, tempPassword);
       account.mustChangePassword = true;
-      associate.temporaryPassword = account.password;
+      associate.temporaryPassword = tempPassword;
     }
   }
 
@@ -7451,7 +7552,7 @@ function provisionAssociateCampusAccess(state, associate, options = {}) {
   associate.linkedAccountId = account.id;
   associate.campusAccessStatus = "active";
   if (!associate.temporaryPassword && account.mustChangePassword) {
-    associate.temporaryPassword = account.password;
+    associate.temporaryPassword = "";
   }
 
   appendActivity(
@@ -7490,7 +7591,7 @@ function resetAssociateCampusPassword(state, associate) {
   }
 
   const tempPassword = buildTemporaryCampusPassword(associate, { unique: true });
-  account.password = tempPassword;
+  setLegacyAccountPassword(account, tempPassword);
   account.mustChangePassword = true;
   account.email = associate.email;
   account.name = getAssociateFullName(associate) || account.name;
@@ -7617,17 +7718,20 @@ function importMembersCsv(state, csv) {
           existingAccount.email = email;
           existingAccount.role = accessRole;
           if (accessPassword) {
-            existingAccount.password = accessPassword;
+            setLegacyAccountPassword(existingAccount, accessPassword);
           }
         } else {
-          state.accounts.push({
+          const account = {
             id: `account-${Date.now()}-${index}`,
             name,
             email,
-            password: accessPassword || "cambiar123",
+            password: "",
+            passwordHash: "",
             role: accessRole,
             memberId: existingMember.id
-          });
+          };
+          setLegacyAccountPassword(account, accessPassword || "cambiar123");
+          state.accounts.push(account);
         }
       }
 
@@ -7646,14 +7750,17 @@ function importMembersCsv(state, csv) {
     });
 
     if (accessPassword) {
-      state.accounts.push({
+      const account = {
         id: `account-${Date.now()}-${index}`,
         name,
         email,
-        password: accessPassword,
+        password: "",
+        passwordHash: "",
         role: accessRole,
         memberId
-      });
+      };
+      setLegacyAccountPassword(account, accessPassword);
+      state.accounts.push(account);
     }
 
     result.created += 1;
@@ -9605,7 +9712,7 @@ function buildAssociateWelcomeEmailBody(state, associate, account, member) {
   const displayName = getAssociateFullName(associate) || account?.name || member?.name || "socio";
   const loginEmail = account?.email || associate.email || "";
   const hasTemporaryPassword = Boolean(account?.mustChangePassword);
-  const tempPassword = hasTemporaryPassword ? associate.temporaryPassword || account?.password || "" : "";
+  const tempPassword = hasTemporaryPassword ? associate.temporaryPassword || "" : "";
   const service = String(associate.service || "").trim();
   const contactEmail = state.settings?.smtp?.fromEmail || "administracion@isocronazero.org";
 
