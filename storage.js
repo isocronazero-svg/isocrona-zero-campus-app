@@ -227,6 +227,65 @@ function normalizeCourseClass(value) {
   return "teorico-practico";
 }
 
+function normalizeIndependentTestModule(module, moduleIndex) {
+  return {
+    id: module?.id || `test-module-${Date.now()}-${moduleIndex}`,
+    title: String(module?.title || "").trim(),
+    description: String(module?.description || "").trim(),
+    createdAt: module?.createdAt || new Date().toISOString(),
+    ...module
+  };
+}
+
+function normalizeIndependentTest(test, testIndex) {
+  return {
+    id: test?.id || `test-${Date.now()}-${testIndex}`,
+    moduleId: String(test?.moduleId || "").trim(),
+    title: String(test?.title || "").trim(),
+    description: String(test?.description || "").trim(),
+    questionIds: Array.isArray(test?.questionIds) ? test.questionIds.map((item) => String(item || "").trim()).filter(Boolean) : [],
+    published: Boolean(test?.published),
+    createdAt: test?.createdAt || new Date().toISOString(),
+    ...test,
+    questionIds: Array.isArray(test?.questionIds) ? test.questionIds.map((item) => String(item || "").trim()).filter(Boolean) : [],
+    published: Boolean(test?.published)
+  };
+}
+
+function normalizeIndependentQuestion(question, questionIndex) {
+  const options = Array.isArray(question?.options)
+    ? question.options.map((item) => String(item || "").trim())
+    : [];
+  return {
+    id: question?.id || `question-bank-${Date.now()}-${questionIndex}`,
+    moduleId: String(question?.moduleId || "").trim(),
+    prompt: String(question?.prompt || "").trim(),
+    options,
+    correctIndex: Number.isInteger(Number(question?.correctIndex)) ? Number(question.correctIndex) : 0,
+    explanation: String(question?.explanation || "").trim(),
+    createdAt: question?.createdAt || new Date().toISOString(),
+    ...question,
+    options,
+    correctIndex: Number.isInteger(Number(question?.correctIndex)) ? Number(question.correctIndex) : 0
+  };
+}
+
+function normalizeIndependentTestAttempt(attempt, attemptIndex) {
+  return {
+    id: attempt?.id || `test-attempt-${Date.now()}-${attemptIndex}`,
+    testId: String(attempt?.testId || "").trim(),
+    memberId: String(attempt?.memberId || "").trim(),
+    answers: Array.isArray(attempt?.answers) ? attempt.answers.map((value) => Number(value)) : [],
+    score: Number(attempt?.score || 0),
+    total: Number(attempt?.total || 0),
+    createdAt: attempt?.createdAt || new Date().toISOString(),
+    ...attempt,
+    answers: Array.isArray(attempt?.answers) ? attempt.answers.map((value) => Number(value)) : [],
+    score: Number(attempt?.score || 0),
+    total: Number(attempt?.total || 0)
+  };
+}
+
 function buildModulesFromSessions(sessions) {
   return (Array.isArray(sessions) ? sessions : []).map((session, index) =>
     normalizeCourseModule(
@@ -508,6 +567,18 @@ function normalizeState(state) {
     message: item.message || "",
     ...item
   }));
+  nextState.testModules = (state.testModules || []).map((module, index) =>
+    normalizeIndependentTestModule(module, index)
+  );
+  nextState.tests = (state.tests || []).map((test, index) =>
+    normalizeIndependentTest(test, index)
+  );
+  nextState.questions = (state.questions || []).map((question, index) =>
+    normalizeIndependentQuestion(question, index)
+  );
+  nextState.testAttempts = (state.testAttempts || []).map((attempt, index) =>
+    normalizeIndependentTestAttempt(attempt, index)
+  );
   nextState.associateApplications = (state.associateApplications || []).map((item) => ({
     id: item.id || `associate-application-${Date.now()}`,
     publicAccessToken: item.publicAccessToken || `${item.id || `associate-application-${Date.now()}`}-access`,
