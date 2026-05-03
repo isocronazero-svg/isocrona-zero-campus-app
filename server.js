@@ -32,7 +32,6 @@ loadDotEnv(path.join(__dirname, ".env"));
 const root = path.join(__dirname, "public");
 const port = process.env.PORT || 3210;
 const appRelease = "recovery-admin-2026-04-08-8";
-const emergencyRecoveryPassword = "IZ-Rescate-72Zp91xQ";
 const automationIntervalMs = Number(process.env.AUTOMATION_INTERVAL_MS || 300000);
 const bundledDataDir = path.join(__dirname, "data");
 const associateSelfEditWindowDays = Number(process.env.IZ_ASSOCIATE_SELF_EDIT_DAYS || 30);
@@ -653,11 +652,28 @@ function normalizeCampusAccountRole(role) {
   return role === "admin" ? "admin" : "member";
 }
 
-function applyRecoveryAdminAccessFromEnv(options = {}) {
-  const email = String(options.email || process.env.IZ_RECOVERY_ADMIN_EMAIL || "sal.ro.carlos@gmail.com")
+function getRecoveryAdminEnvConfig() {
+  const email = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "")
     .trim()
     .toLowerCase();
-  const password = String(options.password || process.env.IZ_RECOVERY_ADMIN_PASSWORD || "").trim();
+  const password = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "").trim();
+  const enabled = Boolean(email && password);
+  return {
+    email,
+    password,
+    enabled
+  };
+}
+
+function applyRecoveryAdminAccessFromEnv(options = {}) {
+  const recoveryConfig = getRecoveryAdminEnvConfig();
+  const email = String(options.email || recoveryConfig.email)
+    .trim()
+    .toLowerCase();
+  const password = String(options.password || recoveryConfig.password).trim();
+  if (!recoveryConfig.enabled) {
+    return null;
+  }
   if (!email || !password) {
     return null;
   }
@@ -1820,19 +1836,21 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/recovery-admin" && req.method === "POST") {
     try {
+      const recoveryConfig = getRecoveryAdminEnvConfig();
+      if (!recoveryConfig.enabled) {
+        return sendJson(res, 403, {
+          ok: false,
+          error: "La recuperacion de administrador no esta habilitada en este entorno."
+        });
+      }
       const payload = await readJsonBody(req);
       const submittedPassword = String(payload.password || "").trim();
-      const recoveryPassword = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "").trim();
-      const acceptedPassword =
-        (recoveryPassword && submittedPassword === recoveryPassword) ||
-        submittedPassword === emergencyRecoveryPassword
-          ? submittedPassword
-          : "";
+      const acceptedPassword = submittedPassword === recoveryConfig.password ? submittedPassword : "";
 
       if (!acceptedPassword) {
         return sendJson(res, 401, {
           ok: false,
-          error: "La clave de rescate no coincide. Usa la temporal de Railway o la clave de rescate directa."
+          error: "La clave de recuperacion no coincide con la configurada en el entorno."
         });
       }
 
@@ -1843,11 +1861,8 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const recoveryEmail = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "sal.ro.carlos@gmail.com")
-        .trim()
-        .toLowerCase();
       const account = applyRecoveryAdminAccessFromEnv({
-        email: recoveryEmail,
+        email: recoveryConfig.email,
         password: acceptedPassword
       });
 
@@ -1873,9 +1888,10 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/login" && req.method === "POST") {
     try {
       const payload = await readJsonBody(req);
-      const recoveryEmail = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || "sal.ro.carlos@gmail.com").trim().toLowerCase();
-      const recoveryPassword = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "").trim();
-      if (recoveryEmail && recoveryPassword.length >= 8) {
+      const recoveryConfig = getRecoveryAdminEnvConfig();
+      const recoveryEmail = recoveryConfig.email;
+      const recoveryPassword = recoveryConfig.password;
+      if (recoveryConfig.enabled && recoveryPassword.length >= 8) {
         applyRecoveryAdminAccessFromEnv();
       }
       let state = readState();
@@ -1893,6 +1909,7 @@ const server = http.createServer(async (req, res) => {
         email &&
         email === recoveryEmail &&
         password === recoveryPassword &&
+        recoveryConfig.enabled &&
         password.length >= 8
       ) {
         applyRecoveryAdminAccessFromEnv();
