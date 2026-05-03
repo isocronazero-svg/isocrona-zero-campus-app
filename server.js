@@ -230,11 +230,33 @@ function buildSessionPayload(account, sessionToken = "") {
 }
 
 function hashLegacyAccountPassword(password) {
-  return crypto.createHash("sha256").update(String(password || ""), "utf8").digest("hex");
+  const rawPassword = String(password || "");
+  const salt = crypto.randomBytes(16);
+  const derivedKey = crypto.scryptSync(rawPassword, salt, 64);
+  return `scrypt:${salt.toString("hex")}:${derivedKey.toString("hex")}`;
+}
+
+function isScryptPasswordHash(value) {
+  const normalized = String(value || "").trim();
+  return /^scrypt:[0-9a-f]+:[0-9a-f]+$/i.test(normalized);
+}
+
+function isLegacySha256PasswordHash(value) {
+  const normalized = String(value || "").trim();
+  return /^[0-9a-f]{64}$/i.test(normalized);
 }
 
 function hasLegacyAccountPasswordHash(account) {
   return Boolean(String(account?.passwordHash || "").trim());
+}
+
+function needsPasswordHashUpgrade(account) {
+  const storedHash = String(account?.passwordHash || "").trim();
+  if (!storedHash) {
+    return Boolean(String(account?.password || "").trim());
+  }
+
+  return !isScryptPasswordHash(storedHash);
 }
 
 function verifyLegacyAccountPassword(account, submittedPassword) {
@@ -244,7 +266,27 @@ function verifyLegacyAccountPassword(account, submittedPassword) {
   }
 
   if (hasLegacyAccountPasswordHash(account)) {
-    return hashLegacyAccountPassword(candidate) === String(account.passwordHash || "").trim();
+    const storedHash = String(account.passwordHash || "").trim();
+    if (isScryptPasswordHash(storedHash)) {
+      const [, saltHex, hashHex] = storedHash.split(":");
+      if (!saltHex || !hashHex) {
+        return false;
+      }
+
+      const expectedHash = Buffer.from(hashHex, "hex");
+      const derivedHash = crypto.scryptSync(candidate, Buffer.from(saltHex, "hex"), expectedHash.length);
+      if (expectedHash.length !== derivedHash.length) {
+        return false;
+      }
+      return crypto.timingSafeEqual(expectedHash, derivedHash);
+    }
+
+    if (isLegacySha256PasswordHash(storedHash)) {
+      const legacyHash = crypto.createHash("sha256").update(candidate, "utf8").digest("hex");
+      return crypto.timingSafeEqual(Buffer.from(storedHash, "hex"), Buffer.from(legacyHash, "hex"));
+    }
+
+    return false;
   }
 
   return String(account?.password || "") === candidate;
@@ -1931,7 +1973,7 @@ const server = http.createServer(async (req, res) => {
           String(item.email || "").trim().toLowerCase() === email &&
           verifyLegacyAccountPassword(item, password)
       );
-      if (account && !hasLegacyAccountPasswordHash(account)) {
+      if (account && needsPasswordHashUpgrade(account)) {
         setLegacyAccountPassword(account, password);
         stateChanged = true;
       }
