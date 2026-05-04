@@ -3,6 +3,7 @@ const testsViewState = {
   modules: [],
   tests: [],
   questionsByTestId: {},
+  attemptsByTestId: {},
   activeTestId: "",
   result: null,
   message: "",
@@ -44,6 +45,10 @@ function getQuestionsForTest(testId) {
   return Array.isArray(testsViewState.questionsByTestId[testId]) ? testsViewState.questionsByTestId[testId] : [];
 }
 
+function getAttemptsForTest(testId) {
+  return Array.isArray(testsViewState.attemptsByTestId[testId]) ? testsViewState.attemptsByTestId[testId] : [];
+}
+
 async function loadAdminData() {
   const client = getApiClient();
   if (!client) {
@@ -58,6 +63,7 @@ async function loadAdminData() {
   testsViewState.modules = Array.isArray(testModules) ? testModules : [];
   testsViewState.tests = Array.isArray(tests) ? tests : [];
   testsViewState.questionsByTestId = {};
+  testsViewState.attemptsByTestId = {};
 
   await Promise.all(
     testsViewState.tests.map(async (test) => {
@@ -81,6 +87,16 @@ async function ensureStudentActiveTestQuestions() {
   testsViewState.questionsByTestId[testsViewState.activeTestId] = Array.isArray(response.questions) ? response.questions : [];
 }
 
+async function ensureStudentActiveTestAttempts() {
+  const client = getApiClient();
+  if (!client || !testsViewState.activeTestId) {
+    return;
+  }
+
+  const response = await client.get(`/api/tests/${encodeURIComponent(testsViewState.activeTestId)}/attempts/me`);
+  testsViewState.attemptsByTestId[testsViewState.activeTestId] = Array.isArray(response.attempts) ? response.attempts : [];
+}
+
 async function loadStudentData() {
   const client = getApiClient();
   if (!client) {
@@ -95,6 +111,7 @@ async function loadStudentData() {
   testsViewState.modules = Array.isArray(testModules) ? testModules : [];
   testsViewState.tests = Array.isArray(tests) ? tests : [];
   testsViewState.questionsByTestId = {};
+  testsViewState.attemptsByTestId = {};
   testsViewState.result = null;
 
   const visibleTests = testsViewState.tests.filter((test) => Boolean(test.published));
@@ -106,6 +123,23 @@ async function loadStudentData() {
   const hasActiveVisibleTest = visibleTests.some((test) => test.id === testsViewState.activeTestId);
   testsViewState.activeTestId = hasActiveVisibleTest ? testsViewState.activeTestId : visibleTests[0].id;
   await ensureStudentActiveTestQuestions();
+  await ensureStudentActiveTestAttempts();
+}
+
+function formatAttemptDate(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString("es-ES", {
+    dateStyle: "short",
+    timeStyle: "short"
+  });
 }
 
 function buildAdminModuleMarkup(module) {
@@ -285,6 +319,7 @@ function buildStudentActiveTestMarkup() {
 
   const test = testsViewState.tests.find((item) => item.id === testsViewState.activeTestId) || null;
   const questions = getQuestionsForTest(testsViewState.activeTestId);
+  const attempts = getAttemptsForTest(testsViewState.activeTestId);
   if (!test || !questions.length) {
     return '<div class="empty-state">Este test aun no tiene preguntas disponibles.</div>';
   }
@@ -320,6 +355,27 @@ function buildStudentActiveTestMarkup() {
       <div class="chip-row">
         <button class="primary-button" type="submit">Enviar respuestas</button>
       </div>
+      <section class="panel panel-side">
+        <h4>Mis intentos</h4>
+        ${
+          attempts.length
+            ? `
+              <ul class="stack">
+                ${attempts
+                  .map(
+                    (attempt) => `
+                      <li>
+                        <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
+                        <p class="muted">${escapeHtml(formatAttemptDate(attempt.createdAt))}</p>
+                      </li>
+                    `
+                  )
+                  .join("")}
+              </ul>
+            `
+            : '<p class="muted">Todavia no has realizado intentos en este test.</p>'
+        }
+      </section>
     </form>
   `;
 }
@@ -444,6 +500,7 @@ async function handleStudentAttemptSubmit(container, form) {
     score: Number(response.score || 0),
     total: Number(response.total || 0)
   };
+  await ensureStudentActiveTestAttempts();
   setTestsViewMessage(`Resultado guardado: ${testsViewState.result.score}/${testsViewState.result.total}.`, "success");
   renderTestsMarkup(container);
 }
