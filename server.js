@@ -441,6 +441,10 @@ function ensureLegacyAccountForDbUser(state, dbUser, options = {}) {
   state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
   state.members = Array.isArray(state.members) ? state.members : [];
   state.associates = Array.isArray(state.associates) ? state.associates : [];
+  state.testModules = Array.isArray(state.testModules) ? state.testModules : [];
+  state.tests = Array.isArray(state.tests) ? state.tests : [];
+  state.questions = Array.isArray(state.questions) ? state.questions : [];
+  state.testAttempts = Array.isArray(state.testAttempts) ? state.testAttempts : [];
   state.testResults = Array.isArray(state.testResults) ? state.testResults : [];
 
   const normalizedEmail = String(dbUser?.email || "").trim().toLowerCase();
@@ -569,6 +573,157 @@ function buildLegacyCurrentUser(account, state) {
     memberId: account.memberId || "",
     associateId: account.associateId || ""
   };
+}
+
+function ensureIndependentTestsState(state) {
+  state.testModules = Array.isArray(state.testModules) ? state.testModules : [];
+  state.tests = Array.isArray(state.tests) ? state.tests : [];
+  state.questions = Array.isArray(state.questions) ? state.questions : [];
+  state.testAttempts = Array.isArray(state.testAttempts) ? state.testAttempts : [];
+  return state;
+}
+
+function buildIndependentTestModule(payload = {}) {
+  const title = String(payload.title || "").trim();
+  if (!title) {
+    throw new Error("El modulo de test necesita un titulo");
+  }
+
+  return {
+    id: generateLegacyId("test-module"),
+    title,
+    description: String(payload.description || "").trim(),
+    createdAt: new Date().toISOString()
+  };
+}
+
+function buildIndependentTest(state, payload = {}) {
+  ensureIndependentTestsState(state);
+  const moduleId = String(payload.moduleId || "").trim();
+  const title = String(payload.title || "").trim();
+  const questionIds = Array.isArray(payload.questionIds)
+    ? payload.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  if (!moduleId) {
+    throw new Error("El test necesita un modulo");
+  }
+  if (!state.testModules.find((item) => item.id === moduleId)) {
+    throw new Error("Modulo de test no encontrado");
+  }
+  if (!title) {
+    throw new Error("El test necesita un titulo");
+  }
+
+  questionIds.forEach((questionId) => {
+    const question = state.questions.find((item) => item.id === questionId);
+    if (!question) {
+      throw new Error("Pregunta de test no encontrada");
+    }
+    if (String(question.moduleId || "").trim() !== moduleId) {
+      throw new Error("La pregunta no pertenece al modulo del test");
+    }
+  });
+
+  return {
+    id: generateLegacyId("test"),
+    moduleId,
+    title,
+    description: String(payload.description || "").trim(),
+    questionIds,
+    published: Boolean(payload.published),
+    createdAt: new Date().toISOString()
+  };
+}
+
+function buildIndependentQuestion(state, payload = {}) {
+  ensureIndependentTestsState(state);
+  const moduleId = String(payload.moduleId || "").trim();
+  const prompt = String(payload.prompt || "").trim();
+  const options = Array.isArray(payload.options)
+    ? payload.options.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const correctIndex = Number(payload.correctIndex);
+
+  if (!moduleId) {
+    throw new Error("La pregunta necesita un modulo");
+  }
+  if (!state.testModules.find((item) => item.id === moduleId)) {
+    throw new Error("Modulo de test no encontrado");
+  }
+  if (!prompt) {
+    throw new Error("La pregunta necesita un enunciado");
+  }
+  if (options.length < 2) {
+    throw new Error("La pregunta necesita al menos dos opciones");
+  }
+  if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= options.length) {
+    throw new Error("El indice correcto no es valido");
+  }
+
+  return {
+    id: generateLegacyId("question"),
+    moduleId,
+    prompt,
+    options,
+    correctIndex,
+    explanation: String(payload.explanation || "").trim(),
+    createdAt: new Date().toISOString()
+  };
+}
+
+function listIndependentQuestionsForTest(state, testId = "") {
+  ensureIndependentTestsState(state);
+  if (!testId) {
+    return state.questions;
+  }
+
+  const test = state.tests.find((item) => item.id === testId);
+  if (!test) {
+    throw new Error("Test no encontrado");
+  }
+
+  const questionsById = new Map((state.questions || []).map((question) => [question.id, question]));
+  return (Array.isArray(test.questionIds) ? test.questionIds : [])
+    .map((questionId) => questionsById.get(questionId))
+    .filter(Boolean);
+}
+
+function normalizeIndependentTestAnswer(value, question) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const answer = Number(value);
+  if (!Number.isInteger(answer) || answer < 0 || answer >= ((question?.options || []).length || 0)) {
+    return null;
+  }
+
+  return answer;
+}
+
+function createIndependentTestAttempt(state, test, memberId, answers) {
+  ensureIndependentTestsState(state);
+  const questions = listIndependentQuestionsForTest(state, test.id);
+  const normalizedAnswers = questions.map((question, index) =>
+    normalizeIndependentTestAnswer(Array.isArray(answers) ? answers[index] : null, question)
+  );
+  const score = questions.reduce(
+    (sum, question, index) => sum + (normalizedAnswers[index] === Number(question.correctIndex) ? 1 : 0),
+    0
+  );
+
+  const attempt = {
+    id: generateLegacyId("test-attempt"),
+    testId: test.id,
+    memberId,
+    answers: normalizedAnswers,
+    score,
+    total: questions.length,
+    createdAt: new Date().toISOString()
+  };
+
+  state.testAttempts.unshift(attempt);
+  return attempt;
 }
 
 function normalizeCourseAccessScope(value, fallbackAudience = "") {
@@ -1797,6 +1952,156 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, user: buildLegacyCurrentUser(legacyAccount, state) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo actualizar el usuario" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-modules" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      return sendJson(res, 200, { ok: true, testModules: state.testModules });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar los modulos de test" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-modules" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const testModule = buildIndependentTestModule(payload);
+      state.testModules.unshift(testModule);
+      writeState(state);
+      return sendJson(res, 201, { ok: true, testModule });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear el modulo de test" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/tests" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      return sendJson(res, 200, { ok: true, tests: state.tests });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar los tests" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/tests" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const test = buildIndependentTest(state, payload);
+      state.tests.unshift(test);
+      writeState(state);
+      return sendJson(res, 201, { ok: true, test });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear el test" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/questions" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const testId = String(requestUrl.searchParams.get("testId") || "").trim();
+      const questions = listIndependentQuestionsForTest(state, testId);
+      return sendJson(res, 200, { ok: true, questions });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar las preguntas" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/questions" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const question = buildIndependentQuestion(state, payload);
+      state.questions.unshift(question);
+
+      const testId = String(payload.testId || "").trim();
+      if (testId) {
+        const test = state.tests.find((item) => item.id === testId);
+        if (!test) {
+          throw new Error("Test no encontrado");
+        }
+        if (String(test.moduleId || "").trim() !== String(question.moduleId || "").trim()) {
+          throw new Error("La pregunta no pertenece al modulo del test");
+        }
+        test.questionIds = [...new Set([...(Array.isArray(test.questionIds) ? test.questionIds : []), question.id])];
+      }
+
+      writeState(state);
+      return sendJson(res, 201, { ok: true, question });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear la pregunta" });
+    }
+  }
+
+  if (/^\/api\/tests\/[^/]+\/attempt$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const testId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const test = state.tests.find((item) => item.id === testId);
+      if (!test) {
+        return sendJson(res, 404, { ok: false, error: "Test no encontrado" });
+      }
+      if (!test.published) {
+        return sendJson(res, 403, { ok: false, error: "El test no esta publicado" });
+      }
+      if (!account.memberId) {
+        return sendJson(res, 400, { ok: false, error: "Tu cuenta no tiene un miembro asociado para guardar el intento" });
+      }
+      const attempt = createIndependentTestAttempt(state, test, account.memberId, payload.answers);
+      writeState(state);
+      return sendJson(res, 201, {
+        ok: true,
+        attempt: {
+          id: attempt.id,
+          testId: attempt.testId,
+          score: attempt.score,
+          total: attempt.total,
+          createdAt: attempt.createdAt
+        },
+        score: attempt.score,
+        total: attempt.total
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el intento del test" });
     }
   }
 
