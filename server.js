@@ -726,6 +726,38 @@ function createIndependentTestAttempt(state, test, memberId, answers) {
   return attempt;
 }
 
+function buildIndependentTestAttemptAudiencePayload(attempt) {
+  return {
+    id: attempt.id,
+    testId: attempt.testId,
+    score: attempt.score,
+    total: attempt.total,
+    createdAt: attempt.createdAt
+  };
+}
+
+function listIndependentTestAttemptsForAccount(state, test, account) {
+  ensureIndependentTestsState(state);
+  if (!account?.memberId) {
+    throw new Error("Tu cuenta no tiene un miembro asociado para consultar intentos");
+  }
+  if (!test) {
+    throw new Error("Test no encontrado");
+  }
+  if (account.role !== "admin" && !test.published) {
+    throw new Error("Test no encontrado");
+  }
+
+  return (state.testAttempts || [])
+    .filter(
+      (attempt) =>
+        String(attempt.testId || "").trim() === String(test.id || "").trim() &&
+        String(attempt.memberId || "").trim() === String(account.memberId || "").trim()
+    )
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
+    .map((attempt) => buildIndependentTestAttemptAudiencePayload(attempt));
+}
+
 function buildIndependentTestQuestionAudiencePayload(question, options = {}) {
   if (options.admin) {
     return question;
@@ -2187,6 +2219,23 @@ const server = http.createServer(async (req, res) => {
       });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el intento del test" });
+    }
+  }
+
+  if (/^\/api\/tests\/[^/]+\/attempts\/me$/.test(requestUrl.pathname) && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const testId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const test = state.tests.find((item) => item.id === testId);
+      const attempts = listIndependentTestAttemptsForAccount(state, test, account);
+      return sendJson(res, 200, { ok: true, attempts });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar tus intentos" });
     }
   }
 
