@@ -739,13 +739,42 @@ function buildIndependentTestQuestionAudiencePayload(question, options = {}) {
   };
 }
 
+function buildIndependentTestAudiencePayload(test, options = {}) {
+  if (options.admin) {
+    return test;
+  }
+
+  return {
+    id: test.id,
+    moduleId: test.moduleId,
+    title: test.title,
+    description: test.description,
+    published: true,
+    questionCount: Array.isArray(test.questionIds) ? test.questionIds.length : 0
+  };
+}
+
+function buildIndependentTestModuleAudiencePayload(testModule, options = {}) {
+  if (options.admin) {
+    return testModule;
+  }
+
+  return {
+    id: testModule.id,
+    title: testModule.title,
+    description: testModule.description
+  };
+}
+
 function listVisibleIndependentTests(state, account) {
   ensureIndependentTestsState(state);
   if (account?.role === "admin") {
     return state.tests;
   }
 
-  return state.tests.filter((test) => Boolean(test.published));
+  return state.tests
+    .filter((test) => Boolean(test.published))
+    .map((test) => buildIndependentTestAudiencePayload(test, { admin: false }));
 }
 
 function listVisibleIndependentTestModules(state, account) {
@@ -757,7 +786,9 @@ function listVisibleIndependentTestModules(state, account) {
   const visibleModuleIds = new Set(
     listVisibleIndependentTests(state, account).map((test) => String(test.moduleId || "").trim()).filter(Boolean)
   );
-  return state.testModules.filter((module) => visibleModuleIds.has(String(module.id || "").trim()));
+  return state.testModules
+    .filter((module) => visibleModuleIds.has(String(module.id || "").trim()))
+    .map((module) => buildIndependentTestModuleAudiencePayload(module, { admin: false }));
 }
 
 function listVisibleIndependentQuestions(state, account, testId = "") {

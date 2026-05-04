@@ -306,7 +306,7 @@ function buildStudentActiveTestMarkup() {
                   .map(
                     (option, optionIndex) => `
                       <label class="inline-field">
-                        <input type="radio" name="question-${escapeHtml(question.id)}" value="${optionIndex}" />
+                        <input type="radio" name="question-${index}" value="${optionIndex}" />
                         <span>${escapeHtml(option)}</span>
                       </label>
                     `
@@ -430,9 +430,10 @@ async function handleStudentAttemptSubmit(container, form) {
 
   const testId = String(form.dataset.testId || "").trim();
   const questions = getQuestionsForTest(testId);
-  const answers = questions.map((question) => {
-    const selected = form.querySelector(`input[name="question-${question.id}"]:checked`);
-    return selected ? Number(selected.value) : null;
+  const formData = new FormData(form);
+  const answers = questions.map((question, index) => {
+    const selected = formData.get(`question-${index}`);
+    return selected === null ? null : Number(selected);
   });
 
   const response = await client.post(`/api/tests/${encodeURIComponent(testId)}/attempt`, {
