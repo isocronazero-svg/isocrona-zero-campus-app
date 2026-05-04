@@ -650,6 +650,60 @@ function createIndependentTestAttempt(state, test, memberId, answers) {
   return attempt;
 }
 
+function buildIndependentTestQuestionAudiencePayload(question, options = {}) {
+  if (options.admin) {
+    return question;
+  }
+
+  return {
+    id: question.id,
+    moduleId: question.moduleId,
+    prompt: question.prompt,
+    options: Array.isArray(question.options) ? question.options : []
+  };
+}
+
+function listVisibleIndependentTests(state, account) {
+  ensureIndependentTestsState(state);
+  if (account?.role === "admin") {
+    return state.tests;
+  }
+
+  return state.tests.filter((test) => Boolean(test.published));
+}
+
+function listVisibleIndependentTestModules(state, account) {
+  ensureIndependentTestsState(state);
+  if (account?.role === "admin") {
+    return state.testModules;
+  }
+
+  const visibleModuleIds = new Set(
+    listVisibleIndependentTests(state, account).map((test) => String(test.moduleId || "").trim()).filter(Boolean)
+  );
+  return state.testModules.filter((module) => visibleModuleIds.has(String(module.id || "").trim()));
+}
+
+function listVisibleIndependentQuestions(state, account, testId = "") {
+  ensureIndependentTestsState(state);
+  if (account?.role === "admin") {
+    return listIndependentQuestionsForTest(state, testId);
+  }
+
+  if (!testId) {
+    throw new Error("Indica un test publicado para cargar sus preguntas");
+  }
+
+  const test = state.tests.find((item) => item.id === testId);
+  if (!test || !test.published) {
+    throw new Error("Test no encontrado");
+  }
+
+  return listIndependentQuestionsForTest(state, testId).map((question) =>
+    buildIndependentTestQuestionAudiencePayload(question, { admin: false })
+  );
+}
+
 function normalizeCourseAccessScope(value, fallbackAudience = "") {
   const raw = String(value || "").trim().toLowerCase();
   const audience = String(fallbackAudience || "").trim().toLowerCase();
@@ -1859,12 +1913,12 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/test-modules" && req.method === "GET") {
     try {
       const state = readState();
-      const account = requireAdminAccount(req, res, state);
+      const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
         return;
       }
       ensureIndependentTestsState(state);
-      return sendJson(res, 200, { ok: true, testModules: state.testModules });
+      return sendJson(res, 200, { ok: true, testModules: listVisibleIndependentTestModules(state, account) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar los modulos de test" });
     }
@@ -1891,12 +1945,12 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/tests" && req.method === "GET") {
     try {
       const state = readState();
-      const account = requireAdminAccount(req, res, state);
+      const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
         return;
       }
       ensureIndependentTestsState(state);
-      return sendJson(res, 200, { ok: true, tests: state.tests });
+      return sendJson(res, 200, { ok: true, tests: listVisibleIndependentTests(state, account) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar los tests" });
     }
@@ -1923,13 +1977,13 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/questions" && req.method === "GET") {
     try {
       const state = readState();
-      const account = requireAdminAccount(req, res, state);
+      const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
         return;
       }
       ensureIndependentTestsState(state);
       const testId = String(requestUrl.searchParams.get("testId") || "").trim();
-      const questions = listIndependentQuestionsForTest(state, testId);
+      const questions = listVisibleIndependentQuestions(state, account, testId);
       return sendJson(res, 200, { ok: true, questions });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar las preguntas" });

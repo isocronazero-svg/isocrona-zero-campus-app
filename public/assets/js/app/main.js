@@ -9,6 +9,7 @@ import { renderDiplomasView } from "./views/diplomasView.js";
 import { renderJoinView } from "./views/joinView.js";
 import { renderAdminView } from "./views/adminView.js";
 import { renderTestView } from "./views/testView.js";
+import { renderTestsView } from "./views/testsView.js";
 
 export function createApp() {
   const router = createRouter();
@@ -31,7 +32,8 @@ export function createApp() {
       diplomas: renderDiplomasView,
       join: renderJoinView,
       admin: renderAdminView,
-      test: renderTestView
+      test: renderTestView,
+      tests: renderTestsView
     },
     permissions: {
       map: ROLE_PERMISSIONS,
