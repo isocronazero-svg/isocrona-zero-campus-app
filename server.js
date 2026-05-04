@@ -600,14 +600,50 @@ function buildIndependentTestModule(payload = {}) {
   };
 }
 
+function updateIndependentTestModule(testModule, payload = {}) {
+  const title = String(payload.title ?? testModule?.title ?? "").trim();
+  if (!title) {
+    throw new Error("El modulo de test necesita un titulo");
+  }
+
+  testModule.title = title;
+  testModule.description = String(payload.description ?? testModule?.description ?? "").trim();
+  return testModule;
+}
+
+function normalizeIndependentQuestionIdList(questionIds) {
+  const orderedIds = [];
+  const seen = new Set();
+  (Array.isArray(questionIds) ? questionIds : []).forEach((item) => {
+    const normalizedId = String(item || "").trim();
+    if (!normalizedId || seen.has(normalizedId)) {
+      return;
+    }
+    seen.add(normalizedId);
+    orderedIds.push(normalizedId);
+  });
+  return orderedIds;
+}
+
+function validateIndependentTestQuestionIds(state, moduleId, questionIds) {
+  const normalizedQuestionIds = normalizeIndependentQuestionIdList(questionIds);
+  normalizedQuestionIds.forEach((questionId) => {
+    const question = state.questions.find((item) => item.id === questionId);
+    if (!question) {
+      throw new Error("Pregunta de test no encontrada");
+    }
+    if (String(question.moduleId || "").trim() !== String(moduleId || "").trim()) {
+      throw new Error("La pregunta no pertenece al modulo del test");
+    }
+  });
+  return normalizedQuestionIds;
+}
+
 function buildIndependentTest(state, payload = {}) {
   ensureIndependentTestsState(state);
   const moduleId = String(payload.moduleId || "").trim();
   const title = String(payload.title || "").trim();
   const parsedTimeLimitSeconds = Number(payload.timeLimitSeconds);
-  const questionIds = Array.isArray(payload.questionIds)
-    ? payload.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
-    : [];
   if (!moduleId) {
     throw new Error("El test necesita un modulo");
   }
@@ -617,16 +653,7 @@ function buildIndependentTest(state, payload = {}) {
   if (!title) {
     throw new Error("El test necesita un titulo");
   }
-
-  questionIds.forEach((questionId) => {
-    const question = state.questions.find((item) => item.id === questionId);
-    if (!question) {
-      throw new Error("Pregunta de test no encontrada");
-    }
-    if (String(question.moduleId || "").trim() !== moduleId) {
-      throw new Error("La pregunta no pertenece al modulo del test");
-    }
-  });
+  const questionIds = validateIndependentTestQuestionIds(state, moduleId, payload.questionIds);
 
   return {
     id: generateLegacyId("test"),
@@ -641,6 +668,35 @@ function buildIndependentTest(state, payload = {}) {
         : null,
     createdAt: new Date().toISOString()
   };
+}
+
+function updateIndependentTest(state, test, payload = {}) {
+  ensureIndependentTestsState(state);
+  const title = String(payload.title ?? test?.title ?? "").trim();
+  if (!title) {
+    throw new Error("El test necesita un titulo");
+  }
+
+  test.title = title;
+  test.description = String(payload.description ?? test?.description ?? "").trim();
+
+  if (Object.prototype.hasOwnProperty.call(payload, "published")) {
+    test.published = Boolean(payload.published);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "timeLimitSeconds")) {
+    const parsedTimeLimitSeconds = Number(payload.timeLimitSeconds);
+    test.timeLimitSeconds =
+      Number.isFinite(parsedTimeLimitSeconds) && parsedTimeLimitSeconds > 0
+        ? Math.floor(parsedTimeLimitSeconds)
+        : null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "questionIds")) {
+    test.questionIds = validateIndependentTestQuestionIds(state, test.moduleId, payload.questionIds);
+  }
+
+  return test;
 }
 
 function buildIndependentQuestion(state, payload = {}) {
@@ -677,6 +733,34 @@ function buildIndependentQuestion(state, payload = {}) {
     explanation: String(payload.explanation || "").trim(),
     createdAt: new Date().toISOString()
   };
+}
+
+function updateIndependentQuestion(question, payload = {}) {
+  const prompt = String(payload.prompt ?? question?.prompt ?? "").trim();
+  const options = Array.isArray(payload.options)
+    ? payload.options.map((item) => String(item || "").trim()).filter(Boolean)
+    : Array.isArray(question?.options)
+      ? question.options.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+  const correctIndex = Object.prototype.hasOwnProperty.call(payload, "correctIndex")
+    ? Number(payload.correctIndex)
+    : Number(question?.correctIndex);
+
+  if (!prompt) {
+    throw new Error("La pregunta necesita un enunciado");
+  }
+  if (options.length < 2) {
+    throw new Error("La pregunta necesita al menos dos opciones");
+  }
+  if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= options.length) {
+    throw new Error("El indice correcto no es valido");
+  }
+
+  question.prompt = prompt;
+  question.options = options;
+  question.correctIndex = correctIndex;
+  question.explanation = String(payload.explanation ?? question?.explanation ?? "").trim();
+  return question;
 }
 
 function listIndependentQuestionsForTest(state, testId = "") {
@@ -980,6 +1064,51 @@ function listVisibleIndependentQuestions(state, account, testId = "") {
   return listIndependentQuestionsForTest(state, testId).map((question) =>
     buildIndependentTestQuestionAudiencePayload(question, { admin: false })
   );
+}
+
+function getIndependentTestModuleById(state, moduleId) {
+  ensureIndependentTestsState(state);
+  return state.testModules.find((item) => item.id === moduleId) || null;
+}
+
+function getIndependentTestById(state, testId) {
+  ensureIndependentTestsState(state);
+  return state.tests.find((item) => item.id === testId) || null;
+}
+
+function getIndependentQuestionById(state, questionId) {
+  ensureIndependentTestsState(state);
+  return state.questions.find((item) => item.id === questionId) || null;
+}
+
+function deleteIndependentTestModule(state, moduleId) {
+  ensureIndependentTestsState(state);
+  if ((state.tests || []).some((test) => String(test.moduleId || "").trim() === String(moduleId || "").trim())) {
+    throw new Error("No puedes borrar un modulo que todavia tiene tests");
+  }
+
+  state.testModules = (state.testModules || []).filter((item) => item.id !== moduleId);
+}
+
+function deleteIndependentTest(state, testId) {
+  ensureIndependentTestsState(state);
+  if ((state.testAttempts || []).some((attempt) => String(attempt.testId || "").trim() === String(testId || "").trim())) {
+    throw new Error("No puedes borrar un test que ya tiene intentos guardados");
+  }
+
+  state.tests = (state.tests || []).filter((item) => item.id !== testId);
+}
+
+function deleteIndependentQuestion(state, questionId) {
+  ensureIndependentTestsState(state);
+  const isUsedByTests = (state.tests || []).some((test) =>
+    (Array.isArray(test.questionIds) ? test.questionIds : []).includes(questionId)
+  );
+  if (isUsedByTests) {
+    throw new Error("No puedes borrar una pregunta que esta siendo usada por un test");
+  }
+
+  state.questions = (state.questions || []).filter((item) => item.id !== questionId);
 }
 
 function normalizeCourseAccessScope(value, fallbackAudience = "") {
@@ -2243,6 +2372,49 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (/^\/api\/test-modules\/[^/]+$/.test(requestUrl.pathname) && req.method === "PATCH") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const moduleId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const testModule = getIndependentTestModuleById(state, moduleId);
+      if (!testModule) {
+        return sendJson(res, 404, { ok: false, error: "Modulo de test no encontrado" });
+      }
+      updateIndependentTestModule(testModule, payload);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, testModule });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo actualizar el modulo de test" });
+    }
+  }
+
+  if (/^\/api\/test-modules\/[^/]+$/.test(requestUrl.pathname) && req.method === "DELETE") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const moduleId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const testModule = getIndependentTestModuleById(state, moduleId);
+      if (!testModule) {
+        return sendJson(res, 404, { ok: false, error: "Modulo de test no encontrado" });
+      }
+      deleteIndependentTestModule(state, moduleId);
+      writeState(state);
+      return sendJson(res, 200, { ok: true });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo borrar el modulo de test" });
+    }
+  }
+
   if (requestUrl.pathname === "/api/tests" && req.method === "GET") {
     try {
       const state = readState();
@@ -2272,6 +2444,49 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, { ok: true, test });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear el test" });
+    }
+  }
+
+  if (/^\/api\/tests\/[^/]+$/.test(requestUrl.pathname) && req.method === "PATCH") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const testId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const test = getIndependentTestById(state, testId);
+      if (!test) {
+        return sendJson(res, 404, { ok: false, error: "Test no encontrado" });
+      }
+      updateIndependentTest(state, test, payload);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, test });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo actualizar el test" });
+    }
+  }
+
+  if (/^\/api\/tests\/[^/]+$/.test(requestUrl.pathname) && req.method === "DELETE") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const testId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const test = getIndependentTestById(state, testId);
+      if (!test) {
+        return sendJson(res, 404, { ok: false, error: "Test no encontrado" });
+      }
+      deleteIndependentTest(state, testId);
+      writeState(state);
+      return sendJson(res, 200, { ok: true });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo borrar el test" });
     }
   }
 
@@ -2319,6 +2534,52 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, { ok: true, question });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear la pregunta" });
+    }
+  }
+
+  if (/^\/api\/questions\/[^/]+$/.test(requestUrl.pathname) && req.method === "PATCH") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const questionId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const question = getIndependentQuestionById(state, questionId);
+      if (!question) {
+        return sendJson(res, 404, { ok: false, error: "Pregunta de test no encontrada" });
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, "moduleId") && String(payload.moduleId || "").trim() !== String(question.moduleId || "").trim()) {
+        throw new Error("No puedes cambiar el modulo de la pregunta en esta fase");
+      }
+      updateIndependentQuestion(question, payload);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, question });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo actualizar la pregunta" });
+    }
+  }
+
+  if (/^\/api\/questions\/[^/]+$/.test(requestUrl.pathname) && req.method === "DELETE") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const questionId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const question = getIndependentQuestionById(state, questionId);
+      if (!question) {
+        return sendJson(res, 404, { ok: false, error: "Pregunta de test no encontrada" });
+      }
+      deleteIndependentQuestion(state, questionId);
+      writeState(state);
+      return sendJson(res, 200, { ok: true });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo borrar la pregunta" });
     }
   }
 

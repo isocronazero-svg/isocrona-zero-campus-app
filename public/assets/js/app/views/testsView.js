@@ -2,6 +2,7 @@ const testsViewState = {
   role: "member",
   modules: [],
   tests: [],
+  allQuestions: [],
   questionsByTestId: {},
   attemptsByTestId: {},
   leaderboardByTestId: {},
@@ -52,6 +53,20 @@ function getQuestionsForTest(testId) {
   return Array.isArray(testsViewState.questionsByTestId[testId]) ? testsViewState.questionsByTestId[testId] : [];
 }
 
+function getUnusedQuestionsForModule(moduleId) {
+  const usedQuestionIds = new Set(
+    testsViewState.tests
+      .filter((test) => String(test.moduleId || "").trim() === String(moduleId || "").trim())
+      .flatMap((test) => (Array.isArray(test.questionIds) ? test.questionIds : []))
+  );
+
+  return (Array.isArray(testsViewState.allQuestions) ? testsViewState.allQuestions : []).filter(
+    (question) =>
+      String(question.moduleId || "").trim() === String(moduleId || "").trim() &&
+      !usedQuestionIds.has(String(question.id || "").trim())
+  );
+}
+
 function getAttemptsForTest(testId) {
   return Array.isArray(testsViewState.attemptsByTestId[testId]) ? testsViewState.attemptsByTestId[testId] : [];
 }
@@ -99,13 +114,15 @@ async function loadAdminData() {
     throw new Error("Cliente API no disponible");
   }
 
-  const [{ testModules }, { tests }] = await Promise.all([
+  const [{ testModules }, { tests }, { questions }] = await Promise.all([
     client.get("/api/test-modules"),
-    client.get("/api/tests")
+    client.get("/api/tests"),
+    client.get("/api/questions")
   ]);
 
   testsViewState.modules = Array.isArray(testModules) ? testModules : [];
   testsViewState.tests = Array.isArray(tests) ? tests : [];
+  testsViewState.allQuestions = Array.isArray(questions) ? questions : [];
   testsViewState.questionsByTestId = {};
   testsViewState.attemptsByTestId = {};
   testsViewState.leaderboardByTestId = {};
@@ -113,12 +130,12 @@ async function loadAdminData() {
   testsViewState.activeAttemptTestId = "";
   clearStudentTimer();
 
-  await Promise.all(
-    testsViewState.tests.map(async (test) => {
-      const response = await client.get(`/api/questions?testId=${encodeURIComponent(test.id)}`);
-      testsViewState.questionsByTestId[test.id] = Array.isArray(response.questions) ? response.questions : [];
-    })
-  );
+  const questionsById = new Map(testsViewState.allQuestions.map((question) => [question.id, question]));
+  testsViewState.tests.forEach((test) => {
+    testsViewState.questionsByTestId[test.id] = (Array.isArray(test.questionIds) ? test.questionIds : [])
+      .map((questionId) => questionsById.get(questionId))
+      .filter(Boolean);
+  });
 }
 
 async function ensureStudentActiveTestQuestions() {
@@ -171,6 +188,7 @@ async function loadStudentData() {
 
   testsViewState.modules = Array.isArray(testModules) ? testModules : [];
   testsViewState.tests = Array.isArray(tests) ? tests : [];
+  testsViewState.allQuestions = [];
   testsViewState.questionsByTestId = {};
   testsViewState.attemptsByTestId = {};
   testsViewState.leaderboardByTestId = {};
@@ -360,18 +378,134 @@ function buildStudentCurrentUserRankMarkup(currentUserRank, leaderboard) {
   `;
 }
 
+function buildQuestionOptionFields(question = null) {
+  const options = Array.isArray(question?.options) ? question.options : ["", "", "", ""];
+  return [0, 1, 2, 3]
+    .map(
+      (index) => `
+        <label class="inline-field">
+          Opcion ${index + 1}
+          <input type="text" name="option${index}" value="${escapeHtml(options[index] || "")}" required />
+        </label>
+      `
+    )
+    .join("");
+}
+
+function buildCorrectIndexSelect(question = null) {
+  const selectedIndex = Number.isInteger(Number(question?.correctIndex)) ? Number(question.correctIndex) : 0;
+  return [0, 1, 2, 3]
+    .map(
+      (index) => `
+        <option value="${index}" ${selectedIndex === index ? "selected" : ""}>Opcion ${index + 1}</option>
+      `
+    )
+    .join("");
+}
+
+function buildAdminQuestionEditorMarkup(module, test, question, questionIndex, totalQuestions) {
+  const canMoveUp = questionIndex > 0;
+  const canMoveDown = questionIndex < totalQuestions - 1;
+  return `
+    <li class="panel panel-side">
+      <form class="stack" data-tests-admin-form="question-edit" data-question-id="${escapeHtml(question.id)}">
+        <div class="course-topline">
+          <span class="tag">Pregunta ${questionIndex + 1}</span>
+          <span class="status-chip">ID ${escapeHtml(question.id)}</span>
+        </div>
+        <label class="inline-field">
+          Enunciado
+          <textarea name="prompt" rows="2" required>${escapeHtml(question.prompt || "")}</textarea>
+        </label>
+        <div class="studio-grid">
+          ${buildQuestionOptionFields(question)}
+        </div>
+        <label class="inline-field">
+          Indice correcto
+          <select name="correctIndex">${buildCorrectIndexSelect(question)}</select>
+        </label>
+        <label class="inline-field">
+          Explicacion
+          <textarea name="explanation" rows="2">${escapeHtml(question.explanation || "")}</textarea>
+        </label>
+        <div class="chip-row">
+          <button class="primary-button" type="submit">Guardar pregunta</button>
+          <button class="ghost-button" type="button" data-action="move-question" data-test-id="${escapeHtml(test.id)}" data-question-id="${escapeHtml(question.id)}" data-direction="up" ${canMoveUp ? "" : "disabled"}>
+            Subir
+          </button>
+          <button class="ghost-button" type="button" data-action="move-question" data-test-id="${escapeHtml(test.id)}" data-question-id="${escapeHtml(question.id)}" data-direction="down" ${canMoveDown ? "" : "disabled"}>
+            Bajar
+          </button>
+          <button class="ghost-button danger-button" type="button" data-action="delete-question" data-question-id="${escapeHtml(question.id)}">
+            Borrar
+          </button>
+        </div>
+      </form>
+    </li>
+  `;
+}
+
+function buildAdminUnusedQuestionMarkup(question) {
+  return `
+    <li class="panel panel-side">
+      <form class="stack" data-tests-admin-form="question-edit" data-question-id="${escapeHtml(question.id)}">
+        <div class="course-topline">
+          <span class="tag">Sin asignar</span>
+          <span class="status-chip">${escapeHtml(question.id)}</span>
+        </div>
+        <label class="inline-field">
+          Enunciado
+          <textarea name="prompt" rows="2" required>${escapeHtml(question.prompt || "")}</textarea>
+        </label>
+        <div class="studio-grid">
+          ${buildQuestionOptionFields(question)}
+        </div>
+        <label class="inline-field">
+          Indice correcto
+          <select name="correctIndex">${buildCorrectIndexSelect(question)}</select>
+        </label>
+        <label class="inline-field">
+          Explicacion
+          <textarea name="explanation" rows="2">${escapeHtml(question.explanation || "")}</textarea>
+        </label>
+        <div class="chip-row">
+          <button class="primary-button" type="submit">Guardar pregunta</button>
+          <button class="ghost-button danger-button" type="button" data-action="delete-question" data-question-id="${escapeHtml(question.id)}">
+            Borrar
+          </button>
+        </div>
+      </form>
+    </li>
+  `;
+}
+
 function buildAdminModuleMarkup(module) {
   const tests = getTestsForModule(module.id);
+  const unusedQuestions = getUnusedQuestionsForModule(module.id);
   return `
     <article class="course-card">
       <div class="course-topline">
         <span class="tag">Modulo</span>
         <span class="status-chip">${tests.length} test(s)</span>
       </div>
-      <h3>${escapeHtml(module.title)}</h3>
-      <p class="course-meta">${escapeHtml(module.description || "Sin descripcion")}</p>
-
       <div class="panel-stack">
+        <form class="stack" data-tests-admin-form="module-edit" data-module-id="${escapeHtml(module.id)}">
+          <h3>Editar modulo</h3>
+          <label class="inline-field">
+            Titulo
+            <input type="text" name="title" value="${escapeHtml(module.title || "")}" required />
+          </label>
+          <label class="inline-field">
+            Descripcion
+            <textarea name="description" rows="2">${escapeHtml(module.description || "")}</textarea>
+          </label>
+          <div class="chip-row">
+            <button class="primary-button" type="submit">Guardar modulo</button>
+            <button class="ghost-button danger-button" type="button" data-action="delete-module" data-module-id="${escapeHtml(module.id)}">
+              Borrar modulo
+            </button>
+          </div>
+        </form>
         <form class="stack" data-tests-admin-form="test" data-module-id="${escapeHtml(module.id)}">
           <h4>Nuevo test</h4>
           <label class="inline-field">
@@ -402,28 +536,40 @@ function buildAdminModuleMarkup(module) {
                   const questions = getQuestionsForTest(test.id);
                   return `
                     <section class="panel panel-side">
-                      <div class="course-topline">
-                        <span class="tag">Test</span>
-                        <span class="status-chip">${test.published ? "Publicado" : "Borrador"}</span>
-                      </div>
-                      <h4>${escapeHtml(test.title)}</h4>
-                      <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
-                      <p class="muted">${
-                        Number.isFinite(Number(test.timeLimitSeconds)) && Number(test.timeLimitSeconds) > 0
-                          ? `Tiempo limite: ${escapeHtml(String(test.timeLimitSeconds))} s`
-                          : "Sin limite de tiempo"
-                      }</p>
+                      <form class="stack" data-tests-admin-form="test-edit" data-test-id="${escapeHtml(test.id)}">
+                        <div class="course-topline">
+                          <span class="tag">Test</span>
+                          <span class="status-chip">${test.published ? "Publicado" : "Borrador"}</span>
+                        </div>
+                        <label class="inline-field">
+                          Titulo
+                          <input type="text" name="title" value="${escapeHtml(test.title || "")}" required />
+                        </label>
+                        <label class="inline-field">
+                          Descripcion
+                          <textarea name="description" rows="2">${escapeHtml(test.description || "")}</textarea>
+                        </label>
+                        <label class="inline-field">
+                          <span>Publicado</span>
+                          <input type="checkbox" name="published" ${test.published ? "checked" : ""} />
+                        </label>
+                        <label class="inline-field">
+                          Limite de tiempo (segundos)
+                          <input type="number" name="timeLimitSeconds" min="1" step="1" value="${escapeHtml(test.timeLimitSeconds || "")}" />
+                        </label>
+                        <div class="chip-row">
+                          <button class="primary-button" type="submit">Guardar test</button>
+                          <button class="ghost-button danger-button" type="button" data-action="delete-test" data-test-id="${escapeHtml(test.id)}">
+                            Borrar test
+                          </button>
+                        </div>
+                      </form>
                       <ol class="stack">
                         ${
                           questions.length
                             ? questions
-                                .map(
-                                  (question) => `
-                                    <li>
-                                      <strong>${escapeHtml(question.prompt)}</strong>
-                                      <p class="muted">Correcta: opcion ${Number(question.correctIndex) + 1}</p>
-                                    </li>
-                                  `
+                                .map((question, questionIndex) =>
+                                  buildAdminQuestionEditorMarkup(module, test, question, questionIndex, questions.length)
                                 )
                                 .join("")
                             : '<li class="muted">Sin preguntas todavia.</li>'
@@ -436,31 +582,11 @@ function buildAdminModuleMarkup(module) {
                           <textarea name="prompt" rows="2" required></textarea>
                         </label>
                         <div class="studio-grid">
-                          <label class="inline-field">
-                            Opcion 1
-                            <input type="text" name="option0" required />
-                          </label>
-                          <label class="inline-field">
-                            Opcion 2
-                            <input type="text" name="option1" required />
-                          </label>
-                          <label class="inline-field">
-                            Opcion 3
-                            <input type="text" name="option2" required />
-                          </label>
-                          <label class="inline-field">
-                            Opcion 4
-                            <input type="text" name="option3" required />
-                          </label>
+                          ${buildQuestionOptionFields()}
                         </div>
                         <label class="inline-field">
                           Indice correcto
-                          <select name="correctIndex">
-                            <option value="0">Opcion 1</option>
-                            <option value="1">Opcion 2</option>
-                            <option value="2">Opcion 3</option>
-                            <option value="3">Opcion 4</option>
-                          </select>
+                          <select name="correctIndex">${buildCorrectIndexSelect()}</select>
                         </label>
                         <label class="inline-field">
                           Explicacion
@@ -476,6 +602,14 @@ function buildAdminModuleMarkup(module) {
                 .join("")
             : '<p class="muted">Todavia no hay tests en este modulo.</p>'
         }
+        <section class="panel panel-side">
+          <h4>Preguntas sin asignar</h4>
+          ${
+            unusedQuestions.length
+              ? `<ul class="stack">${unusedQuestions.map((question) => buildAdminUnusedQuestionMarkup(question)).join("")}</ul>`
+              : '<p class="muted">No hay preguntas sueltas en este modulo.</p>'
+          }
+        </section>
       </div>
     </article>
   `;
@@ -704,6 +838,12 @@ async function handleAdminSubmit(container, form) {
       description: String(formData.get("description") || "").trim()
     });
     setTestsViewMessage("Modulo creado correctamente.", "success");
+  } else if (formType === "module-edit") {
+    await client.patch(`/api/test-modules/${encodeURIComponent(String(form.dataset.moduleId || "").trim())}`, {
+      title: String(formData.get("title") || "").trim(),
+      description: String(formData.get("description") || "").trim()
+    });
+    setTestsViewMessage("Modulo actualizado correctamente.", "success");
   } else if (formType === "test") {
     await client.post("/api/tests", {
       moduleId: String(form.dataset.moduleId || "").trim(),
@@ -713,6 +853,14 @@ async function handleAdminSubmit(container, form) {
       timeLimitSeconds: String(formData.get("timeLimitSeconds") || "").trim()
     });
     setTestsViewMessage("Test creado correctamente.", "success");
+  } else if (formType === "test-edit") {
+    await client.patch(`/api/tests/${encodeURIComponent(String(form.dataset.testId || "").trim())}`, {
+      title: String(formData.get("title") || "").trim(),
+      description: String(formData.get("description") || "").trim(),
+      published: formData.get("published") === "on",
+      timeLimitSeconds: String(formData.get("timeLimitSeconds") || "").trim()
+    });
+    setTestsViewMessage("Test actualizado correctamente.", "success");
   } else if (formType === "question") {
     await client.post("/api/questions", {
       moduleId: String(form.dataset.moduleId || "").trim(),
@@ -723,6 +871,56 @@ async function handleAdminSubmit(container, form) {
       explanation: String(formData.get("explanation") || "").trim()
     });
     setTestsViewMessage("Pregunta creada correctamente.", "success");
+  } else if (formType === "question-edit") {
+    await client.patch(`/api/questions/${encodeURIComponent(String(form.dataset.questionId || "").trim())}`, {
+      prompt: String(formData.get("prompt") || "").trim(),
+      options: [0, 1, 2, 3].map((index) => String(formData.get(`option${index}`) || "").trim()),
+      correctIndex: Number(formData.get("correctIndex")),
+      explanation: String(formData.get("explanation") || "").trim()
+    });
+    setTestsViewMessage("Pregunta actualizada correctamente.", "success");
+  }
+
+  await refreshTestsView(container, testsViewState.role);
+}
+
+async function handleAdminAction(container, action, dataset = {}) {
+  const client = getApiClient();
+  if (!client) {
+    throw new Error("Cliente API no disponible");
+  }
+
+  if (action === "delete-module") {
+    await client.delete(`/api/test-modules/${encodeURIComponent(String(dataset.moduleId || "").trim())}`);
+    setTestsViewMessage("Modulo borrado correctamente.", "success");
+  } else if (action === "delete-test") {
+    await client.delete(`/api/tests/${encodeURIComponent(String(dataset.testId || "").trim())}`);
+    setTestsViewMessage("Test borrado correctamente.", "success");
+  } else if (action === "delete-question") {
+    await client.delete(`/api/questions/${encodeURIComponent(String(dataset.questionId || "").trim())}`);
+    setTestsViewMessage("Pregunta borrada correctamente.", "success");
+  } else if (action === "move-question") {
+    const testId = String(dataset.testId || "").trim();
+    const questionId = String(dataset.questionId || "").trim();
+    const direction = String(dataset.direction || "").trim();
+    const test = testsViewState.tests.find((item) => item.id === testId);
+    if (!test) {
+      throw new Error("Test no encontrado");
+    }
+    const orderedIds = Array.isArray(test.questionIds) ? [...test.questionIds] : [];
+    const currentIndex = orderedIds.findIndex((item) => item === questionId);
+    if (currentIndex === -1) {
+      throw new Error("Pregunta de test no encontrada");
+    }
+    const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (nextIndex < 0 || nextIndex >= orderedIds.length) {
+      return;
+    }
+    [orderedIds[currentIndex], orderedIds[nextIndex]] = [orderedIds[nextIndex], orderedIds[currentIndex]];
+    await client.patch(`/api/tests/${encodeURIComponent(testId)}`, { questionIds: orderedIds });
+    setTestsViewMessage("Orden de preguntas actualizado.", "success");
+  } else {
+    return;
   }
 
   await refreshTestsView(container, testsViewState.role);
@@ -787,8 +985,20 @@ async function handleStudentAttemptSubmit(container, form, options = {}) {
 
 export function renderTestsView(container, role = "member") {
   container.onclick = async (event) => {
+    const adminActionButton = event.target.closest("[data-action]");
     const openTestButton = event.target.closest('[data-action="open-test"]');
     const startAttemptButton = event.target.closest('[data-action="start-test-attempt"]');
+    if (isAdminRole(role) && adminActionButton && !openTestButton && !startAttemptButton) {
+      event.preventDefault();
+      try {
+        await handleAdminAction(container, adminActionButton.dataset.action, adminActionButton.dataset);
+      } catch (error) {
+        setTestsViewMessage(error.message || "No se pudo completar la accion administrativa.", "error");
+        renderTestsMarkup(container);
+        finalizeTestsViewRender(container);
+      }
+      return;
+    }
     if (openTestButton) {
       event.preventDefault();
       try {

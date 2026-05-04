@@ -34,6 +34,12 @@ export function createApiClient(config = {}) {
     },
     post(path, body, options = {}) {
       return request(path, { ...options, method: "POST", body });
+    },
+    patch(path, body, options = {}) {
+      return request(path, { ...options, method: "PATCH", body });
+    },
+    delete(path, options = {}) {
+      return request(path, { ...options, method: "DELETE" });
     }
   };
 }
