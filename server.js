@@ -606,14 +606,31 @@ function listIndependentQuestionsForTest(state, testId = "") {
     throw new Error("Test no encontrado");
   }
 
-  const questionIds = new Set(Array.isArray(test.questionIds) ? test.questionIds : []);
-  return state.questions.filter((question) => questionIds.has(question.id));
+  const questionsById = new Map((state.questions || []).map((question) => [question.id, question]));
+  return (Array.isArray(test.questionIds) ? test.questionIds : [])
+    .map((questionId) => questionsById.get(questionId))
+    .filter(Boolean);
+}
+
+function normalizeIndependentTestAnswer(value, question) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const answer = Number(value);
+  if (!Number.isInteger(answer) || answer < 0 || answer >= ((question?.options || []).length || 0)) {
+    return null;
+  }
+
+  return answer;
 }
 
 function createIndependentTestAttempt(state, test, memberId, answers) {
   ensureIndependentTestsState(state);
   const questions = listIndependentQuestionsForTest(state, test.id);
-  const normalizedAnswers = Array.isArray(answers) ? answers.map((value) => Number(value)) : [];
+  const normalizedAnswers = questions.map((question, index) =>
+    normalizeIndependentTestAnswer(Array.isArray(answers) ? answers[index] : null, question)
+  );
   const score = questions.reduce(
     (sum, question, index) => sum + (normalizedAnswers[index] === Number(question.correctIndex) ? 1 : 0),
     0
