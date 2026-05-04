@@ -86,6 +86,7 @@ const navItems = [
   { id: "join", label: "Hazte socio" },
   { id: "associates", label: "Socios y cuotas", sections: ASSOCIATE_SECTION_LINKS },
   { id: "campus", label: "Campus", sections: CAMPUS_SECTION_LINKS },
+  { id: "tests", label: "Tests" },
   { id: "reports", label: "Informes y validacion", sections: REPORT_SECTION_LINKS },
 ];
 
@@ -755,6 +756,20 @@ function renderFrontendTestView() {
   syncFrontendStore({ activeView: "test" });
   mainPanel.innerHTML = "";
   renderTest(mainPanel, getFrontendRole());
+}
+
+function renderFrontendTestsView() {
+  const bridge = getFrontendBridge();
+  const renderTests = bridge?.views?.tests;
+
+  if (typeof renderTests !== "function") {
+    mainPanel.innerHTML = '<div class="empty-state">La nueva seccion de tests todavia no esta disponible.</div>';
+    return;
+  }
+
+  syncFrontendStore({ activeView: "tests" });
+  mainPanel.innerHTML = "";
+  renderTests(mainPanel, getFrontendRole());
 }
 
 document.querySelectorAll(".local-only").forEach((element) => {
@@ -5647,6 +5662,7 @@ function renderSidebarContextCard() {
     associates: "Socios y cuotas",
     members: "Personas y accesos",
     campus: "Campus",
+    tests: "Tests",
     reports: "Informes",
     activity: "Auditoria",
     automation: "Automatizacion"
@@ -5705,6 +5721,7 @@ function renderNav() {
     overview: "Mi ficha de socio",
     join: campusOnlySession ? "Hazte socio" : "Mi ficha de socio",
     campus: "Campus",
+    tests: "Tests",
     test: "Practica libre"
   };
   navElement.innerHTML = navItems
@@ -5844,6 +5861,12 @@ function renderMainPanel() {
     return;
   }
 
+  if (state.activeView === "tests") {
+    renderFrontendTestsView();
+    mainPanel.insertAdjacentHTML("beforeend", renderCampusAttachmentPreviewModal());
+    return;
+  }
+
   const views = {
     overview: renderOverview,
     join: renderJoinView,
@@ -5851,6 +5874,7 @@ function renderMainPanel() {
     validations: renderValidations,
     members: renderMembers,
     campus: renderCampus,
+    tests: () => "",
     courses: renderCourses,
     operations: () => renderOperations(selectedCourse),
     diplomas: () => renderDiplomas(selectedCourse),
@@ -6142,6 +6166,26 @@ function renderSidePanel() {
         <p class="eyebrow">Practica libre</p>
         <h3>Herramienta secundaria</h3>
         <p class="muted">La evaluacion principal del campus vive dentro de cada curso. Esta vista queda solo como practica separada.</p>
+        <div class="chip-row">
+          <button class="ghost-button" type="button" data-action="nav" data-view="overview">Volver al panel</button>
+          <button class="ghost-button" type="button" data-action="nav" data-view="campus">Ir al campus</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (state.activeView === "tests") {
+    sidePanel.className = "panel panel-side";
+    sidePanel.innerHTML = `
+      <div class="stack gap-md">
+        <p class="eyebrow">Tests independientes</p>
+        <h3>${isAdminView() ? "Gestion minima de tests" : "Practica publicada"}</h3>
+        <p class="muted">
+          ${isAdminView()
+            ? "Desde aqui puedes crear modulos, tests y preguntas sin tocar las evaluaciones antiguas de cursos."
+            : "Aqui solo veras tests publicados y podras responderlos para recibir tu puntuacion."}
+        </p>
         <div class="chip-row">
           <button class="ghost-button" type="button" data-action="nav" data-view="overview">Volver al panel</button>
           <button class="ghost-button" type="button" data-action="nav" data-view="campus">Ir al campus</button>
@@ -20568,7 +20612,7 @@ function isViewAllowed(viewId) {
     return false;
   }
   if (isCampusOnlySession()) {
-    return ["overview", "join", "campus", "test"].includes(viewId);
+    return ["overview", "join", "campus", "test", "tests"].includes(viewId);
   }
   return true;
 }
