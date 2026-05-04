@@ -4,11 +4,17 @@ const testsViewState = {
   tests: [],
   questionsByTestId: {},
   attemptsByTestId: {},
+  leaderboardByTestId: {},
+  startedAtByTestId: {},
   activeTestId: "",
+  activeAttemptTestId: "",
   result: null,
   message: "",
   tone: "neutral",
-  renderToken: 0
+  renderToken: 0,
+  timerIntervalId: null,
+  timerRemainingMs: null,
+  autoSubmittingTestId: ""
 };
 
 function escapeHtml(value) {
@@ -49,6 +55,39 @@ function getAttemptsForTest(testId) {
   return Array.isArray(testsViewState.attemptsByTestId[testId]) ? testsViewState.attemptsByTestId[testId] : [];
 }
 
+function getLeaderboardForTest(testId) {
+  return Array.isArray(testsViewState.leaderboardByTestId[testId]) ? testsViewState.leaderboardByTestId[testId] : [];
+}
+
+function getActiveStudentTest() {
+  return testsViewState.tests.find((item) => item.id === testsViewState.activeTestId) || null;
+}
+
+function getStudentTestTimeLimitSeconds(test = getActiveStudentTest()) {
+  const limit = Number(test?.timeLimitSeconds);
+  return Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : null;
+}
+
+function hasActiveTimedAttempt(test = getActiveStudentTest()) {
+  return Boolean(
+    test &&
+      getStudentTestTimeLimitSeconds(test) &&
+      testsViewState.activeAttemptTestId === test.id &&
+      testsViewState.startedAtByTestId[test.id]
+  );
+}
+
+function clearStudentTimer(resetAutoSubmitting = true) {
+  if (testsViewState.timerIntervalId) {
+    clearInterval(testsViewState.timerIntervalId);
+    testsViewState.timerIntervalId = null;
+  }
+  testsViewState.timerRemainingMs = null;
+  if (resetAutoSubmitting) {
+    testsViewState.autoSubmittingTestId = "";
+  }
+}
+
 async function loadAdminData() {
   const client = getApiClient();
   if (!client) {
@@ -64,6 +103,9 @@ async function loadAdminData() {
   testsViewState.tests = Array.isArray(tests) ? tests : [];
   testsViewState.questionsByTestId = {};
   testsViewState.attemptsByTestId = {};
+  testsViewState.leaderboardByTestId = {};
+  testsViewState.activeAttemptTestId = "";
+  clearStudentTimer();
 
   await Promise.all(
     testsViewState.tests.map(async (test) => {
@@ -97,6 +139,18 @@ async function ensureStudentActiveTestAttempts() {
   testsViewState.attemptsByTestId[testsViewState.activeTestId] = Array.isArray(response.attempts) ? response.attempts : [];
 }
 
+async function ensureStudentActiveTestLeaderboard() {
+  const client = getApiClient();
+  if (!client || !testsViewState.activeTestId) {
+    return;
+  }
+
+  const response = await client.get(`/api/tests/${encodeURIComponent(testsViewState.activeTestId)}/leaderboard`);
+  testsViewState.leaderboardByTestId[testsViewState.activeTestId] = Array.isArray(response.leaderboard)
+    ? response.leaderboard
+    : [];
+}
+
 async function loadStudentData() {
   const client = getApiClient();
   if (!client) {
@@ -112,7 +166,9 @@ async function loadStudentData() {
   testsViewState.tests = Array.isArray(tests) ? tests : [];
   testsViewState.questionsByTestId = {};
   testsViewState.attemptsByTestId = {};
+  testsViewState.leaderboardByTestId = {};
   testsViewState.result = null;
+  clearStudentTimer();
 
   const visibleTests = testsViewState.tests.filter((test) => Boolean(test.published));
   if (!visibleTests.length) {
@@ -122,8 +178,12 @@ async function loadStudentData() {
 
   const hasActiveVisibleTest = visibleTests.some((test) => test.id === testsViewState.activeTestId);
   testsViewState.activeTestId = hasActiveVisibleTest ? testsViewState.activeTestId : visibleTests[0].id;
+  if (!visibleTests.some((test) => test.id === testsViewState.activeAttemptTestId)) {
+    testsViewState.activeAttemptTestId = "";
+  }
   await ensureStudentActiveTestQuestions();
   await ensureStudentActiveTestAttempts();
+  await ensureStudentActiveTestLeaderboard();
 }
 
 function formatAttemptDate(value) {
@@ -140,6 +200,134 @@ function formatAttemptDate(value) {
     dateStyle: "short",
     timeStyle: "short"
   });
+}
+
+function formatDurationMs(durationMs) {
+  const normalized = Number(durationMs);
+  if (!Number.isFinite(normalized) || normalized < 0) {
+    return "";
+  }
+
+  const totalSeconds = Math.max(Math.round(normalized / 1000), 0);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function buildStudentResultSummary() {
+  if (!testsViewState.result) {
+    return testsViewState.message || "Elige un test publicado y responde desde aqui.";
+  }
+
+  const durationLabel = testsViewState.result.durationMs != null ? ` en ${formatDurationMs(testsViewState.result.durationMs)}` : "";
+  const timeoutLabel = testsViewState.result.timedOut ? " (fuera de tiempo)" : "";
+  return `Ultimo resultado: ${testsViewState.result.score}/${testsViewState.result.total}${durationLabel}${timeoutLabel}`;
+}
+
+function startStudentTimer(container) {
+  clearStudentTimer();
+  if (isAdminRole(testsViewState.role)) {
+    return;
+  }
+
+  const test = getActiveStudentTest();
+  const timeLimitSeconds = getStudentTestTimeLimitSeconds(test);
+  if (!test || !timeLimitSeconds || !hasActiveTimedAttempt(test)) {
+    return;
+  }
+
+  const startedAt = Number(testsViewState.startedAtByTestId[test.id] || Date.now());
+  testsViewState.startedAtByTestId[test.id] = startedAt;
+
+  const tick = async () => {
+    const remainingMs = Math.max(startedAt + timeLimitSeconds * 1000 - Date.now(), 0);
+    testsViewState.timerRemainingMs = remainingMs;
+    const timerNode = container.querySelector("[data-tests-timer]");
+    if (timerNode) {
+      timerNode.textContent = formatDurationMs(remainingMs);
+    }
+
+    if (remainingMs > 0 || testsViewState.autoSubmittingTestId === test.id) {
+      return;
+    }
+
+    testsViewState.autoSubmittingTestId = test.id;
+    clearStudentTimer(false);
+    const form = container.querySelector('form[data-tests-student-form="attempt"]');
+    if (!form) {
+      return;
+    }
+
+    try {
+      await handleStudentAttemptSubmit(container, form, { timedOut: true });
+    } catch (error) {
+      setTestsViewMessage(error.message || "No se pudo enviar el test al agotarse el tiempo.", "error");
+      renderTestsMarkup(container);
+      finalizeTestsViewRender(container);
+    }
+  };
+
+  tick();
+  testsViewState.timerIntervalId = setInterval(() => {
+    tick().catch(() => {});
+  }, 1000);
+}
+
+function finalizeTestsViewRender(container) {
+  if (isAdminRole(testsViewState.role)) {
+    clearStudentTimer();
+    return;
+  }
+  if (hasActiveTimedAttempt()) {
+    startStudentTimer(container);
+    return;
+  }
+  clearStudentTimer();
+}
+
+function buildStudentAttemptsMarkup(attempts) {
+  return attempts.length
+    ? `
+      <ul class="stack">
+        ${attempts
+          .map(
+            (attempt) => `
+              <li>
+                <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
+                <p class="muted">
+                  ${escapeHtml(formatAttemptDate(attempt.createdAt))}
+                  ${attempt.durationMs != null ? ` · ${escapeHtml(formatDurationMs(attempt.durationMs))}` : ""}
+                  ${attempt.timedOut ? " · Fuera de tiempo" : ""}
+                </p>
+              </li>
+            `
+          )
+          .join("")}
+      </ul>
+    `
+    : '<p class="muted">Todavia no has realizado intentos en este test.</p>';
+}
+
+function buildStudentLeaderboardMarkup(leaderboard) {
+  return leaderboard.length
+    ? `
+      <ol class="stack">
+        ${leaderboard
+          .map(
+            (entry) => `
+              <li>
+                <strong>${escapeHtml(entry.displayName || "Participante")}</strong>
+                <p class="muted">
+                  ${escapeHtml(`${entry.score}/${entry.total}`)}
+                  ${entry.durationMs != null ? ` · ${escapeHtml(formatDurationMs(entry.durationMs))}` : ""}
+                </p>
+              </li>
+            `
+          )
+          .join("")}
+      </ol>
+    `
+    : '<p class="muted">Todavia no hay resultados para este ranking.</p>';
 }
 
 function buildAdminModuleMarkup(module) {
@@ -168,6 +356,10 @@ function buildAdminModuleMarkup(module) {
             <span>Publicado</span>
             <input type="checkbox" name="published" />
           </label>
+          <label class="inline-field">
+            Limite de tiempo (segundos)
+            <input type="number" name="timeLimitSeconds" min="1" step="1" />
+          </label>
           <div class="chip-row">
             <button class="primary-button" type="submit">Guardar test</button>
           </div>
@@ -186,6 +378,11 @@ function buildAdminModuleMarkup(module) {
                       </div>
                       <h4>${escapeHtml(test.title)}</h4>
                       <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
+                      <p class="muted">${
+                        Number.isFinite(Number(test.timeLimitSeconds)) && Number(test.timeLimitSeconds) > 0
+                          ? `Tiempo limite: ${escapeHtml(String(test.timeLimitSeconds))} s`
+                          : "Sin limite de tiempo"
+                      }</p>
                       <ol class="stack">
                         ${
                           questions.length
@@ -320,8 +517,37 @@ function buildStudentActiveTestMarkup() {
   const test = testsViewState.tests.find((item) => item.id === testsViewState.activeTestId) || null;
   const questions = getQuestionsForTest(testsViewState.activeTestId);
   const attempts = getAttemptsForTest(testsViewState.activeTestId);
+  const leaderboard = getLeaderboardForTest(testsViewState.activeTestId);
+  const timeLimitSeconds = getStudentTestTimeLimitSeconds(test);
+  const timedAttemptActive = hasActiveTimedAttempt(test);
   if (!test || !questions.length) {
     return '<div class="empty-state">Este test aun no tiene preguntas disponibles.</div>';
+  }
+
+  if (timeLimitSeconds && !timedAttemptActive) {
+    return `
+      <section class="stack">
+        <div>
+          <p class="eyebrow">Test activo</p>
+          <h3>${escapeHtml(test.title)}</h3>
+          <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
+          <p class="muted">Tiempo limite: ${escapeHtml(String(timeLimitSeconds))} s.</p>
+        </div>
+        <div class="chip-row">
+          <button class="primary-button" type="button" data-action="start-test-attempt" data-test-id="${escapeHtml(test.id)}">
+            Empezar intento
+          </button>
+        </div>
+        <section class="panel panel-side">
+          <h4>Mis intentos</h4>
+          ${buildStudentAttemptsMarkup(attempts)}
+        </section>
+        <section class="panel panel-side">
+          <h4>Ranking del test</h4>
+          ${buildStudentLeaderboardMarkup(leaderboard)}
+        </section>
+      </section>
+    `;
   }
 
   return `
@@ -330,6 +556,16 @@ function buildStudentActiveTestMarkup() {
         <p class="eyebrow">Test activo</p>
         <h3>${escapeHtml(test.title)}</h3>
         <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
+        ${
+          timeLimitSeconds
+            ? `
+              <p class="muted">
+                Tiempo limite: ${escapeHtml(String(timeLimitSeconds))} s.
+                Tiempo restante: <strong data-tests-timer>${escapeHtml(formatDurationMs(testsViewState.timerRemainingMs ?? timeLimitSeconds * 1000))}</strong>
+              </p>
+            `
+            : '<p class="muted">Este test no tiene limite de tiempo.</p>'
+        }
       </div>
       ${questions
         .map(
@@ -357,24 +593,11 @@ function buildStudentActiveTestMarkup() {
       </div>
       <section class="panel panel-side">
         <h4>Mis intentos</h4>
-        ${
-          attempts.length
-            ? `
-              <ul class="stack">
-                ${attempts
-                  .map(
-                    (attempt) => `
-                      <li>
-                        <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
-                        <p class="muted">${escapeHtml(formatAttemptDate(attempt.createdAt))}</p>
-                      </li>
-                    `
-                  )
-                  .join("")}
-              </ul>
-            `
-            : '<p class="muted">Todavia no has realizado intentos en este test.</p>'
-        }
+        ${buildStudentAttemptsMarkup(attempts)}
+      </section>
+      <section class="panel panel-side">
+        <h4>Ranking del test</h4>
+        ${buildStudentLeaderboardMarkup(leaderboard)}
       </section>
     </form>
   `;
@@ -387,9 +610,7 @@ function renderStudentMarkup() {
         <p class="eyebrow">Tests</p>
         <h2>Practica independiente</h2>
         <p class="status-note ${testsViewState.message ? `is-${escapeHtml(testsViewState.tone)}` : ""}">${escapeHtml(
-          testsViewState.result
-            ? `Ultimo resultado: ${testsViewState.result.score}/${testsViewState.result.total}`
-            : testsViewState.message || "Elige un test publicado y responde desde aqui."
+          buildStudentResultSummary()
         )}</p>
       </article>
       <article class="panel panel-side">
@@ -424,12 +645,14 @@ async function refreshTestsView(container, role) {
     }
 
     renderTestsMarkup(container);
+    finalizeTestsViewRender(container);
   } catch (error) {
     if (renderToken !== testsViewState.renderToken) {
       return;
     }
     setTestsViewMessage(error.message || "No se pudo cargar la vista de tests", "error");
     renderTestsMarkup(container);
+    finalizeTestsViewRender(container);
   }
 }
 
@@ -453,7 +676,8 @@ async function handleAdminSubmit(container, form) {
       moduleId: String(form.dataset.moduleId || "").trim(),
       title: String(formData.get("title") || "").trim(),
       description: String(formData.get("description") || "").trim(),
-      published: formData.get("published") === "on"
+      published: formData.get("published") === "on",
+      timeLimitSeconds: String(formData.get("timeLimitSeconds") || "").trim()
     });
     setTestsViewMessage("Test creado correctamente.", "success");
   } else if (formType === "question") {
@@ -478,7 +702,21 @@ async function handleStudentTestSelection(container, testId) {
   await refreshTestsView(container, testsViewState.role);
 }
 
-async function handleStudentAttemptSubmit(container, form) {
+function handleStudentAttemptStart(container, testId) {
+  const normalizedTestId = String(testId || "").trim();
+  if (!normalizedTestId) {
+    return;
+  }
+  testsViewState.activeTestId = normalizedTestId;
+  testsViewState.activeAttemptTestId = normalizedTestId;
+  testsViewState.startedAtByTestId[normalizedTestId] = Date.now();
+  testsViewState.result = null;
+  setTestsViewMessage("", "neutral");
+  renderTestsMarkup(container);
+  finalizeTestsViewRender(container);
+}
+
+async function handleStudentAttemptSubmit(container, form, options = {}) {
   const client = getApiClient();
   if (!client) {
     throw new Error("Cliente API no disponible");
@@ -487,37 +725,58 @@ async function handleStudentAttemptSubmit(container, form) {
   const testId = String(form.dataset.testId || "").trim();
   const questions = getQuestionsForTest(testId);
   const formData = new FormData(form);
+  const startedAt = testsViewState.startedAtByTestId[testId] || Date.now();
   const answers = questions.map((question, index) => {
     const selected = formData.get(`question-${index}`);
     return selected === null ? null : Number(selected);
   });
 
   const response = await client.post(`/api/tests/${encodeURIComponent(testId)}/attempt`, {
-    answers
+    answers,
+    startedAt
   });
 
   testsViewState.result = {
     score: Number(response.score || 0),
-    total: Number(response.total || 0)
+    total: Number(response.total || 0),
+    durationMs: Number.isFinite(Number(response.durationMs)) ? Number(response.durationMs) : null,
+    timedOut: Boolean(options.timedOut || response.timedOut)
   };
+  testsViewState.autoSubmittingTestId = "";
+  testsViewState.activeAttemptTestId = "";
+  delete testsViewState.startedAtByTestId[testId];
   await ensureStudentActiveTestAttempts();
+  await ensureStudentActiveTestLeaderboard();
   setTestsViewMessage(`Resultado guardado: ${testsViewState.result.score}/${testsViewState.result.total}.`, "success");
   renderTestsMarkup(container);
+  finalizeTestsViewRender(container);
 }
 
 export function renderTestsView(container, role = "member") {
   container.onclick = async (event) => {
     const openTestButton = event.target.closest('[data-action="open-test"]');
-    if (!openTestButton) {
+    const startAttemptButton = event.target.closest('[data-action="start-test-attempt"]');
+    if (openTestButton) {
+      event.preventDefault();
+      try {
+        await handleStudentTestSelection(container, openTestButton.dataset.testId);
+      } catch (error) {
+        setTestsViewMessage(error.message || "No se pudo abrir el test.", "error");
+        renderTestsMarkup(container);
+        finalizeTestsViewRender(container);
+      }
       return;
     }
 
-    event.preventDefault();
-    try {
-      await handleStudentTestSelection(container, openTestButton.dataset.testId);
-    } catch (error) {
-      setTestsViewMessage(error.message || "No se pudo abrir el test.", "error");
-      renderTestsMarkup(container);
+    if (startAttemptButton) {
+      event.preventDefault();
+      try {
+        handleStudentAttemptStart(container, startAttemptButton.dataset.testId);
+      } catch (error) {
+        setTestsViewMessage(error.message || "No se pudo empezar el intento.", "error");
+        renderTestsMarkup(container);
+        finalizeTestsViewRender(container);
+      }
     }
   };
 
@@ -541,6 +800,7 @@ export function renderTestsView(container, role = "member") {
     } catch (error) {
       setTestsViewMessage(error.message || "No se pudo completar la accion.", "error");
       renderTestsMarkup(container);
+      finalizeTestsViewRender(container);
     }
   };
 

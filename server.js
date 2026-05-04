@@ -601,6 +601,7 @@ function buildIndependentTest(state, payload = {}) {
   ensureIndependentTestsState(state);
   const moduleId = String(payload.moduleId || "").trim();
   const title = String(payload.title || "").trim();
+  const parsedTimeLimitSeconds = Number(payload.timeLimitSeconds);
   const questionIds = Array.isArray(payload.questionIds)
     ? payload.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
@@ -631,6 +632,10 @@ function buildIndependentTest(state, payload = {}) {
     description: String(payload.description || "").trim(),
     questionIds,
     published: Boolean(payload.published),
+    timeLimitSeconds:
+      Number.isFinite(parsedTimeLimitSeconds) && parsedTimeLimitSeconds > 0
+        ? Math.floor(parsedTimeLimitSeconds)
+        : null,
     createdAt: new Date().toISOString()
   };
 }
@@ -701,9 +706,31 @@ function normalizeIndependentTestAnswer(value, question) {
   return answer;
 }
 
-function createIndependentTestAttempt(state, test, memberId, answers) {
+function resolveIndependentTestAttemptStartTimestamp(startedAt, fallbackTimestamp) {
+  if (!startedAt) {
+    return fallbackTimestamp;
+  }
+
+  const parsed =
+    typeof startedAt === "number"
+      ? startedAt
+      : typeof startedAt === "string"
+        ? Date.parse(startedAt)
+        : Number.NaN;
+
+  if (!Number.isFinite(parsed) || parsed > fallbackTimestamp) {
+    return fallbackTimestamp;
+  }
+
+  return parsed;
+}
+
+function createIndependentTestAttempt(state, test, memberId, answers, options = {}) {
   ensureIndependentTestsState(state);
   const questions = listIndependentQuestionsForTest(state, test.id);
+  const createdAtTimestamp = Date.now();
+  const startedAtTimestamp = resolveIndependentTestAttemptStartTimestamp(options.startedAt, createdAtTimestamp);
+  const durationMs = Math.max(createdAtTimestamp - startedAtTimestamp, 0);
   const normalizedAnswers = questions.map((question, index) =>
     normalizeIndependentTestAnswer(Array.isArray(answers) ? answers[index] : null, question)
   );
@@ -711,6 +738,9 @@ function createIndependentTestAttempt(state, test, memberId, answers) {
     (sum, question, index) => sum + (normalizedAnswers[index] === Number(question.correctIndex) ? 1 : 0),
     0
   );
+  const timeLimitSeconds = Number(test?.timeLimitSeconds);
+  const timedOut =
+    Number.isFinite(timeLimitSeconds) && timeLimitSeconds > 0 ? durationMs > Math.floor(timeLimitSeconds) * 1000 : false;
 
   const attempt = {
     id: generateLegacyId("test-attempt"),
@@ -719,7 +749,9 @@ function createIndependentTestAttempt(state, test, memberId, answers) {
     answers: normalizedAnswers,
     score,
     total: questions.length,
-    createdAt: new Date().toISOString()
+    durationMs,
+    timedOut,
+    createdAt: new Date(createdAtTimestamp).toISOString()
   };
 
   state.testAttempts.unshift(attempt);
@@ -732,7 +764,20 @@ function buildIndependentTestAttemptAudiencePayload(attempt) {
     testId: attempt.testId,
     score: attempt.score,
     total: attempt.total,
+    durationMs: Number.isFinite(Number(attempt.durationMs)) ? Number(attempt.durationMs) : null,
+    timedOut: Boolean(attempt.timedOut),
     createdAt: attempt.createdAt
+  };
+}
+
+function buildIndependentTestLeaderboardEntry(state, attempt) {
+  const member = (state.members || []).find((item) => item.id === attempt.memberId);
+  return {
+    memberId: attempt.memberId,
+    displayName: String(member?.name || "Participante").trim() || "Participante",
+    score: Number(attempt.score || 0),
+    total: Number(attempt.total || 0),
+    durationMs: Number.isFinite(Number(attempt.durationMs)) ? Number(attempt.durationMs) : null
   };
 }
 
@@ -756,6 +801,58 @@ function listIndependentTestAttemptsForAccount(state, test, account) {
     )
     .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
     .map((attempt) => buildIndependentTestAttemptAudiencePayload(attempt));
+}
+
+function listIndependentTestLeaderboard(state, test, account) {
+  ensureIndependentTestsState(state);
+  if (!test) {
+    throw new Error("Test no encontrado");
+  }
+  if (account?.role !== "admin" && !test.published) {
+    throw new Error("Test no encontrado");
+  }
+
+  const bestAttemptByMemberId = new Map();
+  (state.testAttempts || [])
+    .filter((attempt) => String(attempt.testId || "").trim() === String(test.id || "").trim())
+    .forEach((attempt) => {
+      const memberId = String(attempt.memberId || "").trim();
+      if (!memberId) {
+        return;
+      }
+      const previous = bestAttemptByMemberId.get(memberId);
+      if (!previous) {
+        bestAttemptByMemberId.set(memberId, attempt);
+        return;
+      }
+
+      const attemptScore = Number(attempt.score || 0);
+      const previousScore = Number(previous.score || 0);
+      const attemptDuration = Number.isFinite(Number(attempt.durationMs)) ? Number(attempt.durationMs) : Number.MAX_SAFE_INTEGER;
+      const previousDuration = Number.isFinite(Number(previous.durationMs))
+        ? Number(previous.durationMs)
+        : Number.MAX_SAFE_INTEGER;
+
+      if (
+        attemptScore > previousScore ||
+        (attemptScore === previousScore && attemptDuration < previousDuration)
+      ) {
+        bestAttemptByMemberId.set(memberId, attempt);
+      }
+    });
+
+  return Array.from(bestAttemptByMemberId.values())
+    .sort((left, right) => {
+      const scoreDiff = Number(right.score || 0) - Number(left.score || 0);
+      if (scoreDiff !== 0) {
+        return scoreDiff;
+      }
+      const leftDuration = Number.isFinite(Number(left.durationMs)) ? Number(left.durationMs) : Number.MAX_SAFE_INTEGER;
+      const rightDuration = Number.isFinite(Number(right.durationMs)) ? Number(right.durationMs) : Number.MAX_SAFE_INTEGER;
+      return leftDuration - rightDuration;
+    })
+    .slice(0, 10)
+    .map((attempt) => buildIndependentTestLeaderboardEntry(state, attempt));
 }
 
 function buildIndependentTestQuestionAudiencePayload(question, options = {}) {
@@ -782,7 +879,11 @@ function buildIndependentTestAudiencePayload(test, options = {}) {
     title: test.title,
     description: test.description,
     published: true,
-    questionCount: Array.isArray(test.questionIds) ? test.questionIds.length : 0
+    questionCount: Array.isArray(test.questionIds) ? test.questionIds.length : 0,
+    timeLimitSeconds:
+      Number.isFinite(Number(test.timeLimitSeconds)) && Number(test.timeLimitSeconds) > 0
+        ? Math.floor(Number(test.timeLimitSeconds))
+        : null
   };
 }
 
@@ -2203,7 +2304,9 @@ const server = http.createServer(async (req, res) => {
       if (!account.memberId) {
         return sendJson(res, 400, { ok: false, error: "Tu cuenta no tiene un miembro asociado para guardar el intento" });
       }
-      const attempt = createIndependentTestAttempt(state, test, account.memberId, payload.answers);
+      const attempt = createIndependentTestAttempt(state, test, account.memberId, payload.answers, {
+        startedAt: payload.startedAt
+      });
       writeState(state);
       return sendJson(res, 201, {
         ok: true,
@@ -2212,10 +2315,14 @@ const server = http.createServer(async (req, res) => {
           testId: attempt.testId,
           score: attempt.score,
           total: attempt.total,
+          durationMs: attempt.durationMs,
+          timedOut: attempt.timedOut,
           createdAt: attempt.createdAt
         },
         score: attempt.score,
-        total: attempt.total
+        total: attempt.total,
+        durationMs: attempt.durationMs,
+        timedOut: attempt.timedOut
       });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el intento del test" });
@@ -2236,6 +2343,23 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, attempts });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar tus intentos" });
+    }
+  }
+
+  if (/^\/api\/tests\/[^/]+\/leaderboard$/.test(requestUrl.pathname) && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const testId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const test = state.tests.find((item) => item.id === testId);
+      const leaderboard = listIndependentTestLeaderboard(state, test, account);
+      return sendJson(res, 200, { ok: true, leaderboard });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cargar el ranking del test" });
     }
   }
 

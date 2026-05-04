@@ -238,6 +238,7 @@ function normalizeIndependentTestModule(module, moduleIndex) {
 }
 
 function normalizeIndependentTest(test, testIndex) {
+  const parsedTimeLimitSeconds = Number(test?.timeLimitSeconds);
   return {
     ...test,
     id: test?.id || `test-${Date.now()}-${testIndex}`,
@@ -246,6 +247,10 @@ function normalizeIndependentTest(test, testIndex) {
     description: String(test?.description || "").trim(),
     questionIds: Array.isArray(test?.questionIds) ? test.questionIds.map((item) => String(item || "").trim()).filter(Boolean) : [],
     published: Boolean(test?.published),
+    timeLimitSeconds:
+      Number.isFinite(parsedTimeLimitSeconds) && parsedTimeLimitSeconds > 0
+        ? Math.floor(parsedTimeLimitSeconds)
+        : null,
     createdAt: test?.createdAt || new Date().toISOString()
   };
 }
@@ -267,6 +272,7 @@ function normalizeIndependentQuestion(question, questionIndex) {
 }
 
 function normalizeIndependentTestAttempt(attempt, attemptIndex) {
+  const parsedDurationMs = Number(attempt?.durationMs);
   return {
     ...attempt,
     id: attempt?.id || `test-attempt-${Date.now()}-${attemptIndex}`,
@@ -275,6 +281,8 @@ function normalizeIndependentTestAttempt(attempt, attemptIndex) {
     answers: Array.isArray(attempt?.answers) ? attempt.answers.map((value) => Number(value)) : [],
     score: Number(attempt?.score || 0),
     total: Number(attempt?.total || 0),
+    durationMs: Number.isFinite(parsedDurationMs) && parsedDurationMs >= 0 ? Math.floor(parsedDurationMs) : null,
+    timedOut: Boolean(attempt?.timedOut),
     createdAt: attempt?.createdAt || new Date().toISOString()
   };
 }
