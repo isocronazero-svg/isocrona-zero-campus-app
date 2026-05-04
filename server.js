@@ -1960,7 +1960,13 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 201, {
         ok: true,
-        attempt,
+        attempt: {
+          id: attempt.id,
+          testId: attempt.testId,
+          score: attempt.score,
+          total: attempt.total,
+          createdAt: attempt.createdAt
+        },
         score: attempt.score,
         total: attempt.total
       });
