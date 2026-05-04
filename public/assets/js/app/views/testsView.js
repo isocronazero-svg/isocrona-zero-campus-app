@@ -7,6 +7,7 @@ const testsViewState = {
   leaderboardByTestId: {},
   startedAtByTestId: {},
   activeTestId: "",
+  activeAttemptTestId: "",
   result: null,
   message: "",
   tone: "neutral",
@@ -67,6 +68,15 @@ function getStudentTestTimeLimitSeconds(test = getActiveStudentTest()) {
   return Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : null;
 }
 
+function hasActiveTimedAttempt(test = getActiveStudentTest()) {
+  return Boolean(
+    test &&
+      getStudentTestTimeLimitSeconds(test) &&
+      testsViewState.activeAttemptTestId === test.id &&
+      testsViewState.startedAtByTestId[test.id]
+  );
+}
+
 function clearStudentTimer(resetAutoSubmitting = true) {
   if (testsViewState.timerIntervalId) {
     clearInterval(testsViewState.timerIntervalId);
@@ -94,6 +104,7 @@ async function loadAdminData() {
   testsViewState.questionsByTestId = {};
   testsViewState.attemptsByTestId = {};
   testsViewState.leaderboardByTestId = {};
+  testsViewState.activeAttemptTestId = "";
   clearStudentTimer();
 
   await Promise.all(
@@ -167,7 +178,9 @@ async function loadStudentData() {
 
   const hasActiveVisibleTest = visibleTests.some((test) => test.id === testsViewState.activeTestId);
   testsViewState.activeTestId = hasActiveVisibleTest ? testsViewState.activeTestId : visibleTests[0].id;
-  testsViewState.startedAtByTestId[testsViewState.activeTestId] = Date.now();
+  if (!visibleTests.some((test) => test.id === testsViewState.activeAttemptTestId)) {
+    testsViewState.activeAttemptTestId = "";
+  }
   await ensureStudentActiveTestQuestions();
   await ensureStudentActiveTestAttempts();
   await ensureStudentActiveTestLeaderboard();
@@ -219,7 +232,7 @@ function startStudentTimer(container) {
 
   const test = getActiveStudentTest();
   const timeLimitSeconds = getStudentTestTimeLimitSeconds(test);
-  if (!test || !timeLimitSeconds) {
+  if (!test || !timeLimitSeconds || !hasActiveTimedAttempt(test)) {
     return;
   }
 
@@ -265,7 +278,56 @@ function finalizeTestsViewRender(container) {
     clearStudentTimer();
     return;
   }
-  startStudentTimer(container);
+  if (hasActiveTimedAttempt()) {
+    startStudentTimer(container);
+    return;
+  }
+  clearStudentTimer();
+}
+
+function buildStudentAttemptsMarkup(attempts) {
+  return attempts.length
+    ? `
+      <ul class="stack">
+        ${attempts
+          .map(
+            (attempt) => `
+              <li>
+                <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
+                <p class="muted">
+                  ${escapeHtml(formatAttemptDate(attempt.createdAt))}
+                  ${attempt.durationMs != null ? ` · ${escapeHtml(formatDurationMs(attempt.durationMs))}` : ""}
+                  ${attempt.timedOut ? " · Fuera de tiempo" : ""}
+                </p>
+              </li>
+            `
+          )
+          .join("")}
+      </ul>
+    `
+    : '<p class="muted">Todavia no has realizado intentos en este test.</p>';
+}
+
+function buildStudentLeaderboardMarkup(leaderboard) {
+  return leaderboard.length
+    ? `
+      <ol class="stack">
+        ${leaderboard
+          .map(
+            (entry) => `
+              <li>
+                <strong>${escapeHtml(entry.displayName || "Participante")}</strong>
+                <p class="muted">
+                  ${escapeHtml(`${entry.score}/${entry.total}`)}
+                  ${entry.durationMs != null ? ` · ${escapeHtml(formatDurationMs(entry.durationMs))}` : ""}
+                </p>
+              </li>
+            `
+          )
+          .join("")}
+      </ol>
+    `
+    : '<p class="muted">Todavia no hay resultados para este ranking.</p>';
 }
 
 function buildAdminModuleMarkup(module) {
@@ -457,8 +519,35 @@ function buildStudentActiveTestMarkup() {
   const attempts = getAttemptsForTest(testsViewState.activeTestId);
   const leaderboard = getLeaderboardForTest(testsViewState.activeTestId);
   const timeLimitSeconds = getStudentTestTimeLimitSeconds(test);
+  const timedAttemptActive = hasActiveTimedAttempt(test);
   if (!test || !questions.length) {
     return '<div class="empty-state">Este test aun no tiene preguntas disponibles.</div>';
+  }
+
+  if (timeLimitSeconds && !timedAttemptActive) {
+    return `
+      <section class="stack">
+        <div>
+          <p class="eyebrow">Test activo</p>
+          <h3>${escapeHtml(test.title)}</h3>
+          <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
+          <p class="muted">Tiempo limite: ${escapeHtml(String(timeLimitSeconds))} s.</p>
+        </div>
+        <div class="chip-row">
+          <button class="primary-button" type="button" data-action="start-test-attempt" data-test-id="${escapeHtml(test.id)}">
+            Empezar intento
+          </button>
+        </div>
+        <section class="panel panel-side">
+          <h4>Mis intentos</h4>
+          ${buildStudentAttemptsMarkup(attempts)}
+        </section>
+        <section class="panel panel-side">
+          <h4>Ranking del test</h4>
+          ${buildStudentLeaderboardMarkup(leaderboard)}
+        </section>
+      </section>
+    `;
   }
 
   return `
@@ -504,52 +593,11 @@ function buildStudentActiveTestMarkup() {
       </div>
       <section class="panel panel-side">
         <h4>Mis intentos</h4>
-        ${
-          attempts.length
-            ? `
-              <ul class="stack">
-                ${attempts
-                  .map(
-                    (attempt) => `
-                      <li>
-                        <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
-                        <p class="muted">
-                          ${escapeHtml(formatAttemptDate(attempt.createdAt))}
-                          ${attempt.durationMs != null ? ` · ${escapeHtml(formatDurationMs(attempt.durationMs))}` : ""}
-                          ${attempt.timedOut ? " · Fuera de tiempo" : ""}
-                        </p>
-                      </li>
-                    `
-                  )
-                  .join("")}
-              </ul>
-            `
-            : '<p class="muted">Todavia no has realizado intentos en este test.</p>'
-        }
+        ${buildStudentAttemptsMarkup(attempts)}
       </section>
       <section class="panel panel-side">
         <h4>Ranking del test</h4>
-        ${
-          leaderboard.length
-            ? `
-              <ol class="stack">
-                ${leaderboard
-                  .map(
-                    (entry) => `
-                      <li>
-                        <strong>${escapeHtml(entry.displayName || "Participante")}</strong>
-                        <p class="muted">
-                          ${escapeHtml(`${entry.score}/${entry.total}`)}
-                          ${entry.durationMs != null ? ` · ${escapeHtml(formatDurationMs(entry.durationMs))}` : ""}
-                        </p>
-                      </li>
-                    `
-                  )
-                  .join("")}
-              </ol>
-            `
-            : '<p class="muted">Todavia no hay resultados para este ranking.</p>'
-        }
+        ${buildStudentLeaderboardMarkup(leaderboard)}
       </section>
     </form>
   `;
@@ -650,9 +698,22 @@ async function handleAdminSubmit(container, form) {
 async function handleStudentTestSelection(container, testId) {
   testsViewState.activeTestId = String(testId || "").trim();
   testsViewState.result = null;
-  testsViewState.startedAtByTestId[testsViewState.activeTestId] = Date.now();
   setTestsViewMessage("", "neutral");
   await refreshTestsView(container, testsViewState.role);
+}
+
+function handleStudentAttemptStart(container, testId) {
+  const normalizedTestId = String(testId || "").trim();
+  if (!normalizedTestId) {
+    return;
+  }
+  testsViewState.activeTestId = normalizedTestId;
+  testsViewState.activeAttemptTestId = normalizedTestId;
+  testsViewState.startedAtByTestId[normalizedTestId] = Date.now();
+  testsViewState.result = null;
+  setTestsViewMessage("", "neutral");
+  renderTestsMarkup(container);
+  finalizeTestsViewRender(container);
 }
 
 async function handleStudentAttemptSubmit(container, form, options = {}) {
@@ -682,9 +743,10 @@ async function handleStudentAttemptSubmit(container, form, options = {}) {
     timedOut: Boolean(options.timedOut || response.timedOut)
   };
   testsViewState.autoSubmittingTestId = "";
+  testsViewState.activeAttemptTestId = "";
+  delete testsViewState.startedAtByTestId[testId];
   await ensureStudentActiveTestAttempts();
   await ensureStudentActiveTestLeaderboard();
-  testsViewState.startedAtByTestId[testId] = Date.now();
   setTestsViewMessage(`Resultado guardado: ${testsViewState.result.score}/${testsViewState.result.total}.`, "success");
   renderTestsMarkup(container);
   finalizeTestsViewRender(container);
@@ -693,16 +755,28 @@ async function handleStudentAttemptSubmit(container, form, options = {}) {
 export function renderTestsView(container, role = "member") {
   container.onclick = async (event) => {
     const openTestButton = event.target.closest('[data-action="open-test"]');
-    if (!openTestButton) {
+    const startAttemptButton = event.target.closest('[data-action="start-test-attempt"]');
+    if (openTestButton) {
+      event.preventDefault();
+      try {
+        await handleStudentTestSelection(container, openTestButton.dataset.testId);
+      } catch (error) {
+        setTestsViewMessage(error.message || "No se pudo abrir el test.", "error");
+        renderTestsMarkup(container);
+        finalizeTestsViewRender(container);
+      }
       return;
     }
 
-    event.preventDefault();
-    try {
-      await handleStudentTestSelection(container, openTestButton.dataset.testId);
-    } catch (error) {
-      setTestsViewMessage(error.message || "No se pudo abrir el test.", "error");
-      renderTestsMarkup(container);
+    if (startAttemptButton) {
+      event.preventDefault();
+      try {
+        handleStudentAttemptStart(container, startAttemptButton.dataset.testId);
+      } catch (error) {
+        setTestsViewMessage(error.message || "No se pudo empezar el intento.", "error");
+        renderTestsMarkup(container);
+        finalizeTestsViewRender(container);
+      }
     }
   };
 
