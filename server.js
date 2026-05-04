@@ -525,6 +525,9 @@ function buildIndependentTest(state, payload = {}) {
   ensureIndependentTestsState(state);
   const moduleId = String(payload.moduleId || "").trim();
   const title = String(payload.title || "").trim();
+  const questionIds = Array.isArray(payload.questionIds)
+    ? payload.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
   if (!moduleId) {
     throw new Error("El test necesita un modulo");
   }
@@ -535,14 +538,22 @@ function buildIndependentTest(state, payload = {}) {
     throw new Error("El test necesita un titulo");
   }
 
+  questionIds.forEach((questionId) => {
+    const question = state.questions.find((item) => item.id === questionId);
+    if (!question) {
+      throw new Error("Pregunta de test no encontrada");
+    }
+    if (String(question.moduleId || "").trim() !== moduleId) {
+      throw new Error("La pregunta no pertenece al modulo del test");
+    }
+  });
+
   return {
     id: generateLegacyId("test"),
     moduleId,
     title,
     description: String(payload.description || "").trim(),
-    questionIds: Array.isArray(payload.questionIds)
-      ? payload.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
-      : [],
+    questionIds,
     published: Boolean(payload.published),
     createdAt: new Date().toISOString()
   };
@@ -1925,6 +1936,9 @@ const server = http.createServer(async (req, res) => {
         const test = state.tests.find((item) => item.id === testId);
         if (!test) {
           throw new Error("Test no encontrado");
+        }
+        if (String(test.moduleId || "").trim() !== String(question.moduleId || "").trim()) {
+          throw new Error("La pregunta no pertenece al modulo del test");
         }
         test.questionIds = [...new Set([...(Array.isArray(test.questionIds) ? test.questionIds : []), question.id])];
       }
