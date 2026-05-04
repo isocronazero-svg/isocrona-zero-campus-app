@@ -583,6 +583,9 @@ function ensureIndependentTestsState(state) {
   return state;
 }
 
+const independentTestTimingGraceMs = 3000;
+const independentTestMaxClientDurationMs = 24 * 60 * 60 * 1000;
+
 function buildIndependentTestModule(payload = {}) {
   const title = String(payload.title || "").trim();
   if (!title) {
@@ -718,7 +721,11 @@ function resolveIndependentTestAttemptStartTimestamp(startedAt, fallbackTimestam
         ? Date.parse(startedAt)
         : Number.NaN;
 
-  if (!Number.isFinite(parsed) || parsed > fallbackTimestamp) {
+  if (
+    !Number.isFinite(parsed) ||
+    parsed > fallbackTimestamp ||
+    fallbackTimestamp - parsed > independentTestMaxClientDurationMs
+  ) {
     return fallbackTimestamp;
   }
 
@@ -740,7 +747,9 @@ function createIndependentTestAttempt(state, test, memberId, answers, options = 
   );
   const timeLimitSeconds = Number(test?.timeLimitSeconds);
   const timedOut =
-    Number.isFinite(timeLimitSeconds) && timeLimitSeconds > 0 ? durationMs > Math.floor(timeLimitSeconds) * 1000 : false;
+    Number.isFinite(timeLimitSeconds) && timeLimitSeconds > 0
+      ? durationMs > Math.floor(timeLimitSeconds) * 1000 + independentTestTimingGraceMs
+      : false;
 
   const attempt = {
     id: generateLegacyId("test-attempt"),
@@ -781,29 +790,7 @@ function buildIndependentTestLeaderboardEntry(state, attempt) {
   };
 }
 
-function listIndependentTestAttemptsForAccount(state, test, account) {
-  ensureIndependentTestsState(state);
-  if (!account?.memberId) {
-    throw new Error("Tu cuenta no tiene un miembro asociado para consultar intentos");
-  }
-  if (!test) {
-    throw new Error("Test no encontrado");
-  }
-  if (account.role !== "admin" && !test.published) {
-    throw new Error("Test no encontrado");
-  }
-
-  return (state.testAttempts || [])
-    .filter(
-      (attempt) =>
-        String(attempt.testId || "").trim() === String(test.id || "").trim() &&
-        String(attempt.memberId || "").trim() === String(account.memberId || "").trim()
-    )
-    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
-    .map((attempt) => buildIndependentTestAttemptAudiencePayload(attempt));
-}
-
-function listIndependentTestLeaderboard(state, test, account) {
+function buildIndependentTestLeaderboardRows(state, test, account) {
   ensureIndependentTestsState(state);
   if (!test) {
     throw new Error("Test no encontrado");
@@ -851,8 +838,59 @@ function listIndependentTestLeaderboard(state, test, account) {
       const rightDuration = Number.isFinite(Number(right.durationMs)) ? Number(right.durationMs) : Number.MAX_SAFE_INTEGER;
       return leftDuration - rightDuration;
     })
-    .slice(0, 10)
-    .map((attempt) => buildIndependentTestLeaderboardEntry(state, attempt));
+    .map((attempt, index) => ({
+      rank: index + 1,
+      ...buildIndependentTestLeaderboardEntry(state, attempt)
+    }));
+}
+
+function listIndependentTestAttemptsForAccount(state, test, account) {
+  ensureIndependentTestsState(state);
+  if (!account?.memberId) {
+    throw new Error("Tu cuenta no tiene un miembro asociado para consultar intentos");
+  }
+  if (!test) {
+    throw new Error("Test no encontrado");
+  }
+  if (account.role !== "admin" && !test.published) {
+    throw new Error("Test no encontrado");
+  }
+
+  return (state.testAttempts || [])
+    .filter(
+      (attempt) =>
+        String(attempt.testId || "").trim() === String(test.id || "").trim() &&
+        String(attempt.memberId || "").trim() === String(account.memberId || "").trim()
+    )
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
+    .map((attempt) => buildIndependentTestAttemptAudiencePayload(attempt));
+}
+
+function listIndependentTestLeaderboard(state, test, account) {
+  const rankedEntries = buildIndependentTestLeaderboardRows(state, test, account);
+  const currentUserRank = account?.memberId
+    ? rankedEntries.find((entry) => String(entry.memberId || "").trim() === String(account.memberId || "").trim()) || null
+    : null;
+
+  return {
+    leaderboard: rankedEntries.slice(0, 10).map((entry) => ({
+      memberId: entry.memberId,
+      displayName: entry.displayName,
+      score: entry.score,
+      total: entry.total,
+      durationMs: entry.durationMs
+    })),
+    currentUserRank: currentUserRank
+      ? {
+          rank: currentUserRank.rank,
+          memberId: currentUserRank.memberId,
+          displayName: currentUserRank.displayName,
+          score: currentUserRank.score,
+          total: currentUserRank.total,
+          durationMs: currentUserRank.durationMs
+        }
+      : null
+  };
 }
 
 function buildIndependentTestQuestionAudiencePayload(question, options = {}) {
@@ -2356,8 +2394,12 @@ const server = http.createServer(async (req, res) => {
       ensureIndependentTestsState(state);
       const testId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
       const test = state.tests.find((item) => item.id === testId);
-      const leaderboard = listIndependentTestLeaderboard(state, test, account);
-      return sendJson(res, 200, { ok: true, leaderboard });
+      const leaderboardPayload = listIndependentTestLeaderboard(state, test, account);
+      return sendJson(res, 200, {
+        ok: true,
+        leaderboard: leaderboardPayload.leaderboard,
+        currentUserRank: leaderboardPayload.currentUserRank
+      });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cargar el ranking del test" });
     }

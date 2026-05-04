@@ -5,6 +5,7 @@ const testsViewState = {
   questionsByTestId: {},
   attemptsByTestId: {},
   leaderboardByTestId: {},
+  currentUserRankByTestId: {},
   startedAtByTestId: {},
   activeTestId: "",
   activeAttemptTestId: "",
@@ -59,6 +60,10 @@ function getLeaderboardForTest(testId) {
   return Array.isArray(testsViewState.leaderboardByTestId[testId]) ? testsViewState.leaderboardByTestId[testId] : [];
 }
 
+function getCurrentUserRankForTest(testId) {
+  return testsViewState.currentUserRankByTestId[testId] || null;
+}
+
 function getActiveStudentTest() {
   return testsViewState.tests.find((item) => item.id === testsViewState.activeTestId) || null;
 }
@@ -104,6 +109,7 @@ async function loadAdminData() {
   testsViewState.questionsByTestId = {};
   testsViewState.attemptsByTestId = {};
   testsViewState.leaderboardByTestId = {};
+  testsViewState.currentUserRankByTestId = {};
   testsViewState.activeAttemptTestId = "";
   clearStudentTimer();
 
@@ -149,6 +155,7 @@ async function ensureStudentActiveTestLeaderboard() {
   testsViewState.leaderboardByTestId[testsViewState.activeTestId] = Array.isArray(response.leaderboard)
     ? response.leaderboard
     : [];
+  testsViewState.currentUserRankByTestId[testsViewState.activeTestId] = response.currentUserRank || null;
 }
 
 async function loadStudentData() {
@@ -167,6 +174,7 @@ async function loadStudentData() {
   testsViewState.questionsByTestId = {};
   testsViewState.attemptsByTestId = {};
   testsViewState.leaderboardByTestId = {};
+  testsViewState.currentUserRankByTestId = {};
   testsViewState.result = null;
   clearStudentTimer();
 
@@ -220,8 +228,8 @@ function buildStudentResultSummary() {
   }
 
   const durationLabel = testsViewState.result.durationMs != null ? ` en ${formatDurationMs(testsViewState.result.durationMs)}` : "";
-  const timeoutLabel = testsViewState.result.timedOut ? " (fuera de tiempo)" : "";
-  return `Ultimo resultado: ${testsViewState.result.score}/${testsViewState.result.total}${durationLabel}${timeoutLabel}`;
+  const statusLabel = testsViewState.result.timedOut ? "Fuera de tiempo" : "Completado";
+  return `${statusLabel}: ${testsViewState.result.score}/${testsViewState.result.total}${durationLabel}`;
 }
 
 function startStudentTimer(container) {
@@ -328,6 +336,28 @@ function buildStudentLeaderboardMarkup(leaderboard) {
       </ol>
     `
     : '<p class="muted">Todavia no hay resultados para este ranking.</p>';
+}
+
+function buildStudentCurrentUserRankMarkup(currentUserRank, leaderboard) {
+  if (!currentUserRank) {
+    return "";
+  }
+
+  const isAlreadyVisible = leaderboard.some((entry) => String(entry.memberId || "").trim() === String(currentUserRank.memberId || "").trim());
+  if (isAlreadyVisible) {
+    return "";
+  }
+
+  return `
+    <section class="panel panel-side">
+      <h4>Tu posicion</h4>
+      <p><strong>#${escapeHtml(String(currentUserRank.rank))}</strong> ${escapeHtml(currentUserRank.displayName || "Participante")}</p>
+      <p class="muted">
+        ${escapeHtml(`${currentUserRank.score}/${currentUserRank.total}`)}
+        ${currentUserRank.durationMs != null ? ` · ${escapeHtml(formatDurationMs(currentUserRank.durationMs))}` : ""}
+      </p>
+    </section>
+  `;
 }
 
 function buildAdminModuleMarkup(module) {
@@ -518,6 +548,7 @@ function buildStudentActiveTestMarkup() {
   const questions = getQuestionsForTest(testsViewState.activeTestId);
   const attempts = getAttemptsForTest(testsViewState.activeTestId);
   const leaderboard = getLeaderboardForTest(testsViewState.activeTestId);
+  const currentUserRank = getCurrentUserRankForTest(testsViewState.activeTestId);
   const timeLimitSeconds = getStudentTestTimeLimitSeconds(test);
   const timedAttemptActive = hasActiveTimedAttempt(test);
   if (!test || !questions.length) {
@@ -535,7 +566,7 @@ function buildStudentActiveTestMarkup() {
         </div>
         <div class="chip-row">
           <button class="primary-button" type="button" data-action="start-test-attempt" data-test-id="${escapeHtml(test.id)}">
-            Empezar intento
+            ${attempts.length ? "Reintentar" : "Empezar intento"}
           </button>
         </div>
         <section class="panel panel-side">
@@ -546,6 +577,7 @@ function buildStudentActiveTestMarkup() {
           <h4>Ranking del test</h4>
           ${buildStudentLeaderboardMarkup(leaderboard)}
         </section>
+        ${buildStudentCurrentUserRankMarkup(currentUserRank, leaderboard)}
       </section>
     `;
   }
@@ -599,6 +631,7 @@ function buildStudentActiveTestMarkup() {
         <h4>Ranking del test</h4>
         ${buildStudentLeaderboardMarkup(leaderboard)}
       </section>
+      ${buildStudentCurrentUserRankMarkup(currentUserRank, leaderboard)}
     </form>
   `;
 }
