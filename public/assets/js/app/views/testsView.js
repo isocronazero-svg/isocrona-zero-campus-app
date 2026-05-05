@@ -524,6 +524,7 @@ function buildAdminModuleMarkup(module) {
             Limite de tiempo (segundos)
             <input type="number" name="timeLimitSeconds" min="1" step="1" />
           </label>
+          <p class="muted">Dejalo vacio para no aplicar limite.</p>
           <div class="chip-row">
             <button class="primary-button" type="submit">Guardar test</button>
           </div>
@@ -557,6 +558,7 @@ function buildAdminModuleMarkup(module) {
                           Limite de tiempo (segundos)
                           <input type="number" name="timeLimitSeconds" min="1" step="1" value="${escapeHtml(test.timeLimitSeconds || "")}" />
                         </label>
+                        <p class="muted">Dejalo vacio para no aplicar limite.</p>
                         <div class="chip-row">
                           <button class="primary-button" type="submit">Guardar test</button>
                           <button class="ghost-button danger-button" type="button" data-action="delete-test" data-test-id="${escapeHtml(test.id)}">
@@ -661,10 +663,21 @@ function buildStudentTestListMarkup() {
               <div>
                 <strong>${escapeHtml(test.title)}</strong>
                 <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
+                ${
+                  Number(test.questionCount || 0) > 0
+                    ? ""
+                    : '<p class="muted">Este test esta publicado pero todavia no tiene preguntas.</p>'
+                }
               </div>
-              <button class="primary-button" type="button" data-action="open-test" data-test-id="${escapeHtml(test.id)}">
-                Hacer test
-              </button>
+              ${
+                Number(test.questionCount || 0) > 0
+                  ? `
+                    <button class="primary-button" type="button" data-action="open-test" data-test-id="${escapeHtml(test.id)}">
+                      Hacer test
+                    </button>
+                  `
+                  : ""
+              }
             </article>
           `
         )
@@ -686,7 +699,7 @@ function buildStudentActiveTestMarkup() {
   const timeLimitSeconds = getStudentTestTimeLimitSeconds(test);
   const timedAttemptActive = hasActiveTimedAttempt(test);
   if (!test || !questions.length) {
-    return '<div class="empty-state">Este test aun no tiene preguntas disponibles.</div>';
+    return '<div class="empty-state">Este test está publicado pero todavía no tiene preguntas.</div>';
   }
 
   if (timeLimitSeconds && !timedAttemptActive) {
@@ -891,12 +904,21 @@ async function handleAdminAction(container, action, dataset = {}) {
   }
 
   if (action === "delete-module") {
+    if (!window.confirm("¿Seguro que quieres borrar este módulo?")) {
+      return;
+    }
     await client.delete(`/api/test-modules/${encodeURIComponent(String(dataset.moduleId || "").trim())}`);
     setTestsViewMessage("Modulo borrado correctamente.", "success");
   } else if (action === "delete-test") {
+    if (!window.confirm("¿Seguro que quieres borrar este test?")) {
+      return;
+    }
     await client.delete(`/api/tests/${encodeURIComponent(String(dataset.testId || "").trim())}`);
     setTestsViewMessage("Test borrado correctamente.", "success");
   } else if (action === "delete-question") {
+    if (!window.confirm("¿Seguro que quieres borrar esta pregunta?")) {
+      return;
+    }
     await client.delete(`/api/questions/${encodeURIComponent(String(dataset.questionId || "").trim())}`);
     setTestsViewMessage("Pregunta borrada correctamente.", "success");
   } else if (action === "move-question") {
