@@ -1011,6 +1011,20 @@ function normalizeLiveTestQuestionTimeLimitSeconds(value) {
   return liveTestQuestionTimeLimitDefaultSeconds;
 }
 
+function resolveLiveQuestionStartedAtTimestamp(session) {
+  const questionStartedAt = Date.parse(String(session?.questionStartedAt || ""));
+  if (Number.isFinite(questionStartedAt) && questionStartedAt > 0) {
+    return questionStartedAt;
+  }
+
+  const startedAt = Date.parse(String(session?.startedAt || ""));
+  if (Number.isFinite(startedAt) && startedAt > 0) {
+    return startedAt;
+  }
+
+  return null;
+}
+
 function buildLiveTestPin(state) {
   ensureIndependentTestsState(state);
   const usedPins = new Set(
@@ -1396,16 +1410,16 @@ function submitLiveTestAnswer(state, session, account, payload = {}) {
   }
 
   const nowTimestamp = Date.now();
-  const questionStartedAtTimestamp = Date.parse(String(session.questionStartedAt || ""));
+  const questionStartedAtTimestamp = resolveLiveQuestionStartedAtTimestamp(session);
   const elapsedMs =
-    Number.isFinite(questionStartedAtTimestamp) && questionStartedAtTimestamp > 0
+    questionStartedAtTimestamp != null
       ? Math.max(nowTimestamp - questionStartedAtTimestamp, 0)
-      : 0;
+      : liveTestMaxResponseTimeMs;
   const questionTimeLimitSeconds = normalizeLiveTestQuestionTimeLimitSeconds(session.questionTimeLimitSeconds);
   const limitMs = questionTimeLimitSeconds * 1000;
   const responseTimeMs = Math.min(Math.floor(elapsedMs), liveTestMaxResponseTimeMs);
   const isCorrect = selectedIndex === Number(currentQuestion.correctIndex);
-  const isLate = elapsedMs > limitMs + liveTestQuestionTimingGraceMs;
+  const isLate = questionStartedAtTimestamp == null || elapsedMs > limitMs + liveTestQuestionTimingGraceMs;
   const pointsAwarded =
     isCorrect && !isLate
       ? 100 + Math.max(0, Math.round(50 * (1 - elapsedMs / Math.max(limitMs, 1))))
