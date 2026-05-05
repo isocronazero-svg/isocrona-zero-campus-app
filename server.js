@@ -594,6 +594,8 @@ const independentTestMaxClientDurationMs = 24 * 60 * 60 * 1000;
 const liveTestFinishedSessionRetentionLimit = 20;
 const liveTestPollIntervalMs = 2000;
 const liveTestMaxResponseTimeMs = 24 * 60 * 60 * 1000;
+const liveTestLobbyMaxAgeMs = 2 * 60 * 60 * 1000;
+const liveTestRunningMaxAgeMs = 4 * 60 * 60 * 1000;
 const liveTestQuestionTimeLimitDefaultSeconds = 20;
 const liveTestQuestionTimeLimitMinSeconds = 5;
 const liveTestQuestionTimeLimitMaxSeconds = 120;
@@ -1025,6 +1027,20 @@ function resolveLiveQuestionStartedAtTimestamp(session) {
   return null;
 }
 
+function resolveLiveSessionCreatedAtTimestamp(session) {
+  const createdAt = Date.parse(String(session?.createdAt || ""));
+  if (Number.isFinite(createdAt) && createdAt > 0) {
+    return createdAt;
+  }
+
+  const startedAt = Date.parse(String(session?.startedAt || ""));
+  if (Number.isFinite(startedAt) && startedAt > 0) {
+    return startedAt;
+  }
+
+  return null;
+}
+
 function buildLiveTestPin(state) {
   ensureIndependentTestsState(state);
   const usedPins = new Set(
@@ -1263,6 +1279,37 @@ function pruneFinishedLiveTestSessions(state, options = {}) {
   return true;
 }
 
+function expireStaleLiveTestSessions(state) {
+  ensureIndependentTestsState(state);
+  const nowTimestamp = Date.now();
+  let changed = false;
+
+  (state.liveTestSessions || []).forEach((session) => {
+    const status = String(session?.status || "").trim();
+    if (status === "finished") {
+      return;
+    }
+
+    const referenceTimestamp =
+      status === "running"
+        ? resolveLiveQuestionStartedAtTimestamp(session) ?? resolveLiveSessionCreatedAtTimestamp(session)
+        : resolveLiveSessionCreatedAtTimestamp(session);
+    const maxAgeMs = status === "running" ? liveTestRunningMaxAgeMs : liveTestLobbyMaxAgeMs;
+    if (referenceTimestamp == null || nowTimestamp - referenceTimestamp <= maxAgeMs) {
+      return;
+    }
+
+    finishLiveTestSession(session);
+    changed = true;
+  });
+
+  if (changed) {
+    pruneFinishedLiveTestSessions(state);
+  }
+
+  return changed;
+}
+
 function listLiveTestSessionsForAdmin(state) {
   ensureIndependentTestsState(state);
   return (state.liveTestSessions || [])
@@ -1315,6 +1362,9 @@ function startLiveTestSession(state, session) {
 }
 
 function finishLiveTestSession(session) {
+  if (String(session?.status || "").trim() === "finished") {
+    return session;
+  }
   session.status = "finished";
   session.finishedAt = new Date().toISOString();
   return session;
@@ -1344,15 +1394,18 @@ function joinLiveTestSession(state, session, account, displayName = "") {
   }
 
   const member = (state.members || []).find((item) => item.id === account.memberId) || null;
+  const requestedDisplayName = String(displayName || "").trim().slice(0, 60);
   const safeDisplayName =
-    String(displayName || "").trim().slice(0, 60) ||
+    requestedDisplayName ||
     String(member?.name || account.name || "Participante").trim().slice(0, 60) ||
     "Participante";
   const now = new Date().toISOString();
   let player = getLiveTestPlayerForMember(state, session.id, account.memberId);
 
   if (player) {
-    player.displayName = safeDisplayName;
+    if (requestedDisplayName) {
+      player.displayName = requestedDisplayName;
+    }
     player.lastSeenAt = now;
     return player;
   }
@@ -3153,8 +3206,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureIndependentTestsState(state);
+      const expired = expireStaleLiveTestSessions(state);
       const pruned = pruneFinishedLiveTestSessions(state);
-      if (pruned) {
+      if (expired || pruned) {
         writeState(state);
       }
       return sendJson(res, 200, { ok: true, sessions: listLiveTestSessionsForAdmin(state) });
@@ -3172,6 +3226,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureIndependentTestsState(state);
+      expireStaleLiveTestSessions(state);
       const testId = String(payload.testId || "").trim();
       const test = getIndependentTestById(state, testId);
       if (!test) {
@@ -3196,13 +3251,20 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureIndependentTestsState(state);
-      const pin = String(payload.pin || "").trim();
+      const expired = expireStaleLiveTestSessions(state);
+      const pin = String(payload.pin || "").replace(/\D/g, "");
+      if (!/^\d{6}$/.test(pin)) {
+        return sendJson(res, 400, { ok: false, error: "El PIN de la sesion live debe tener 6 digitos" });
+      }
       const session = (state.liveTestSessions || []).find(
         (item) =>
           String(item.pin || "").trim() === pin &&
           ["lobby", "running"].includes(String(item.status || "").trim())
       );
       if (!session) {
+        if (expired) {
+          writeState(state);
+        }
         return sendJson(res, 404, { ok: false, error: "Sesion live no encontrada para ese PIN" });
       }
       const player = joinLiveTestSession(state, session, account, payload.displayName);
@@ -3221,16 +3283,26 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureIndependentTestsState(state);
+      const expired = expireStaleLiveTestSessions(state);
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
       const session = getLiveTestSessionById(state, sessionId);
       if (!session) {
+        if (expired) {
+          writeState(state);
+        }
         return sendJson(res, 404, { ok: false, error: "Sesion live no encontrada" });
       }
       if (account.role === "admin") {
+        if (expired) {
+          writeState(state);
+        }
         return sendJson(res, 200, { ok: true, session: buildLiveTestHostState(state, session) });
       }
       const player = getLiveTestPlayerForMember(state, session.id, account.memberId || "");
       if (!player) {
+        if (expired) {
+          writeState(state);
+        }
         return sendJson(res, 403, { ok: false, error: "Debes unirte a la sesion live para verla" });
       }
       player.lastSeenAt = new Date().toISOString();
@@ -3249,6 +3321,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureIndependentTestsState(state);
+      expireStaleLiveTestSessions(state);
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
       const session = getLiveTestSessionById(state, sessionId);
       if (!session) {
@@ -3270,6 +3343,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureIndependentTestsState(state);
+      expireStaleLiveTestSessions(state);
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
       const session = getLiveTestSessionById(state, sessionId);
       if (!session) {
@@ -3292,6 +3366,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureIndependentTestsState(state);
+      expireStaleLiveTestSessions(state);
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
       const session = getLiveTestSessionById(state, sessionId);
       if (!session) {
@@ -3315,6 +3390,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureIndependentTestsState(state);
+      expireStaleLiveTestSessions(state);
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
       const session = getLiveTestSessionById(state, sessionId);
       if (!session) {

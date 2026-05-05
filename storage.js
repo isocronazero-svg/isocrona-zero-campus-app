@@ -294,6 +294,7 @@ function normalizeLiveTestSession(session, sessionIndex) {
     ? String(session.status).trim()
     : "lobby";
   const normalizedStartedAt = session?.startedAt || "";
+  const normalizedQuestionStartedAt = session?.questionStartedAt || (normalizedStatus === "running" ? normalizedStartedAt : "");
   return {
     ...session,
     id: session?.id || `live-test-session-${Date.now()}-${sessionIndex}`,
@@ -302,7 +303,7 @@ function normalizeLiveTestSession(session, sessionIndex) {
     hostMemberId: String(session?.hostMemberId || "").trim(),
     status: normalizedStatus,
     currentQuestionIndex: Number.isInteger(parsedQuestionIndex) ? parsedQuestionIndex : -1,
-    questionStartedAt: session?.questionStartedAt || (normalizedStatus === "running" ? normalizedStartedAt : ""),
+    questionStartedAt: normalizedQuestionStartedAt,
     questionTimeLimitSeconds:
       Number.isFinite(parsedQuestionTimeLimitSeconds) && parsedQuestionTimeLimitSeconds >= 5 && parsedQuestionTimeLimitSeconds <= 120
         ? Math.floor(parsedQuestionTimeLimitSeconds)
