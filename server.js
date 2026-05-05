@@ -37,6 +37,8 @@ const automationIntervalMs = Number(process.env.AUTOMATION_INTERVAL_MS || 300000
 const bundledDataDir = path.join(__dirname, "data");
 const associateSelfEditWindowDays = Number(process.env.IZ_ASSOCIATE_SELF_EDIT_DAYS || 30);
 const campusBaseUrl = normalizeBaseUrl(process.env.IZ_BASE_URL || `http://localhost:${port}`);
+const useSecureSessionCookie =
+  /^https:\/\//i.test(campusBaseUrl) || String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
 const legacyAssociateWorkbookPath =
   process.env.IZ_ASSOCIATES_WORKBOOK ||
   path.join(process.env.USERPROFILE || "", "Downloads", "CUOTAS SOCIOS.xlsx");
@@ -312,11 +314,17 @@ function createSessionToken(account) {
 }
 
 function setSessionCookie(res, token) {
-  res.setHeader("Set-Cookie", `iz_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`);
+  res.setHeader(
+    "Set-Cookie",
+    `iz_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${useSecureSessionCookie ? "; Secure" : ""}`
+  );
 }
 
 function clearSessionCookie(res) {
-  res.setHeader("Set-Cookie", "iz_session=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax");
+  res.setHeader(
+    "Set-Cookie",
+    `iz_session=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax${useSecureSessionCookie ? "; Secure" : ""}`
+  );
 }
 
 function clearRequestSession(req) {
