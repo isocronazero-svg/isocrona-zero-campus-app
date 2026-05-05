@@ -289,18 +289,26 @@ function normalizeIndependentTestAttempt(attempt, attemptIndex) {
 
 function normalizeLiveTestSession(session, sessionIndex) {
   const parsedQuestionIndex = Number(session?.currentQuestionIndex);
+  const parsedQuestionTimeLimitSeconds = Number(session?.questionTimeLimitSeconds);
+  const normalizedStatus = ["lobby", "running", "finished"].includes(String(session?.status || "").trim())
+    ? String(session.status).trim()
+    : "lobby";
+  const normalizedStartedAt = session?.startedAt || "";
   return {
     ...session,
     id: session?.id || `live-test-session-${Date.now()}-${sessionIndex}`,
     testId: String(session?.testId || "").trim(),
     pin: String(session?.pin || "").trim(),
     hostMemberId: String(session?.hostMemberId || "").trim(),
-    status: ["lobby", "running", "finished"].includes(String(session?.status || "").trim())
-      ? String(session.status).trim()
-      : "lobby",
+    status: normalizedStatus,
     currentQuestionIndex: Number.isInteger(parsedQuestionIndex) ? parsedQuestionIndex : -1,
+    questionStartedAt: session?.questionStartedAt || (normalizedStatus === "running" ? normalizedStartedAt : ""),
+    questionTimeLimitSeconds:
+      Number.isFinite(parsedQuestionTimeLimitSeconds) && parsedQuestionTimeLimitSeconds >= 5 && parsedQuestionTimeLimitSeconds <= 120
+        ? Math.floor(parsedQuestionTimeLimitSeconds)
+        : 20,
     createdAt: session?.createdAt || new Date().toISOString(),
-    startedAt: session?.startedAt || "",
+    startedAt: normalizedStartedAt,
     finishedAt: session?.finishedAt || ""
   };
 }
@@ -321,6 +329,7 @@ function normalizeLiveTestPlayer(player, playerIndex) {
 function normalizeLiveTestAnswer(answer, answerIndex) {
   const parsedSelectedIndex = Number(answer?.selectedIndex);
   const parsedResponseTimeMs = Number(answer?.responseTimeMs);
+  const parsedPointsAwarded = Number(answer?.pointsAwarded);
   return {
     ...answer,
     id: answer?.id || `live-test-answer-${Date.now()}-${answerIndex}`,
@@ -329,6 +338,8 @@ function normalizeLiveTestAnswer(answer, answerIndex) {
     questionId: String(answer?.questionId || "").trim(),
     selectedIndex: Number.isInteger(parsedSelectedIndex) ? parsedSelectedIndex : 0,
     isCorrect: Boolean(answer?.isCorrect),
+    isLate: Boolean(answer?.isLate),
+    pointsAwarded: Number.isFinite(parsedPointsAwarded) && parsedPointsAwarded >= 0 ? Math.floor(parsedPointsAwarded) : 0,
     responseTimeMs: Number.isFinite(parsedResponseTimeMs) && parsedResponseTimeMs >= 0 ? Math.floor(parsedResponseTimeMs) : 0,
     submittedAt: answer?.submittedAt || new Date().toISOString()
   };

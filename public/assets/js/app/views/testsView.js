@@ -22,7 +22,8 @@ const testsViewState = {
   timerIntervalId: null,
   timerRemainingMs: null,
   autoSubmittingTestId: "",
-  livePollIntervalId: null
+  livePollIntervalId: null,
+  liveCountdownIntervalId: null
 };
 
 function escapeHtml(value) {
@@ -93,6 +94,35 @@ function getLiveAnswerResultKey(sessionId, questionId) {
   return `${String(sessionId || "").trim()}::${String(questionId || "").trim()}`;
 }
 
+function getLiveSessionCountdownState(sessionLike) {
+  const questionStartedAt = Date.parse(String(sessionLike?.questionStartedAt || ""));
+  const serverNow = Date.parse(String(sessionLike?.serverNow || ""));
+  const questionTimeLimitSeconds = Number(sessionLike?.questionTimeLimitSeconds);
+  if (!Number.isFinite(questionStartedAt) || !Number.isFinite(serverNow) || !Number.isFinite(questionTimeLimitSeconds) || questionTimeLimitSeconds <= 0) {
+    return null;
+  }
+
+  const startedAtMs = questionStartedAt;
+  const clientCapturedAtMs = Date.now();
+  const limitMs = Math.floor(questionTimeLimitSeconds) * 1000;
+  return {
+    startedAtMs,
+    serverNowMs: serverNow,
+    clientCapturedAtMs,
+    limitMs
+  };
+}
+
+function computeLiveRemainingMsFromCountdown(countdownState) {
+  if (!countdownState) {
+    return null;
+  }
+
+  const elapsedSinceCaptureMs = Date.now() - countdownState.clientCapturedAtMs;
+  const estimatedServerNowMs = countdownState.serverNowMs + elapsedSinceCaptureMs;
+  return Math.max(countdownState.startedAtMs + countdownState.limitMs - estimatedServerNowMs, 0);
+}
+
 function getActiveStudentTest() {
   return testsViewState.tests.find((item) => item.id === testsViewState.activeTestId) || null;
 }
@@ -129,6 +159,13 @@ function clearLivePolling() {
   }
 }
 
+function clearLiveCountdown() {
+  if (testsViewState.liveCountdownIntervalId) {
+    clearInterval(testsViewState.liveCountdownIntervalId);
+    testsViewState.liveCountdownIntervalId = null;
+  }
+}
+
 async function loadAdminData() {
   const client = getApiClient();
   if (!client) {
@@ -156,6 +193,7 @@ async function loadAdminData() {
   testsViewState.activeAttemptTestId = "";
   clearStudentTimer();
   clearLivePolling();
+  clearLiveCountdown();
 
   const questionsById = new Map(testsViewState.allQuestions.map((question) => [question.id, question]));
   testsViewState.tests.forEach((test) => {
@@ -256,6 +294,7 @@ async function loadStudentData() {
   testsViewState.result = null;
   clearStudentTimer();
   clearLivePolling();
+  clearLiveCountdown();
 
   const visibleTests = testsViewState.tests.filter((test) => Boolean(test.published));
   if (!visibleTests.length) {
@@ -370,6 +409,7 @@ function startStudentTimer(container) {
 }
 
 function finalizeTestsViewRender(container) {
+  startLiveCountdown(container);
   if (isAdminRole(testsViewState.role)) {
     clearStudentTimer();
     clearLivePolling();
@@ -381,6 +421,54 @@ function finalizeTestsViewRender(container) {
     clearStudentTimer();
   }
   startLiveSessionPolling(container);
+}
+
+function startLiveCountdown(container) {
+  clearLiveCountdown();
+
+  const updateCountdownNodes = () => {
+    const timerNodes = Array.from(container.querySelectorAll("[data-live-timer]"));
+    timerNodes.forEach((timerNode) => {
+      const startedAtMs = Number(timerNode.dataset.liveQuestionStartedAtMs || 0);
+      const serverNowMs = Number(timerNode.dataset.liveServerNowMs || 0);
+      const clientCapturedAtMs = Number(timerNode.dataset.liveClientCapturedAtMs || 0);
+      const limitMs = Number(timerNode.dataset.liveLimitMs || 0);
+      const countdownState =
+        startedAtMs > 0 && serverNowMs > 0 && clientCapturedAtMs > 0 && limitMs > 0
+          ? { startedAtMs, serverNowMs, clientCapturedAtMs, limitMs }
+          : null;
+      const remainingMs = computeLiveRemainingMsFromCountdown(countdownState);
+      if (remainingMs == null) {
+        timerNode.textContent = "--";
+        return;
+      }
+      timerNode.textContent = `${Math.ceil(remainingMs / 1000)}s`;
+    });
+
+    const answerForms = Array.from(container.querySelectorAll("[data-live-answer-form]"));
+    answerForms.forEach((formNode) => {
+      const startedAtMs = Number(formNode.dataset.liveQuestionStartedAtMs || 0);
+      const serverNowMs = Number(formNode.dataset.liveServerNowMs || 0);
+      const clientCapturedAtMs = Number(formNode.dataset.liveClientCapturedAtMs || 0);
+      const limitMs = Number(formNode.dataset.liveLimitMs || 0);
+      const countdownState =
+        startedAtMs > 0 && serverNowMs > 0 && clientCapturedAtMs > 0 && limitMs > 0
+          ? { startedAtMs, serverNowMs, clientCapturedAtMs, limitMs }
+          : null;
+      const remainingMs = computeLiveRemainingMsFromCountdown(countdownState);
+      const isTimedOut = remainingMs != null && remainingMs <= 0;
+      formNode.querySelectorAll("input, button").forEach((field) => {
+        field.disabled = isTimedOut;
+      });
+      const timeoutNode = formNode.querySelector("[data-live-timeout-message]");
+      if (timeoutNode) {
+        timeoutNode.hidden = !isTimedOut;
+      }
+    });
+  };
+
+  updateCountdownNodes();
+  testsViewState.liveCountdownIntervalId = setInterval(updateCountdownNodes, 1000);
 }
 
 function startLiveSessionPolling(container) {
@@ -619,6 +707,16 @@ function buildLiveLeaderboardMarkup(leaderboard = []) {
     : '<p class="muted">Todavia no hay puntuaciones en esta sesion.</p>';
 }
 
+function buildLiveTimerNodeMarkup(session) {
+  const countdownState = getLiveSessionCountdownState(session);
+  const remainingMs = computeLiveRemainingMsFromCountdown(countdownState);
+  if (!countdownState || remainingMs == null) {
+    return "--";
+  }
+
+  return `<span data-live-timer data-live-question-started-at-ms="${countdownState.startedAtMs}" data-live-server-now-ms="${countdownState.serverNowMs}" data-live-client-captured-at-ms="${countdownState.clientCapturedAtMs}" data-live-limit-ms="${countdownState.limitMs}">${Math.ceil(remainingMs / 1000)}s</span>`;
+}
+
 function buildAdminLiveSessionsMarkup() {
   if (!Array.isArray(testsViewState.liveSessions) || !testsViewState.liveSessions.length) {
     return '<div class="empty-state">Todavia no hay sesiones live creadas.</div>';
@@ -640,9 +738,11 @@ function buildAdminLiveSessionsMarkup() {
               : "Pendiente de inicio"
           }</p>
           <p class="muted"><strong>Jugadores:</strong> ${escapeHtml(String(session.playersCount || 0))}</p>
+          <p class="muted"><strong>Tiempo por pregunta:</strong> ${escapeHtml(String(session.questionTimeLimitSeconds || 20))} s</p>
           ${
             session.status === "running"
-              ? `<p class="muted"><strong>Respuestas:</strong> ${escapeHtml(String(session.answersCount || 0))}/${escapeHtml(String(session.playersCount || 0))}</p>`
+              ? `<p class="muted"><strong>Tiempo restante:</strong> ${buildLiveTimerNodeMarkup(session)}</p>
+                 <p class="muted"><strong>Respuestas:</strong> ${escapeHtml(String(session.answersCount || 0))}/${escapeHtml(String(session.playersCount || 0))}</p>`
               : ""
           }
           <div class="chip-row">
@@ -701,9 +801,8 @@ function buildStudentLiveAnswerFeedbackMarkup(session) {
     return '<p class="muted">Respuesta enviada. Espera a la siguiente pregunta.</p>';
   }
 
-  return feedback.isCorrect
-    ? '<p class="muted"><strong>Correcta.</strong> Espera a la siguiente pregunta.</p>'
-    : '<p class="muted"><strong>Incorrecta.</strong> Espera a la siguiente pregunta.</p>';
+  const status = `${feedback.isCorrect ? "Correcta" : "Incorrecta"}${feedback.isLate ? " · Fuera de tiempo." : "."}`;
+  return `<p class="muted"><strong>${escapeHtml(status)}</strong> ${escapeHtml(String(feedback.pointsAwarded || 0))} punto(s).</p>`;
 }
 
 function buildStudentLiveSessionMarkup() {
@@ -715,6 +814,9 @@ function buildStudentLiveSessionMarkup() {
   const question = session.currentQuestion || null;
   const leaderboard = Array.isArray(session.leaderboard) ? session.leaderboard : [];
   const hasAnswered = Boolean(session.hasAnsweredCurrentQuestion);
+  const countdownState = getLiveSessionCountdownState(session);
+  const remainingMs = computeLiveRemainingMsFromCountdown(countdownState);
+  const isQuestionTimedOut = remainingMs != null && remainingMs <= 0;
   const statusLabel =
     session.status === "lobby"
       ? "Esperando al inicio"
@@ -731,6 +833,7 @@ function buildStudentLiveSessionMarkup() {
       <h3>${escapeHtml(session.testTitle || "Sesion live")}</h3>
       <p class="muted"><strong>PIN:</strong> ${escapeHtml(session.pin || "")}</p>
       <p class="muted"><strong>Tu puntuacion:</strong> ${escapeHtml(String(session.player?.score || 0))}</p>
+      <p class="muted"><strong>Tiempo por pregunta:</strong> ${escapeHtml(String(session.questionTimeLimitSeconds || 20))} s</p>
       ${
         session.status === "lobby"
           ? '<p class="muted">Espera a que el administrador inicie la sesion live.</p>'
@@ -740,12 +843,15 @@ function buildStudentLiveSessionMarkup() {
               ? `
                 <div class="stack">
                   <p class="muted"><strong>Pregunta ${Number(session.currentQuestionIndex || 0) + 1}/${Number(session.totalQuestions || 0)}</strong></p>
+                  <p class="muted"><strong>Tiempo restante:</strong> ${buildLiveTimerNodeMarkup(session)}</p>
                   <h4>${escapeHtml(question.prompt || "")}</h4>
                   ${
                     hasAnswered
                       ? buildStudentLiveAnswerFeedbackMarkup(session)
+                      : isQuestionTimedOut
+                        ? '<p class="muted"><strong>Tiempo agotado.</strong> Espera a la siguiente pregunta.</p>'
                       : `
-                        <form class="stack" data-tests-student-form="live-answer" data-session-id="${escapeHtml(session.id)}" data-question-id="${escapeHtml(question.id || "")}">
+                        <form class="stack" data-tests-student-form="live-answer" data-live-answer-form data-session-id="${escapeHtml(session.id)}" data-question-id="${escapeHtml(question.id || "")}" data-live-question-started-at-ms="${countdownState?.startedAtMs || 0}" data-live-server-now-ms="${countdownState?.serverNowMs || 0}" data-live-client-captured-at-ms="${countdownState?.clientCapturedAtMs || 0}" data-live-limit-ms="${countdownState?.limitMs || 0}">
                           <div class="stack">
                             ${(Array.isArray(question.options) ? question.options : [])
                               .map(
@@ -761,6 +867,7 @@ function buildStudentLiveSessionMarkup() {
                           <div class="chip-row">
                             <button class="primary-button" type="submit">Enviar respuesta</button>
                           </div>
+                          <p class="muted" data-live-timeout-message hidden><strong>Tiempo agotado.</strong> Espera a la siguiente pregunta.</p>
                         </form>
                       `
                   }
@@ -861,13 +968,23 @@ function buildAdminModuleMarkup(module) {
                           <button class="ghost-button danger-button" type="button" data-action="delete-test" data-test-id="${escapeHtml(test.id)}">
                             Borrar test
                           </button>
-                          ${
-                            test.published && questions.length
-                              ? `<button class="ghost-button" type="button" data-action="create-live-session" data-test-id="${escapeHtml(test.id)}">Crear sesion live</button>`
-                              : ""
-                          }
                         </div>
                       </form>
+                      ${
+                        test.published && questions.length
+                          ? `
+                            <form class="stack" data-tests-admin-form="live-session" data-test-id="${escapeHtml(test.id)}">
+                              <label class="inline-field">
+                                Tiempo por pregunta (segundos)
+                                <input type="number" name="questionTimeLimitSeconds" min="5" max="120" step="1" value="20" />
+                              </label>
+                              <div class="chip-row">
+                                <button class="ghost-button" type="submit">Crear sesion live</button>
+                              </div>
+                            </form>
+                          `
+                          : ""
+                      }
                       <ol class="stack">
                         ${
                           questions.length
@@ -1201,6 +1318,12 @@ async function handleAdminSubmit(container, form) {
       explanation: String(formData.get("explanation") || "").trim()
     });
     setTestsViewMessage("Pregunta actualizada correctamente.", "success");
+  } else if (formType === "live-session") {
+    await client.post("/api/live-tests", {
+      testId: String(form.dataset.testId || "").trim(),
+      questionTimeLimitSeconds: Number(formData.get("questionTimeLimitSeconds"))
+    });
+    setTestsViewMessage("Sesion live creada correctamente.", "success");
   }
 
   await refreshTestsView(container, testsViewState.role);
@@ -1250,11 +1373,6 @@ async function handleAdminAction(container, action, dataset = {}) {
     [orderedIds[currentIndex], orderedIds[nextIndex]] = [orderedIds[nextIndex], orderedIds[currentIndex]];
     await client.patch(`/api/tests/${encodeURIComponent(testId)}`, { questionIds: orderedIds });
     setTestsViewMessage("Orden de preguntas actualizado.", "success");
-  } else if (action === "create-live-session") {
-    await client.post("/api/live-tests", {
-      testId: String(dataset.testId || "").trim()
-    });
-    setTestsViewMessage("Sesion live creada correctamente.", "success");
   } else if (action === "start-live-session") {
     await client.post(`/api/live-tests/${encodeURIComponent(String(dataset.sessionId || "").trim())}/start`, {});
     setTestsViewMessage("Sesion live iniciada correctamente.", "success");
@@ -1376,13 +1494,20 @@ async function handleStudentLiveAnswer(container, form) {
     responseTimeMs
   });
   testsViewState.lastLiveAnswerResultBySessionQuestionKey[getLiveAnswerResultKey(sessionId, questionId)] = {
-    isCorrect: Boolean(response.isCorrect)
+    isCorrect: Boolean(response.isCorrect),
+    isLate: Boolean(response.isLate),
+    pointsAwarded: Number(response.pointsAwarded || 0)
   };
   if (testsViewState.liveSessionState?.player) {
     testsViewState.liveSessionState.player.score = Number(response.score || testsViewState.liveSessionState.player.score || 0);
     testsViewState.liveSessionState.hasAnsweredCurrentQuestion = true;
   }
-  setTestsViewMessage(response.isCorrect ? "Respuesta correcta registrada." : "Respuesta enviada.", "success");
+  const liveMessage = response.isLate
+    ? `Respuesta ${response.isCorrect ? "correcta" : "incorrecta"} registrada fuera de tiempo. +${Number(response.pointsAwarded || 0)} punto(s).`
+    : response.isCorrect
+      ? `Respuesta correcta registrada. +${Number(response.pointsAwarded || 0)} punto(s).`
+      : "Respuesta incorrecta registrada.";
+  setTestsViewMessage(liveMessage, "success");
   await ensureStudentActiveLiveSession();
   renderTestsMarkup(container);
   finalizeTestsViewRender(container);
