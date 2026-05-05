@@ -708,8 +708,7 @@ function buildLiveLeaderboardMarkup(leaderboard = [], options = {}) {
             const rankLabel = options.showTopRanks && index < 3 ? `${index + 1}º` : "";
             const isCurrentPlayer =
               options.currentPlayer &&
-              String(entry.displayName || "").trim() === String(options.currentPlayer.displayName || "").trim() &&
-              Number(entry.score || 0) === Number(options.currentPlayer.score || 0);
+              String(entry.playerId || "").trim() === String(options.currentPlayer.id || "").trim();
 
             return `
               <li class="${isCurrentPlayer ? "panel panel-side" : ""}">
@@ -853,6 +852,7 @@ function buildStudentLiveSessionMarkup() {
   const statusLabel = getLiveStatusLabel(session.status);
   const currentPlayer = session.player
     ? {
+        id: session.player.id,
         displayName: session.player.displayName,
         score: session.player.score
       }
