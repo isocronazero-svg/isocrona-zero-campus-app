@@ -10,6 +10,7 @@ const testsViewState = {
   liveSessions: [],
   activeLiveSessionId: "",
   liveSessionState: null,
+  lastLiveAnswerResultBySessionQuestionKey: {},
   liveQuestionShownAtBySessionId: {},
   startedAtByTestId: {},
   activeTestId: "",
@@ -88,6 +89,10 @@ function getLiveSessionQuestionKey(sessionState) {
   return `${String(sessionState?.id || "").trim()}::${String(sessionState?.currentQuestion?.id || "").trim()}::${String(sessionState?.status || "").trim()}`;
 }
 
+function getLiveAnswerResultKey(sessionId, questionId) {
+  return `${String(sessionId || "").trim()}::${String(questionId || "").trim()}`;
+}
+
 function getActiveStudentTest() {
   return testsViewState.tests.find((item) => item.id === testsViewState.activeTestId) || null;
 }
@@ -146,6 +151,7 @@ async function loadAdminData() {
   testsViewState.leaderboardByTestId = {};
   testsViewState.currentUserRankByTestId = {};
   testsViewState.liveSessionState = null;
+  testsViewState.lastLiveAnswerResultBySessionQuestionKey = {};
   testsViewState.activeLiveSessionId = "";
   testsViewState.activeAttemptTestId = "";
   clearStudentTimer();
@@ -246,6 +252,7 @@ async function loadStudentData() {
   testsViewState.attemptsByTestId = {};
   testsViewState.leaderboardByTestId = {};
   testsViewState.currentUserRankByTestId = {};
+  testsViewState.lastLiveAnswerResultBySessionQuestionKey = {};
   testsViewState.result = null;
   clearStudentTimer();
   clearLivePolling();
@@ -633,6 +640,11 @@ function buildAdminLiveSessionsMarkup() {
               : "Pendiente de inicio"
           }</p>
           <p class="muted"><strong>Jugadores:</strong> ${escapeHtml(String(session.playersCount || 0))}</p>
+          ${
+            session.status === "running"
+              ? `<p class="muted"><strong>Respuestas:</strong> ${escapeHtml(String(session.answersCount || 0))}/${escapeHtml(String(session.playersCount || 0))}</p>`
+              : ""
+          }
           <div class="chip-row">
             ${
               session.status === "lobby"
@@ -641,7 +653,7 @@ function buildAdminLiveSessionsMarkup() {
             }
             ${
               session.status === "running"
-                ? `<button class="ghost-button" type="button" data-action="advance-live-session" data-session-id="${escapeHtml(session.id)}">Siguiente</button>`
+                ? `<button class="ghost-button" type="button" data-action="advance-live-session" data-session-id="${escapeHtml(session.id)}" data-players-count="${escapeHtml(String(session.playersCount || 0))}" data-answers-count="${escapeHtml(String(session.answersCount || 0))}">Siguiente</button>`
                 : ""
             }
             ${
@@ -681,6 +693,19 @@ function buildStudentLiveJoinMarkup() {
   `;
 }
 
+function buildStudentLiveAnswerFeedbackMarkup(session) {
+  const sessionId = String(session?.id || "").trim();
+  const questionId = String(session?.currentQuestion?.id || "").trim();
+  const feedback = testsViewState.lastLiveAnswerResultBySessionQuestionKey[getLiveAnswerResultKey(sessionId, questionId)] || null;
+  if (!feedback) {
+    return '<p class="muted">Respuesta enviada. Espera a la siguiente pregunta.</p>';
+  }
+
+  return feedback.isCorrect
+    ? '<p class="muted"><strong>Correcta.</strong> Espera a la siguiente pregunta.</p>'
+    : '<p class="muted"><strong>Incorrecta.</strong> Espera a la siguiente pregunta.</p>';
+}
+
 function buildStudentLiveSessionMarkup() {
   const session = testsViewState.liveSessionState;
   if (!session) {
@@ -710,7 +735,7 @@ function buildStudentLiveSessionMarkup() {
         session.status === "lobby"
           ? '<p class="muted">Espera a que el administrador inicie la sesion live.</p>'
           : session.status === "finished"
-            ? '<p class="muted">La sesion live ha terminado. Aqui tienes la clasificacion final.</p>'
+            ? '<p class="muted"><strong>Sesion finalizada.</strong> Aqui tienes la clasificacion final.</p>'
             : question
               ? `
                 <div class="stack">
@@ -718,7 +743,7 @@ function buildStudentLiveSessionMarkup() {
                   <h4>${escapeHtml(question.prompt || "")}</h4>
                   ${
                     hasAnswered
-                      ? '<p class="muted">Respuesta enviada. Espera a la siguiente pregunta.</p>'
+                      ? buildStudentLiveAnswerFeedbackMarkup(session)
                       : `
                         <form class="stack" data-tests-student-form="live-answer" data-session-id="${escapeHtml(session.id)}" data-question-id="${escapeHtml(question.id || "")}">
                           <div class="stack">
@@ -1234,6 +1259,17 @@ async function handleAdminAction(container, action, dataset = {}) {
     await client.post(`/api/live-tests/${encodeURIComponent(String(dataset.sessionId || "").trim())}/start`, {});
     setTestsViewMessage("Sesion live iniciada correctamente.", "success");
   } else if (action === "advance-live-session") {
+    const playersCount = Number(dataset.playersCount || 0);
+    const answersCount = Number(dataset.answersCount || 0);
+    if (playersCount <= 0) {
+      if (!window.confirm("No hay jugadores conectados. ¿Avanzar igualmente?")) {
+        return;
+      }
+    } else if (answersCount < playersCount) {
+      if (!window.confirm("Todavía no han respondido todos. ¿Avanzar igualmente?")) {
+        return;
+      }
+    }
     await client.post(`/api/live-tests/${encodeURIComponent(String(dataset.sessionId || "").trim())}/advance`, {});
     setTestsViewMessage("Sesion live avanzada correctamente.", "success");
   } else if (action === "finish-live-session") {
@@ -1339,6 +1375,9 @@ async function handleStudentLiveAnswer(container, form) {
     selectedIndex,
     responseTimeMs
   });
+  testsViewState.lastLiveAnswerResultBySessionQuestionKey[getLiveAnswerResultKey(sessionId, questionId)] = {
+    isCorrect: Boolean(response.isCorrect)
+  };
   if (testsViewState.liveSessionState?.player) {
     testsViewState.liveSessionState.player.score = Number(response.score || testsViewState.liveSessionState.player.score || 0);
     testsViewState.liveSessionState.hasAnsweredCurrentQuestion = true;

@@ -1159,6 +1159,7 @@ function buildLiveTestSessionSummary(state, session) {
     currentQuestionIndex: hostState.currentQuestionIndex,
     totalQuestions: hostState.totalQuestions,
     playersCount: hostState.playersCount,
+    answersCount: hostState.answersCount,
     createdAt: hostState.createdAt,
     startedAt: hostState.startedAt,
     finishedAt: hostState.finishedAt,
