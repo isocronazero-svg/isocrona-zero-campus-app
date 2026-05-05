@@ -352,6 +352,7 @@ async function main() {
     assert.ok(Number(answerResponse.body?.pointsAwarded || 0) > 100, "Una respuesta correcta y rapida debe puntuar > 100");
     assert.ok(Number(answerResponse.body?.score || 0) > 100, "La puntuacion acumulada debe sumar puntos, no solo aciertos");
     assertForbiddenKeysAbsent(answerResponse.body, "answer response");
+    const fastPointsAwarded = Number(answerResponse.body?.pointsAwarded || 0);
 
     const duplicateAnswerResponse = await memberClient.request(
       "POST",
@@ -381,6 +382,20 @@ async function main() {
       "Al avanzar debe reiniciarse questionStartedAt"
     );
 
+    await delay(75);
+    const slowAnswerResponse = await memberClient.request("POST", `/api/live-tests/${createdSession.id}/answer`, {
+      questionId: "question-live-smoke-2",
+      selectedIndex: 1
+    });
+    assert.equal(slowAnswerResponse.body?.ok, true);
+    assert.equal(slowAnswerResponse.body?.isCorrect, true);
+    assert.equal(slowAnswerResponse.body?.isLate, false);
+    assert.ok(
+      Number(slowAnswerResponse.body?.pointsAwarded || 0) < fastPointsAwarded,
+      "Una respuesta correcta algo mas lenta debe puntuar menos que la rapida"
+    );
+    assert.ok(Number(slowAnswerResponse.body?.pointsAwarded || 0) > 0, "Una respuesta correcta dentro de tiempo debe puntuar > 0");
+
     const finishResponse = await adminClient.request("POST", `/api/live-tests/${createdSession.id}/finish`, {});
     assert.equal(finishResponse.body?.session?.status, "finished");
 
@@ -408,6 +423,26 @@ async function main() {
     assert.equal(lateAnswerResponse.body?.pointsAwarded, 0, "Sin timestamps validos no debe conceder puntos");
     assert.equal(lateAnswerResponse.body?.score, 0, "La puntuacion no debe aumentar cuando la respuesta es tardia");
     assertForbiddenKeysAbsent(lateAnswerResponse.body, "late answer response");
+
+    const incorrectSessionResponse = await adminClient.request("POST", "/api/live-tests", {
+      testId: "test-live-smoke",
+      questionTimeLimitSeconds: 20
+    });
+    const incorrectSession = incorrectSessionResponse.body?.session;
+    const incorrectFormattedPin = `${incorrectSession.pin.slice(0, 3)}-${incorrectSession.pin.slice(3)}`;
+    await memberClient.request("POST", "/api/live-tests/join", {
+      pin: incorrectFormattedPin,
+      displayName: "Lucia Smoke"
+    });
+    await adminClient.request("POST", `/api/live-tests/${incorrectSession.id}/start`, {});
+    const incorrectAnswerResponse = await memberClient.request("POST", `/api/live-tests/${incorrectSession.id}/answer`, {
+      questionId: "question-live-smoke-1",
+      selectedIndex: 3
+    });
+    assert.equal(incorrectAnswerResponse.body?.ok, true);
+    assert.equal(incorrectAnswerResponse.body?.isCorrect, false, "Una respuesta incorrecta debe marcarse como incorrecta");
+    assert.equal(incorrectAnswerResponse.body?.pointsAwarded, 0, "Una respuesta incorrecta no debe conceder puntos");
+    assertForbiddenKeysAbsent(incorrectAnswerResponse.body, "incorrect answer response");
 
     console.log("Live smoke checks passed.");
   } finally {
