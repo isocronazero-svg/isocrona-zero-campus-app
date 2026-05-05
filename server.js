@@ -604,6 +604,7 @@ const liveTestPollIntervalMs = 2000;
 const liveTestMaxResponseTimeMs = 24 * 60 * 60 * 1000;
 const liveTestLobbyMaxAgeMs = 2 * 60 * 60 * 1000;
 const liveTestRunningMaxAgeMs = 4 * 60 * 60 * 1000;
+const liveTestPlayerLastSeenPersistIntervalMs = 15 * 1000;
 const liveTestQuestionTimeLimitDefaultSeconds = 20;
 const liveTestQuestionTimeLimitMinSeconds = 5;
 const liveTestQuestionTimeLimitMaxSeconds = 120;
@@ -1430,6 +1431,24 @@ function joinLiveTestSession(state, session, account, displayName = "") {
   };
   state.liveTestPlayers.unshift(player);
   return player;
+}
+
+function touchLiveTestPlayerLastSeen(player, options = {}) {
+  if (!player) {
+    return false;
+  }
+
+  const nowTimestamp = Number.isFinite(Number(options.nowTimestamp)) ? Number(options.nowTimestamp) : Date.now();
+  const lastSeenAtTimestamp = Date.parse(String(player.lastSeenAt || ""));
+  if (
+    Number.isFinite(lastSeenAtTimestamp) &&
+    nowTimestamp - lastSeenAtTimestamp < liveTestPlayerLastSeenPersistIntervalMs
+  ) {
+    return false;
+  }
+
+  player.lastSeenAt = new Date(nowTimestamp).toISOString();
+  return true;
 }
 
 function submitLiveTestAnswer(state, session, account, payload = {}) {
@@ -3314,8 +3333,10 @@ const server = http.createServer(async (req, res) => {
         }
         return sendJson(res, 403, { ok: false, error: "Debes unirte a la sesion live para verla" });
       }
-      player.lastSeenAt = new Date().toISOString();
-      writeState(state);
+      const touchedPlayer = touchLiveTestPlayerLastSeen(player);
+      if (expired || touchedPlayer) {
+        writeState(state);
+      }
       return sendJson(res, 200, { ok: true, session: buildLiveTestPlayerState(state, session, player) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cargar la sesion live" });
