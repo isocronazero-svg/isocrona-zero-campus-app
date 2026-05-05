@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,10 +18,27 @@ const nodeModulesPath = nodeModulesCandidates.find((candidate) => existsSync(can
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), "iz-live-check-"));
 const tempDataDir = path.join(tempRoot, "data");
 const tempDefaultStatePath = path.join(tempRoot, "default-state.json");
-const port = 4310 + Math.floor(Math.random() * 200);
-const baseUrl = `http://127.0.0.1:${port}`;
 const serverOut = [];
 const serverErr = [];
+
+async function getAvailablePort() {
+  return await new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.on("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      probe.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
 
 function iso(timestamp) {
   return new Date(timestamp).toISOString();
@@ -164,7 +182,7 @@ function assertForbiddenKeysAbsent(payload, label) {
   assert.equal(forbiddenPath, "", `${label} expone una clave privada: ${forbiddenPath}`);
 }
 
-function createJsonClient(label) {
+function createJsonClient(label, baseUrl) {
   const cookies = new Map();
 
   return {
@@ -213,7 +231,7 @@ function createJsonClient(label) {
   };
 }
 
-function startServer() {
+function startServer(port, baseUrl) {
   mkdirSync(tempDataDir, { recursive: true });
   writeFileSync(tempDefaultStatePath, JSON.stringify(buildSeedState(), null, 2));
 
@@ -242,7 +260,7 @@ function startServer() {
   return child;
 }
 
-async function waitForServerReady() {
+async function waitForServerReady(baseUrl) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
       const response = await fetch(`${baseUrl}/healthz`);
@@ -265,13 +283,15 @@ async function login(client, email, password) {
 }
 
 async function main() {
-  const child = startServer();
+  const port = await getAvailablePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = startServer(port, baseUrl);
 
   try {
-    await waitForServerReady();
+    await waitForServerReady(baseUrl);
 
-    const adminClient = createJsonClient("admin");
-    const memberClient = createJsonClient("member");
+    const adminClient = createJsonClient("admin", baseUrl);
+    const memberClient = createJsonClient("member", baseUrl);
 
     await login(adminClient, "admin@isocronazero.org", "campus123");
     await login(memberClient, "lucia@isocronazero.org", "bomberos123");
