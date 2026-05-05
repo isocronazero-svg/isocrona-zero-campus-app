@@ -308,13 +308,13 @@ async function main() {
 
     const createdSessionResponse = await adminClient.request("POST", "/api/live-tests", {
       testId: "test-live-smoke",
-      questionTimeLimitSeconds: 7
+      questionTimeLimitSeconds: 5
     });
     const createdSession = createdSessionResponse.body?.session;
     assert.equal(createdSessionResponse.status, 201, "La sesion live no se creo correctamente");
     assert.match(String(createdSession?.pin || ""), /^\d{6}$/, "El PIN live debe tener 6 digitos");
     assert.equal(createdSession?.status, "lobby");
-    assert.equal(createdSession?.questionTimeLimitSeconds, 7);
+    assert.equal(createdSession?.questionTimeLimitSeconds, 5);
 
     const formattedPin = `${createdSession.pin.slice(0, 3)}-${createdSession.pin.slice(3)}`;
     const joinResponse = await memberClient.request("POST", "/api/live-tests/join", {
@@ -381,6 +381,21 @@ async function main() {
       "Al avanzar debe reiniciarse questionStartedAt"
     );
 
+    await delay(600);
+    const slowAnswerResponse = await memberClient.request("POST", `/api/live-tests/${createdSession.id}/answer`, {
+      questionId: "question-live-smoke-2",
+      selectedIndex: 1
+    });
+    const slowPointsAwarded = Number(slowAnswerResponse.body?.pointsAwarded || 0);
+    assert.equal(slowAnswerResponse.body?.ok, true);
+    assert.equal(slowAnswerResponse.body?.isCorrect, true);
+    assert.equal(slowAnswerResponse.body?.isLate, false);
+    assert.ok(slowPointsAwarded > 0, "Una respuesta correcta dentro de tiempo debe puntuar > 0");
+    assert.ok(
+      slowPointsAwarded <= 145,
+      "Una respuesta correcta tras una espera medible debe perder bonus de rapidez"
+    );
+
     const finishResponse = await adminClient.request("POST", `/api/live-tests/${createdSession.id}/finish`, {});
     assert.equal(finishResponse.body?.session?.status, "finished");
 
@@ -408,6 +423,26 @@ async function main() {
     assert.equal(lateAnswerResponse.body?.pointsAwarded, 0, "Sin timestamps validos no debe conceder puntos");
     assert.equal(lateAnswerResponse.body?.score, 0, "La puntuacion no debe aumentar cuando la respuesta es tardia");
     assertForbiddenKeysAbsent(lateAnswerResponse.body, "late answer response");
+
+    const incorrectSessionResponse = await adminClient.request("POST", "/api/live-tests", {
+      testId: "test-live-smoke",
+      questionTimeLimitSeconds: 20
+    });
+    const incorrectSession = incorrectSessionResponse.body?.session;
+    const incorrectFormattedPin = `${incorrectSession.pin.slice(0, 3)}-${incorrectSession.pin.slice(3)}`;
+    await memberClient.request("POST", "/api/live-tests/join", {
+      pin: incorrectFormattedPin,
+      displayName: "Lucia Smoke"
+    });
+    await adminClient.request("POST", `/api/live-tests/${incorrectSession.id}/start`, {});
+    const incorrectAnswerResponse = await memberClient.request("POST", `/api/live-tests/${incorrectSession.id}/answer`, {
+      questionId: "question-live-smoke-1",
+      selectedIndex: 3
+    });
+    assert.equal(incorrectAnswerResponse.body?.ok, true);
+    assert.equal(incorrectAnswerResponse.body?.isCorrect, false, "Una respuesta incorrecta debe marcarse como incorrecta");
+    assert.equal(incorrectAnswerResponse.body?.pointsAwarded, 0, "Una respuesta incorrecta no debe conceder puntos");
+    assertForbiddenKeysAbsent(incorrectAnswerResponse.body, "incorrect answer response");
 
     console.log("Live smoke checks passed.");
   } finally {
