@@ -308,13 +308,13 @@ async function main() {
 
     const createdSessionResponse = await adminClient.request("POST", "/api/live-tests", {
       testId: "test-live-smoke",
-      questionTimeLimitSeconds: 7
+      questionTimeLimitSeconds: 5
     });
     const createdSession = createdSessionResponse.body?.session;
     assert.equal(createdSessionResponse.status, 201, "La sesion live no se creo correctamente");
     assert.match(String(createdSession?.pin || ""), /^\d{6}$/, "El PIN live debe tener 6 digitos");
     assert.equal(createdSession?.status, "lobby");
-    assert.equal(createdSession?.questionTimeLimitSeconds, 7);
+    assert.equal(createdSession?.questionTimeLimitSeconds, 5);
 
     const formattedPin = `${createdSession.pin.slice(0, 3)}-${createdSession.pin.slice(3)}`;
     const joinResponse = await memberClient.request("POST", "/api/live-tests/join", {
@@ -382,7 +382,7 @@ async function main() {
       "Al avanzar debe reiniciarse questionStartedAt"
     );
 
-    await delay(75);
+    await delay(600);
     const slowAnswerResponse = await memberClient.request("POST", `/api/live-tests/${createdSession.id}/answer`, {
       questionId: "question-live-smoke-2",
       selectedIndex: 1
