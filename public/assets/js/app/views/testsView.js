@@ -166,6 +166,17 @@ function clearLiveCountdown() {
   }
 }
 
+function getLiveStatusLabel(status) {
+  const normalizedStatus = String(status || "").trim();
+  if (normalizedStatus === "running") {
+    return "En curso";
+  }
+  if (normalizedStatus === "finished") {
+    return "Finalizada";
+  }
+  return "Lobby";
+}
+
 async function loadAdminData() {
   const client = getApiClient();
   if (!client) {
@@ -688,19 +699,24 @@ function buildAdminUnusedQuestionMarkup(question) {
   `;
 }
 
-function buildLiveLeaderboardMarkup(leaderboard = []) {
+function buildLiveLeaderboardMarkup(leaderboard = [], options = {}) {
   return Array.isArray(leaderboard) && leaderboard.length
     ? `
       <ol class="stack">
         ${leaderboard
-          .map(
-            (entry) => `
-              <li>
-                <strong>${escapeHtml(entry.displayName || "Participante")}</strong>
+          .map((entry, index) => {
+            const rankLabel = options.showTopRanks && index < 3 ? `${index + 1}º` : "";
+            const isCurrentPlayer =
+              options.currentPlayer &&
+              String(entry.playerId || "").trim() === String(options.currentPlayer.id || "").trim();
+
+            return `
+              <li class="${isCurrentPlayer ? "panel panel-side" : ""}">
+                <strong>${rankLabel ? `${escapeHtml(rankLabel)} ` : ""}${escapeHtml(entry.displayName || "Participante")}${isCurrentPlayer ? " (Tú)" : ""}</strong>
                 <p class="muted">${escapeHtml(`${entry.score || 0} punto(s)`)}</p>
               </li>
             `
-          )
+          })
           .join("")}
       </ol>
     `
@@ -728,7 +744,7 @@ function buildAdminLiveSessionsMarkup() {
         <article class="panel panel-side">
           <div class="course-topline">
             <span class="tag">Live</span>
-            <span class="status-chip">${escapeHtml(session.status || "lobby")}</span>
+            <span class="status-chip">${escapeHtml(getLiveStatusLabel(session.status))}</span>
           </div>
           <h3>${escapeHtml(session.testTitle || "Test sin titulo")}</h3>
           <p class="muted"><strong>PIN:</strong> ${escapeHtml(session.pin || "")}</p>
@@ -764,7 +780,7 @@ function buildAdminLiveSessionsMarkup() {
           </div>
           <section class="stack">
             <h4>Ranking live</h4>
-            ${buildLiveLeaderboardMarkup(session.leaderboard)}
+            ${buildLiveLeaderboardMarkup(session.leaderboard, { showTopRanks: true })}
           </section>
         </article>
       `
@@ -798,11 +814,27 @@ function buildStudentLiveAnswerFeedbackMarkup(session) {
   const questionId = String(session?.currentQuestion?.id || "").trim();
   const feedback = testsViewState.lastLiveAnswerResultBySessionQuestionKey[getLiveAnswerResultKey(sessionId, questionId)] || null;
   if (!feedback) {
-    return '<p class="muted">Respuesta enviada. Espera a la siguiente pregunta.</p>';
+    return `
+      <section class="panel panel-side">
+        <h4>Esperando siguiente pregunta</h4>
+        <p class="muted">Respuesta enviada. Espera a la siguiente pregunta.</p>
+      </section>
+    `;
   }
 
-  const status = `${feedback.isCorrect ? "Correcta" : "Incorrecta"}${feedback.isLate ? " · Fuera de tiempo." : "."}`;
-  return `<p class="muted"><strong>${escapeHtml(status)}</strong> ${escapeHtml(String(feedback.pointsAwarded || 0))} punto(s).</p>`;
+  const status = feedback.isLate
+    ? "Fuera de tiempo"
+    : feedback.isCorrect
+      ? "Correcta"
+      : "Incorrecta";
+  return `
+    <section class="panel panel-side">
+      <h4>${escapeHtml(status)}</h4>
+      <p class="muted"><strong>Puntos:</strong> ${escapeHtml(String(feedback.pointsAwarded || 0))}</p>
+      <p class="muted"><strong>Puntuacion actual:</strong> ${escapeHtml(String(session?.player?.score || 0))}</p>
+      <p class="muted">Esperando siguiente pregunta.</p>
+    </section>
+  `;
 }
 
 function buildStudentLiveSessionMarkup() {
@@ -817,12 +849,14 @@ function buildStudentLiveSessionMarkup() {
   const countdownState = getLiveSessionCountdownState(session);
   const remainingMs = computeLiveRemainingMsFromCountdown(countdownState);
   const isQuestionTimedOut = remainingMs != null && remainingMs <= 0;
-  const statusLabel =
-    session.status === "lobby"
-      ? "Esperando al inicio"
-      : session.status === "running"
-        ? "En curso"
-        : "Finalizada";
+  const statusLabel = getLiveStatusLabel(session.status);
+  const currentPlayer = session.player
+    ? {
+        id: session.player.id,
+        displayName: session.player.displayName,
+        score: session.player.score
+      }
+    : null;
 
   return `
     <article class="panel panel-wide">
@@ -849,7 +883,13 @@ function buildStudentLiveSessionMarkup() {
                     hasAnswered
                       ? buildStudentLiveAnswerFeedbackMarkup(session)
                       : isQuestionTimedOut
-                        ? '<p class="muted"><strong>Tiempo agotado.</strong> Espera a la siguiente pregunta.</p>'
+                        ? `
+                          <section class="panel panel-side">
+                            <h4>Tiempo agotado</h4>
+                            <p class="muted">No llegaste a responder esta pregunta. Espera a la siguiente.</p>
+                            <p class="muted"><strong>Puntuacion actual:</strong> ${escapeHtml(String(session.player?.score || 0))}</p>
+                          </section>
+                        `
                       : `
                         <form class="stack" data-tests-student-form="live-answer" data-live-answer-form data-session-id="${escapeHtml(session.id)}" data-question-id="${escapeHtml(question.id || "")}" data-live-question-started-at-ms="${countdownState?.startedAtMs || 0}" data-live-server-now-ms="${countdownState?.serverNowMs || 0}" data-live-client-captured-at-ms="${countdownState?.clientCapturedAtMs || 0}" data-live-limit-ms="${countdownState?.limitMs || 0}">
                           <div class="stack">
@@ -877,7 +917,7 @@ function buildStudentLiveSessionMarkup() {
       }
       <section class="stack">
         <h4>Ranking live</h4>
-        ${buildLiveLeaderboardMarkup(leaderboard)}
+        ${buildLiveLeaderboardMarkup(leaderboard, { currentPlayer })}
       </section>
     </article>
   `;

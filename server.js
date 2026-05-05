@@ -1109,6 +1109,7 @@ function listLiveTestLeaderboard(state, sessionId) {
       return String(left.joinedAt || "").localeCompare(String(right.joinedAt || ""));
     })
     .map((player) => ({
+      playerId: player.id,
       displayName: String(player.displayName || "Participante").trim() || "Participante",
       score: Number(player.score || 0)
     }));
