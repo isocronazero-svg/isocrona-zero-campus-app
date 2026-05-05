@@ -7,6 +7,10 @@ const testsViewState = {
   attemptsByTestId: {},
   leaderboardByTestId: {},
   currentUserRankByTestId: {},
+  liveSessions: [],
+  activeLiveSessionId: "",
+  liveSessionState: null,
+  liveQuestionShownAtBySessionId: {},
   startedAtByTestId: {},
   activeTestId: "",
   activeAttemptTestId: "",
@@ -16,7 +20,8 @@ const testsViewState = {
   renderToken: 0,
   timerIntervalId: null,
   timerRemainingMs: null,
-  autoSubmittingTestId: ""
+  autoSubmittingTestId: "",
+  livePollIntervalId: null
 };
 
 function escapeHtml(value) {
@@ -79,6 +84,10 @@ function getCurrentUserRankForTest(testId) {
   return testsViewState.currentUserRankByTestId[testId] || null;
 }
 
+function getLiveSessionQuestionKey(sessionState) {
+  return `${String(sessionState?.id || "").trim()}::${String(sessionState?.currentQuestion?.id || "").trim()}::${String(sessionState?.status || "").trim()}`;
+}
+
 function getActiveStudentTest() {
   return testsViewState.tests.find((item) => item.id === testsViewState.activeTestId) || null;
 }
@@ -108,27 +117,39 @@ function clearStudentTimer(resetAutoSubmitting = true) {
   }
 }
 
+function clearLivePolling() {
+  if (testsViewState.livePollIntervalId) {
+    clearInterval(testsViewState.livePollIntervalId);
+    testsViewState.livePollIntervalId = null;
+  }
+}
+
 async function loadAdminData() {
   const client = getApiClient();
   if (!client) {
     throw new Error("Cliente API no disponible");
   }
 
-  const [{ testModules }, { tests }, { questions }] = await Promise.all([
+  const [{ testModules }, { tests }, { questions }, { sessions }] = await Promise.all([
     client.get("/api/test-modules"),
     client.get("/api/tests"),
-    client.get("/api/questions")
+    client.get("/api/questions"),
+    client.get("/api/live-tests")
   ]);
 
   testsViewState.modules = Array.isArray(testModules) ? testModules : [];
   testsViewState.tests = Array.isArray(tests) ? tests : [];
   testsViewState.allQuestions = Array.isArray(questions) ? questions : [];
+  testsViewState.liveSessions = Array.isArray(sessions) ? sessions : [];
   testsViewState.questionsByTestId = {};
   testsViewState.attemptsByTestId = {};
   testsViewState.leaderboardByTestId = {};
   testsViewState.currentUserRankByTestId = {};
+  testsViewState.liveSessionState = null;
+  testsViewState.activeLiveSessionId = "";
   testsViewState.activeAttemptTestId = "";
   clearStudentTimer();
+  clearLivePolling();
 
   const questionsById = new Map(testsViewState.allQuestions.map((question) => [question.id, question]));
   testsViewState.tests.forEach((test) => {
@@ -175,6 +196,38 @@ async function ensureStudentActiveTestLeaderboard() {
   testsViewState.currentUserRankByTestId[testsViewState.activeTestId] = response.currentUserRank || null;
 }
 
+function syncLiveQuestionShownAt(sessionState) {
+  const sessionId = String(sessionState?.id || "").trim();
+  const currentQuestionId = String(sessionState?.currentQuestion?.id || "").trim();
+  if (!sessionId) {
+    return;
+  }
+  if (!currentQuestionId) {
+    delete testsViewState.liveQuestionShownAtBySessionId[sessionId];
+    return;
+  }
+  const key = getLiveSessionQuestionKey(sessionState);
+  if (testsViewState.liveQuestionShownAtBySessionId[sessionId]?.key === key) {
+    return;
+  }
+  testsViewState.liveQuestionShownAtBySessionId[sessionId] = {
+    key,
+    shownAt: Date.now()
+  };
+}
+
+async function ensureStudentActiveLiveSession() {
+  const client = getApiClient();
+  if (!client || !testsViewState.activeLiveSessionId) {
+    testsViewState.liveSessionState = null;
+    return;
+  }
+
+  const response = await client.get(`/api/live-tests/${encodeURIComponent(testsViewState.activeLiveSessionId)}`);
+  testsViewState.liveSessionState = response.session || null;
+  syncLiveQuestionShownAt(testsViewState.liveSessionState);
+}
+
 async function loadStudentData() {
   const client = getApiClient();
   if (!client) {
@@ -195,21 +248,31 @@ async function loadStudentData() {
   testsViewState.currentUserRankByTestId = {};
   testsViewState.result = null;
   clearStudentTimer();
+  clearLivePolling();
 
   const visibleTests = testsViewState.tests.filter((test) => Boolean(test.published));
   if (!visibleTests.length) {
     testsViewState.activeTestId = "";
-    return;
+  } else {
+    const hasActiveVisibleTest = visibleTests.some((test) => test.id === testsViewState.activeTestId);
+    testsViewState.activeTestId = hasActiveVisibleTest ? testsViewState.activeTestId : visibleTests[0].id;
   }
-
-  const hasActiveVisibleTest = visibleTests.some((test) => test.id === testsViewState.activeTestId);
-  testsViewState.activeTestId = hasActiveVisibleTest ? testsViewState.activeTestId : visibleTests[0].id;
   if (!visibleTests.some((test) => test.id === testsViewState.activeAttemptTestId)) {
     testsViewState.activeAttemptTestId = "";
   }
   await ensureStudentActiveTestQuestions();
   await ensureStudentActiveTestAttempts();
   await ensureStudentActiveTestLeaderboard();
+  if (testsViewState.activeLiveSessionId) {
+    try {
+      await ensureStudentActiveLiveSession();
+    } catch (error) {
+      testsViewState.liveSessionState = null;
+      testsViewState.activeLiveSessionId = "";
+    }
+  } else {
+    testsViewState.liveSessionState = null;
+  }
 }
 
 function formatAttemptDate(value) {
@@ -302,13 +365,64 @@ function startStudentTimer(container) {
 function finalizeTestsViewRender(container) {
   if (isAdminRole(testsViewState.role)) {
     clearStudentTimer();
+    clearLivePolling();
     return;
   }
   if (hasActiveTimedAttempt()) {
     startStudentTimer(container);
+  } else {
+    clearStudentTimer();
+  }
+  startLiveSessionPolling(container);
+}
+
+function startLiveSessionPolling(container) {
+  clearLivePolling();
+  if (isAdminRole(testsViewState.role) || !testsViewState.activeLiveSessionId) {
     return;
   }
-  clearStudentTimer();
+
+  const buildSessionRenderKey = (sessionState) =>
+    JSON.stringify({
+      id: sessionState?.id || "",
+      status: sessionState?.status || "",
+      currentQuestionId: sessionState?.currentQuestion?.id || "",
+      hasAnsweredCurrentQuestion: Boolean(sessionState?.hasAnsweredCurrentQuestion),
+      score: Number(sessionState?.player?.score || 0),
+      leaderboard: Array.isArray(sessionState?.leaderboard)
+        ? sessionState.leaderboard.map((entry) => `${entry.displayName}:${entry.score}`)
+        : []
+    });
+  let previousKey = buildSessionRenderKey(testsViewState.liveSessionState);
+
+  const poll = async () => {
+    try {
+      await ensureStudentActiveLiveSession();
+      const nextKey = buildSessionRenderKey(testsViewState.liveSessionState);
+      if (nextKey !== previousKey) {
+        previousKey = nextKey;
+        renderTestsMarkup(container);
+        if (hasActiveTimedAttempt()) {
+          startStudentTimer(container);
+        } else {
+          clearStudentTimer();
+        }
+      }
+      if (String(testsViewState.liveSessionState?.status || "").trim() === "finished") {
+        clearLivePolling();
+      }
+    } catch (error) {
+      clearLivePolling();
+      testsViewState.liveSessionState = null;
+      testsViewState.activeLiveSessionId = "";
+      setTestsViewMessage(error.message || "No se pudo actualizar la sesion live.", "error");
+      renderTestsMarkup(container);
+    }
+  };
+
+  testsViewState.livePollIntervalId = setInterval(() => {
+    poll().catch(() => {});
+  }, 2000);
 }
 
 function buildStudentAttemptsMarkup(attempts) {
@@ -479,6 +593,164 @@ function buildAdminUnusedQuestionMarkup(question) {
   `;
 }
 
+function buildLiveLeaderboardMarkup(leaderboard = []) {
+  return Array.isArray(leaderboard) && leaderboard.length
+    ? `
+      <ol class="stack">
+        ${leaderboard
+          .map(
+            (entry) => `
+              <li>
+                <strong>${escapeHtml(entry.displayName || "Participante")}</strong>
+                <p class="muted">${escapeHtml(`${entry.score || 0} punto(s)`)}</p>
+              </li>
+            `
+          )
+          .join("")}
+      </ol>
+    `
+    : '<p class="muted">Todavia no hay puntuaciones en esta sesion.</p>';
+}
+
+function buildAdminLiveSessionsMarkup() {
+  if (!Array.isArray(testsViewState.liveSessions) || !testsViewState.liveSessions.length) {
+    return '<div class="empty-state">Todavia no hay sesiones live creadas.</div>';
+  }
+
+  return testsViewState.liveSessions
+    .map(
+      (session) => `
+        <article class="panel panel-side">
+          <div class="course-topline">
+            <span class="tag">Live</span>
+            <span class="status-chip">${escapeHtml(session.status || "lobby")}</span>
+          </div>
+          <h3>${escapeHtml(session.testTitle || "Test sin titulo")}</h3>
+          <p class="muted"><strong>PIN:</strong> ${escapeHtml(session.pin || "")}</p>
+          <p class="muted"><strong>Pregunta actual:</strong> ${
+            Number(session.currentQuestionIndex) >= 0
+              ? `${Number(session.currentQuestionIndex) + 1}/${Number(session.totalQuestions || 0)}`
+              : "Pendiente de inicio"
+          }</p>
+          <p class="muted"><strong>Jugadores:</strong> ${escapeHtml(String(session.playersCount || 0))}</p>
+          <div class="chip-row">
+            ${
+              session.status === "lobby"
+                ? `<button class="primary-button" type="button" data-action="start-live-session" data-session-id="${escapeHtml(session.id)}">Iniciar</button>`
+                : ""
+            }
+            ${
+              session.status === "running"
+                ? `<button class="ghost-button" type="button" data-action="advance-live-session" data-session-id="${escapeHtml(session.id)}">Siguiente</button>`
+                : ""
+            }
+            ${
+              session.status !== "finished"
+                ? `<button class="ghost-button danger-button" type="button" data-action="finish-live-session" data-session-id="${escapeHtml(session.id)}">Finalizar</button>`
+                : ""
+            }
+          </div>
+          <section class="stack">
+            <h4>Ranking live</h4>
+            ${buildLiveLeaderboardMarkup(session.leaderboard)}
+          </section>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function buildStudentLiveJoinMarkup() {
+  return `
+    <section class="panel panel-side">
+      <h3>Unirse a sesion live</h3>
+      <form class="stack" data-tests-student-form="live-join">
+        <label class="inline-field">
+          PIN
+          <input type="text" name="pin" inputmode="numeric" maxlength="6" required />
+        </label>
+        <label class="inline-field">
+          Alias (opcional)
+          <input type="text" name="displayName" maxlength="60" />
+        </label>
+        <div class="chip-row">
+          <button class="primary-button" type="submit">Unirme</button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function buildStudentLiveSessionMarkup() {
+  const session = testsViewState.liveSessionState;
+  if (!session) {
+    return "";
+  }
+
+  const question = session.currentQuestion || null;
+  const leaderboard = Array.isArray(session.leaderboard) ? session.leaderboard : [];
+  const hasAnswered = Boolean(session.hasAnsweredCurrentQuestion);
+  const statusLabel =
+    session.status === "lobby"
+      ? "Esperando al inicio"
+      : session.status === "running"
+        ? "En curso"
+        : "Finalizada";
+
+  return `
+    <article class="panel panel-wide">
+      <div class="course-topline">
+        <span class="tag">Sesion live</span>
+        <span class="status-chip">${escapeHtml(statusLabel)}</span>
+      </div>
+      <h3>${escapeHtml(session.testTitle || "Sesion live")}</h3>
+      <p class="muted"><strong>PIN:</strong> ${escapeHtml(session.pin || "")}</p>
+      <p class="muted"><strong>Tu puntuacion:</strong> ${escapeHtml(String(session.player?.score || 0))}</p>
+      ${
+        session.status === "lobby"
+          ? '<p class="muted">Espera a que el administrador inicie la sesion live.</p>'
+          : session.status === "finished"
+            ? '<p class="muted">La sesion live ha terminado. Aqui tienes la clasificacion final.</p>'
+            : question
+              ? `
+                <div class="stack">
+                  <p class="muted"><strong>Pregunta ${Number(session.currentQuestionIndex || 0) + 1}/${Number(session.totalQuestions || 0)}</strong></p>
+                  <h4>${escapeHtml(question.prompt || "")}</h4>
+                  ${
+                    hasAnswered
+                      ? '<p class="muted">Respuesta enviada. Espera a la siguiente pregunta.</p>'
+                      : `
+                        <form class="stack" data-tests-student-form="live-answer" data-session-id="${escapeHtml(session.id)}" data-question-id="${escapeHtml(question.id || "")}">
+                          <div class="stack">
+                            ${(Array.isArray(question.options) ? question.options : [])
+                              .map(
+                                (option, optionIndex) => `
+                                  <label class="inline-field">
+                                    <input type="radio" name="selectedIndex" value="${optionIndex}" required />
+                                    <span>${escapeHtml(option)}</span>
+                                  </label>
+                                `
+                              )
+                              .join("")}
+                          </div>
+                          <div class="chip-row">
+                            <button class="primary-button" type="submit">Enviar respuesta</button>
+                          </div>
+                        </form>
+                      `
+                  }
+                </div>
+              `
+              : '<p class="muted">Esperando a que aparezca la siguiente pregunta.</p>'
+      }
+      <section class="stack">
+        <h4>Ranking live</h4>
+        ${buildLiveLeaderboardMarkup(leaderboard)}
+      </section>
+    </article>
+  `;
+}
+
 function buildAdminModuleMarkup(module) {
   const tests = getTestsForModule(module.id);
   const unusedQuestions = getUnusedQuestionsForModule(module.id);
@@ -564,6 +836,11 @@ function buildAdminModuleMarkup(module) {
                           <button class="ghost-button danger-button" type="button" data-action="delete-test" data-test-id="${escapeHtml(test.id)}">
                             Borrar test
                           </button>
+                          ${
+                            test.published && questions.length
+                              ? `<button class="ghost-button" type="button" data-action="create-live-session" data-test-id="${escapeHtml(test.id)}">Crear sesion live</button>`
+                              : ""
+                          }
                         </div>
                       </form>
                       <ol class="stack">
@@ -638,6 +915,11 @@ function renderAdminMarkup() {
             <button class="primary-button" type="submit">Guardar modulo</button>
           </div>
         </form>
+      </article>
+      <article class="panel panel-wide">
+        <p class="eyebrow">Sesiones live</p>
+        <h2>Kahoot-lite MVP</h2>
+        ${buildAdminLiveSessionsMarkup()}
       </article>
       ${
         testsViewState.modules.length
@@ -793,6 +1075,8 @@ function renderStudentMarkup() {
           buildStudentResultSummary()
         )}</p>
       </article>
+      ${buildStudentLiveJoinMarkup()}
+      ${buildStudentLiveSessionMarkup()}
       <article class="panel panel-side">
         <h3>Tests publicados</h3>
         ${buildStudentTestListMarkup()}
@@ -941,6 +1225,20 @@ async function handleAdminAction(container, action, dataset = {}) {
     [orderedIds[currentIndex], orderedIds[nextIndex]] = [orderedIds[nextIndex], orderedIds[currentIndex]];
     await client.patch(`/api/tests/${encodeURIComponent(testId)}`, { questionIds: orderedIds });
     setTestsViewMessage("Orden de preguntas actualizado.", "success");
+  } else if (action === "create-live-session") {
+    await client.post("/api/live-tests", {
+      testId: String(dataset.testId || "").trim()
+    });
+    setTestsViewMessage("Sesion live creada correctamente.", "success");
+  } else if (action === "start-live-session") {
+    await client.post(`/api/live-tests/${encodeURIComponent(String(dataset.sessionId || "").trim())}/start`, {});
+    setTestsViewMessage("Sesion live iniciada correctamente.", "success");
+  } else if (action === "advance-live-session") {
+    await client.post(`/api/live-tests/${encodeURIComponent(String(dataset.sessionId || "").trim())}/advance`, {});
+    setTestsViewMessage("Sesion live avanzada correctamente.", "success");
+  } else if (action === "finish-live-session") {
+    await client.post(`/api/live-tests/${encodeURIComponent(String(dataset.sessionId || "").trim())}/finish`, {});
+    setTestsViewMessage("Sesion live finalizada correctamente.", "success");
   } else {
     return;
   }
@@ -1005,6 +1303,52 @@ async function handleStudentAttemptSubmit(container, form, options = {}) {
   finalizeTestsViewRender(container);
 }
 
+async function handleStudentLiveJoin(container, form) {
+  const client = getApiClient();
+  if (!client) {
+    throw new Error("Cliente API no disponible");
+  }
+
+  const formData = new FormData(form);
+  const response = await client.post("/api/live-tests/join", {
+    pin: String(formData.get("pin") || "").trim(),
+    displayName: String(formData.get("displayName") || "").trim()
+  });
+  testsViewState.activeLiveSessionId = String(response.session?.id || "").trim();
+  testsViewState.liveSessionState = response.session || null;
+  syncLiveQuestionShownAt(testsViewState.liveSessionState);
+  setTestsViewMessage("Te has unido a la sesion live.", "success");
+  renderTestsMarkup(container);
+  finalizeTestsViewRender(container);
+}
+
+async function handleStudentLiveAnswer(container, form) {
+  const client = getApiClient();
+  if (!client) {
+    throw new Error("Cliente API no disponible");
+  }
+
+  const sessionId = String(form.dataset.sessionId || "").trim();
+  const questionId = String(form.dataset.questionId || "").trim();
+  const formData = new FormData(form);
+  const selectedIndex = Number(formData.get("selectedIndex"));
+  const liveTiming = testsViewState.liveQuestionShownAtBySessionId[sessionId];
+  const responseTimeMs = liveTiming ? Math.max(Date.now() - Number(liveTiming.shownAt || Date.now()), 0) : 0;
+  const response = await client.post(`/api/live-tests/${encodeURIComponent(sessionId)}/answer`, {
+    questionId,
+    selectedIndex,
+    responseTimeMs
+  });
+  if (testsViewState.liveSessionState?.player) {
+    testsViewState.liveSessionState.player.score = Number(response.score || testsViewState.liveSessionState.player.score || 0);
+    testsViewState.liveSessionState.hasAnsweredCurrentQuestion = true;
+  }
+  setTestsViewMessage(response.isCorrect ? "Respuesta correcta registrada." : "Respuesta enviada.", "success");
+  await ensureStudentActiveLiveSession();
+  renderTestsMarkup(container);
+  finalizeTestsViewRender(container);
+}
+
 export function renderTestsView(container, role = "member") {
   container.onclick = async (event) => {
     const adminActionButton = event.target.closest("[data-action]");
@@ -1056,6 +1400,16 @@ export function renderTestsView(container, role = "member") {
     try {
       if (isAdminRole(role) && form.dataset.testsAdminForm) {
         await handleAdminSubmit(container, form);
+        return;
+      }
+
+      if (form.dataset.testsStudentForm === "live-join") {
+        await handleStudentLiveJoin(container, form);
+        return;
+      }
+
+      if (form.dataset.testsStudentForm === "live-answer") {
+        await handleStudentLiveAnswer(container, form);
         return;
       }
 

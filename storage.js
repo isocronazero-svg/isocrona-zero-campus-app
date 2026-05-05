@@ -287,6 +287,53 @@ function normalizeIndependentTestAttempt(attempt, attemptIndex) {
   };
 }
 
+function normalizeLiveTestSession(session, sessionIndex) {
+  const parsedQuestionIndex = Number(session?.currentQuestionIndex);
+  return {
+    ...session,
+    id: session?.id || `live-test-session-${Date.now()}-${sessionIndex}`,
+    testId: String(session?.testId || "").trim(),
+    pin: String(session?.pin || "").trim(),
+    hostMemberId: String(session?.hostMemberId || "").trim(),
+    status: ["lobby", "running", "finished"].includes(String(session?.status || "").trim())
+      ? String(session.status).trim()
+      : "lobby",
+    currentQuestionIndex: Number.isInteger(parsedQuestionIndex) ? parsedQuestionIndex : -1,
+    createdAt: session?.createdAt || new Date().toISOString(),
+    startedAt: session?.startedAt || "",
+    finishedAt: session?.finishedAt || ""
+  };
+}
+
+function normalizeLiveTestPlayer(player, playerIndex) {
+  return {
+    ...player,
+    id: player?.id || `live-test-player-${Date.now()}-${playerIndex}`,
+    sessionId: String(player?.sessionId || "").trim(),
+    memberId: String(player?.memberId || "").trim(),
+    displayName: String(player?.displayName || "").trim(),
+    score: Number(player?.score || 0),
+    joinedAt: player?.joinedAt || new Date().toISOString(),
+    lastSeenAt: player?.lastSeenAt || player?.joinedAt || new Date().toISOString()
+  };
+}
+
+function normalizeLiveTestAnswer(answer, answerIndex) {
+  const parsedSelectedIndex = Number(answer?.selectedIndex);
+  const parsedResponseTimeMs = Number(answer?.responseTimeMs);
+  return {
+    ...answer,
+    id: answer?.id || `live-test-answer-${Date.now()}-${answerIndex}`,
+    sessionId: String(answer?.sessionId || "").trim(),
+    playerId: String(answer?.playerId || "").trim(),
+    questionId: String(answer?.questionId || "").trim(),
+    selectedIndex: Number.isInteger(parsedSelectedIndex) ? parsedSelectedIndex : 0,
+    isCorrect: Boolean(answer?.isCorrect),
+    responseTimeMs: Number.isFinite(parsedResponseTimeMs) && parsedResponseTimeMs >= 0 ? Math.floor(parsedResponseTimeMs) : 0,
+    submittedAt: answer?.submittedAt || new Date().toISOString()
+  };
+}
+
 function buildModulesFromSessions(sessions) {
   return (Array.isArray(sessions) ? sessions : []).map((session, index) =>
     normalizeCourseModule(
@@ -579,6 +626,15 @@ function normalizeState(state) {
   );
   nextState.testAttempts = (state.testAttempts || []).map((attempt, index) =>
     normalizeIndependentTestAttempt(attempt, index)
+  );
+  nextState.liveTestSessions = (state.liveTestSessions || []).map((session, index) =>
+    normalizeLiveTestSession(session, index)
+  );
+  nextState.liveTestPlayers = (state.liveTestPlayers || []).map((player, index) =>
+    normalizeLiveTestPlayer(player, index)
+  );
+  nextState.liveTestAnswers = (state.liveTestAnswers || []).map((answer, index) =>
+    normalizeLiveTestAnswer(answer, index)
   );
   nextState.associateApplications = (state.associateApplications || []).map((item) => ({
     id: item.id || `associate-application-${Date.now()}`,
