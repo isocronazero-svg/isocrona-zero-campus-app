@@ -594,6 +594,10 @@ const independentTestMaxClientDurationMs = 24 * 60 * 60 * 1000;
 const liveTestFinishedSessionRetentionLimit = 20;
 const liveTestPollIntervalMs = 2000;
 const liveTestMaxResponseTimeMs = 24 * 60 * 60 * 1000;
+const liveTestQuestionTimeLimitDefaultSeconds = 20;
+const liveTestQuestionTimeLimitMinSeconds = 5;
+const liveTestQuestionTimeLimitMaxSeconds = 120;
+const liveTestQuestionTimingGraceMs = 1000;
 
 function buildIndependentTestModule(payload = {}) {
   const title = String(payload.title || "").trim();
@@ -994,6 +998,19 @@ function buildLiveTestQuestionAudiencePayload(question) {
   };
 }
 
+function normalizeLiveTestQuestionTimeLimitSeconds(value) {
+  const parsed = Number(value);
+  if (
+    Number.isFinite(parsed) &&
+    parsed >= liveTestQuestionTimeLimitMinSeconds &&
+    parsed <= liveTestQuestionTimeLimitMaxSeconds
+  ) {
+    return Math.floor(parsed);
+  }
+
+  return liveTestQuestionTimeLimitDefaultSeconds;
+}
+
 function buildLiveTestPin(state) {
   ensureIndependentTestsState(state);
   const usedPins = new Set(
@@ -1086,6 +1103,7 @@ function buildLiveTestHostState(state, session) {
   const questions = listLiveTestQuestions(state, session);
   const currentQuestion = getLiveTestCurrentQuestion(state, session);
   const players = listLiveTestSessionPlayers(state, session?.id || "");
+  const serverNow = new Date().toISOString();
   const answersCount = currentQuestion
     ? (state.liveTestAnswers || []).filter(
         (answer) =>
@@ -1104,6 +1122,9 @@ function buildLiveTestHostState(state, session) {
     currentQuestionIndex: Number(session.currentQuestionIndex ?? -1),
     totalQuestions: questions.length,
     currentQuestion: currentQuestion ? buildLiveTestQuestionAudiencePayload(currentQuestion) : null,
+    questionStartedAt: session.questionStartedAt || "",
+    questionTimeLimitSeconds: Number(session.questionTimeLimitSeconds || liveTestQuestionTimeLimitDefaultSeconds),
+    serverNow,
     playersCount: players.length,
     answersCount,
     createdAt: session.createdAt || "",
@@ -1124,6 +1145,7 @@ function buildLiveTestPlayerState(state, session, player) {
   const test = getIndependentTestById(state, session?.testId || "");
   const questions = listLiveTestQuestions(state, session);
   const currentQuestion = getLiveTestCurrentQuestion(state, session);
+  const serverNow = new Date().toISOString();
   return {
     id: session.id,
     testId: session.testId,
@@ -1133,6 +1155,9 @@ function buildLiveTestPlayerState(state, session, player) {
     currentQuestionIndex: Number(session.currentQuestionIndex ?? -1),
     totalQuestions: questions.length,
     currentQuestion: currentQuestion ? buildLiveTestQuestionAudiencePayload(currentQuestion) : null,
+    questionStartedAt: session.questionStartedAt || "",
+    questionTimeLimitSeconds: Number(session.questionTimeLimitSeconds || liveTestQuestionTimeLimitDefaultSeconds),
+    serverNow,
     createdAt: session.createdAt || "",
     startedAt: session.startedAt || "",
     finishedAt: session.finishedAt || "",
@@ -1158,6 +1183,9 @@ function buildLiveTestSessionSummary(state, session) {
     status: hostState.status,
     currentQuestionIndex: hostState.currentQuestionIndex,
     totalQuestions: hostState.totalQuestions,
+    questionStartedAt: hostState.questionStartedAt,
+    questionTimeLimitSeconds: hostState.questionTimeLimitSeconds,
+    serverNow: hostState.serverNow,
     playersCount: hostState.playersCount,
     answersCount: hostState.answersCount,
     createdAt: hostState.createdAt,
@@ -1229,7 +1257,7 @@ function listLiveTestSessionsForAdmin(state) {
     .map((session) => buildLiveTestSessionSummary(state, session));
 }
 
-function createLiveTestSession(state, test, hostMemberId) {
+function createLiveTestSession(state, test, hostMemberId, options = {}) {
   ensureIndependentTestsState(state);
   const questions = listIndependentQuestionsForTest(state, test.id);
   if (!questions.length) {
@@ -1243,6 +1271,8 @@ function createLiveTestSession(state, test, hostMemberId) {
     hostMemberId: String(hostMemberId || "").trim(),
     status: "lobby",
     currentQuestionIndex: -1,
+    questionStartedAt: "",
+    questionTimeLimitSeconds: normalizeLiveTestQuestionTimeLimitSeconds(options.questionTimeLimitSeconds),
     createdAt: new Date().toISOString(),
     startedAt: "",
     finishedAt: ""
@@ -1264,6 +1294,7 @@ function startLiveTestSession(state, session) {
 
   session.status = "running";
   session.currentQuestionIndex = 0;
+  session.questionStartedAt = new Date().toISOString();
   session.startedAt = new Date().toISOString();
   session.finishedAt = "";
   return session;
@@ -1283,6 +1314,7 @@ function advanceLiveTestSession(state, session) {
   const nextIndex = Number(session.currentQuestionIndex || 0) + 1;
   if (nextIndex < questions.length) {
     session.currentQuestionIndex = nextIndex;
+    session.questionStartedAt = new Date().toISOString();
     return session;
   }
   return finishLiveTestSession(session);
@@ -1363,12 +1395,21 @@ function submitLiveTestAnswer(state, session, account, payload = {}) {
     throw new Error("La opcion seleccionada no es valida");
   }
 
-  const parsedResponseTimeMs = Number(payload.responseTimeMs);
-  const responseTimeMs =
-    Number.isFinite(parsedResponseTimeMs) && parsedResponseTimeMs >= 0
-      ? Math.min(Math.floor(parsedResponseTimeMs), liveTestMaxResponseTimeMs)
+  const nowTimestamp = Date.now();
+  const questionStartedAtTimestamp = Date.parse(String(session.questionStartedAt || ""));
+  const elapsedMs =
+    Number.isFinite(questionStartedAtTimestamp) && questionStartedAtTimestamp > 0
+      ? Math.max(nowTimestamp - questionStartedAtTimestamp, 0)
       : 0;
+  const questionTimeLimitSeconds = normalizeLiveTestQuestionTimeLimitSeconds(session.questionTimeLimitSeconds);
+  const limitMs = questionTimeLimitSeconds * 1000;
+  const responseTimeMs = Math.min(Math.floor(elapsedMs), liveTestMaxResponseTimeMs);
   const isCorrect = selectedIndex === Number(currentQuestion.correctIndex);
+  const isLate = elapsedMs > limitMs + liveTestQuestionTimingGraceMs;
+  const pointsAwarded =
+    isCorrect && !isLate
+      ? 100 + Math.max(0, Math.round(50 * (1 - elapsedMs / Math.max(limitMs, 1))))
+      : 0;
   const answer = {
     id: generateLegacyId("live-test-answer"),
     sessionId: session.id,
@@ -1376,19 +1417,23 @@ function submitLiveTestAnswer(state, session, account, payload = {}) {
     questionId: currentQuestion.id,
     selectedIndex,
     isCorrect,
+    isLate,
+    pointsAwarded,
     responseTimeMs,
     submittedAt: new Date().toISOString()
   };
 
   state.liveTestAnswers.unshift(answer);
   player.lastSeenAt = answer.submittedAt;
-  if (isCorrect) {
-    player.score = Number(player.score || 0) + 1;
+  if (pointsAwarded > 0) {
+    player.score = Number(player.score || 0) + pointsAwarded;
   }
 
   return {
     accepted: true,
     isCorrect,
+    isLate,
+    pointsAwarded,
     score: Number(player.score || 0)
   };
 }
@@ -3118,7 +3163,9 @@ const server = http.createServer(async (req, res) => {
       if (!test) {
         return sendJson(res, 404, { ok: false, error: "Test no encontrado" });
       }
-      const session = createLiveTestSession(state, test, account.memberId || "");
+      const session = createLiveTestSession(state, test, account.memberId || "", {
+        questionTimeLimitSeconds: payload.questionTimeLimitSeconds
+      });
       writeState(state);
       return sendJson(res, 201, { ok: true, session: buildLiveTestHostState(state, session) });
     } catch (error) {
