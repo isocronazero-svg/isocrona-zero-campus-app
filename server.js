@@ -591,6 +591,7 @@ function ensureIndependentTestsState(state) {
 
 const independentTestTimingGraceMs = 3000;
 const independentTestMaxClientDurationMs = 24 * 60 * 60 * 1000;
+const liveTestFinishedSessionRetentionLimit = 20;
 const liveTestPollIntervalMs = 2000;
 const liveTestMaxResponseTimeMs = 24 * 60 * 60 * 1000;
 
@@ -1166,6 +1167,59 @@ function buildLiveTestSessionSummary(state, session) {
   };
 }
 
+function pruneFinishedLiveTestSessions(state, options = {}) {
+  ensureIndependentTestsState(state);
+  const keepFinishedLimit = Number.isInteger(Number(options.keepFinishedLimit))
+    ? Math.max(Number(options.keepFinishedLimit), 0)
+    : liveTestFinishedSessionRetentionLimit;
+  const activeSessions = [];
+  const finishedSessions = [];
+
+  (state.liveTestSessions || []).forEach((session) => {
+    if (String(session?.status || "").trim() === "finished") {
+      finishedSessions.push(session);
+      return;
+    }
+    activeSessions.push(session);
+  });
+
+  const keptFinishedSessions = finishedSessions
+    .slice()
+    .sort((left, right) =>
+      String(right.finishedAt || right.createdAt || "").localeCompare(String(left.finishedAt || left.createdAt || ""))
+    )
+    .slice(0, keepFinishedLimit);
+  const keptSessionIds = new Set(
+    [...activeSessions, ...keptFinishedSessions].map((session) => String(session?.id || "").trim()).filter(Boolean)
+  );
+  const prunedSessionIds = finishedSessions
+    .map((session) => String(session?.id || "").trim())
+    .filter((sessionId) => sessionId && !keptSessionIds.has(sessionId));
+
+  if (!prunedSessionIds.length) {
+    return false;
+  }
+
+  const prunedSessionIdSet = new Set(prunedSessionIds);
+  const keptPlayerIds = new Set();
+  state.liveTestSessions = (state.liveTestSessions || []).filter((session) =>
+    keptSessionIds.has(String(session?.id || "").trim())
+  );
+  state.liveTestPlayers = (state.liveTestPlayers || []).filter((player) => {
+    const keepPlayer = !prunedSessionIdSet.has(String(player?.sessionId || "").trim());
+    if (keepPlayer) {
+      keptPlayerIds.add(String(player?.id || "").trim());
+    }
+    return keepPlayer;
+  });
+  state.liveTestAnswers = (state.liveTestAnswers || []).filter((answer) => {
+    const sessionId = String(answer?.sessionId || "").trim();
+    const playerId = String(answer?.playerId || "").trim();
+    return !prunedSessionIdSet.has(sessionId) && (!playerId || keptPlayerIds.has(playerId));
+  });
+  return true;
+}
+
 function listLiveTestSessionsForAdmin(state) {
   ensureIndependentTestsState(state);
   return (state.liveTestSessions || [])
@@ -1194,6 +1248,7 @@ function createLiveTestSession(state, test, hostMemberId) {
   };
 
   state.liveTestSessions.unshift(session);
+  pruneFinishedLiveTestSessions(state);
   return session;
 }
 
@@ -3038,6 +3093,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureIndependentTestsState(state);
+      const pruned = pruneFinishedLiveTestSessions(state);
+      if (pruned) {
+        writeState(state);
+      }
       return sendJson(res, 200, { ok: true, sessions: listLiveTestSessionsForAdmin(state) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar las sesiones live" });
@@ -3155,6 +3214,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 404, { ok: false, error: "Sesion live no encontrada" });
       }
       advanceLiveTestSession(state, session);
+      pruneFinishedLiveTestSessions(state);
       writeState(state);
       return sendJson(res, 200, { ok: true, session: buildLiveTestHostState(state, session) });
     } catch (error) {
@@ -3176,6 +3236,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 404, { ok: false, error: "Sesion live no encontrada" });
       }
       finishLiveTestSession(session);
+      pruneFinishedLiveTestSessions(state);
       writeState(state);
       return sendJson(res, 200, { ok: true, session: buildLiveTestHostState(state, session) });
     } catch (error) {
