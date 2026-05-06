@@ -298,9 +298,9 @@ async function main() {
 
     const importResponse = await adminClient.request("POST", "/api/tests/import-csv", {
       csv: [
-        "moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds",
-        '"Importacion CSV","Test CSV",si,"Pregunta 1","Agua","Espuma","Polvo","","B","Explicacion, con coma",,,"15"',
-        '"Importacion CSV","Test CSV",si,"Pregunta 2","Linea 1","Linea 2","","","1","Texto con ""comillas""",,,"15"',
+        "moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds,customField1,customField2",
+        '"Importacion CSV","Test CSV",si,"Pregunta 1","Agua","Espuma","Polvo","","B","Explicacion, con coma",basico,facil,"15","valor extra 1","valor extra 2"',
+        '"Importacion CSV","Test CSV",si,"Pregunta 2","Linea 1","Linea 2","","","1","Texto con ""comillas""",avanzado,media,"15","otra cosa","mas datos"',
         "",
         ""
       ].join("\r\n")
