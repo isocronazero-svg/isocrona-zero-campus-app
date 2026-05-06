@@ -318,6 +318,58 @@ function normalizeIndependentTestAttempt(attempt, attemptIndex) {
   };
 }
 
+function normalizePracticeTest(practiceTest, practiceTestIndex) {
+  const parsedWrongPenaltyNumerator = Number(practiceTest?.wrongPenaltyNumerator);
+  const parsedWrongPenaltyDenominator = Number(practiceTest?.wrongPenaltyDenominator);
+  return {
+    ...practiceTest,
+    id: practiceTest?.id || `practice-test-${Date.now()}-${practiceTestIndex}`,
+    memberId: String(practiceTest?.memberId || "").trim(),
+    moduleId: String(practiceTest?.moduleId || "").trim(),
+    title: String(practiceTest?.title || "").trim(),
+    topic: String(practiceTest?.topic || "").trim(),
+    difficulty: String(practiceTest?.difficulty || "").trim(),
+    questionIds: Array.isArray(practiceTest?.questionIds)
+      ? practiceTest.questionIds.map((value) => String(value || "").trim()).filter(Boolean)
+      : [],
+    negativeMarkingEnabled: Boolean(practiceTest?.negativeMarkingEnabled),
+    wrongPenaltyNumerator:
+      Number.isFinite(parsedWrongPenaltyNumerator) && parsedWrongPenaltyNumerator >= 0 ? parsedWrongPenaltyNumerator : 1,
+    wrongPenaltyDenominator:
+      Number.isFinite(parsedWrongPenaltyDenominator) && parsedWrongPenaltyDenominator > 0 ? parsedWrongPenaltyDenominator : 3,
+    createdAt: practiceTest?.createdAt || new Date().toISOString(),
+    expiresAt: practiceTest?.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  };
+}
+
+function normalizePracticeAttempt(attempt, attemptIndex) {
+  const parsedCorrectCount = Number(attempt?.correctCount);
+  const parsedWrongCount = Number(attempt?.wrongCount);
+  const parsedBlankCount = Number(attempt?.blankCount);
+  const parsedRawScore = Number(attempt?.rawScore);
+  const parsedPenalty = Number(attempt?.penalty);
+  const parsedNetScore = Number(attempt?.netScore);
+  const parsedPercentage = Number(attempt?.percentage);
+  return {
+    ...attempt,
+    id: attempt?.id || `practice-attempt-${Date.now()}-${attemptIndex}`,
+    practiceTestId: String(attempt?.practiceTestId || "").trim(),
+    memberId: String(attempt?.memberId || "").trim(),
+    questionIds: Array.isArray(attempt?.questionIds) ? attempt.questionIds.map((value) => String(value || "").trim()).filter(Boolean) : [],
+    answers: Array.isArray(attempt?.answers) ? attempt.answers.map((value) => Number(value)) : [],
+    score: Number(attempt?.score || 0),
+    total: Number(attempt?.total || 0),
+    correctCount: Number.isFinite(parsedCorrectCount) && parsedCorrectCount >= 0 ? parsedCorrectCount : 0,
+    wrongCount: Number.isFinite(parsedWrongCount) && parsedWrongCount >= 0 ? parsedWrongCount : 0,
+    blankCount: Number.isFinite(parsedBlankCount) && parsedBlankCount >= 0 ? parsedBlankCount : 0,
+    rawScore: Number.isFinite(parsedRawScore) && parsedRawScore >= 0 ? parsedRawScore : Number(attempt?.score || 0),
+    penalty: Number.isFinite(parsedPenalty) && parsedPenalty >= 0 ? parsedPenalty : 0,
+    netScore: Number.isFinite(parsedNetScore) && parsedNetScore >= 0 ? parsedNetScore : Number(attempt?.score || 0),
+    percentage: Number.isFinite(parsedPercentage) && parsedPercentage >= 0 ? parsedPercentage : 0,
+    createdAt: attempt?.createdAt || new Date().toISOString()
+  };
+}
+
 function normalizeLiveTestSession(session, sessionIndex) {
   const parsedQuestionIndex = Number(session?.currentQuestionIndex);
   const parsedQuestionTimeLimitSeconds = Number(session?.questionTimeLimitSeconds);
@@ -669,6 +721,12 @@ function normalizeState(state) {
   );
   nextState.testAttempts = (state.testAttempts || []).map((attempt, index) =>
     normalizeIndependentTestAttempt(attempt, index)
+  );
+  nextState.practiceTests = (state.practiceTests || []).map((practiceTest, index) =>
+    normalizePracticeTest(practiceTest, index)
+  );
+  nextState.practiceAttempts = (state.practiceAttempts || []).map((attempt, index) =>
+    normalizePracticeAttempt(attempt, index)
   );
   nextState.liveTestSessions = (state.liveTestSessions || []).map((session, index) =>
     normalizeLiveTestSession(session, index)
