@@ -299,8 +299,8 @@ async function main() {
     const importResponse = await adminClient.request("POST", "/api/tests/import-csv", {
       csv: [
         "moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds,customField1,customField2",
-        '"Importacion CSV","Test CSV",si,"Pregunta 1","Agua","Espuma","Polvo","","B","Explicacion, con coma",basico,facil,"15","valor extra 1","valor extra 2"',
-        '"Importacion CSV","Test CSV",si,"Pregunta 2","Linea 1","Linea 2","","","1","Texto con ""comillas""",avanzado,media,"15","otra cosa","mas datos"',
+        '"Primeros Auxilios","","","Pregunta banco 1","112","061","","","A","Explicacion banco 1",emergencias,facil,"","valor extra 1","valor extra 2"',
+        '"Primeros Auxilios","","","Pregunta banco 2","PAS","RCP","","","1","Explicacion banco 2",triage,media,"","otra cosa","mas datos"',
         "",
         ""
       ].join("\r\n")
@@ -309,29 +309,168 @@ async function main() {
     assert.equal(importResponse.body?.summary?.rowsReceived, 2);
     assert.equal(importResponse.body?.summary?.rowsImported, 2);
     assert.equal(importResponse.body?.summary?.modulesCreated, 1);
-    assert.equal(importResponse.body?.summary?.testsCreated, 1);
+    assert.equal(importResponse.body?.summary?.testsCreated, 0);
     assert.equal(importResponse.body?.summary?.questionsCreated, 2);
     assert.equal((importResponse.body?.summary?.errors || []).length, 0);
 
-    const importedTestsResponse = await adminClient.request("GET", "/api/tests");
-    const importedTest = (importedTestsResponse.body?.tests || []).find((test) => test.title === "Test CSV");
-    assert.ok(importedTest, "El importador debe crear el test indicado");
-    assert.equal(importedTest.published, true);
-    assert.equal(importedTest.timeLimitSeconds, 15);
-    assert.equal((importedTest.questionIds || []).length, 2, "El test importado debe referenciar las dos preguntas");
-
     const importedModulesResponse = await adminClient.request("GET", "/api/test-modules");
-    const importedModule = (importedModulesResponse.body?.testModules || []).find((testModule) => testModule.title === "Importacion CSV");
+    const importedModule = (importedModulesResponse.body?.testModules || []).find((testModule) => testModule.title === "Primeros Auxilios");
     assert.ok(importedModule, "El importador debe crear el modulo indicado");
-    assert.equal(importedTest.moduleId, importedModule.id);
+
+    const importedTestsResponse = await adminClient.request("GET", "/api/tests");
+    const importedTestsForModule = (importedTestsResponse.body?.tests || []).filter((test) => test.moduleId === importedModule.id);
+    assert.equal(importedTestsForModule.length, 0, "Si testTitle va vacio no debe crearse ningun test");
+
+    const adminBankQuestionsResponse = await adminClient.request("GET", "/api/questions");
+    const importedBankQuestions = (adminBankQuestionsResponse.body?.questions || []).filter(
+      (question) =>
+        question.moduleId === importedModule.id &&
+        ["Pregunta banco 1", "Pregunta banco 2"].includes(question.prompt)
+    );
+    assert.equal(importedBankQuestions.length, 2, "Las preguntas deben existir en el banco del modulo");
+    assert.equal(importedBankQuestions[0].correctIndex != null, true, "El admin debe seguir viendo correctIndex");
+    assert.equal(typeof importedBankQuestions[0].explanation, "string");
+    assert.ok(importedBankQuestions.some((question) => question.topic === "emergencias"));
+    assert.ok(importedBankQuestions.some((question) => question.difficulty === "media"));
+    assert.equal(
+      importedBankQuestions.every((question) => question.topic || question.difficulty),
+      true,
+      "topic y difficulty deben conservarse si vienen en el CSV"
+    );
+
+    const importIntoTestResponse = await adminClient.request("POST", "/api/tests/import-csv", {
+      csv: [
+        "moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds",
+        '"Primeros Auxilios","Primeros Auxilios CSV",si,"Pregunta importada a test","Orden","Calma","","","A","Explicacion importada",procedimiento,facil,"20"'
+      ].join("\r\n")
+    });
+    assert.equal(importIntoTestResponse.body?.ok, true);
+    assert.equal(importIntoTestResponse.body?.summary?.rowsImported, 1);
+    assert.equal(importIntoTestResponse.body?.summary?.testsCreated, 1);
+
+    const importedTestsAfterCsvResponse = await adminClient.request("GET", "/api/tests");
+    const csvCreatedTest = (importedTestsAfterCsvResponse.body?.tests || []).find(
+      (test) => test.title === "Primeros Auxilios CSV"
+    );
+    assert.ok(csvCreatedTest, "El importador debe seguir creando tests si testTitle viene informado");
+    assert.equal((csvCreatedTest.questionIds || []).length, 1);
+    assert.equal(csvCreatedTest.timeLimitSeconds, 20);
+
+    const manualTestResponse = await adminClient.request("POST", "/api/tests", {
+      moduleId: importedModule.id,
+      title: "Primeros Auxilios 20 preguntas",
+      description: "Seleccion manual desde banco",
+      published: true,
+      questionIds: []
+    });
+    const manualTest = manualTestResponse.body?.test;
+    assert.equal(manualTestResponse.body?.ok, true);
+    assert.ok(manualTest?.id, "El test manual debe crearse por API");
+
+    const assignedQuestionIds = importedBankQuestions.map((question) => question.id);
+    const assignResponse = await adminClient.request("PATCH", `/api/tests/${manualTest.id}`, {
+      questionIds: assignedQuestionIds
+    });
+    assert.equal(assignResponse.body?.ok, true);
+    assert.deepEqual(assignResponse.body?.test?.questionIds || [], assignedQuestionIds);
+
+    const bankOnlyQuestionResponse = await adminClient.request("POST", "/api/questions", {
+      moduleId: importedModule.id,
+      prompt: "Pregunta creada solo en banco",
+      options: ["Uno", "Dos"],
+      correctIndex: 0,
+      explanation: "Solo banco",
+      topic: "manual",
+      difficulty: "facil"
+    });
+    assert.equal(bankOnlyQuestionResponse.body?.ok, true);
+    assert.equal(bankOnlyQuestionResponse.body?.question?.moduleId, importedModule.id);
+
+    const assignOnCreateResponse = await adminClient.request("POST", "/api/questions", {
+      moduleId: importedModule.id,
+      testId: manualTest.id,
+      prompt: "Pregunta creada y asignada",
+      options: ["A", "B"],
+      correctIndex: 1,
+      explanation: "Asignada al test"
+    });
+    assert.equal(assignOnCreateResponse.body?.ok, true);
+
+    const manualTestAfterCreateAssignResponse = await adminClient.request("GET", "/api/tests");
+    const manualTestAfterCreateAssign = (manualTestAfterCreateAssignResponse.body?.tests || []).find(
+      (test) => test.id === manualTest.id
+    );
+    assert.ok(
+      (manualTestAfterCreateAssign?.questionIds || []).includes(assignOnCreateResponse.body?.question?.id),
+      "POST /api/questions con testId debe asignar la pregunta al test"
+    );
+
+    const secondModuleResponse = await adminClient.request("POST", "/api/test-modules", {
+      title: "Modulo ajeno",
+      description: ""
+    });
+    const secondModule = secondModuleResponse.body?.testModule;
+    const foreignQuestionResponse = await adminClient.request("POST", "/api/questions", {
+      moduleId: secondModule.id,
+      prompt: "Pregunta de otro modulo",
+      options: ["A", "B"],
+      correctIndex: 0,
+      explanation: ""
+    });
+    const foreignQuestion = foreignQuestionResponse.body?.question;
+    const crossModuleAssignResponse = await adminClient.request(
+      "PATCH",
+      `/api/tests/${manualTest.id}`,
+      {
+        questionIds: [assignedQuestionIds[0], foreignQuestion.id]
+      },
+      { allowFailure: true }
+    );
+    assert.equal(crossModuleAssignResponse.status, 400, "PATCH /api/tests debe rechazar preguntas de otro modulo");
 
     const memberImportedQuestionsResponse = await memberClient.request(
       "GET",
-      `/api/questions?testId=${encodeURIComponent(importedTest.id)}`
+      `/api/questions?testId=${encodeURIComponent(manualTest.id)}`
     );
     assert.equal(memberImportedQuestionsResponse.body?.ok, true);
-    assert.equal((memberImportedQuestionsResponse.body?.questions || []).length, 2);
+    assert.equal((memberImportedQuestionsResponse.body?.questions || []).length, 3);
     assertForbiddenKeysAbsent(memberImportedQuestionsResponse.body, "imported member question payload");
+
+    const deleteUsedQuestionResponse = await adminClient.request(
+      "DELETE",
+      `/api/questions/${encodeURIComponent(assignedQuestionIds[0])}`,
+      undefined,
+      { allowFailure: true }
+    );
+    assert.equal(deleteUsedQuestionResponse.status, 400, "Borrar una pregunta usada por un test debe fallar");
+
+    const removeAssignmentResponse = await adminClient.request("PATCH", `/api/tests/${manualTest.id}`, {
+      questionIds: [assignedQuestionIds[0]]
+    });
+    assert.equal(removeAssignmentResponse.body?.ok, true);
+    assert.equal((removeAssignmentResponse.body?.test?.questionIds || []).length, 1);
+
+    const adminBankQuestionsAfterRemoveResponse = await adminClient.request("GET", "/api/questions");
+    const importedBankQuestionsAfterRemove = (adminBankQuestionsAfterRemoveResponse.body?.questions || []).filter(
+      (question) =>
+        question.moduleId === importedModule.id &&
+        ["Pregunta banco 1", "Pregunta banco 2"].includes(question.prompt)
+    );
+    assert.equal(importedBankQuestionsAfterRemove.length, 2, "Quitar una pregunta del test no debe borrarla del banco");
+
+    const memberImportedQuestionsAfterRemoveResponse = await memberClient.request(
+      "GET",
+      `/api/questions?testId=${encodeURIComponent(manualTest.id)}`
+    );
+    assert.equal((memberImportedQuestionsAfterRemoveResponse.body?.questions || []).length, 1);
+    assertForbiddenKeysAbsent(memberImportedQuestionsAfterRemoveResponse.body, "member questions after removal");
+
+    const csvCreatedMemberQuestionsResponse = await memberClient.request(
+      "GET",
+      `/api/questions?testId=${encodeURIComponent(csvCreatedTest.id)}`
+    );
+    assert.equal((csvCreatedMemberQuestionsResponse.body?.questions || []).length, 1);
+    assertForbiddenKeysAbsent(csvCreatedMemberQuestionsResponse.body, "csv created test member payload");
 
     const sessionsBefore = await adminClient.request("GET", "/api/live-tests");
     assert.equal(sessionsBefore.body?.ok, true);
