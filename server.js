@@ -646,6 +646,38 @@ function getIndependentTestAttemptQuestions(state, test) {
   return questionsPerAttempt != null ? questions.slice(0, questionsPerAttempt) : questions;
 }
 
+function resolveIndependentTestAttemptQuestions(state, test, submittedQuestionIds) {
+  const allowedQuestions = getIndependentTestAttemptQuestions(state, test);
+  const allowedQuestionsById = new Map(allowedQuestions.map((question) => [String(question.id || "").trim(), question]));
+  const normalizedSubmittedQuestionIds = [];
+  const seen = new Set();
+
+  if (Array.isArray(submittedQuestionIds)) {
+    submittedQuestionIds.forEach((questionId) => {
+      const normalizedQuestionId = String(questionId || "").trim();
+      if (!normalizedQuestionId || seen.has(normalizedQuestionId)) {
+        return;
+      }
+      seen.add(normalizedQuestionId);
+      normalizedSubmittedQuestionIds.push(normalizedQuestionId);
+    });
+  }
+
+  if (!normalizedSubmittedQuestionIds.length) {
+    return allowedQuestions;
+  }
+
+  const resolvedQuestions = normalizedSubmittedQuestionIds.map((questionId) => {
+    const question = allowedQuestionsById.get(questionId);
+    if (!question) {
+      throw new Error("Las preguntas enviadas no coinciden con el intento disponible");
+    }
+    return question;
+  });
+
+  return resolvedQuestions;
+}
+
 function getIndependentTestQuestionCountForAudience(state, test) {
   return getIndependentTestAttemptQuestions(state, test).length;
 }
@@ -1221,7 +1253,7 @@ function resolveIndependentTestAttemptStartTimestamp(startedAt, fallbackTimestam
 
 function createIndependentTestAttempt(state, test, memberId, answers, options = {}) {
   ensureIndependentTestsState(state);
-  const questions = getIndependentTestAttemptQuestions(state, test);
+  const questions = resolveIndependentTestAttemptQuestions(state, test, options.submittedQuestionIds);
   const createdAtTimestamp = Date.now();
   const startedAtTimestamp = resolveIndependentTestAttemptStartTimestamp(options.startedAt, createdAtTimestamp);
   const durationMs = Math.max(createdAtTimestamp - startedAtTimestamp, 0);
@@ -1252,6 +1284,7 @@ function createIndependentTestAttempt(state, test, memberId, answers, options = 
     id: generateLegacyId("test-attempt"),
     testId: test.id,
     memberId,
+    questionIds: questions.map((question) => question.id),
     answers: normalizedAnswers,
     score: netScore,
     total: questions.length,
@@ -3608,7 +3641,8 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, error: "Tu cuenta no tiene un miembro asociado para guardar el intento" });
       }
       const attempt = createIndependentTestAttempt(state, test, account.memberId, payload.answers, {
-        startedAt: payload.startedAt
+        startedAt: payload.startedAt,
+        submittedQuestionIds: payload.questionIds
       });
       writeState(state);
       return sendJson(res, 201, {

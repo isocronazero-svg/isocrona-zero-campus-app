@@ -435,11 +435,13 @@ async function main() {
       `/api/questions?testId=${encodeURIComponent(oppositionTest.id)}`
     );
     assert.equal(oppositionMemberQuestionsResponse.body?.ok, true);
-    assert.equal((oppositionMemberQuestionsResponse.body?.questions || []).length, 3);
+    const oppositionQuestions = oppositionMemberQuestionsResponse.body?.questions || [];
+    assert.equal(oppositionQuestions.length, 3);
     assertForbiddenKeysAbsent(oppositionMemberQuestionsResponse.body, "opposition member question payload");
 
     const oppositionAttemptResponse = await memberClient.request("POST", `/api/tests/${oppositionTest.id}/attempt`, {
-      answers: [0, 1, null]
+      answers: [0, 1, null],
+      questionIds: oppositionQuestions.map((question) => question.id)
     });
     assert.equal(oppositionAttemptResponse.body?.ok, true);
     assert.equal(oppositionAttemptResponse.body?.correctCount, 1);
@@ -460,6 +462,17 @@ async function main() {
     assert.equal(oppositionAttemptsHistoryResponse.body?.attempts?.[0]?.blankCount, 1);
     assert.equal(oppositionAttemptsHistoryResponse.body?.attempts?.[0]?.penalty, 0.3333);
     assert.ok(Math.abs(Number(oppositionAttemptsHistoryResponse.body?.attempts?.[0]?.netScore || 0) - 0.6667) < 0.0001);
+
+    const invalidOppositionAttemptResponse = await memberClient.request(
+      "POST",
+      `/api/tests/${oppositionTest.id}/attempt`,
+      {
+        answers: [0, 1, null],
+        questionIds: [...oppositionQuestions.map((question) => question.id).slice(0, 2), "question-no-valida"]
+      },
+      { allowFailure: true }
+    );
+    assert.equal(invalidOppositionAttemptResponse.status, 400, "El intento debe fallar si llegan questionIds no permitidos");
 
     const secondModuleResponse = await adminClient.request("POST", "/api/test-modules", {
       title: "Modulo ajeno",

@@ -301,6 +301,7 @@ function normalizeIndependentTestAttempt(attempt, attemptIndex) {
     id: attempt?.id || `test-attempt-${Date.now()}-${attemptIndex}`,
     testId: String(attempt?.testId || "").trim(),
     memberId: String(attempt?.memberId || "").trim(),
+    questionIds: Array.isArray(attempt?.questionIds) ? attempt.questionIds.map((value) => String(value || "").trim()).filter(Boolean) : [],
     answers: Array.isArray(attempt?.answers) ? attempt.answers.map((value) => Number(value)) : [],
     score: Number(attempt?.score || 0),
     total: Number(attempt?.total || 0),

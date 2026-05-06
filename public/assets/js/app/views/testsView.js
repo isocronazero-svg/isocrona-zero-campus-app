@@ -1955,7 +1955,8 @@ async function handleStudentAttemptSubmit(container, form, options = {}) {
 
   const response = await client.post(`/api/tests/${encodeURIComponent(testId)}/attempt`, {
     answers,
-    startedAt
+    startedAt,
+    questionIds: questions.map((question) => question.id)
   });
 
   testsViewState.result = {
