@@ -226,6 +226,10 @@ function hasActiveTimedAttempt(test = getActiveStudentTest()) {
   );
 }
 
+function hasActiveAttempt(test = getActiveStudentTest()) {
+  return Boolean(test && testsViewState.activeAttemptTestId === test.id);
+}
+
 function clearStudentTimer(resetAutoSubmitting = true) {
   if (testsViewState.timerIntervalId) {
     clearInterval(testsViewState.timerIntervalId);
@@ -668,14 +672,31 @@ function startLiveSessionPolling(container) {
   ) {
     return;
   }
+
+  const buildSessionRenderKey = (sessionState) =>
+    JSON.stringify({
+      key: getLiveSessionQuestionKey(sessionState),
+      status: String(sessionState?.status || "").trim(),
+      hasAnsweredCurrentQuestion: Boolean(sessionState?.hasAnsweredCurrentQuestion),
+      score: Number(sessionState?.player?.score || 0),
+      leaderboard: Array.isArray(sessionState?.leaderboard)
+        ? sessionState.leaderboard.map((entry) => `${entry.playerId || entry.displayName || ""}:${entry.score || 0}`)
+        : []
+    });
+  let previousKey = buildSessionRenderKey(testsViewState.liveSessionState);
+
   testsViewState.livePollIntervalId = setInterval(async () => {
     try {
       await ensureStudentActiveLiveSession();
+      const nextKey = buildSessionRenderKey(testsViewState.liveSessionState);
       if (String(testsViewState.liveSessionState?.status || "").trim() === "finished") {
         clearLivePolling();
       }
-      renderTestsMarkup(container);
-      finalizeTestsViewRender(container);
+      if (nextKey !== previousKey) {
+        previousKey = nextKey;
+        renderTestsMarkup(container);
+        finalizeTestsViewRender(container);
+      }
     } catch (error) {
       clearLivePolling();
       testsViewState.liveSessionState = null;
@@ -1491,7 +1512,7 @@ function buildStudentActiveTestMarkup() {
   const leaderboard = getLeaderboardForTest(test.id);
   const currentUserRank = getCurrentUserRankForTest(test.id);
   const timeLimitSeconds = getStudentTestTimeLimitSeconds(test);
-  const isAttemptActive = hasActiveTimedAttempt(test);
+  const isAttemptActive = hasActiveAttempt(test);
 
   if (!questions.length) {
     return `
