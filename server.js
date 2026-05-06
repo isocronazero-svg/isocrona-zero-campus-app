@@ -770,22 +770,6 @@ function parseIndependentTestsCsvImport(state, csv = "") {
 
   const header = rows[0].map((cell) => String(cell || "").trim());
   const normalizedHeader = header.map((cell) => normalizeIndependentTestsLookupKey(cell));
-  // El importador solo lee este subconjunto conocido; cualquier columna adicional se ignora.
-  const supportedColumns = new Set([
-    "moduletitle",
-    "testtitle",
-    "published",
-    "prompt",
-    "optiona",
-    "optionb",
-    "optionc",
-    "optiond",
-    "correctoption",
-    "explanation",
-    "topic",
-    "difficulty",
-    "questiontimelimitseconds"
-  ]);
   const requiredColumns = ["moduletitle", "testtitle", "prompt", "optiona", "optionb", "correctoption"];
   const missingColumns = requiredColumns.filter((column) => !normalizedHeader.includes(column));
   if (missingColumns.length) {
@@ -826,8 +810,8 @@ function parseIndependentTestsCsvImport(state, csv = "") {
       const testTitle = readCell(record, "testtitle").trim();
       const prompt = readCell(record, "prompt").trim();
       const explanation = readCell(record, "explanation").trim();
-      const topic = supportedColumns.has("topic") ? readCell(record, "topic").trim() : "";
-      const difficulty = supportedColumns.has("difficulty") ? readCell(record, "difficulty").trim() : "";
+      const topic = readCell(record, "topic").trim();
+      const difficulty = readCell(record, "difficulty").trim();
       const published = normalizeIndependentTestPublishedImportValue(readCell(record, "published"));
       const requestedTimeLimitSeconds = normalizeIndependentTestImportTimeLimitSeconds(
         readCell(record, "questiontimelimitseconds").trim()
