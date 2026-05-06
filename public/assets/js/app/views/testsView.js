@@ -1119,12 +1119,15 @@ function renderAdminMarkup() {
         <form class="stack" data-tests-admin-form="import-csv">
           <h3>Importar preguntas CSV</h3>
           <p class="muted">Cabecera soportada: moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds</p>
+          <div class="chip-row">
+            <button class="ghost-button" type="button" data-action="download-import-csv-template">Descargar plantilla CSV</button>
+          </div>
           <label class="inline-field">
             CSV
             <textarea name="csv" rows="8" placeholder="moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds&#10;Rescate,Autoevacuacion,true,&quot;Pregunta de ejemplo&quot;,Opcion A,Opcion B,,,A,&quot;Comentario opcional&quot;,,,20" required></textarea>
           </label>
           <div class="chip-row">
-            <button class="primary-button" type="submit">Previsualizar/Importar</button>
+            <button class="primary-button" type="submit">Importar CSV</button>
           </div>
         </form>
       </article>
@@ -1472,6 +1475,8 @@ async function handleAdminAction(container, action, dataset = {}) {
   } else if (action === "finish-live-session") {
     await client.post(`/api/live-tests/${encodeURIComponent(String(dataset.sessionId || "").trim())}/finish`, {});
     setTestsViewMessage("Sesion live finalizada correctamente.", "success");
+  } else if (action === "download-import-csv-template") {
+    window.location.assign("/api/tests/import-csv-template");
   } else {
     return;
   }
