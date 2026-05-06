@@ -292,25 +292,28 @@ async function main() {
 
     const adminClient = createJsonClient("admin", baseUrl);
     const memberClient = createJsonClient("member", baseUrl);
+    const secondMemberClient = createJsonClient("member-2", baseUrl);
 
     await login(adminClient, "admin@isocronazero.org", "campus123");
     await login(memberClient, "lucia@isocronazero.org", "bomberos123");
+    await login(secondMemberClient, "javier@isocronazero.org", "bomberos123");
 
     const importResponse = await adminClient.request("POST", "/api/tests/import-csv", {
       csv: [
         "moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds,customField1,customField2",
         '"Primeros Auxilios","","","Pregunta banco 1","112","061","","","A","Explicacion banco 1",emergencias,facil,"","valor extra 1","valor extra 2"',
         '"Primeros Auxilios","","","Pregunta banco 2","PAS","RCP","","","1","Explicacion banco 2",triage,media,"","otra cosa","mas datos"',
+        '"Primeros Auxilios","","","Pregunta banco 3","ABCDE","SVB","","","A","Explicacion banco 3",emergencias,media,"","",""',
         "",
         ""
       ].join("\r\n")
     });
     assert.equal(importResponse.body?.ok, true);
-    assert.equal(importResponse.body?.summary?.rowsReceived, 2);
-    assert.equal(importResponse.body?.summary?.rowsImported, 2);
+    assert.equal(importResponse.body?.summary?.rowsReceived, 3);
+    assert.equal(importResponse.body?.summary?.rowsImported, 3);
     assert.equal(importResponse.body?.summary?.modulesCreated, 1);
     assert.equal(importResponse.body?.summary?.testsCreated, 0);
-    assert.equal(importResponse.body?.summary?.questionsCreated, 2);
+    assert.equal(importResponse.body?.summary?.questionsCreated, 3);
     assert.equal((importResponse.body?.summary?.errors || []).length, 0);
 
     const importedModulesResponse = await adminClient.request("GET", "/api/test-modules");
@@ -325,9 +328,9 @@ async function main() {
     const importedBankQuestions = (adminBankQuestionsResponse.body?.questions || []).filter(
       (question) =>
         question.moduleId === importedModule.id &&
-        ["Pregunta banco 1", "Pregunta banco 2"].includes(question.prompt)
+        ["Pregunta banco 1", "Pregunta banco 2", "Pregunta banco 3"].includes(question.prompt)
     );
-    assert.equal(importedBankQuestions.length, 2, "Las preguntas deben existir en el banco del modulo");
+    assert.equal(importedBankQuestions.length, 3, "Las preguntas deben existir en el banco del modulo");
     assert.equal(importedBankQuestions[0].correctIndex != null, true, "El admin debe seguir viendo correctIndex");
     assert.equal(typeof importedBankQuestions[0].explanation, "string");
     assert.ok(importedBankQuestions.some((question) => question.topic === "emergencias"));
@@ -337,6 +340,61 @@ async function main() {
       true,
       "topic y difficulty deben conservarse si vienen en el CSV"
     );
+
+    const practiceOptionsResponse = await memberClient.request("GET", "/api/tests/practice/options");
+    assert.equal(practiceOptionsResponse.body?.ok, true);
+    const practiceOptionModule = (practiceOptionsResponse.body?.modules || []).find(
+      (module) => module.id === importedModule.id
+    );
+    assert.ok(practiceOptionModule, "Las opciones de practica deben incluir el modulo importado");
+    assert.ok((practiceOptionModule.topics || []).includes("emergencias"));
+    assert.ok((practiceOptionModule.difficulties || []).includes("media"));
+
+    const practiceStartResponse = await memberClient.request("POST", "/api/tests/practice/start", {
+      moduleId: importedModule.id,
+      topic: "",
+      difficulty: "",
+      questionCount: 3,
+      negativeMarkingEnabled: true,
+      wrongPenaltyNumerator: 1,
+      wrongPenaltyDenominator: 3
+    });
+    assert.equal(practiceStartResponse.body?.ok, true);
+    const practice = practiceStartResponse.body?.practice;
+    assert.ok(practice?.id, "La practica temporal debe devolverse con id");
+    assert.equal(practice?.moduleId, importedModule.id);
+    assert.equal((practice?.questions || []).length, 3);
+    assertForbiddenKeysAbsent(practiceStartResponse.body, "practice start response");
+
+    const practiceAttemptResponse = await memberClient.request("POST", `/api/tests/practice/${practice.id}/attempt`, {
+      answers: [0, 1, null],
+      questionIds: (practice.questions || []).map((question) => question.id)
+    });
+    assert.equal(practiceAttemptResponse.body?.ok, true);
+    assert.equal(practiceAttemptResponse.body?.correctCount, 1);
+    assert.equal(practiceAttemptResponse.body?.wrongCount, 1);
+    assert.equal(practiceAttemptResponse.body?.blankCount, 1);
+    assert.equal(practiceAttemptResponse.body?.penalty, 0.3333);
+    assert.ok(Math.abs(Number(practiceAttemptResponse.body?.netScore || 0) - 0.6667) < 0.0001);
+
+    const invalidPracticeAttemptResponse = await memberClient.request(
+      "POST",
+      "/api/tests/practice/practice-no-existe/attempt",
+      { answers: [], questionIds: [] },
+      { allowFailure: true }
+    );
+    assert.equal(invalidPracticeAttemptResponse.status, 404, "Una practica inexistente debe responder 404");
+
+    const forbiddenPracticeAttemptResponse = await secondMemberClient.request(
+      "POST",
+      `/api/tests/practice/${practice.id}/attempt`,
+      {
+        answers: [0, 1, null],
+        questionIds: (practice.questions || []).map((question) => question.id)
+      },
+      { allowFailure: true }
+    );
+    assert.equal(forbiddenPracticeAttemptResponse.status, 403, "Otro miembro no debe poder enviar una practica ajena");
 
     const importIntoTestResponse = await adminClient.request("POST", "/api/tests/import-csv", {
       csv: [
@@ -502,7 +560,7 @@ async function main() {
       `/api/questions?testId=${encodeURIComponent(manualTest.id)}`
     );
     assert.equal(memberImportedQuestionsResponse.body?.ok, true);
-    assert.equal((memberImportedQuestionsResponse.body?.questions || []).length, 3);
+    assert.equal((memberImportedQuestionsResponse.body?.questions || []).length, 4);
     assertForbiddenKeysAbsent(memberImportedQuestionsResponse.body, "imported member question payload");
 
     const deleteUsedQuestionResponse = await adminClient.request(

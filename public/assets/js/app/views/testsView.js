@@ -15,6 +15,8 @@ const testsViewState = {
   startedAtByTestId: {},
   activeTestId: "",
   activeAttemptTestId: "",
+  practiceModules: [],
+  activePracticeState: null,
   result: null,
   message: "",
   tone: "neutral",
@@ -169,6 +171,10 @@ function getLeaderboardForTest(testId) {
 
 function getCurrentUserRankForTest(testId) {
   return testsViewState.currentUserRankByTestId[testId] || null;
+}
+
+function getPracticeOptionModule(moduleId) {
+  return testsViewState.practiceModules.find((item) => String(item.id || "").trim() === String(moduleId || "").trim()) || null;
 }
 
 function getLiveSessionQuestionKey(sessionState) {
@@ -379,6 +385,8 @@ async function loadAdminData() {
   testsViewState.lastLiveAnswerResultBySessionQuestionKey = {};
   testsViewState.activeLiveSessionId = "";
   testsViewState.activeAttemptTestId = "";
+  testsViewState.practiceModules = [];
+  testsViewState.activePracticeState = null;
   clearStudentTimer();
   clearLivePolling();
   clearLiveCountdown();
@@ -466,13 +474,15 @@ async function loadStudentData() {
     throw new Error("Cliente API no disponible");
   }
 
-  const [{ testModules }, { tests }] = await Promise.all([
+  const [{ testModules }, { tests }, { modules: practiceModules }] = await Promise.all([
     client.get("/api/test-modules"),
-    client.get("/api/tests")
+    client.get("/api/tests"),
+    client.get("/api/tests/practice/options")
   ]);
 
   testsViewState.modules = Array.isArray(testModules) ? testModules : [];
   testsViewState.tests = Array.isArray(tests) ? tests : [];
+  testsViewState.practiceModules = Array.isArray(practiceModules) ? practiceModules : [];
   testsViewState.allQuestions = [];
   testsViewState.questionsByTestId = {};
   testsViewState.attemptsByTestId = {};
@@ -480,6 +490,7 @@ async function loadStudentData() {
   testsViewState.currentUserRankByTestId = {};
   testsViewState.lastLiveAnswerResultBySessionQuestionKey = {};
   testsViewState.result = null;
+  testsViewState.activePracticeState = null;
   clearStudentTimer();
   clearLivePolling();
   clearLiveCountdown();
@@ -550,7 +561,7 @@ function formatTestScore(value) {
 
 function buildStudentResultSummary() {
   if (!testsViewState.result) {
-    return testsViewState.message || "Elige un test publicado y responde desde aqui.";
+    return testsViewState.message || "Elige un test publicado o genera una practica desde el banco.";
   }
 
   const durationLabel = testsViewState.result.durationMs != null ? ` en ${formatDurationMs(testsViewState.result.durationMs)}` : "";
@@ -562,6 +573,120 @@ function buildStudentResultSummary() {
   )} · Nota: ${formatTestScore(testsViewState.result.netScore ?? testsViewState.result.score)}/${formatTestScore(
     testsViewState.result.total
   )}${durationLabel}`;
+}
+
+function buildPracticeQuestionFormMarkup(practiceState) {
+  const questions = Array.isArray(practiceState?.questions) ? practiceState.questions : [];
+  if (!questions.length) {
+    return '<p class="muted">Todavia no hay preguntas cargadas para esta practica.</p>';
+  }
+
+  return `
+    <form class="stack" data-tests-student-form="practice-attempt" data-practice-id="${escapeHtml(practiceState.id)}">
+      <div>
+        <p class="eyebrow">Practica activa</p>
+        <h3>${escapeHtml(practiceState.title || "Practica por banco")}</h3>
+        <p class="muted">Preguntas: ${escapeHtml(String(questions.length))}</p>
+        <p class="muted">Penalizacion: ${
+          practiceState.negativeMarkingEnabled
+            ? `si, cada ${escapeHtml(String(practiceState.wrongPenaltyDenominator || 3))} malas resta una buena`
+            : "no"
+        }</p>
+      </div>
+      ${questions
+        .map(
+          (question, index) => `
+            <fieldset class="panel panel-side">
+              <legend><strong>${index + 1}. ${escapeHtml(question.prompt)}</strong></legend>
+              <div class="stack">
+                ${(Array.isArray(question.options) ? question.options : [])
+                  .map(
+                    (option, optionIndex) => `
+                      <label class="inline-field">
+                        <input type="radio" name="practice-question-${index}" value="${optionIndex}" />
+                        <span>${escapeHtml(option)}</span>
+                      </label>
+                    `
+                  )
+                  .join("")}
+              </div>
+            </fieldset>
+          `
+        )
+        .join("")}
+      <div class="chip-row">
+        <button class="primary-button" type="submit">Enviar practica</button>
+      </div>
+    </form>
+  `;
+}
+
+function buildStudentPracticeMarkup() {
+  const selectedModuleId =
+    String(testsViewState.activePracticeState?.moduleId || "").trim() ||
+    String(testsViewState.practiceModules[0]?.id || "").trim();
+  const selectedModule = getPracticeOptionModule(selectedModuleId);
+  const selectedTopic = String(testsViewState.activePracticeState?.topic || "").trim();
+  const selectedDifficulty = String(testsViewState.activePracticeState?.difficulty || "").trim();
+  const selectedQuestionCount = Number(testsViewState.activePracticeState?.questionCount || 20);
+  const selectedNegativeMarkingEnabled = Boolean(testsViewState.activePracticeState?.negativeMarkingEnabled);
+  const selectedWrongPenaltyDenominator = Number(testsViewState.activePracticeState?.wrongPenaltyDenominator || 3);
+
+  return `
+    <article class="panel panel-wide">
+      <h3>Practica por banco</h3>
+      <p class="muted">Genera una practica temporal desde el banco de preguntas por modulo, tema y dificultad.</p>
+      <form class="stack" data-tests-student-form="practice-start">
+        <div class="studio-grid">
+          <label class="inline-field">
+            Modulo
+            <select name="moduleId" required>
+              ${(Array.isArray(testsViewState.practiceModules) ? testsViewState.practiceModules : [])
+                .map(
+                  (module) =>
+                    `<option value="${escapeHtml(module.id)}" ${module.id === selectedModuleId ? "selected" : ""}>${escapeHtml(
+                      `${module.title} (${module.questionCount})`
+                    )}</option>`
+                )
+                .join("")}
+            </select>
+          </label>
+          <label class="inline-field">
+            Tema
+            <input type="text" name="topic" value="${escapeHtml(selectedTopic)}" placeholder="${escapeHtml(
+              (selectedModule?.topics || []).slice(0, 3).join(", ")
+            )}" />
+          </label>
+          <label class="inline-field">
+            Dificultad
+            <input type="text" name="difficulty" value="${escapeHtml(selectedDifficulty)}" placeholder="${escapeHtml(
+              (selectedModule?.difficulties || []).slice(0, 3).join(", ")
+            )}" />
+          </label>
+          <label class="inline-field">
+            Numero de preguntas
+            <input type="number" name="questionCount" min="1" step="1" value="${escapeHtml(String(selectedQuestionCount || 20))}" />
+          </label>
+          <label class="inline-field checkbox-field">
+            <input type="checkbox" name="negativeMarkingEnabled" ${selectedNegativeMarkingEnabled ? "checked" : ""} />
+            Penalizar fallos
+          </label>
+          <label class="inline-field">
+            Cada cuantas malas restan una buena
+            <input type="number" name="wrongPenaltyDenominator" min="1" step="1" value="${escapeHtml(String(selectedWrongPenaltyDenominator || 3))}" />
+          </label>
+        </div>
+        <div class="chip-row">
+          <button class="primary-button" type="submit" ${selectedModuleId ? "" : "disabled"}>Empezar practica</button>
+        </div>
+      </form>
+      ${
+        testsViewState.activePracticeState
+          ? `<section class="stack">${buildPracticeQuestionFormMarkup(testsViewState.activePracticeState)}</section>`
+          : '<p class="muted">Todavia no has iniciado una practica temporal.</p>'
+      }
+    </article>
+  `;
 }
 
 function startStudentTimer(container) {
@@ -1662,6 +1787,7 @@ function renderStudentMarkup() {
           buildStudentResultSummary()
         )}</p>
       </article>
+      ${buildStudentPracticeMarkup()}
       ${buildStudentLiveJoinMarkup()}
       ${buildStudentLiveSessionMarkup()}
       <article class="panel panel-side">
@@ -1981,6 +2107,71 @@ async function handleStudentAttemptSubmit(container, form, options = {}) {
   finalizeTestsViewRender(container);
 }
 
+async function handleStudentPracticeStart(container, form) {
+  const client = getApiClient();
+  if (!client) {
+    throw new Error("Cliente API no disponible");
+  }
+
+  const formData = new FormData(form);
+  const response = await client.post("/api/tests/practice/start", {
+    moduleId: String(formData.get("moduleId") || "").trim(),
+    topic: String(formData.get("topic") || "").trim(),
+    difficulty: String(formData.get("difficulty") || "").trim(),
+    questionCount: String(formData.get("questionCount") || "").trim(),
+    negativeMarkingEnabled: formData.get("negativeMarkingEnabled") === "on",
+    wrongPenaltyNumerator: 1,
+    wrongPenaltyDenominator: String(formData.get("wrongPenaltyDenominator") || "").trim()
+  });
+
+  testsViewState.activePracticeState = {
+    ...(response.practice || {}),
+    questionCount: Number(response.practice?.questionCount || formData.get("questionCount") || 20),
+    questions: Array.isArray(response.practice?.questions) ? response.practice.questions : []
+  };
+  testsViewState.result = null;
+  setTestsViewMessage("Practica preparada correctamente.", "success");
+  renderTestsMarkup(container);
+  finalizeTestsViewRender(container);
+}
+
+async function handleStudentPracticeSubmit(container, form) {
+  const client = getApiClient();
+  if (!client) {
+    throw new Error("Cliente API no disponible");
+  }
+
+  const practiceId = String(form.dataset.practiceId || "").trim();
+  const questions = Array.isArray(testsViewState.activePracticeState?.questions) ? testsViewState.activePracticeState.questions : [];
+  const formData = new FormData(form);
+  const answers = questions.map((question, index) => {
+    const selected = formData.get(`practice-question-${index}`);
+    return selected === null ? null : Number(selected);
+  });
+
+  const response = await client.post(`/api/tests/practice/${encodeURIComponent(practiceId)}/attempt`, {
+    answers,
+    questionIds: questions.map((question) => question.id)
+  });
+
+  testsViewState.result = {
+    score: Number(response.score || 0),
+    total: Number(response.total || 0),
+    correctCount: Number(response.correctCount || 0),
+    wrongCount: Number(response.wrongCount || 0),
+    blankCount: Number(response.blankCount || 0),
+    penalty: Number(response.penalty || 0),
+    netScore: Number(response.netScore || response.score || 0),
+    percentage: Number(response.percentage || 0),
+    durationMs: null,
+    timedOut: false
+  };
+  testsViewState.activePracticeState = null;
+  setTestsViewMessage("Practica enviada correctamente.", "success");
+  renderTestsMarkup(container);
+  finalizeTestsViewRender(container);
+}
+
 async function handleStudentLiveJoin(container, form) {
   const client = getApiClient();
   if (!client) {
@@ -2103,6 +2294,17 @@ export function renderTestsView(container, role = "member") {
 
       if (form.dataset.testsStudentForm === "attempt") {
         await handleStudentAttemptSubmit(container, form);
+        return;
+      }
+
+      if (form.dataset.testsStudentForm === "practice-start") {
+        await handleStudentPracticeStart(container, form);
+        return;
+      }
+
+      if (form.dataset.testsStudentForm === "practice-attempt") {
+        await handleStudentPracticeSubmit(container, form);
+        return;
       }
     } catch (error) {
       setTestsViewMessage(error.message || "No se pudo completar la accion.", "error");

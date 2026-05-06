@@ -591,6 +591,8 @@ function ensureIndependentTestsState(state) {
   state.tests = Array.isArray(state.tests) ? state.tests : [];
   state.questions = Array.isArray(state.questions) ? state.questions : [];
   state.testAttempts = Array.isArray(state.testAttempts) ? state.testAttempts : [];
+  state.practiceTests = Array.isArray(state.practiceTests) ? state.practiceTests : [];
+  state.practiceAttempts = Array.isArray(state.practiceAttempts) ? state.practiceAttempts : [];
   state.liveTestSessions = Array.isArray(state.liveTestSessions) ? state.liveTestSessions : [];
   state.liveTestPlayers = Array.isArray(state.liveTestPlayers) ? state.liveTestPlayers : [];
   state.liveTestAnswers = Array.isArray(state.liveTestAnswers) ? state.liveTestAnswers : [];
@@ -609,6 +611,7 @@ const liveTestQuestionTimeLimitDefaultSeconds = 20;
 const liveTestQuestionTimeLimitMinSeconds = 5;
 const liveTestQuestionTimeLimitMaxSeconds = 120;
 const liveTestQuestionTimingGraceMs = 1000;
+const practiceTestRetentionMs = 24 * 60 * 60 * 1000;
 
 function normalizeIndependentTestQuestionsPerAttempt(value) {
   const parsed = Number(value);
@@ -637,6 +640,15 @@ function roundIndependentTestMetric(value) {
   return Math.round(parsed * 10000) / 10000;
 }
 
+function shuffleArray(values = []) {
+  const items = [...(Array.isArray(values) ? values : [])];
+  for (let index = items.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
+  }
+  return items;
+}
+
 function getIndependentTestAttemptQuestions(state, test) {
   const questions = listIndependentQuestionsForTest(state, test?.id || "");
   const questionsPerAttempt = normalizeIndependentTestQuestionsPerAttempt(test?.questionsPerAttempt);
@@ -646,9 +658,10 @@ function getIndependentTestAttemptQuestions(state, test) {
   return questionsPerAttempt != null ? questions.slice(0, questionsPerAttempt) : questions;
 }
 
-function resolveIndependentTestAttemptQuestions(state, test, submittedQuestionIds) {
-  const allowedQuestions = getIndependentTestAttemptQuestions(state, test);
-  const allowedQuestionsById = new Map(allowedQuestions.map((question) => [String(question.id || "").trim(), question]));
+function resolveQuestionsBySubmittedIds(allowedQuestions, submittedQuestionIds, errorMessage) {
+  const allowedQuestionsById = new Map(
+    (Array.isArray(allowedQuestions) ? allowedQuestions : []).map((question) => [String(question.id || "").trim(), question])
+  );
   const normalizedSubmittedQuestionIds = [];
   const seen = new Set();
 
@@ -664,13 +677,13 @@ function resolveIndependentTestAttemptQuestions(state, test, submittedQuestionId
   }
 
   if (!normalizedSubmittedQuestionIds.length) {
-    return allowedQuestions;
+    return Array.isArray(allowedQuestions) ? allowedQuestions : [];
   }
 
   const resolvedQuestions = normalizedSubmittedQuestionIds.map((questionId) => {
     const question = allowedQuestionsById.get(questionId);
     if (!question) {
-      throw new Error("Las preguntas enviadas no coinciden con el intento disponible");
+      throw new Error(errorMessage || "Las preguntas enviadas no coinciden con el intento disponible");
     }
     return question;
   });
@@ -678,8 +691,225 @@ function resolveIndependentTestAttemptQuestions(state, test, submittedQuestionId
   return resolvedQuestions;
 }
 
+function resolveIndependentTestAttemptQuestions(state, test, submittedQuestionIds) {
+  return resolveQuestionsBySubmittedIds(
+    getIndependentTestAttemptQuestions(state, test),
+    submittedQuestionIds,
+    "Las preguntas enviadas no coinciden con el intento disponible"
+  );
+}
+
 function getIndependentTestQuestionCountForAudience(state, test) {
   return getIndependentTestAttemptQuestions(state, test).length;
+}
+
+function pruneExpiredPracticeTests(state) {
+  ensureIndependentTestsState(state);
+  const nowTimestamp = Date.now();
+  const activePracticeTests = (state.practiceTests || []).filter((practiceTest) => {
+    const expiresAtTimestamp = Date.parse(String(practiceTest.expiresAt || ""));
+    return Number.isFinite(expiresAtTimestamp) && expiresAtTimestamp > nowTimestamp;
+  });
+  const activePracticeTestIds = new Set(activePracticeTests.map((practiceTest) => String(practiceTest.id || "").trim()));
+  const activePracticeAttempts = (state.practiceAttempts || []).filter((attempt) =>
+    activePracticeTestIds.has(String(attempt.practiceTestId || "").trim())
+  );
+  const changed =
+    activePracticeTests.length !== (state.practiceTests || []).length ||
+    activePracticeAttempts.length !== (state.practiceAttempts || []).length;
+  if (changed) {
+    state.practiceTests = activePracticeTests;
+    state.practiceAttempts = activePracticeAttempts;
+  }
+  return changed;
+}
+
+function buildPracticeTestTitle(moduleTitle, options = {}) {
+  const parts = [`Practica ${String(moduleTitle || "sin modulo").trim()}`];
+  if (String(options.topic || "").trim()) {
+    parts.push(`Tema ${String(options.topic || "").trim()}`);
+  }
+  if (String(options.difficulty || "").trim()) {
+    parts.push(`Nivel ${String(options.difficulty || "").trim()}`);
+  }
+  return parts.join(" · ");
+}
+
+function buildPracticeTestAudiencePayload(practiceTest, questions = []) {
+  return {
+    id: practiceTest.id,
+    moduleId: practiceTest.moduleId,
+    title: practiceTest.title,
+    topic: practiceTest.topic,
+    difficulty: practiceTest.difficulty,
+    negativeMarkingEnabled: Boolean(practiceTest.negativeMarkingEnabled),
+    wrongPenaltyNumerator: normalizeIndependentTestWrongPenaltyNumerator(practiceTest.wrongPenaltyNumerator),
+    wrongPenaltyDenominator: normalizeIndependentTestWrongPenaltyDenominator(practiceTest.wrongPenaltyDenominator),
+    questionCount: Array.isArray(questions) ? questions.length : 0,
+    questions: (Array.isArray(questions) ? questions : []).map((question) =>
+      buildIndependentTestQuestionAudiencePayload(question, { admin: false })
+    )
+  };
+}
+
+function buildPracticeAttemptAudiencePayload(attempt) {
+  return {
+    id: attempt.id,
+    practiceTestId: attempt.practiceTestId,
+    score: Number(attempt.score || 0),
+    total: Number(attempt.total || 0),
+    correctCount: Number(attempt.correctCount || 0),
+    wrongCount: Number(attempt.wrongCount || 0),
+    blankCount: Number(attempt.blankCount || 0),
+    penalty: Number(attempt.penalty || 0),
+    netScore: Number((attempt.netScore ?? attempt.score) || 0),
+    percentage: Number(attempt.percentage || 0),
+    createdAt: attempt.createdAt
+  };
+}
+
+function listPracticeOptionModules(state) {
+  ensureIndependentTestsState(state);
+  return (state.testModules || [])
+    .map((testModule) => {
+      const moduleQuestions = (state.questions || []).filter(
+        (question) => String(question.moduleId || "").trim() === String(testModule.id || "").trim()
+      );
+      const topics = [...new Set(moduleQuestions.map((question) => String(question.topic || "").trim()).filter(Boolean))]
+        .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+      const difficulties = [...new Set(moduleQuestions.map((question) => String(question.difficulty || "").trim()).filter(Boolean))]
+        .sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
+      return {
+        id: testModule.id,
+        title: testModule.title,
+        description: testModule.description,
+        questionCount: moduleQuestions.length,
+        topics,
+        difficulties
+      };
+    })
+    .filter((testModule) => Number(testModule.questionCount || 0) > 0);
+}
+
+function startPracticeTest(state, account, payload = {}) {
+  ensureIndependentTestsState(state);
+  if (!account?.memberId) {
+    throw new Error("Tu cuenta no tiene un miembro asociado para iniciar una practica");
+  }
+
+  const moduleId = String(payload.moduleId || "").trim();
+  const topic = String(payload.topic || "").trim();
+  const difficulty = String(payload.difficulty || "").trim();
+  const normalizedTopic = topic.toLowerCase();
+  const normalizedDifficulty = difficulty.toLowerCase();
+  const requestedQuestionCount = normalizeIndependentTestQuestionsPerAttempt(payload.questionCount) || 20;
+  const testModule = getIndependentTestModuleById(state, moduleId);
+  if (!testModule) {
+    throw new Error("Modulo no encontrado");
+  }
+
+  const matchingQuestions = (state.questions || []).filter((question) => {
+    if (String(question.moduleId || "").trim() !== moduleId) {
+      return false;
+    }
+    if (normalizedTopic && String(question.topic || "").trim().toLowerCase() !== normalizedTopic) {
+      return false;
+    }
+    if (normalizedDifficulty && String(question.difficulty || "").trim().toLowerCase() !== normalizedDifficulty) {
+      return false;
+    }
+    return true;
+  });
+
+  if (!matchingQuestions.length) {
+    throw new Error("No hay preguntas disponibles con esos filtros");
+  }
+
+  const selectedQuestions = shuffleArray(matchingQuestions).slice(0, Math.min(requestedQuestionCount, matchingQuestions.length));
+  if (!selectedQuestions.length) {
+    throw new Error("No se pudo preparar la practica");
+  }
+
+  const nowTimestamp = Date.now();
+  const practiceTest = {
+    id: generateLegacyId("practice-test"),
+    memberId: account.memberId,
+    moduleId,
+    title: buildPracticeTestTitle(testModule.title, { topic, difficulty }),
+    topic,
+    difficulty,
+    questionIds: selectedQuestions.map((question) => question.id),
+    negativeMarkingEnabled: Boolean(payload.negativeMarkingEnabled),
+    wrongPenaltyNumerator: normalizeIndependentTestWrongPenaltyNumerator(payload.wrongPenaltyNumerator),
+    wrongPenaltyDenominator: normalizeIndependentTestWrongPenaltyDenominator(payload.wrongPenaltyDenominator),
+    createdAt: new Date(nowTimestamp).toISOString(),
+    expiresAt: new Date(nowTimestamp + practiceTestRetentionMs).toISOString()
+  };
+
+  state.practiceTests.unshift(practiceTest);
+  return {
+    practiceTest,
+    questions: selectedQuestions
+  };
+}
+
+function getPracticeTestById(state, practiceTestId) {
+  ensureIndependentTestsState(state);
+  return (state.practiceTests || []).find((item) => String(item.id || "").trim() === String(practiceTestId || "").trim()) || null;
+}
+
+function getPracticeQuestions(state, practiceTest) {
+  const questionsById = new Map((state.questions || []).map((question) => [String(question.id || "").trim(), question]));
+  return (Array.isArray(practiceTest?.questionIds) ? practiceTest.questionIds : [])
+    .map((questionId) => questionsById.get(String(questionId || "").trim()))
+    .filter(Boolean);
+}
+
+function createPracticeAttempt(state, practiceTest, memberId, answers, options = {}) {
+  ensureIndependentTestsState(state);
+  const questions = resolveQuestionsBySubmittedIds(
+    getPracticeQuestions(state, practiceTest),
+    options.submittedQuestionIds,
+    "Las preguntas enviadas no coinciden con la practica disponible"
+  );
+  const normalizedAnswers = questions.map((question, index) =>
+    normalizeIndependentTestAnswer(Array.isArray(answers) ? answers[index] : null, question)
+  );
+  const correctCount = questions.reduce(
+    (sum, question, index) => sum + (normalizedAnswers[index] === Number(question.correctIndex) ? 1 : 0),
+    0
+  );
+  const blankCount = normalizedAnswers.filter((answer) => answer == null).length;
+  const wrongCount = Math.max(normalizedAnswers.length - correctCount - blankCount, 0);
+  const rawScore = correctCount;
+  const wrongPenaltyNumerator = normalizeIndependentTestWrongPenaltyNumerator(practiceTest?.wrongPenaltyNumerator);
+  const wrongPenaltyDenominator = normalizeIndependentTestWrongPenaltyDenominator(practiceTest?.wrongPenaltyDenominator);
+  const penalty = Boolean(practiceTest?.negativeMarkingEnabled)
+    ? roundIndependentTestMetric((wrongCount * wrongPenaltyNumerator) / wrongPenaltyDenominator)
+    : 0;
+  const netScore = roundIndependentTestMetric(Math.max(0, rawScore - penalty));
+  const percentage = questions.length > 0 ? roundIndependentTestMetric((netScore / questions.length) * 100) : 0;
+
+  const attempt = {
+    id: generateLegacyId("practice-attempt"),
+    practiceTestId: practiceTest.id,
+    memberId,
+    questionIds: questions.map((question) => question.id),
+    answers: normalizedAnswers,
+    score: netScore,
+    total: questions.length,
+    correctCount,
+    wrongCount,
+    blankCount,
+    rawScore,
+    penalty,
+    netScore,
+    percentage,
+    createdAt: new Date().toISOString()
+  };
+
+  state.practiceAttempts.unshift(attempt);
+  return attempt;
 }
 
 function buildIndependentTestModule(payload = {}) {
@@ -3428,6 +3658,44 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (requestUrl.pathname === "/api/tests/practice/options" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      if (pruneExpiredPracticeTests(state)) {
+        writeState(state);
+      }
+      return sendJson(res, 200, { ok: true, modules: listPracticeOptionModules(state) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar las opciones de practica" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/tests/practice/start" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      pruneExpiredPracticeTests(state);
+      const { practiceTest, questions } = startPracticeTest(state, account, payload);
+      writeState(state);
+      return sendJson(res, 201, {
+        ok: true,
+        practice: buildPracticeTestAudiencePayload(practiceTest, questions)
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo iniciar la practica" });
+    }
+  }
+
   if (requestUrl.pathname === "/api/tests" && req.method === "POST") {
     try {
       const payload = await readJsonBody(req);
@@ -3462,6 +3730,57 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, summary });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo importar el CSV de tests" });
+    }
+  }
+
+  if (/^\/api\/tests\/practice\/[^/]+\/attempt$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const prunedPracticeTests = pruneExpiredPracticeTests(state);
+      const practiceTestId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const practiceTest = getPracticeTestById(state, practiceTestId);
+      if (!practiceTest) {
+        if (prunedPracticeTests) {
+          writeState(state);
+        }
+        return sendJson(res, 404, { ok: false, error: "Practica no encontrada" });
+      }
+      if (!account.memberId) {
+        if (prunedPracticeTests) {
+          writeState(state);
+        }
+        return sendJson(res, 400, { ok: false, error: "Tu cuenta no tiene un miembro asociado para guardar la practica" });
+      }
+      if (String(practiceTest.memberId || "").trim() !== String(account.memberId || "").trim()) {
+        if (prunedPracticeTests) {
+          writeState(state);
+        }
+        return sendJson(res, 403, { ok: false, error: "No puedes enviar una practica de otra persona" });
+      }
+      const attempt = createPracticeAttempt(state, practiceTest, account.memberId, payload.answers, {
+        submittedQuestionIds: payload.questionIds
+      });
+      writeState(state);
+      return sendJson(res, 201, {
+        ok: true,
+        attempt: buildPracticeAttemptAudiencePayload(attempt),
+        score: attempt.score,
+        total: attempt.total,
+        correctCount: attempt.correctCount,
+        wrongCount: attempt.wrongCount,
+        blankCount: attempt.blankCount,
+        penalty: attempt.penalty,
+        netScore: attempt.netScore,
+        percentage: attempt.percentage
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo enviar la practica" });
     }
   }
 
