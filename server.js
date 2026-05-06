@@ -651,6 +651,13 @@ function normalizeIndependentTestImportTimeLimitSeconds(value) {
   return null;
 }
 
+function buildIndependentTestsCsvTemplate() {
+  return [
+    "moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds",
+    'Rescate,Autoevacuacion,true,"¿Cuál es la primera acción?","Avisar","Salir corriendo","Esperar","Ignorar","A","Explicación opcional",basico,facil,20'
+  ].join("\r\n");
+}
+
 function isEmptyCsvRow(row) {
   return (Array.isArray(row) ? row : []).every((cell) => !String(cell || "").trim());
 }
@@ -3310,6 +3317,25 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, summary });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo importar el CSV de tests" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/tests/import-csv-template" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      const csv = `\uFEFF${buildIndependentTestsCsvTemplate()}`;
+      res.writeHead(200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="isocrona-tests-template.csv"',
+        "Cache-Control": "no-store"
+      });
+      return res.end(csv);
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo descargar la plantilla CSV" });
     }
   }
 
