@@ -635,6 +635,293 @@ function updateIndependentTestModule(testModule, payload = {}) {
   return testModule;
 }
 
+function normalizeIndependentTestsLookupKey(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeIndependentTestPublishedImportValue(value) {
+  return ["true", "1", "yes", "si", "sí", "publicado"].includes(normalizeIndependentTestsLookupKey(value));
+}
+
+function normalizeIndependentTestImportTimeLimitSeconds(value) {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed >= 5 && parsed <= 120) {
+    return Math.floor(parsed);
+  }
+  return null;
+}
+
+function isEmptyCsvRow(row) {
+  return (Array.isArray(row) ? row : []).every((cell) => !String(cell || "").trim());
+}
+
+function parseCsvRows(csv = "") {
+  const source = String(csv || "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let currentRow = [];
+  let currentValue = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+
+    if (inQuotes) {
+      if (character === '"') {
+        if (source[index + 1] === '"') {
+          currentValue += '"';
+          index += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        currentValue += character;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inQuotes = true;
+      continue;
+    }
+
+    if (character === ",") {
+      currentRow.push(currentValue);
+      currentValue = "";
+      continue;
+    }
+
+    if (character === "\r") {
+      if (source[index + 1] === "\n") {
+        index += 1;
+      }
+      currentRow.push(currentValue);
+      rows.push(currentRow);
+      currentRow = [];
+      currentValue = "";
+      continue;
+    }
+
+    if (character === "\n") {
+      currentRow.push(currentValue);
+      rows.push(currentRow);
+      currentRow = [];
+      currentValue = "";
+      continue;
+    }
+
+    currentValue += character;
+  }
+
+  if (inQuotes) {
+    throw new Error("CSV invalido: comillas sin cerrar");
+  }
+
+  currentRow.push(currentValue);
+  if (!isEmptyCsvRow(currentRow)) {
+    rows.push(currentRow);
+  }
+
+  return rows;
+}
+
+function findIndependentTestModuleByTitle(state, title = "") {
+  const normalizedTitle = normalizeIndependentTestsLookupKey(title);
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  return (
+    (state.testModules || []).find(
+      (testModule) => normalizeIndependentTestsLookupKey(testModule?.title || "") === normalizedTitle
+    ) || null
+  );
+}
+
+function findIndependentTestByModuleAndTitle(state, moduleId, title = "") {
+  const normalizedTitle = normalizeIndependentTestsLookupKey(title);
+  const normalizedModuleId = String(moduleId || "").trim();
+  if (!normalizedModuleId || !normalizedTitle) {
+    return null;
+  }
+
+  return (
+    (state.tests || []).find(
+      (test) =>
+        String(test.moduleId || "").trim() === normalizedModuleId &&
+        normalizeIndependentTestsLookupKey(test.title || "") === normalizedTitle
+    ) || null
+  );
+}
+
+function parseIndependentTestsCsvImport(state, csv = "") {
+  ensureIndependentTestsState(state);
+  const rows = parseCsvRows(csv);
+  if (!rows.length) {
+    throw new Error("El CSV esta vacio");
+  }
+
+  const header = rows[0].map((cell) => String(cell || "").trim());
+  const normalizedHeader = header.map((cell) => normalizeIndependentTestsLookupKey(cell));
+  const requiredColumns = ["moduletitle", "testtitle", "prompt", "optiona", "optionb", "correctoption"];
+  const missingColumns = requiredColumns.filter((column) => !normalizedHeader.includes(column));
+  if (missingColumns.length) {
+    throw new Error(`Faltan columnas obligatorias en el CSV: ${missingColumns.join(", ")}`);
+  }
+
+  const headerIndexByName = new Map(normalizedHeader.map((name, index) => [name, index]));
+  const dataRows = rows.slice(1);
+  const nonEmptyDataRows = dataRows.filter((record) => !isEmptyCsvRow(record));
+  const summary = {
+    rowsReceived: nonEmptyDataRows.length,
+    rowsImported: 0,
+    modulesCreated: 0,
+    modulesReused: 0,
+    testsCreated: 0,
+    testsReused: 0,
+    questionsCreated: 0,
+    errors: []
+  };
+  const createdModuleIds = new Set();
+  const reusedModuleIds = new Set();
+  const createdTestIds = new Set();
+  const reusedTestIds = new Set();
+
+  const readCell = (record, name) => {
+    const index = headerIndexByName.get(name);
+    return index == null ? "" : String(record[index] || "");
+  };
+
+  dataRows.forEach((record, rowIndex) => {
+    const rowNumber = rowIndex + 2;
+    if (isEmptyCsvRow(record)) {
+      return;
+    }
+
+    try {
+      const moduleTitle = readCell(record, "moduletitle").trim();
+      const testTitle = readCell(record, "testtitle").trim();
+      const prompt = readCell(record, "prompt").trim();
+      const explanation = readCell(record, "explanation").trim();
+      const published = normalizeIndependentTestPublishedImportValue(readCell(record, "published"));
+      const requestedTimeLimitSeconds = normalizeIndependentTestImportTimeLimitSeconds(
+        readCell(record, "questiontimelimitseconds").trim()
+      );
+      const rawOptions = [
+        readCell(record, "optiona").trim(),
+        readCell(record, "optionb").trim(),
+        readCell(record, "optionc").trim(),
+        readCell(record, "optiond").trim()
+      ];
+      const correctOptionRaw = normalizeIndependentTestsLookupKey(readCell(record, "correctoption"));
+
+      if (!moduleTitle) {
+        throw new Error("Falta moduleTitle");
+      }
+      if (!testTitle) {
+        throw new Error("Falta testTitle");
+      }
+      if (!prompt) {
+        throw new Error("Falta prompt");
+      }
+      if (!rawOptions[0]) {
+        throw new Error("Falta optionA");
+      }
+      if (!rawOptions[1]) {
+        throw new Error("Falta optionB");
+      }
+
+      const correctIndexByRawOption =
+        correctOptionRaw === "a" || correctOptionRaw === "1"
+          ? 0
+          : correctOptionRaw === "b" || correctOptionRaw === "2"
+            ? 1
+            : correctOptionRaw === "c" || correctOptionRaw === "3"
+              ? 2
+              : correctOptionRaw === "d" || correctOptionRaw === "4"
+                ? 3
+                : -1;
+
+      if (correctIndexByRawOption < 0) {
+        throw new Error("correctOption debe ser A, B, C, D, 1, 2, 3 o 4");
+      }
+      if (!rawOptions[correctIndexByRawOption]) {
+        throw new Error("correctOption apunta a una opcion vacia");
+      }
+
+      const options = rawOptions.filter(Boolean);
+      if (options.length < 2) {
+        throw new Error("La fila necesita al menos dos opciones validas");
+      }
+
+      const correctIndex = rawOptions
+        .slice(0, correctIndexByRawOption + 1)
+        .filter(Boolean).length - 1;
+      if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= options.length) {
+        throw new Error("No se pudo resolver correctOption");
+      }
+
+      let testModule = findIndependentTestModuleByTitle(state, moduleTitle);
+      if (!testModule) {
+        testModule = buildIndependentTestModule({
+          title: moduleTitle,
+          description: ""
+        });
+        state.testModules.unshift(testModule);
+        createdModuleIds.add(testModule.id);
+      } else if (!createdModuleIds.has(testModule.id)) {
+        reusedModuleIds.add(testModule.id);
+      }
+
+      let test = findIndependentTestByModuleAndTitle(state, testModule.id, testTitle);
+      if (!test) {
+        test = buildIndependentTest(state, {
+          moduleId: testModule.id,
+          title: testTitle,
+          description: "",
+          published,
+          timeLimitSeconds: requestedTimeLimitSeconds,
+          questionIds: []
+        });
+        state.tests.unshift(test);
+        createdTestIds.add(test.id);
+      } else {
+        if (!createdTestIds.has(test.id)) {
+          reusedTestIds.add(test.id);
+        }
+        if (published) {
+          test.published = true;
+        }
+        if (requestedTimeLimitSeconds != null) {
+          test.timeLimitSeconds = requestedTimeLimitSeconds;
+        }
+      }
+
+      const question = buildIndependentQuestion(state, {
+        moduleId: testModule.id,
+        prompt,
+        options,
+        correctIndex,
+        explanation
+      });
+      state.questions.unshift(question);
+      test.questionIds = [...new Set([...(Array.isArray(test.questionIds) ? test.questionIds : []), question.id])];
+      summary.rowsImported += 1;
+      summary.questionsCreated += 1;
+    } catch (error) {
+      summary.errors.push({
+        row: rowNumber,
+        error: error.message || "Fila invalida"
+      });
+    }
+  });
+
+  summary.modulesCreated = createdModuleIds.size;
+  summary.modulesReused = reusedModuleIds.size;
+  summary.testsCreated = createdTestIds.size;
+  summary.testsReused = reusedTestIds.size;
+  return summary;
+}
+
 function normalizeIndependentQuestionIdList(questionIds) {
   const orderedIds = [];
   const seen = new Set();
@@ -3004,6 +3291,25 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, { ok: true, test });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear el test" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/tests/import-csv" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const summary = parseIndependentTestsCsvImport(state, payload.csv);
+      if (summary.rowsImported > 0) {
+        writeState(state);
+      }
+      return sendJson(res, 200, { ok: true, summary });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo importar el CSV de tests" });
     }
   }
 

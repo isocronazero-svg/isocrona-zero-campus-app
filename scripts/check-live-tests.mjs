@@ -296,6 +296,43 @@ async function main() {
     await login(adminClient, "admin@isocronazero.org", "campus123");
     await login(memberClient, "lucia@isocronazero.org", "bomberos123");
 
+    const importResponse = await adminClient.request("POST", "/api/tests/import-csv", {
+      csv: [
+        "moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds",
+        '"Importacion CSV","Test CSV",si,"Pregunta 1","Agua","Espuma","Polvo","","B","Explicacion, con coma",,,"15"',
+        '"Importacion CSV","Test CSV",si,"Pregunta 2","Linea 1","Linea 2","","","1","Texto con ""comillas""",,,"15"',
+        "",
+        ""
+      ].join("\r\n")
+    });
+    assert.equal(importResponse.body?.ok, true);
+    assert.equal(importResponse.body?.summary?.rowsReceived, 2);
+    assert.equal(importResponse.body?.summary?.rowsImported, 2);
+    assert.equal(importResponse.body?.summary?.modulesCreated, 1);
+    assert.equal(importResponse.body?.summary?.testsCreated, 1);
+    assert.equal(importResponse.body?.summary?.questionsCreated, 2);
+    assert.equal((importResponse.body?.summary?.errors || []).length, 0);
+
+    const importedTestsResponse = await adminClient.request("GET", "/api/tests");
+    const importedTest = (importedTestsResponse.body?.tests || []).find((test) => test.title === "Test CSV");
+    assert.ok(importedTest, "El importador debe crear el test indicado");
+    assert.equal(importedTest.published, true);
+    assert.equal(importedTest.timeLimitSeconds, 15);
+    assert.equal((importedTest.questionIds || []).length, 2, "El test importado debe referenciar las dos preguntas");
+
+    const importedModulesResponse = await adminClient.request("GET", "/api/test-modules");
+    const importedModule = (importedModulesResponse.body?.testModules || []).find((testModule) => testModule.title === "Importacion CSV");
+    assert.ok(importedModule, "El importador debe crear el modulo indicado");
+    assert.equal(importedTest.moduleId, importedModule.id);
+
+    const memberImportedQuestionsResponse = await memberClient.request(
+      "GET",
+      `/api/questions?testId=${encodeURIComponent(importedTest.id)}`
+    );
+    assert.equal(memberImportedQuestionsResponse.body?.ok, true);
+    assert.equal((memberImportedQuestionsResponse.body?.questions || []).length, 2);
+    assertForbiddenKeysAbsent(memberImportedQuestionsResponse.body, "imported member question payload");
+
     const sessionsBefore = await adminClient.request("GET", "/api/live-tests");
     assert.equal(sessionsBefore.body?.ok, true);
     const staleLobby = sessionsBefore.body.sessions.find((session) => session.id === "live-session-stale-lobby");

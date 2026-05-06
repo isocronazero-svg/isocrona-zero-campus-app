@@ -177,6 +177,25 @@ function getLiveStatusLabel(status) {
   return "Lobby";
 }
 
+function formatCsvImportSummary(summary = {}) {
+  const errors = Array.isArray(summary.errors) ? summary.errors : [];
+  const errorPreview = errors
+    .slice(0, 3)
+    .map((entry) => `Fila ${entry.row}: ${entry.error}`)
+    .join(" | ");
+  const parts = [
+    `Importadas ${Number(summary.rowsImported || 0)}/${Number(summary.rowsReceived || 0)} filas.`,
+    `Modulos creados: ${Number(summary.modulesCreated || 0)}.`,
+    `Tests creados: ${Number(summary.testsCreated || 0)}.`,
+    `Preguntas creadas: ${Number(summary.questionsCreated || 0)}.`,
+    `Errores: ${errors.length}.`
+  ];
+  if (errorPreview) {
+    parts.push(errorPreview);
+  }
+  return parts.join(" ");
+}
+
 async function loadAdminData() {
   const client = getApiClient();
   if (!client) {
@@ -1097,6 +1116,17 @@ function renderAdminMarkup() {
             <button class="primary-button" type="submit">Guardar modulo</button>
           </div>
         </form>
+        <form class="stack" data-tests-admin-form="import-csv">
+          <h3>Importar preguntas CSV</h3>
+          <p class="muted">Cabecera soportada: moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds</p>
+          <label class="inline-field">
+            CSV
+            <textarea name="csv" rows="8" placeholder="moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds&#10;Rescate,Autoevacuacion,true,&quot;Pregunta de ejemplo&quot;,Opcion A,Opcion B,,,A,&quot;Comentario opcional&quot;,,,20" required></textarea>
+          </label>
+          <div class="chip-row">
+            <button class="primary-button" type="submit">Previsualizar/Importar</button>
+          </div>
+        </form>
       </article>
       <article class="panel panel-wide">
         <p class="eyebrow">Sesiones live</p>
@@ -1364,6 +1394,15 @@ async function handleAdminSubmit(container, form) {
       questionTimeLimitSeconds: Number(formData.get("questionTimeLimitSeconds"))
     });
     setTestsViewMessage("Sesion live creada correctamente.", "success");
+  } else if (formType === "import-csv") {
+    const response = await client.post("/api/tests/import-csv", {
+      csv: String(formData.get("csv") || "")
+    });
+    const summary = response.summary || {};
+    setTestsViewMessage(
+      formatCsvImportSummary(summary),
+      Number(summary.rowsImported || 0) > 0 ? "success" : "error"
+    );
   }
 
   await refreshTestsView(container, testsViewState.role);
