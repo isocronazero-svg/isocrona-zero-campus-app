@@ -267,6 +267,8 @@ function normalizeIndependentQuestion(question, questionIndex) {
     options,
     correctIndex: Number.isInteger(Number(question?.correctIndex)) ? Number(question.correctIndex) : 0,
     explanation: String(question?.explanation || "").trim(),
+    topic: String(question?.topic || "").trim(),
+    difficulty: String(question?.difficulty || "").trim(),
     createdAt: question?.createdAt || new Date().toISOString()
   };
 }

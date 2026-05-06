@@ -654,7 +654,8 @@ function normalizeIndependentTestImportTimeLimitSeconds(value) {
 function buildIndependentTestsCsvTemplate() {
   return [
     "moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds",
-    'Rescate,Autoevacuacion,true,"¿Cuál es la primera acción?","Avisar","Salir corriendo","Esperar","Ignorar","A","Explicación opcional",basico,facil,20'
+    'Primeros Auxilios,,"","¿Que numero llamas primero?","112","061","","","A","Se guarda solo en el banco",emergencias,facil,',
+    'Rescate,Autoevacuacion,true,"¿Cual es la primera accion?","Avisar","Salir corriendo","Esperar","Ignorar","A","Explicacion opcional",basico,facil,20'
   ].join("\r\n");
 }
 
@@ -842,9 +843,6 @@ function parseIndependentTestsCsvImport(state, csv = "") {
       if (!moduleTitle) {
         throw new Error("Falta moduleTitle");
       }
-      if (!testTitle) {
-        throw new Error("Falta testTitle");
-      }
       if (!prompt) {
         throw new Error("Falta prompt");
       }
@@ -897,27 +895,30 @@ function parseIndependentTestsCsvImport(state, csv = "") {
         reusedModuleIds.add(testModule.id);
       }
 
-      let test = findIndependentTestByModuleAndTitle(state, testModule.id, testTitle);
-      if (!test) {
-        test = buildIndependentTest(state, {
-          moduleId: testModule.id,
-          title: testTitle,
-          description: "",
-          published,
-          timeLimitSeconds: requestedTimeLimitSeconds,
-          questionIds: []
-        });
-        state.tests.unshift(test);
-        createdTestIds.add(test.id);
-      } else {
-        if (!createdTestIds.has(test.id)) {
-          reusedTestIds.add(test.id);
-        }
-        if (published) {
-          test.published = true;
-        }
-        if (requestedTimeLimitSeconds != null) {
-          test.timeLimitSeconds = requestedTimeLimitSeconds;
+      let test = null;
+      if (testTitle) {
+        test = findIndependentTestByModuleAndTitle(state, testModule.id, testTitle);
+        if (!test) {
+          test = buildIndependentTest(state, {
+            moduleId: testModule.id,
+            title: testTitle,
+            description: "",
+            published,
+            timeLimitSeconds: requestedTimeLimitSeconds,
+            questionIds: []
+          });
+          state.tests.unshift(test);
+          createdTestIds.add(test.id);
+        } else {
+          if (!createdTestIds.has(test.id)) {
+            reusedTestIds.add(test.id);
+          }
+          if (published) {
+            test.published = true;
+          }
+          if (requestedTimeLimitSeconds != null) {
+            test.timeLimitSeconds = requestedTimeLimitSeconds;
+          }
         }
       }
 
@@ -935,7 +936,9 @@ function parseIndependentTestsCsvImport(state, csv = "") {
         question.difficulty = difficulty;
       }
       state.questions.unshift(question);
-      test.questionIds = [...new Set([...(Array.isArray(test.questionIds) ? test.questionIds : []), question.id])];
+      if (test) {
+        test.questionIds = [...new Set([...(Array.isArray(test.questionIds) ? test.questionIds : []), question.id])];
+      }
       summary.rowsImported += 1;
       summary.questionsCreated += 1;
     } catch (error) {
@@ -1073,6 +1076,8 @@ function buildIndependentQuestion(state, payload = {}) {
     options,
     correctIndex,
     explanation: String(payload.explanation || "").trim(),
+    topic: String(payload.topic || "").trim(),
+    difficulty: String(payload.difficulty || "").trim(),
     createdAt: new Date().toISOString()
   };
 }
@@ -1102,6 +1107,8 @@ function updateIndependentQuestion(question, payload = {}) {
   question.options = options;
   question.correctIndex = correctIndex;
   question.explanation = String(payload.explanation ?? question?.explanation ?? "").trim();
+  question.topic = String(payload.topic ?? question?.topic ?? "").trim();
+  question.difficulty = String(payload.difficulty ?? question?.difficulty ?? "").trim();
   return question;
 }
 
