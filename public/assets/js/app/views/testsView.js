@@ -537,6 +537,17 @@ function formatDurationMs(durationMs) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatTestScore(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return "0";
+  }
+  if (Number.isInteger(parsed)) {
+    return String(parsed);
+  }
+  return parsed.toFixed(2).replace(/\.?0+$/, "");
+}
+
 function buildStudentResultSummary() {
   if (!testsViewState.result) {
     return testsViewState.message || "Elige un test publicado y responde desde aqui.";
@@ -544,7 +555,13 @@ function buildStudentResultSummary() {
 
   const durationLabel = testsViewState.result.durationMs != null ? ` en ${formatDurationMs(testsViewState.result.durationMs)}` : "";
   const statusLabel = testsViewState.result.timedOut ? "Fuera de tiempo" : "Completado";
-  return `${statusLabel}: ${testsViewState.result.score}/${testsViewState.result.total}${durationLabel}`;
+  return `${statusLabel}: Aciertos: ${formatTestScore(testsViewState.result.correctCount)} · Fallos: ${formatTestScore(
+    testsViewState.result.wrongCount
+  )} · Blancas: ${formatTestScore(testsViewState.result.blankCount)} · Penalizacion: ${formatTestScore(
+    testsViewState.result.penalty
+  )} · Nota: ${formatTestScore(testsViewState.result.netScore ?? testsViewState.result.score)}/${formatTestScore(
+    testsViewState.result.total
+  )}${durationLabel}`;
 }
 
 function startStudentTimer(container) {
@@ -738,6 +755,12 @@ function buildAdminTestForm(module, test = null) {
   const isEdit = Boolean(test);
   const formType = isEdit ? "test-edit" : "test";
   const timeLimitValue = test?.timeLimitSeconds != null && Number(test.timeLimitSeconds) > 0 ? String(test.timeLimitSeconds) : "";
+  const questionsPerAttemptValue =
+    test?.questionsPerAttempt != null && Number(test.questionsPerAttempt) > 0 ? String(test.questionsPerAttempt) : "";
+  const wrongPenaltyDenominatorValue =
+    Number.isFinite(Number(test?.wrongPenaltyDenominator)) && Number(test?.wrongPenaltyDenominator) > 0
+      ? String(test.wrongPenaltyDenominator)
+      : "3";
   return `
     <form class="stack" data-tests-admin-form="${formType}" data-module-id="${escapeHtml(module.id)}" ${
       isEdit ? `data-test-id="${escapeHtml(test.id)}"` : ""
@@ -755,11 +778,24 @@ function buildAdminTestForm(module, test = null) {
           Tiempo limite del test (segundos)
           <input type="number" name="timeLimitSeconds" min="5" step="1" value="${escapeHtml(timeLimitValue)}" placeholder="Sin limite" />
         </label>
+        <label class="inline-field">
+          Preguntas por intento
+          <input type="number" name="questionsPerAttempt" min="1" step="1" value="${escapeHtml(questionsPerAttemptValue)}" placeholder="Todas" />
+        </label>
         <label class="inline-field checkbox-field">
           <input type="checkbox" name="published" ${test?.published ? "checked" : ""} />
           Publicado
         </label>
+        <label class="inline-field checkbox-field">
+          <input type="checkbox" name="negativeMarkingEnabled" ${test?.negativeMarkingEnabled ? "checked" : ""} />
+          Penalizar fallos
+        </label>
+        <label class="inline-field">
+          Cada cuantas malas restan una buena
+          <input type="number" name="wrongPenaltyDenominator" min="1" step="1" value="${escapeHtml(wrongPenaltyDenominatorValue)}" />
+        </label>
       </div>
+      <p class="muted">Barajar preguntas/opciones se añadira en la siguiente fase.</p>
       <div class="chip-row">
         <button class="primary-button" type="submit">${isEdit ? "Guardar test" : "Crear test"}</button>
       </div>
@@ -1213,8 +1249,13 @@ function buildAttemptsMarkup(attempts = []) {
           .map(
             (attempt) => `
               <li class="panel panel-side">
-                <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
+                <strong>${escapeHtml(`${formatTestScore(attempt.netScore ?? attempt.score)}/${formatTestScore(attempt.total)}`)}</strong>
                 <p class="muted">${escapeHtml(formatAttemptDate(attempt.createdAt))}</p>
+                <p class="muted">Aciertos: ${escapeHtml(formatTestScore(attempt.correctCount))} · Fallos: ${escapeHtml(
+                  formatTestScore(attempt.wrongCount)
+                )} · Blancas: ${escapeHtml(formatTestScore(attempt.blankCount))} · Penalizacion: ${escapeHtml(
+                  formatTestScore(attempt.penalty)
+                )}</p>
               </li>
             `
           )
@@ -1445,8 +1486,13 @@ function buildStudentAttemptsMarkup(attempts = []) {
           .map(
             (attempt) => `
               <li class="panel panel-side">
-                <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
+                <strong>${escapeHtml(`${formatTestScore(attempt.netScore ?? attempt.score)}/${formatTestScore(attempt.total)}`)}</strong>
                 <p class="muted">${escapeHtml(formatAttemptDate(attempt.createdAt))}</p>
+                <p class="muted">Aciertos: ${escapeHtml(formatTestScore(attempt.correctCount))} · Fallos: ${escapeHtml(
+                  formatTestScore(attempt.wrongCount)
+                )} · Blancas: ${escapeHtml(formatTestScore(attempt.blankCount))} · Penalizacion: ${escapeHtml(
+                  formatTestScore(attempt.penalty)
+                )}</p>
                 ${
                   Number.isFinite(Number(attempt.durationMs))
                     ? `<p class="muted">Duracion: ${escapeHtml(formatDurationMs(attempt.durationMs))}</p>`
@@ -1688,7 +1734,13 @@ async function handleAdminSubmit(container, form) {
       title: String(formData.get("title") || "").trim(),
       description: String(formData.get("description") || "").trim(),
       published: formData.get("published") === "on",
-      timeLimitSeconds: String(formData.get("timeLimitSeconds") || "").trim()
+      timeLimitSeconds: String(formData.get("timeLimitSeconds") || "").trim(),
+      questionsPerAttempt: String(formData.get("questionsPerAttempt") || "").trim(),
+      shuffleQuestions: false,
+      shuffleOptions: false,
+      negativeMarkingEnabled: formData.get("negativeMarkingEnabled") === "on",
+      wrongPenaltyNumerator: 1,
+      wrongPenaltyDenominator: String(formData.get("wrongPenaltyDenominator") || "").trim()
     });
     setTestsViewMessage("Test creado correctamente.", "success");
   } else if (formType === "test-edit") {
@@ -1696,7 +1748,13 @@ async function handleAdminSubmit(container, form) {
       title: String(formData.get("title") || "").trim(),
       description: String(formData.get("description") || "").trim(),
       published: formData.get("published") === "on",
-      timeLimitSeconds: String(formData.get("timeLimitSeconds") || "").trim()
+      timeLimitSeconds: String(formData.get("timeLimitSeconds") || "").trim(),
+      questionsPerAttempt: String(formData.get("questionsPerAttempt") || "").trim(),
+      shuffleQuestions: false,
+      shuffleOptions: false,
+      negativeMarkingEnabled: formData.get("negativeMarkingEnabled") === "on",
+      wrongPenaltyNumerator: 1,
+      wrongPenaltyDenominator: String(formData.get("wrongPenaltyDenominator") || "").trim()
     });
     setTestsViewMessage("Test actualizado correctamente.", "success");
   } else if (formType === "question") {
@@ -1897,12 +1955,19 @@ async function handleStudentAttemptSubmit(container, form, options = {}) {
 
   const response = await client.post(`/api/tests/${encodeURIComponent(testId)}/attempt`, {
     answers,
-    startedAt
+    startedAt,
+    questionIds: questions.map((question) => question.id)
   });
 
   testsViewState.result = {
     score: Number(response.score || 0),
     total: Number(response.total || 0),
+    correctCount: Number(response.correctCount || 0),
+    wrongCount: Number(response.wrongCount || 0),
+    blankCount: Number(response.blankCount || 0),
+    penalty: Number(response.penalty || 0),
+    netScore: Number(response.netScore || response.score || 0),
+    percentage: Number(response.percentage || 0),
     durationMs: Number.isFinite(Number(response.durationMs)) ? Number(response.durationMs) : null,
     timedOut: Boolean(options.timedOut || response.timedOut)
   };

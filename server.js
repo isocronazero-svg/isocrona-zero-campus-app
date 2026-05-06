@@ -610,6 +610,78 @@ const liveTestQuestionTimeLimitMinSeconds = 5;
 const liveTestQuestionTimeLimitMaxSeconds = 120;
 const liveTestQuestionTimingGraceMs = 1000;
 
+function normalizeIndependentTestQuestionsPerAttempt(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeIndependentTestShuffleFlag(value) {
+  return Boolean(value);
+}
+
+function normalizeIndependentTestWrongPenaltyNumerator(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
+}
+
+function normalizeIndependentTestWrongPenaltyDenominator(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
+}
+
+function roundIndependentTestMetric(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+  return Math.round(parsed * 10000) / 10000;
+}
+
+function getIndependentTestAttemptQuestions(state, test) {
+  const questions = listIndependentQuestionsForTest(state, test?.id || "");
+  const questionsPerAttempt = normalizeIndependentTestQuestionsPerAttempt(test?.questionsPerAttempt);
+
+  // Shuffle settings are stored now, but question/order randomization is deferred
+  // until we persist stable per-attempt mappings for grading.
+  return questionsPerAttempt != null ? questions.slice(0, questionsPerAttempt) : questions;
+}
+
+function resolveIndependentTestAttemptQuestions(state, test, submittedQuestionIds) {
+  const allowedQuestions = getIndependentTestAttemptQuestions(state, test);
+  const allowedQuestionsById = new Map(allowedQuestions.map((question) => [String(question.id || "").trim(), question]));
+  const normalizedSubmittedQuestionIds = [];
+  const seen = new Set();
+
+  if (Array.isArray(submittedQuestionIds)) {
+    submittedQuestionIds.forEach((questionId) => {
+      const normalizedQuestionId = String(questionId || "").trim();
+      if (!normalizedQuestionId || seen.has(normalizedQuestionId)) {
+        return;
+      }
+      seen.add(normalizedQuestionId);
+      normalizedSubmittedQuestionIds.push(normalizedQuestionId);
+    });
+  }
+
+  if (!normalizedSubmittedQuestionIds.length) {
+    return allowedQuestions;
+  }
+
+  const resolvedQuestions = normalizedSubmittedQuestionIds.map((questionId) => {
+    const question = allowedQuestionsById.get(questionId);
+    if (!question) {
+      throw new Error("Las preguntas enviadas no coinciden con el intento disponible");
+    }
+    return question;
+  });
+
+  return resolvedQuestions;
+}
+
+function getIndependentTestQuestionCountForAudience(state, test) {
+  return getIndependentTestAttemptQuestions(state, test).length;
+}
+
 function buildIndependentTestModule(payload = {}) {
   const title = String(payload.title || "").trim();
   if (!title) {
@@ -995,6 +1067,12 @@ function buildIndependentTest(state, payload = {}) {
       Number.isFinite(parsedTimeLimitSeconds) && parsedTimeLimitSeconds > 0
         ? Math.floor(parsedTimeLimitSeconds)
         : null,
+    questionsPerAttempt: normalizeIndependentTestQuestionsPerAttempt(payload.questionsPerAttempt),
+    shuffleQuestions: normalizeIndependentTestShuffleFlag(payload.shuffleQuestions),
+    shuffleOptions: normalizeIndependentTestShuffleFlag(payload.shuffleOptions),
+    negativeMarkingEnabled: Boolean(payload.negativeMarkingEnabled),
+    wrongPenaltyNumerator: normalizeIndependentTestWrongPenaltyNumerator(payload.wrongPenaltyNumerator),
+    wrongPenaltyDenominator: normalizeIndependentTestWrongPenaltyDenominator(payload.wrongPenaltyDenominator),
     createdAt: new Date().toISOString()
   };
 }
@@ -1019,6 +1097,30 @@ function updateIndependentTest(state, test, payload = {}) {
       Number.isFinite(parsedTimeLimitSeconds) && parsedTimeLimitSeconds > 0
         ? Math.floor(parsedTimeLimitSeconds)
         : null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "questionsPerAttempt")) {
+    test.questionsPerAttempt = normalizeIndependentTestQuestionsPerAttempt(payload.questionsPerAttempt);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "shuffleQuestions")) {
+    test.shuffleQuestions = normalizeIndependentTestShuffleFlag(payload.shuffleQuestions);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "shuffleOptions")) {
+    test.shuffleOptions = normalizeIndependentTestShuffleFlag(payload.shuffleOptions);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "negativeMarkingEnabled")) {
+    test.negativeMarkingEnabled = Boolean(payload.negativeMarkingEnabled);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "wrongPenaltyNumerator")) {
+    test.wrongPenaltyNumerator = normalizeIndependentTestWrongPenaltyNumerator(payload.wrongPenaltyNumerator);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "wrongPenaltyDenominator")) {
+    test.wrongPenaltyDenominator = normalizeIndependentTestWrongPenaltyDenominator(payload.wrongPenaltyDenominator);
   }
 
   if (Object.prototype.hasOwnProperty.call(payload, "questionIds")) {
@@ -1151,17 +1253,27 @@ function resolveIndependentTestAttemptStartTimestamp(startedAt, fallbackTimestam
 
 function createIndependentTestAttempt(state, test, memberId, answers, options = {}) {
   ensureIndependentTestsState(state);
-  const questions = listIndependentQuestionsForTest(state, test.id);
+  const questions = resolveIndependentTestAttemptQuestions(state, test, options.submittedQuestionIds);
   const createdAtTimestamp = Date.now();
   const startedAtTimestamp = resolveIndependentTestAttemptStartTimestamp(options.startedAt, createdAtTimestamp);
   const durationMs = Math.max(createdAtTimestamp - startedAtTimestamp, 0);
   const normalizedAnswers = questions.map((question, index) =>
     normalizeIndependentTestAnswer(Array.isArray(answers) ? answers[index] : null, question)
   );
-  const score = questions.reduce(
+  const correctCount = questions.reduce(
     (sum, question, index) => sum + (normalizedAnswers[index] === Number(question.correctIndex) ? 1 : 0),
     0
   );
+  const blankCount = normalizedAnswers.filter((answer) => answer == null).length;
+  const wrongCount = Math.max(normalizedAnswers.length - correctCount - blankCount, 0);
+  const rawScore = correctCount;
+  const wrongPenaltyNumerator = normalizeIndependentTestWrongPenaltyNumerator(test?.wrongPenaltyNumerator);
+  const wrongPenaltyDenominator = normalizeIndependentTestWrongPenaltyDenominator(test?.wrongPenaltyDenominator);
+  const penalty = Boolean(test?.negativeMarkingEnabled)
+    ? roundIndependentTestMetric((wrongCount * wrongPenaltyNumerator) / wrongPenaltyDenominator)
+    : 0;
+  const netScore = roundIndependentTestMetric(Math.max(0, rawScore - penalty));
+  const percentage = questions.length > 0 ? roundIndependentTestMetric((netScore / questions.length) * 100) : 0;
   const timeLimitSeconds = Number(test?.timeLimitSeconds);
   const timedOut =
     Number.isFinite(timeLimitSeconds) && timeLimitSeconds > 0
@@ -1172,9 +1284,17 @@ function createIndependentTestAttempt(state, test, memberId, answers, options = 
     id: generateLegacyId("test-attempt"),
     testId: test.id,
     memberId,
+    questionIds: questions.map((question) => question.id),
     answers: normalizedAnswers,
-    score,
+    score: netScore,
     total: questions.length,
+    correctCount,
+    wrongCount,
+    blankCount,
+    rawScore,
+    penalty,
+    netScore,
+    percentage,
     durationMs,
     timedOut,
     createdAt: new Date(createdAtTimestamp).toISOString()
@@ -1190,6 +1310,12 @@ function buildIndependentTestAttemptAudiencePayload(attempt) {
     testId: attempt.testId,
     score: attempt.score,
     total: attempt.total,
+    correctCount: Number(attempt.correctCount || 0),
+    wrongCount: Number(attempt.wrongCount || 0),
+    blankCount: Number(attempt.blankCount || 0),
+    penalty: Number(attempt.penalty || 0),
+    netScore: Number((attempt.netScore ?? attempt.score) || 0),
+    percentage: Number(attempt.percentage || 0),
     durationMs: Number.isFinite(Number(attempt.durationMs)) ? Number(attempt.durationMs) : null,
     timedOut: Boolean(attempt.timedOut),
     createdAt: attempt.createdAt
@@ -1866,11 +1992,15 @@ function buildIndependentTestAudiencePayload(test, options = {}) {
     title: test.title,
     description: test.description,
     published: true,
-    questionCount: Array.isArray(test.questionIds) ? test.questionIds.length : 0,
+    questionCount: getIndependentTestQuestionCountForAudience(options.state || {}, test),
     timeLimitSeconds:
       Number.isFinite(Number(test.timeLimitSeconds)) && Number(test.timeLimitSeconds) > 0
         ? Math.floor(Number(test.timeLimitSeconds))
-        : null
+        : null,
+    questionsPerAttempt: normalizeIndependentTestQuestionsPerAttempt(test.questionsPerAttempt),
+    negativeMarkingEnabled: Boolean(test.negativeMarkingEnabled),
+    wrongPenaltyNumerator: normalizeIndependentTestWrongPenaltyNumerator(test.wrongPenaltyNumerator),
+    wrongPenaltyDenominator: normalizeIndependentTestWrongPenaltyDenominator(test.wrongPenaltyDenominator)
   };
 }
 
@@ -1894,7 +2024,7 @@ function listVisibleIndependentTests(state, account) {
 
   return state.tests
     .filter((test) => Boolean(test.published))
-    .map((test) => buildIndependentTestAudiencePayload(test, { admin: false }));
+    .map((test) => buildIndependentTestAudiencePayload(test, { admin: false, state }));
 }
 
 function listVisibleIndependentTestModules(state, account) {
@@ -1926,7 +2056,7 @@ function listVisibleIndependentQuestions(state, account, testId = "") {
     throw new Error("Test no encontrado");
   }
 
-  return listIndependentQuestionsForTest(state, testId).map((question) =>
+  return getIndependentTestAttemptQuestions(state, test).map((question) =>
     buildIndependentTestQuestionAudiencePayload(question, { admin: false })
   );
 }
@@ -3511,7 +3641,8 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, error: "Tu cuenta no tiene un miembro asociado para guardar el intento" });
       }
       const attempt = createIndependentTestAttempt(state, test, account.memberId, payload.answers, {
-        startedAt: payload.startedAt
+        startedAt: payload.startedAt,
+        submittedQuestionIds: payload.questionIds
       });
       writeState(state);
       return sendJson(res, 201, {
@@ -3521,12 +3652,24 @@ const server = http.createServer(async (req, res) => {
           testId: attempt.testId,
           score: attempt.score,
           total: attempt.total,
+          correctCount: attempt.correctCount,
+          wrongCount: attempt.wrongCount,
+          blankCount: attempt.blankCount,
+          penalty: attempt.penalty,
+          netScore: attempt.netScore,
+          percentage: attempt.percentage,
           durationMs: attempt.durationMs,
           timedOut: attempt.timedOut,
           createdAt: attempt.createdAt
         },
         score: attempt.score,
         total: attempt.total,
+        correctCount: attempt.correctCount,
+        wrongCount: attempt.wrongCount,
+        blankCount: attempt.blankCount,
+        penalty: attempt.penalty,
+        netScore: attempt.netScore,
+        percentage: attempt.percentage,
         durationMs: attempt.durationMs,
         timedOut: attempt.timedOut
       });

@@ -239,6 +239,9 @@ function normalizeIndependentTestModule(module, moduleIndex) {
 
 function normalizeIndependentTest(test, testIndex) {
   const parsedTimeLimitSeconds = Number(test?.timeLimitSeconds);
+  const parsedQuestionsPerAttempt = Number(test?.questionsPerAttempt);
+  const parsedWrongPenaltyNumerator = Number(test?.wrongPenaltyNumerator);
+  const parsedWrongPenaltyDenominator = Number(test?.wrongPenaltyDenominator);
   return {
     ...test,
     id: test?.id || `test-${Date.now()}-${testIndex}`,
@@ -251,6 +254,17 @@ function normalizeIndependentTest(test, testIndex) {
       Number.isFinite(parsedTimeLimitSeconds) && parsedTimeLimitSeconds > 0
         ? Math.floor(parsedTimeLimitSeconds)
         : null,
+    questionsPerAttempt:
+      Number.isInteger(parsedQuestionsPerAttempt) && parsedQuestionsPerAttempt > 0
+        ? parsedQuestionsPerAttempt
+        : null,
+    shuffleQuestions: Boolean(test?.shuffleQuestions),
+    shuffleOptions: Boolean(test?.shuffleOptions),
+    negativeMarkingEnabled: Boolean(test?.negativeMarkingEnabled),
+    wrongPenaltyNumerator:
+      Number.isFinite(parsedWrongPenaltyNumerator) && parsedWrongPenaltyNumerator >= 0 ? parsedWrongPenaltyNumerator : 1,
+    wrongPenaltyDenominator:
+      Number.isFinite(parsedWrongPenaltyDenominator) && parsedWrongPenaltyDenominator > 0 ? parsedWrongPenaltyDenominator : 3,
     createdAt: test?.createdAt || new Date().toISOString()
   };
 }
@@ -275,14 +289,29 @@ function normalizeIndependentQuestion(question, questionIndex) {
 
 function normalizeIndependentTestAttempt(attempt, attemptIndex) {
   const parsedDurationMs = Number(attempt?.durationMs);
+  const parsedCorrectCount = Number(attempt?.correctCount);
+  const parsedWrongCount = Number(attempt?.wrongCount);
+  const parsedBlankCount = Number(attempt?.blankCount);
+  const parsedRawScore = Number(attempt?.rawScore);
+  const parsedPenalty = Number(attempt?.penalty);
+  const parsedNetScore = Number(attempt?.netScore);
+  const parsedPercentage = Number(attempt?.percentage);
   return {
     ...attempt,
     id: attempt?.id || `test-attempt-${Date.now()}-${attemptIndex}`,
     testId: String(attempt?.testId || "").trim(),
     memberId: String(attempt?.memberId || "").trim(),
+    questionIds: Array.isArray(attempt?.questionIds) ? attempt.questionIds.map((value) => String(value || "").trim()).filter(Boolean) : [],
     answers: Array.isArray(attempt?.answers) ? attempt.answers.map((value) => Number(value)) : [],
     score: Number(attempt?.score || 0),
     total: Number(attempt?.total || 0),
+    correctCount: Number.isFinite(parsedCorrectCount) && parsedCorrectCount >= 0 ? parsedCorrectCount : 0,
+    wrongCount: Number.isFinite(parsedWrongCount) && parsedWrongCount >= 0 ? parsedWrongCount : 0,
+    blankCount: Number.isFinite(parsedBlankCount) && parsedBlankCount >= 0 ? parsedBlankCount : 0,
+    rawScore: Number.isFinite(parsedRawScore) && parsedRawScore >= 0 ? parsedRawScore : Number(attempt?.score || 0),
+    penalty: Number.isFinite(parsedPenalty) && parsedPenalty >= 0 ? parsedPenalty : 0,
+    netScore: Number.isFinite(parsedNetScore) && parsedNetScore >= 0 ? parsedNetScore : Number(attempt?.score || 0),
+    percentage: Number.isFinite(parsedPercentage) && parsedPercentage >= 0 ? parsedPercentage : 0,
     durationMs: Number.isFinite(parsedDurationMs) && parsedDurationMs >= 0 ? Math.floor(parsedDurationMs) : null,
     timedOut: Boolean(attempt?.timedOut),
     createdAt: attempt?.createdAt || new Date().toISOString()
