@@ -18,6 +18,7 @@ const testsViewState = {
   result: null,
   message: "",
   tone: "neutral",
+  questionBankFiltersByModuleId: {},
   renderToken: 0,
   timerIntervalId: null,
   timerRemainingMs: null,
@@ -66,6 +67,71 @@ function getQuestionsForModule(moduleId) {
   );
 }
 
+function getQuestionBankFilterState(moduleId) {
+  const normalizedModuleId = String(moduleId || "").trim();
+  const current = testsViewState.questionBankFiltersByModuleId[normalizedModuleId] || {};
+  return {
+    query: String(current.query || ""),
+    topic: String(current.topic || ""),
+    difficulty: String(current.difficulty || "")
+  };
+}
+
+function setQuestionBankFilterState(moduleId, nextPartial = {}) {
+  const normalizedModuleId = String(moduleId || "").trim();
+  testsViewState.questionBankFiltersByModuleId[normalizedModuleId] = {
+    ...getQuestionBankFilterState(normalizedModuleId),
+    ...nextPartial
+  };
+}
+
+function clearQuestionBankFilterState(moduleId) {
+  const normalizedModuleId = String(moduleId || "").trim();
+  testsViewState.questionBankFiltersByModuleId[normalizedModuleId] = {
+    query: "",
+    topic: "",
+    difficulty: ""
+  };
+}
+
+function getQuestionFilterOptions(moduleId) {
+  const moduleQuestions = getQuestionsForModule(moduleId);
+  const topics = [...new Set(moduleQuestions.map((question) => String(question.topic || "").trim()).filter(Boolean))].sort(
+    (left, right) => left.localeCompare(right, "es", { sensitivity: "base" })
+  );
+  const difficulties = [...new Set(moduleQuestions.map((question) => String(question.difficulty || "").trim()).filter(Boolean))].sort(
+    (left, right) => left.localeCompare(right, "es", { sensitivity: "base" })
+  );
+  return { topics, difficulties };
+}
+
+function filterQuestionsForModule(moduleId, questions = []) {
+  const filterState = getQuestionBankFilterState(moduleId);
+  const normalizedQuery = String(filterState.query || "").trim().toLowerCase();
+  const normalizedTopic = String(filterState.topic || "").trim().toLowerCase();
+  const normalizedDifficulty = String(filterState.difficulty || "").trim().toLowerCase();
+
+  return (Array.isArray(questions) ? questions : []).filter((question) => {
+    const matchesTopic = !normalizedTopic || String(question.topic || "").trim().toLowerCase() === normalizedTopic;
+    const matchesDifficulty =
+      !normalizedDifficulty || String(question.difficulty || "").trim().toLowerCase() === normalizedDifficulty;
+    if (!matchesTopic || !matchesDifficulty) {
+      return false;
+    }
+    if (!normalizedQuery) {
+      return true;
+    }
+    const haystack = [
+      question.prompt,
+      question.explanation,
+      ...(Array.isArray(question.options) ? question.options : [])
+    ]
+      .map((value) => String(value || "").trim().toLowerCase())
+      .join("\n");
+    return haystack.includes(normalizedQuery);
+  });
+}
+
 function getTestsUsingQuestion(questionId) {
   return testsViewState.tests.filter((test) =>
     (Array.isArray(test.questionIds) ? test.questionIds : []).includes(String(questionId || "").trim())
@@ -88,7 +154,7 @@ function getUnusedQuestionsForModule(moduleId) {
 
 function getAvailableQuestionsForTest(test) {
   const assignedQuestionIds = new Set(Array.isArray(test?.questionIds) ? test.questionIds : []);
-  return getQuestionsForModule(test?.moduleId || "").filter(
+  return filterQuestionsForModule(test?.moduleId || "", getQuestionsForModule(test?.moduleId || "")).filter(
     (question) => !assignedQuestionIds.has(String(question.id || "").trim())
   );
 }
@@ -239,6 +305,48 @@ function buildQuestionMetaSummary(question = null) {
     parts.push(`Dificultad: ${question.difficulty}`);
   }
   return parts.length ? `<p class="muted">${escapeHtml(parts.join(" · "))}</p>` : "";
+}
+
+function buildQuestionFilterSelectOptions(options = [], selectedValue = "") {
+  return [
+    '<option value="">Todos</option>',
+    ...(Array.isArray(options) ? options : []).map(
+      (option) =>
+        `<option value="${escapeHtml(option)}" ${String(selectedValue || "") === String(option || "") ? "selected" : ""}>${escapeHtml(option)}</option>`
+    )
+  ].join("");
+}
+
+function buildQuestionBankFiltersMarkup(moduleId, totalCount, filteredCount) {
+  const filterState = getQuestionBankFilterState(moduleId);
+  const { topics, difficulties } = getQuestionFilterOptions(moduleId);
+  return `
+    <div class="stack panel panel-side">
+      <h5>Filtros del banco</h5>
+      <label class="inline-field">
+        Buscar pregunta
+        <input type="text" name="query" value="${escapeHtml(filterState.query)}" placeholder="Enunciado, explicacion u opciones" data-question-bank-filter data-module-id="${escapeHtml(moduleId)}" />
+      </label>
+      <div class="studio-grid">
+        <label class="inline-field">
+          Tema
+          <select name="topic" data-question-bank-filter data-module-id="${escapeHtml(moduleId)}">
+            ${buildQuestionFilterSelectOptions(topics, filterState.topic)}
+          </select>
+        </label>
+        <label class="inline-field">
+          Dificultad
+          <select name="difficulty" data-question-bank-filter data-module-id="${escapeHtml(moduleId)}">
+            ${buildQuestionFilterSelectOptions(difficulties, filterState.difficulty)}
+          </select>
+        </label>
+      </div>
+      <div class="chip-row">
+        <button class="ghost-button" type="button" data-action="clear-question-bank-filters" data-module-id="${escapeHtml(moduleId)}">Limpiar filtros</button>
+      </div>
+      <p class="muted">Mostrando ${escapeHtml(String(filteredCount))} de ${escapeHtml(String(totalCount))} preguntas</p>
+    </div>
+  `;
 }
 
 async function loadAdminData() {
@@ -1005,6 +1113,7 @@ function buildStudentLiveSessionMarkup() {
 function buildAdminModuleMarkup(module) {
   const tests = getTestsForModule(module.id);
   const moduleQuestions = getQuestionsForModule(module.id);
+  const filteredModuleQuestions = filterQuestionsForModule(module.id, moduleQuestions);
   return `
     <article class="course-card">
       <div class="course-topline">
@@ -1123,7 +1232,7 @@ function buildAdminModuleMarkup(module) {
                           availableQuestions.length
                             ? `
                               <details>
-                                <summary>${escapeHtml(String(availableQuestions.length))} pregunta(s) disponible(s)</summary>
+                                <summary>${escapeHtml(String(availableQuestions.length))} pregunta(s) disponible(s) con filtros actuales</summary>
                                 <ul class="stack">${availableQuestions
                                   .map((question) => buildAdminAvailableQuestionMarkup(test, question))
                                   .join("")}</ul>
@@ -1163,6 +1272,7 @@ function buildAdminModuleMarkup(module) {
         <section class="panel panel-side">
           <h4>Banco de preguntas</h4>
           <p class="muted">Aqui se guardan todas las preguntas del modulo, aunque no esten asignadas a ningun test.</p>
+          ${buildQuestionBankFiltersMarkup(module.id, moduleQuestions.length, filteredModuleQuestions.length)}
           <form class="stack" data-tests-admin-form="question-bank" data-module-id="${escapeHtml(module.id)}">
             <h5>Nueva pregunta al banco</h5>
             <label class="inline-field">
@@ -1187,7 +1297,9 @@ function buildAdminModuleMarkup(module) {
           </form>
           ${
             moduleQuestions.length
-              ? `<div class="stack">${moduleQuestions.map((question) => buildAdminQuestionBankQuestionMarkup(question)).join("")}</div>`
+              ? filteredModuleQuestions.length
+                ? `<div class="stack">${filteredModuleQuestions.map((question) => buildAdminQuestionBankQuestionMarkup(question)).join("")}</div>`
+                : '<p class="muted">No hay preguntas que coincidan con los filtros de este modulo.</p>'
               : '<p class="muted">Todavia no hay preguntas en este modulo.</p>'
           }
         </section>
@@ -1615,6 +1727,11 @@ async function handleAdminAction(container, action, dataset = {}) {
     setTestsViewMessage("Sesion live finalizada correctamente.", "success");
   } else if (action === "download-import-csv-template") {
     window.location.assign("/api/tests/import-csv-template");
+  } else if (action === "clear-question-bank-filters") {
+    clearQuestionBankFilterState(String(dataset.moduleId || "").trim());
+    renderTestsMarkup(container);
+    finalizeTestsViewRender(container);
+    return;
   } else {
     return;
   }
@@ -1736,6 +1853,28 @@ async function handleStudentLiveAnswer(container, form) {
 }
 
 export function renderTestsView(container, role = "member") {
+  container.oninput = (event) => {
+    const filterField = event.target.closest("[data-question-bank-filter]");
+    if (!isAdminRole(role) || !filterField) {
+      return;
+    }
+    setQuestionBankFilterState(String(filterField.dataset.moduleId || "").trim(), {
+      [String(filterField.name || "").trim()]: String(filterField.value || "")
+    });
+    renderTestsMarkup(container);
+    finalizeTestsViewRender(container);
+  };
+  container.onchange = (event) => {
+    const filterField = event.target.closest("[data-question-bank-filter]");
+    if (!isAdminRole(role) || !filterField) {
+      return;
+    }
+    setQuestionBankFilterState(String(filterField.dataset.moduleId || "").trim(), {
+      [String(filterField.name || "").trim()]: String(filterField.value || "")
+    });
+    renderTestsMarkup(container);
+    finalizeTestsViewRender(container);
+  };
   container.onclick = async (event) => {
     const adminActionButton = event.target.closest("[data-action]");
     const openTestButton = event.target.closest('[data-action="open-test"]');
