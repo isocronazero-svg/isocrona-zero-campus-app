@@ -651,6 +651,10 @@ function normalizeIndependentTestImportTimeLimitSeconds(value) {
   return null;
 }
 
+function isEmptyCsvRow(row) {
+  return (Array.isArray(row) ? row : []).every((cell) => !String(cell || "").trim());
+}
+
 function parseCsvRows(csv = "") {
   const source = String(csv || "").replace(/^\uFEFF/, "");
   const rows = [];
@@ -713,7 +717,7 @@ function parseCsvRows(csv = "") {
   }
 
   currentRow.push(currentValue);
-  if (currentRow.length > 1 || currentRow[0] !== "" || rows.length) {
+  if (!isEmptyCsvRow(currentRow)) {
     rows.push(currentRow);
   }
 
@@ -765,8 +769,10 @@ function parseIndependentTestsCsvImport(state, csv = "") {
   }
 
   const headerIndexByName = new Map(normalizedHeader.map((name, index) => [name, index]));
+  const dataRows = rows.slice(1);
+  const nonEmptyDataRows = dataRows.filter((record) => !isEmptyCsvRow(record));
   const summary = {
-    rowsReceived: Math.max(rows.length - 1, 0),
+    rowsReceived: nonEmptyDataRows.length,
     rowsImported: 0,
     modulesCreated: 0,
     modulesReused: 0,
@@ -785,10 +791,9 @@ function parseIndependentTestsCsvImport(state, csv = "") {
     return index == null ? "" : String(record[index] || "");
   };
 
-  const dataRows = rows.slice(1);
   dataRows.forEach((record, rowIndex) => {
     const rowNumber = rowIndex + 2;
-    if ((Array.isArray(record) ? record : []).every((cell) => !String(cell || "").trim())) {
+    if (isEmptyCsvRow(record)) {
       return;
     }
 
