@@ -405,6 +405,62 @@ async function main() {
       "POST /api/questions con testId debe asignar la pregunta al test"
     );
 
+    const oppositionTestResponse = await adminClient.request("POST", "/api/tests", {
+      moduleId: importedModule.id,
+      title: "Simulacro oposicion",
+      description: "Penalizacion de fallos",
+      published: true,
+      questionIds: [
+        importedBankQuestions[0].id,
+        importedBankQuestions[1].id,
+        bankOnlyQuestionResponse.body?.question?.id
+      ]
+    });
+    assert.equal(oppositionTestResponse.body?.ok, true);
+    const oppositionTest = oppositionTestResponse.body?.test;
+
+    const oppositionTestPatchResponse = await adminClient.request("PATCH", `/api/tests/${oppositionTest.id}`, {
+      questionsPerAttempt: 3,
+      negativeMarkingEnabled: true,
+      wrongPenaltyNumerator: 1,
+      wrongPenaltyDenominator: 3
+    });
+    assert.equal(oppositionTestPatchResponse.body?.ok, true);
+    assert.equal(oppositionTestPatchResponse.body?.test?.questionsPerAttempt, 3);
+    assert.equal(oppositionTestPatchResponse.body?.test?.negativeMarkingEnabled, true);
+    assert.equal(oppositionTestPatchResponse.body?.test?.wrongPenaltyDenominator, 3);
+
+    const oppositionMemberQuestionsResponse = await memberClient.request(
+      "GET",
+      `/api/questions?testId=${encodeURIComponent(oppositionTest.id)}`
+    );
+    assert.equal(oppositionMemberQuestionsResponse.body?.ok, true);
+    assert.equal((oppositionMemberQuestionsResponse.body?.questions || []).length, 3);
+    assertForbiddenKeysAbsent(oppositionMemberQuestionsResponse.body, "opposition member question payload");
+
+    const oppositionAttemptResponse = await memberClient.request("POST", `/api/tests/${oppositionTest.id}/attempt`, {
+      answers: [0, 1, null]
+    });
+    assert.equal(oppositionAttemptResponse.body?.ok, true);
+    assert.equal(oppositionAttemptResponse.body?.correctCount, 1);
+    assert.equal(oppositionAttemptResponse.body?.wrongCount, 1);
+    assert.equal(oppositionAttemptResponse.body?.blankCount, 1);
+    assert.equal(oppositionAttemptResponse.body?.penalty, 0.3333);
+    assert.equal(oppositionAttemptResponse.body?.score, oppositionAttemptResponse.body?.netScore);
+    assert.ok(Math.abs(Number(oppositionAttemptResponse.body?.netScore || 0) - 0.6667) < 0.0001);
+
+    const oppositionAttemptsHistoryResponse = await memberClient.request(
+      "GET",
+      `/api/tests/${encodeURIComponent(oppositionTest.id)}/attempts/me`
+    );
+    assert.equal(oppositionAttemptsHistoryResponse.body?.ok, true);
+    assert.equal((oppositionAttemptsHistoryResponse.body?.attempts || []).length >= 1, true);
+    assert.equal(oppositionAttemptsHistoryResponse.body?.attempts?.[0]?.correctCount, 1);
+    assert.equal(oppositionAttemptsHistoryResponse.body?.attempts?.[0]?.wrongCount, 1);
+    assert.equal(oppositionAttemptsHistoryResponse.body?.attempts?.[0]?.blankCount, 1);
+    assert.equal(oppositionAttemptsHistoryResponse.body?.attempts?.[0]?.penalty, 0.3333);
+    assert.ok(Math.abs(Number(oppositionAttemptsHistoryResponse.body?.attempts?.[0]?.netScore || 0) - 0.6667) < 0.0001);
+
     const secondModuleResponse = await adminClient.request("POST", "/api/test-modules", {
       title: "Modulo ajeno",
       description: ""
