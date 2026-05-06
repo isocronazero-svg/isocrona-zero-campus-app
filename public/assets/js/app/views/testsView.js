@@ -604,6 +604,10 @@ function finalizeTestsViewRender(container) {
   } else {
     clearStudentTimer();
   }
+  if (String(testsViewState.liveSessionState?.status || "").trim() === "finished") {
+    clearLivePolling();
+    return;
+  }
   startLiveSessionPolling(container);
 }
 
@@ -657,12 +661,19 @@ function startLiveCountdown(container) {
 
 function startLiveSessionPolling(container) {
   clearLivePolling();
-  if (isAdminRole(testsViewState.role) || !testsViewState.activeLiveSessionId) {
+  if (
+    isAdminRole(testsViewState.role) ||
+    !testsViewState.activeLiveSessionId ||
+    String(testsViewState.liveSessionState?.status || "").trim() === "finished"
+  ) {
     return;
   }
   testsViewState.livePollIntervalId = setInterval(async () => {
     try {
       await ensureStudentActiveLiveSession();
+      if (String(testsViewState.liveSessionState?.status || "").trim() === "finished") {
+        clearLivePolling();
+      }
       renderTestsMarkup(container);
       finalizeTestsViewRender(container);
     } catch (error) {
@@ -1216,8 +1227,9 @@ function buildStudentCurrentUserRankMarkup(currentUserRank, leaderboard) {
     return "";
   }
 
+  const rank = currentUserRank.rank ?? currentUserRank.position ?? "-";
   return `
-    <p class="muted"><strong>Tu posicion:</strong> ${escapeHtml(String(currentUserRank.position || "-"))} de ${escapeHtml(String((Array.isArray(leaderboard) ? leaderboard.length : 0) || 0))}</p>
+    <p class="muted"><strong>Tu posicion:</strong> ${escapeHtml(String(rank))} de ${escapeHtml(String((Array.isArray(leaderboard) ? leaderboard.length : 0) || 0))}</p>
   `;
 }
 
