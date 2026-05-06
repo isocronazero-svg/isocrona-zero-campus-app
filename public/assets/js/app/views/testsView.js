@@ -321,31 +321,32 @@ function buildQuestionBankFiltersMarkup(moduleId, totalCount, filteredCount) {
   const filterState = getQuestionBankFilterState(moduleId);
   const { topics, difficulties } = getQuestionFilterOptions(moduleId);
   return `
-    <div class="stack panel panel-side">
+    <form class="stack panel panel-side" data-tests-admin-form="question-bank-filters" data-module-id="${escapeHtml(moduleId)}">
       <h5>Filtros del banco</h5>
       <label class="inline-field">
         Buscar pregunta
-        <input type="text" name="query" value="${escapeHtml(filterState.query)}" placeholder="Enunciado, explicacion u opciones" data-question-bank-filter data-module-id="${escapeHtml(moduleId)}" />
+        <input type="text" name="query" value="${escapeHtml(filterState.query)}" placeholder="Enunciado, explicacion u opciones" />
       </label>
       <div class="studio-grid">
         <label class="inline-field">
           Tema
-          <select name="topic" data-question-bank-filter data-module-id="${escapeHtml(moduleId)}">
+          <select name="topic">
             ${buildQuestionFilterSelectOptions(topics, filterState.topic)}
           </select>
         </label>
         <label class="inline-field">
           Dificultad
-          <select name="difficulty" data-question-bank-filter data-module-id="${escapeHtml(moduleId)}">
+          <select name="difficulty">
             ${buildQuestionFilterSelectOptions(difficulties, filterState.difficulty)}
           </select>
         </label>
       </div>
       <div class="chip-row">
+        <button class="primary-button" type="submit">Aplicar filtros</button>
         <button class="ghost-button" type="button" data-action="clear-question-bank-filters" data-module-id="${escapeHtml(moduleId)}">Limpiar filtros</button>
       </div>
       <p class="muted">Mostrando ${escapeHtml(String(filteredCount))} de ${escapeHtml(String(totalCount))} preguntas</p>
-    </div>
+    </form>
   `;
 }
 
@@ -659,208 +660,226 @@ function startLiveSessionPolling(container) {
   if (isAdminRole(testsViewState.role) || !testsViewState.activeLiveSessionId) {
     return;
   }
-
-  const buildSessionRenderKey = (sessionState) =>
-    JSON.stringify({
-      id: sessionState?.id || "",
-      status: sessionState?.status || "",
-      currentQuestionId: sessionState?.currentQuestion?.id || "",
-      hasAnsweredCurrentQuestion: Boolean(sessionState?.hasAnsweredCurrentQuestion),
-      score: Number(sessionState?.player?.score || 0),
-      leaderboard: Array.isArray(sessionState?.leaderboard)
-        ? sessionState.leaderboard.map((entry) => `${entry.displayName}:${entry.score}`)
-        : []
-    });
-  let previousKey = buildSessionRenderKey(testsViewState.liveSessionState);
-
-  const poll = async () => {
+  testsViewState.livePollIntervalId = setInterval(async () => {
     try {
       await ensureStudentActiveLiveSession();
-      const nextKey = buildSessionRenderKey(testsViewState.liveSessionState);
-      if (nextKey !== previousKey) {
-        previousKey = nextKey;
-        renderTestsMarkup(container);
-        if (hasActiveTimedAttempt()) {
-          startStudentTimer(container);
-        } else {
-          clearStudentTimer();
-        }
-      }
-      if (String(testsViewState.liveSessionState?.status || "").trim() === "finished") {
-        clearLivePolling();
-      }
+      renderTestsMarkup(container);
+      finalizeTestsViewRender(container);
     } catch (error) {
       clearLivePolling();
       testsViewState.liveSessionState = null;
       testsViewState.activeLiveSessionId = "";
-      setTestsViewMessage(error.message || "No se pudo actualizar la sesion live.", "error");
+      setTestsViewMessage(error.message || "La sesion live ya no esta disponible.", "error");
       renderTestsMarkup(container);
+      finalizeTestsViewRender(container);
     }
-  };
-
-  testsViewState.livePollIntervalId = setInterval(() => {
-    poll().catch(() => {});
   }, 2000);
 }
 
-function buildStudentAttemptsMarkup(attempts) {
-  return attempts.length
-    ? `
-      <ul class="stack">
-        ${attempts
+function buildTestOptions(test) {
+  return (Array.isArray(test.options) ? test.options : []).map((option) => escapeHtml(option));
+}
+
+function buildAdminModuleForm(module = null) {
+  const isEdit = Boolean(module);
+  const formType = isEdit ? "module-edit" : "module";
+  return `
+    <form class="stack" data-tests-admin-form="${formType}" ${
+      isEdit ? `data-module-id="${escapeHtml(module.id)}"` : ""
+    }>
+      <label class="inline-field">
+        Titulo del modulo
+        <input type="text" name="title" value="${escapeHtml(module?.title || "")}" required />
+      </label>
+      <label class="inline-field">
+        Descripcion
+        <textarea name="description" rows="2">${escapeHtml(module?.description || "")}</textarea>
+      </label>
+      <div class="chip-row">
+        <button class="primary-button" type="submit">${isEdit ? "Guardar cambios" : "Guardar modulo"}</button>
+      </div>
+    </form>
+  `;
+}
+
+function buildAdminTestForm(module, test = null) {
+  const isEdit = Boolean(test);
+  const formType = isEdit ? "test-edit" : "test";
+  const timeLimitValue = test?.timeLimitSeconds != null && Number(test.timeLimitSeconds) > 0 ? String(test.timeLimitSeconds) : "";
+  return `
+    <form class="stack" data-tests-admin-form="${formType}" data-module-id="${escapeHtml(module.id)}" ${
+      isEdit ? `data-test-id="${escapeHtml(test.id)}"` : ""
+    }>
+      <label class="inline-field">
+        Titulo del test
+        <input type="text" name="title" value="${escapeHtml(test?.title || "")}" required />
+      </label>
+      <label class="inline-field">
+        Descripcion
+        <textarea name="description" rows="2">${escapeHtml(test?.description || "")}</textarea>
+      </label>
+      <div class="studio-grid">
+        <label class="inline-field">
+          Tiempo limite del test (segundos)
+          <input type="number" name="timeLimitSeconds" min="5" step="1" value="${escapeHtml(timeLimitValue)}" placeholder="Sin limite" />
+        </label>
+        <label class="inline-field checkbox-field">
+          <input type="checkbox" name="published" ${test?.published ? "checked" : ""} />
+          Publicado
+        </label>
+      </div>
+      <div class="chip-row">
+        <button class="primary-button" type="submit">${isEdit ? "Guardar test" : "Crear test"}</button>
+      </div>
+    </form>
+  `;
+}
+
+function buildAdminQuestionForm(module, test) {
+  return `
+    <form class="stack" data-tests-admin-form="question" data-module-id="${escapeHtml(module.id)}" data-test-id="${escapeHtml(test.id)}">
+      <h4>Nueva pregunta</h4>
+      <label class="inline-field">
+        Enunciado
+        <textarea name="prompt" rows="3" required></textarea>
+      </label>
+      <div class="stack">
+        ${[0, 1, 2, 3]
           .map(
-            (attempt) => `
-              <li>
-                <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
-                <p class="muted">
-                  ${escapeHtml(formatAttemptDate(attempt.createdAt))}
-                  ${attempt.durationMs != null ? ` · ${escapeHtml(formatDurationMs(attempt.durationMs))}` : ""}
-                  ${attempt.timedOut ? " · Fuera de tiempo" : ""}
-                </p>
-              </li>
+            (index) => `
+              <label class="inline-field">
+                Opcion ${index + 1}
+                <input type="text" name="option${index}" ${index < 2 ? "required" : ""} />
+              </label>
             `
           )
           .join("")}
-      </ul>
-    `
-    : '<p class="muted">Todavia no has realizado intentos en este test.</p>';
+      </div>
+      <label class="inline-field">
+        Opcion correcta
+        <select name="correctIndex">
+          <option value="0">Opcion 1</option>
+          <option value="1">Opcion 2</option>
+          <option value="2">Opcion 3</option>
+          <option value="3">Opcion 4</option>
+        </select>
+      </label>
+      <label class="inline-field">
+        Explicacion
+        <textarea name="explanation" rows="2"></textarea>
+      </label>
+      ${buildQuestionTopicDifficultyFields()}
+      <div class="chip-row">
+        <button class="primary-button" type="submit">Guardar pregunta</button>
+      </div>
+    </form>
+  `;
 }
 
-function buildStudentLeaderboardMarkup(leaderboard) {
-  return leaderboard.length
-    ? `
-      <ol class="stack">
-        ${leaderboard
+function buildAdminQuestionBankForm(module) {
+  return `
+    <form class="stack" data-tests-admin-form="question-bank" data-module-id="${escapeHtml(module.id)}">
+      <h5>Nueva pregunta al banco</h5>
+      <label class="inline-field">
+        Enunciado
+        <textarea name="prompt" rows="3" required></textarea>
+      </label>
+      <div class="stack">
+        ${[0, 1, 2, 3]
           .map(
-            (entry) => `
-              <li>
-                <strong>${escapeHtml(entry.displayName || "Participante")}</strong>
-                <p class="muted">
-                  ${escapeHtml(`${entry.score}/${entry.total}`)}
-                  ${entry.durationMs != null ? ` · ${escapeHtml(formatDurationMs(entry.durationMs))}` : ""}
-                </p>
-              </li>
+            (index) => `
+              <label class="inline-field">
+                Opcion ${index + 1}
+                <input type="text" name="option${index}" ${index < 2 ? "required" : ""} />
+              </label>
+            `
+          )
+          .join("")}
+      </div>
+      <label class="inline-field">
+        Opcion correcta
+        <select name="correctIndex">
+          <option value="0">Opcion 1</option>
+          <option value="1">Opcion 2</option>
+          <option value="2">Opcion 3</option>
+          <option value="3">Opcion 4</option>
+        </select>
+      </label>
+      <label class="inline-field">
+        Explicacion
+        <textarea name="explanation" rows="2"></textarea>
+      </label>
+      ${buildQuestionTopicDifficultyFields()}
+      <div class="chip-row">
+        <button class="primary-button" type="submit">Guardar en banco</button>
+      </div>
+    </form>
+  `;
+}
+
+function buildQuestionUsageMarkup(question) {
+  const testsUsingQuestion = getTestsUsingQuestion(question?.id || "");
+  return testsUsingQuestion.length
+    ? `<p class="muted">Usada en: ${escapeHtml(testsUsingQuestion.map((test) => test.title).join(", "))}</p>`
+    : '<p class="muted">Disponible en banco, sin asignar a tests.</p>';
+}
+
+function buildAdminQuestionBankQuestionMarkup(question) {
+  return `
+    <details class="panel panel-side">
+      <summary>${escapeHtml(question.prompt || "Pregunta sin enunciado")}</summary>
+      ${buildQuestionMetaSummary(question)}
+      <ol>
+        ${(Array.isArray(question.options) ? question.options : [])
+          .map(
+            (option, index) => `
+              <li${Number(question.correctIndex) === index ? ' class="correct-option"' : ""}>${escapeHtml(option)}</li>
             `
           )
           .join("")}
       </ol>
-    `
-    : '<p class="muted">Todavia no hay resultados para este ranking.</p>';
-}
-
-function buildStudentCurrentUserRankMarkup(currentUserRank, leaderboard) {
-  if (!currentUserRank) {
-    return "";
-  }
-
-  const isAlreadyVisible = leaderboard.some((entry) => String(entry.memberId || "").trim() === String(currentUserRank.memberId || "").trim());
-  if (isAlreadyVisible) {
-    return "";
-  }
-
-  return `
-    <section class="panel panel-side">
-      <h4>Tu posicion</h4>
-      <p><strong>#${escapeHtml(String(currentUserRank.rank))}</strong> ${escapeHtml(currentUserRank.displayName || "Participante")}</p>
-      <p class="muted">
-        ${escapeHtml(`${currentUserRank.score}/${currentUserRank.total}`)}
-        ${currentUserRank.durationMs != null ? ` · ${escapeHtml(formatDurationMs(currentUserRank.durationMs))}` : ""}
-      </p>
-    </section>
-  `;
-}
-
-function buildQuestionOptionFields(question = null) {
-  const options = Array.isArray(question?.options) ? question.options : ["", "", "", ""];
-  return [0, 1, 2, 3]
-    .map(
-      (index) => `
-        <label class="inline-field">
-          Opcion ${index + 1}
-          <input type="text" name="option${index}" value="${escapeHtml(options[index] || "")}" ${index < 2 ? "required" : ""} />
-        </label>
-      `
-    )
-    .join("");
-}
-
-function buildCorrectIndexSelect(question = null) {
-  const selectedIndex = Number.isInteger(Number(question?.correctIndex)) ? Number(question.correctIndex) : 0;
-  return [0, 1, 2, 3]
-    .map(
-      (index) => `
-        <option value="${index}" ${selectedIndex === index ? "selected" : ""}>Opcion ${index + 1}</option>
-      `
-    )
-    .join("");
-}
-
-function buildAdminTestQuestionAssignmentMarkup(test, question, questionIndex, totalQuestions) {
-  const canMoveUp = questionIndex > 0;
-  const canMoveDown = questionIndex < totalQuestions - 1;
-  return `
-    <li class="panel panel-side">
-      <div class="course-topline">
-        <span class="tag">Pregunta ${questionIndex + 1}</span>
-        <span class="status-chip">${escapeHtml(question.id)}</span>
-      </div>
-      <p><strong>${escapeHtml(question.prompt || "")}</strong></p>
-      ${buildQuestionMetaSummary(question)}
-      <div class="chip-row">
-        <button class="ghost-button" type="button" data-action="move-question" data-test-id="${escapeHtml(test.id)}" data-question-id="${escapeHtml(question.id)}" data-direction="up" ${canMoveUp ? "" : "disabled"}>
-          Subir
-        </button>
-        <button class="ghost-button" type="button" data-action="move-question" data-test-id="${escapeHtml(test.id)}" data-question-id="${escapeHtml(question.id)}" data-direction="down" ${canMoveDown ? "" : "disabled"}>
-          Bajar
-        </button>
-        <button class="ghost-button" type="button" data-action="remove-question-from-test" data-test-id="${escapeHtml(test.id)}" data-question-id="${escapeHtml(question.id)}">
-          Quitar del test
-        </button>
-      </div>
-    </li>
-  `;
-}
-
-function buildAdminQuestionBankQuestionMarkup(question) {
-  const usedByTests = getTestsUsingQuestion(question.id);
-  return `
-    <details class="panel panel-side">
-      <summary>
-        <strong>${escapeHtml(question.prompt || "Pregunta sin enunciado")}</strong>
-        <span class="muted">${escapeHtml(
-          usedByTests.length ? ` · Usada en ${usedByTests.length} test(s)` : " · Sin asignar"
-        )}</span>
-      </summary>
+      ${question.explanation ? `<p class="muted">${escapeHtml(question.explanation)}</p>` : ""}
+      ${buildQuestionUsageMarkup(question)}
       <form class="stack" data-tests-admin-form="question-edit" data-question-id="${escapeHtml(question.id)}">
-        <div class="course-topline">
-          <span class="tag">Banco</span>
-          <span class="status-chip">${escapeHtml(question.id)}</span>
-        </div>
         <label class="inline-field">
           Enunciado
           <textarea name="prompt" rows="2" required>${escapeHtml(question.prompt || "")}</textarea>
         </label>
-        <div class="studio-grid">
-          ${buildQuestionOptionFields(question)}
+        <div class="stack">
+          ${(Array.isArray(question.options) ? question.options : ["", ""])
+            .concat(["", "", "", ""])
+            .slice(0, 4)
+            .map(
+              (option, index) => `
+                <label class="inline-field">
+                  Opcion ${index + 1}
+                  <input type="text" name="option${index}" value="${escapeHtml(option)}" ${index < 2 ? "required" : ""} />
+                </label>
+              `
+            )
+            .join("")}
         </div>
         <label class="inline-field">
-          Indice correcto
-          <select name="correctIndex">${buildCorrectIndexSelect(question)}</select>
+          Opcion correcta
+          <select name="correctIndex">
+            ${[0, 1, 2, 3]
+              .map(
+                (index) => `
+                  <option value="${index}" ${Number(question.correctIndex) === index ? "selected" : ""}>Opcion ${index + 1}</option>
+                `
+              )
+              .join("")}
+          </select>
         </label>
         <label class="inline-field">
           Explicacion
           <textarea name="explanation" rows="2">${escapeHtml(question.explanation || "")}</textarea>
         </label>
         ${buildQuestionTopicDifficultyFields(question)}
-        ${
-          usedByTests.length
-            ? `<p class="muted">Usada en: ${escapeHtml(usedByTests.map((test) => test.title || "Test").join(", "))}</p>`
-            : '<p class="muted">Esta pregunta esta disponible en el banco y todavia no esta asignada a ningun test.</p>'
-        }
         <div class="chip-row">
-          <button class="primary-button" type="submit">Guardar pregunta</button>
+          <button class="primary-button" type="submit">Guardar cambios</button>
           <button class="ghost-button danger-button" type="button" data-action="delete-question" data-question-id="${escapeHtml(question.id)}">
-            Borrar
+            Borrar pregunta
           </button>
         </div>
       </form>
@@ -868,19 +887,61 @@ function buildAdminQuestionBankQuestionMarkup(question) {
   `;
 }
 
+function buildAdminQuestionMarkup(test, question, index) {
+  const totalQuestions = Array.isArray(test?.questionIds) ? test.questionIds.length : 0;
+  return `
+    <details class="panel panel-side">
+      <summary>${escapeHtml(question.prompt || "Pregunta sin enunciado")}</summary>
+      ${buildQuestionMetaSummary(question)}
+      <ol>
+        ${(Array.isArray(question.options) ? question.options : [])
+          .map(
+            (option, optionIndex) => `
+              <li${Number(question.correctIndex) === optionIndex ? ' class="correct-option"' : ""}>${escapeHtml(option)}</li>
+            `
+          )
+          .join("")}
+      </ol>
+      ${question.explanation ? `<p class="muted">${escapeHtml(question.explanation)}</p>` : ""}
+      <div class="chip-row">
+        <button class="ghost-button" type="button" data-action="move-question" data-test-id="${escapeHtml(
+          test.id
+        )}" data-question-id="${escapeHtml(question.id)}" data-direction="up" ${index === 0 ? "disabled" : ""}>Subir</button>
+        <button class="ghost-button" type="button" data-action="move-question" data-test-id="${escapeHtml(
+          test.id
+        )}" data-question-id="${escapeHtml(question.id)}" data-direction="down" ${
+          index === totalQuestions - 1 ? "disabled" : ""
+        }>Bajar</button>
+        <button class="ghost-button" type="button" data-action="remove-question-from-test" data-test-id="${escapeHtml(
+          test.id
+        )}" data-question-id="${escapeHtml(question.id)}">Quitar del test</button>
+      </div>
+    </details>
+  `;
+}
+
 function buildAdminAvailableQuestionMarkup(test, question) {
   return `
     <li class="panel panel-side">
-      <div class="course-topline">
-        <span class="tag">Banco</span>
-        <span class="status-chip">${escapeHtml(question.id)}</span>
+      <div>
+        <strong>${escapeHtml(question.prompt || "Pregunta sin enunciado")}</strong>
+        ${buildQuestionMetaSummary(question)}
       </div>
-      <p><strong>${escapeHtml(question.prompt || "")}</strong></p>
-      ${buildQuestionMetaSummary(question)}
       <div class="chip-row">
-        <button class="ghost-button" type="button" data-action="add-question-to-test" data-test-id="${escapeHtml(test.id)}" data-question-id="${escapeHtml(question.id)}">
-          Añadir al test
-        </button>
+        <button class="ghost-button" type="button" data-action="add-question-to-test" data-test-id="${escapeHtml(
+          test.id
+        )}" data-question-id="${escapeHtml(question.id)}">Añadir al test</button>
+      </div>
+    </li>
+  `;
+}
+
+function buildAdminUnusedQuestionMarkup(question) {
+  return `
+    <li class="panel panel-side">
+      <div>
+        <strong>${escapeHtml(question.prompt || "Pregunta sin enunciado")}</strong>
+        ${buildQuestionMetaSummary(question)}
       </div>
     </li>
   `;
@@ -902,7 +963,7 @@ function buildLiveLeaderboardMarkup(leaderboard = [], options = {}) {
                 <strong>${rankLabel ? `${escapeHtml(rankLabel)} ` : ""}${escapeHtml(entry.displayName || "Participante")}${isCurrentPlayer ? " (Tú)" : ""}</strong>
                 <p class="muted">${escapeHtml(`${entry.score || 0} punto(s)`)}</p>
               </li>
-            `
+            `;
           })
           .join("")}
       </ol>
@@ -935,10 +996,12 @@ function buildAdminLiveSessionsMarkup() {
           </div>
           <h3>${escapeHtml(session.testTitle || "Test sin titulo")}</h3>
           <p class="muted"><strong>PIN:</strong> ${escapeHtml(session.pin || "")}</p>
-          <p class="muted"><strong>Pregunta actual:</strong> ${
-            Number(session.currentQuestionIndex) >= 0
-              ? `${Number(session.currentQuestionIndex) + 1}/${Number(session.totalQuestions || 0)}`
-              : "Pendiente de inicio"
+          <p class="muted"><strong>Estado:</strong> ${
+            session.status === "running"
+              ? "Pregunta activa"
+              : session.status === "finished"
+                ? "Sesion finalizada"
+                : "Pendiente de inicio"
           }</p>
           <p class="muted"><strong>Jugadores:</strong> ${escapeHtml(String(session.playersCount || 0))}</p>
           <p class="muted"><strong>Tiempo por pregunta:</strong> ${escapeHtml(String(session.questionTimeLimitSeconds || 20))} s</p>
@@ -977,22 +1040,22 @@ function buildAdminLiveSessionsMarkup() {
 
 function buildStudentLiveJoinMarkup() {
   return `
-    <section class="panel panel-side">
-      <h3>Unirse a sesion live</h3>
+    <article class="panel panel-side">
+      <h3>Unirse a una sesion live</h3>
       <form class="stack" data-tests-student-form="live-join">
         <label class="inline-field">
-          PIN
-          <input type="text" name="pin" inputmode="numeric" maxlength="6" required />
+          PIN de la sesion
+          <input type="text" name="pin" maxlength="6" inputmode="numeric" placeholder="123456" required />
         </label>
         <label class="inline-field">
-          Alias (opcional)
-          <input type="text" name="displayName" maxlength="60" />
+          Nombre visible
+          <input type="text" name="displayName" maxlength="60" placeholder="Tu nombre" />
         </label>
         <div class="chip-row">
-          <button class="primary-button" type="submit">Unirme</button>
+          <button class="primary-button" type="submit">Entrar en live</button>
         </div>
       </form>
-    </section>
+    </article>
   `;
 }
 
@@ -1048,7 +1111,7 @@ function buildStudentLiveSessionMarkup() {
   return `
     <article class="panel panel-wide">
       <div class="course-topline">
-        <span class="tag">Sesion live</span>
+        <span class="tag">Live</span>
         <span class="status-chip">${escapeHtml(statusLabel)}</span>
       </div>
       <h3>${escapeHtml(session.testTitle || "Sesion live")}</h3>
@@ -1082,9 +1145,9 @@ function buildStudentLiveSessionMarkup() {
                           <div class="stack">
                             ${(Array.isArray(question.options) ? question.options : [])
                               .map(
-                                (option, optionIndex) => `
+                                (option, index) => `
                                   <label class="inline-field">
-                                    <input type="radio" name="selectedIndex" value="${optionIndex}" required />
+                                    <input type="radio" name="selectedIndex" value="${index}" required />
                                     <span>${escapeHtml(option)}</span>
                                   </label>
                                 `
@@ -1100,13 +1163,61 @@ function buildStudentLiveSessionMarkup() {
                   }
                 </div>
               `
-              : '<p class="muted">Esperando a que aparezca la siguiente pregunta.</p>'
+              : '<p class="muted">Esperando a que llegue la siguiente pregunta.</p>'
       }
       <section class="stack">
         <h4>Ranking live</h4>
         ${buildLiveLeaderboardMarkup(leaderboard, { currentPlayer })}
       </section>
     </article>
+  `;
+}
+
+function buildAttemptsMarkup(attempts = []) {
+  return Array.isArray(attempts) && attempts.length
+    ? `
+      <ul class="stack">
+        ${attempts
+          .map(
+            (attempt) => `
+              <li class="panel panel-side">
+                <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
+                <p class="muted">${escapeHtml(formatAttemptDate(attempt.createdAt))}</p>
+              </li>
+            `
+          )
+          .join("")}
+      </ul>
+    `
+    : '<p class="muted">Todavia no hay intentos.</p>';
+}
+
+function buildLeaderboardMarkup(entries = []) {
+  return Array.isArray(entries) && entries.length
+    ? `
+      <ol class="stack">
+        ${entries
+          .map(
+            (entry) => `
+              <li class="panel panel-side">
+                <strong>${escapeHtml(entry.displayName || "Participante")}</strong>
+                <p class="muted">${escapeHtml(`${entry.score || 0} punto(s)`)}</p>
+              </li>
+            `
+          )
+          .join("")}
+      </ol>
+    `
+    : '<p class="muted">Todavia no hay puntuaciones.</p>';
+}
+
+function buildStudentCurrentUserRankMarkup(currentUserRank, leaderboard) {
+  if (!currentUserRank) {
+    return "";
+  }
+
+  return `
+    <p class="muted"><strong>Tu posicion:</strong> ${escapeHtml(String(currentUserRank.position || "-"))} de ${escapeHtml(String((Array.isArray(leaderboard) ? leaderboard.length : 0) || 0))}</p>
   `;
 }
 
@@ -1118,87 +1229,53 @@ function buildAdminModuleMarkup(module) {
     <article class="course-card">
       <div class="course-topline">
         <span class="tag">Modulo</span>
-        <span class="status-chip">${tests.length} test(s) · ${moduleQuestions.length} pregunta(s)</span>
+        <span class="status-chip">${escapeHtml(String(tests.length))} test(s)</span>
       </div>
-      <div class="panel-stack">
-        <form class="stack" data-tests-admin-form="module-edit" data-module-id="${escapeHtml(module.id)}">
-          <h3>Editar modulo</h3>
-          <label class="inline-field">
-            Titulo
-            <input type="text" name="title" value="${escapeHtml(module.title || "")}" required />
-          </label>
-          <label class="inline-field">
-            Descripcion
-            <textarea name="description" rows="2">${escapeHtml(module.description || "")}</textarea>
-          </label>
-          <div class="chip-row">
-            <button class="primary-button" type="submit">Guardar modulo</button>
-            <button class="ghost-button danger-button" type="button" data-action="delete-module" data-module-id="${escapeHtml(module.id)}">
-              Borrar modulo
-            </button>
-          </div>
-        </form>
-        <form class="stack" data-tests-admin-form="test" data-module-id="${escapeHtml(module.id)}">
-          <h4>Nuevo test</h4>
-          <label class="inline-field">
-            Titulo
-            <input type="text" name="title" required />
-          </label>
-          <label class="inline-field">
-            Descripcion
-            <textarea name="description" rows="2"></textarea>
-          </label>
-          <label class="inline-field">
-            <span>Publicado</span>
-            <input type="checkbox" name="published" />
-          </label>
-          <label class="inline-field">
-            Limite de tiempo (segundos)
-            <input type="number" name="timeLimitSeconds" min="1" step="1" />
-          </label>
-          <p class="muted">Dejalo vacio para no aplicar limite.</p>
-          <div class="chip-row">
-            <button class="primary-button" type="submit">Guardar test</button>
-          </div>
-        </form>
-
-        ${
-          tests.length
-            ? tests
-                .map((test) => {
-                  const questions = getQuestionsForTest(test.id);
-                  const availableQuestions = getAvailableQuestionsForTest(test);
-                  return `
+      <h3>${escapeHtml(module.title || "Modulo sin titulo")}</h3>
+      <p class="muted">${escapeHtml(module.description || "Sin descripcion")}</p>
+      <details>
+        <summary>Editar modulo</summary>
+        ${buildAdminModuleForm(module)}
+        <div class="chip-row">
+          <button class="ghost-button danger-button" type="button" data-action="delete-module" data-module-id="${escapeHtml(module.id)}">
+            Borrar modulo
+          </button>
+        </div>
+      </details>
+      <section class="panel panel-side">
+        <h4>Crear test</h4>
+        ${buildAdminTestForm(module)}
+      </section>
+      ${
+        tests.length
+          ? tests
+              .map((test) => {
+                const questions = getQuestionsForTest(test.id);
+                const attempts = getAttemptsForTest(test.id);
+                const leaderboard = getLeaderboardForTest(test.id);
+                const availableQuestions = getAvailableQuestionsForTest(test);
+                return `
                     <section class="panel panel-side">
-                      <form class="stack" data-tests-admin-form="test-edit" data-test-id="${escapeHtml(test.id)}">
-                        <div class="course-topline">
-                          <span class="tag">Test</span>
-                          <span class="status-chip">${test.published ? "Publicado" : "Borrador"}</span>
-                        </div>
-                        <label class="inline-field">
-                          Titulo
-                          <input type="text" name="title" value="${escapeHtml(test.title || "")}" required />
-                        </label>
-                        <label class="inline-field">
-                          Descripcion
-                          <textarea name="description" rows="2">${escapeHtml(test.description || "")}</textarea>
-                        </label>
-                        <label class="inline-field">
-                          <span>Publicado</span>
-                          <input type="checkbox" name="published" ${test.published ? "checked" : ""} />
-                        </label>
-                        <label class="inline-field">
-                          Limite de tiempo (segundos)
-                          <input type="number" name="timeLimitSeconds" min="1" step="1" value="${escapeHtml(test.timeLimitSeconds || "")}" />
-                        </label>
-                        <p class="muted">Dejalo vacio para no aplicar limite.</p>
+                      <div class="course-topline">
+                        <span class="tag">Test</span>
+                        <span class="status-chip">${test.published ? "Publicado" : "Borrador"}</span>
+                      </div>
+                      <h4>${escapeHtml(test.title || "Test sin titulo")}</h4>
+                      <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
+                      <p class="muted"><strong>Tiempo limite:</strong> ${
+                        Number.isFinite(Number(test.timeLimitSeconds)) && Number(test.timeLimitSeconds) > 0
+                          ? `${escapeHtml(String(test.timeLimitSeconds))} s`
+                          : "Sin limite"
+                      }</p>
+                      <details>
+                        <summary>Editar test</summary>
+                        ${buildAdminTestForm(module, test)}
                         <div class="chip-row">
-                          <button class="primary-button" type="submit">Guardar test</button>
                           <button class="ghost-button danger-button" type="button" data-action="delete-test" data-test-id="${escapeHtml(test.id)}">
                             Borrar test
                           </button>
                         </div>
-                      </form>
+                      </details>
                       ${
                         test.published && questions.length
                           ? `
@@ -1218,16 +1295,12 @@ function buildAdminModuleMarkup(module) {
                         <h5>Preguntas asignadas</h5>
                         ${
                           questions.length
-                            ? `<ol class="stack">${questions
-                                .map((question, questionIndex) =>
-                                  buildAdminTestQuestionAssignmentMarkup(test, question, questionIndex, questions.length)
-                                )
-                                .join("")}</ol>`
-                            : '<p class="muted">Sin preguntas asignadas todavia.</p>'
+                            ? questions.map((question, index) => buildAdminQuestionMarkup(test, question, index)).join("")
+                            : '<p class="muted">Todavia no hay preguntas asignadas a este test.</p>'
                         }
                       </section>
                       <section class="stack">
-                        <h5>Anadir preguntas del banco</h5>
+                        <h5>Añadir preguntas del banco</h5>
                         ${
                           availableQuestions.length
                             ? `
@@ -1238,72 +1311,52 @@ function buildAdminModuleMarkup(module) {
                                   .join("")}</ul>
                               </details>
                             `
-                            : '<p class="muted">No quedan preguntas libres de este modulo para asignar a este test.</p>'
+                            : '<p class="muted">No hay preguntas disponibles del banco para este test.</p>'
                         }
                       </section>
-                      <form class="stack" data-tests-admin-form="question" data-module-id="${escapeHtml(module.id)}" data-test-id="${escapeHtml(test.id)}">
-                        <h5>Nueva pregunta y asignar al test</h5>
-                        <label class="inline-field">
-                          Enunciado
-                          <textarea name="prompt" rows="2" required></textarea>
-                        </label>
-                        <div class="studio-grid">
-                          ${buildQuestionOptionFields()}
-                        </div>
-                        <label class="inline-field">
-                          Indice correcto
-                          <select name="correctIndex">${buildCorrectIndexSelect()}</select>
-                        </label>
-                        <label class="inline-field">
-                          Explicacion
-                          <textarea name="explanation" rows="2"></textarea>
-                        </label>
-                        ${buildQuestionTopicDifficultyFields()}
-                        <div class="chip-row">
-                          <button class="primary-button" type="submit">Guardar pregunta</button>
-                        </div>
-                      </form>
+                      <section class="panel panel-side">
+                        <h5>Nueva pregunta para este test</h5>
+                        ${buildAdminQuestionForm(module, test)}
+                      </section>
+                      <section class="panel panel-side">
+                        <h5>Intentos</h5>
+                        ${buildAttemptsMarkup(attempts)}
+                      </section>
+                      <section class="panel panel-side">
+                        <h5>Ranking</h5>
+                        ${buildLeaderboardMarkup(leaderboard)}
+                      </section>
                     </section>
                   `;
-                })
-                .join("")
-            : '<p class="muted">Todavia no hay tests en este modulo.</p>'
+              })
+              .join("")
+          : '<div class="empty-state">Todavia no hay tests en este modulo.</div>'
+      }
+      <section class="panel panel-side">
+        <h4>Banco de preguntas</h4>
+        <p class="muted">Aqui se guardan todas las preguntas del modulo, aunque no esten asignadas a ningun test.</p>
+        ${buildQuestionBankFiltersMarkup(module.id, moduleQuestions.length, filteredModuleQuestions.length)}
+        ${buildAdminQuestionBankForm(module)}
+        ${
+          moduleQuestions.length
+            ? filteredModuleQuestions.length
+              ? `<div class="stack">${filteredModuleQuestions.map((question) => buildAdminQuestionBankQuestionMarkup(question)).join("")}</div>`
+              : '<p class="muted">No hay preguntas que coincidan con los filtros de este modulo.</p>'
+            : '<p class="muted">Todavia no hay preguntas en este modulo.</p>'
         }
-        <section class="panel panel-side">
-          <h4>Banco de preguntas</h4>
-          <p class="muted">Aqui se guardan todas las preguntas del modulo, aunque no esten asignadas a ningun test.</p>
-          ${buildQuestionBankFiltersMarkup(module.id, moduleQuestions.length, filteredModuleQuestions.length)}
-          <form class="stack" data-tests-admin-form="question-bank" data-module-id="${escapeHtml(module.id)}">
-            <h5>Nueva pregunta al banco</h5>
-            <label class="inline-field">
-              Enunciado
-              <textarea name="prompt" rows="2" required></textarea>
-            </label>
-            <div class="studio-grid">
-              ${buildQuestionOptionFields()}
-            </div>
-            <label class="inline-field">
-              Indice correcto
-              <select name="correctIndex">${buildCorrectIndexSelect()}</select>
-            </label>
-            <label class="inline-field">
-              Explicacion
-              <textarea name="explanation" rows="2"></textarea>
-            </label>
-            ${buildQuestionTopicDifficultyFields()}
-            <div class="chip-row">
-              <button class="primary-button" type="submit">Guardar en banco</button>
-            </div>
-          </form>
-          ${
-            moduleQuestions.length
-              ? filteredModuleQuestions.length
-                ? `<div class="stack">${filteredModuleQuestions.map((question) => buildAdminQuestionBankQuestionMarkup(question)).join("")}</div>`
-                : '<p class="muted">No hay preguntas que coincidan con los filtros de este modulo.</p>'
-              : '<p class="muted">Todavia no hay preguntas en este modulo.</p>'
-          }
-        </section>
-      </div>
+      </section>
+      ${
+        getUnusedQuestionsForModule(module.id).length
+          ? `
+            <section class="panel panel-side">
+              <h4>Preguntas sin usar en tests</h4>
+              <ul class="stack">${getUnusedQuestionsForModule(module.id)
+                .map((question) => buildAdminUnusedQuestionMarkup(question))
+                .join("")}</ul>
+            </section>
+          `
+          : ""
+      }
     </article>
   `;
 }
@@ -1313,33 +1366,24 @@ function renderAdminMarkup() {
     <section class="panel-stack">
       <article class="panel panel-wide">
         <p class="eyebrow">Tests</p>
-        <h2>Gestion de modulos y tests</h2>
-        <p class="status-note ${testsViewState.message ? `is-${escapeHtml(testsViewState.tone)}` : ""}">${escapeHtml(testsViewState.message || "Crea modulos, tests y preguntas para la nueva seccion independiente.")}</p>
-        <form class="stack" data-tests-admin-form="module">
-          <h3>Nuevo modulo</h3>
-          <label class="inline-field">
-            Titulo
-            <input type="text" name="title" required />
-          </label>
-          <label class="inline-field">
-            Descripcion
-            <textarea name="description" rows="2"></textarea>
-          </label>
-          <div class="chip-row">
-            <button class="primary-button" type="submit">Guardar modulo</button>
-          </div>
-        </form>
+        <h2>Gestion de tests independientes</h2>
+        <p class="status-note ${testsViewState.message ? `is-${escapeHtml(testsViewState.tone)}` : ""}">
+          ${escapeHtml(testsViewState.message || "Crea modulos, preguntas y tests independientes desde aqui.")}
+        </p>
+      </article>
+      <article class="panel panel-side">
+        <h3>Nuevo modulo</h3>
+        ${buildAdminModuleForm()}
         <form class="stack" data-tests-admin-form="import-csv">
           <h3>Importar preguntas CSV</h3>
           <p class="muted">Cabecera soportada: moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds</p>
-          <p class="muted">Si dejas testTitle vacio, las preguntas se importan solo al banco.</p>
-          <p class="muted">Si informas testTitle, se crea o reutiliza ese test y se asignan las preguntas.</p>
+          <p class="muted">Si dejas testTitle vacio, las preguntas se importan solo al banco. Si informas testTitle, se crea o reutiliza ese test y se asignan las preguntas.</p>
           <div class="chip-row">
             <button class="ghost-button" type="button" data-action="download-import-csv-template">Descargar plantilla CSV</button>
           </div>
           <label class="inline-field">
             CSV
-            <textarea name="csv" rows="8" placeholder="moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds&#10;Primeros Auxilios,,,&quot;Pregunta solo para banco&quot;,112,061,,,A,&quot;Sin test todavia&quot;,emergencias,facil,&#10;Rescate,Autoevacuacion,true,&quot;Pregunta asignada a test&quot;,Avisar,Esperar,,,A,&quot;Comentario opcional&quot;,basico,facil,20" required></textarea>
+            <textarea name="csv" rows="8" placeholder="moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds&#10;Primeros Auxilios,,false,&quot;Pregunta solo para banco&quot;,Opcion A,Opcion B,,,A,&quot;Comentario opcional&quot;,trauma,facil,&#10;Rescate,Autoevacuacion,true,&quot;Pregunta asignada a test&quot;,Opcion A,Opcion B,,,A,&quot;Comentario opcional&quot;,evacuacion,media,20" required></textarea>
           </label>
           <div class="chip-row">
             <button class="primary-button" type="submit">Importar CSV</button>
@@ -1348,49 +1392,75 @@ function renderAdminMarkup() {
       </article>
       <article class="panel panel-wide">
         <p class="eyebrow">Sesiones live</p>
-        <h2>Kahoot-lite MVP</h2>
+        <h2>Sesiones live</h2>
         ${buildAdminLiveSessionsMarkup()}
       </article>
       ${
         testsViewState.modules.length
           ? testsViewState.modules.map((module) => buildAdminModuleMarkup(module)).join("")
-          : '<div class="empty-state">No hay modulos de tests todavia.</div>'
+          : '<article class="empty-state">Todavia no hay modulos creados.</article>'
       }
     </section>
   `;
 }
 
+function buildStudentAttemptsMarkup(attempts = []) {
+  return Array.isArray(attempts) && attempts.length
+    ? `
+      <ul class="stack">
+        ${attempts
+          .map(
+            (attempt) => `
+              <li class="panel panel-side">
+                <strong>${escapeHtml(`${attempt.score}/${attempt.total}`)}</strong>
+                <p class="muted">${escapeHtml(formatAttemptDate(attempt.createdAt))}</p>
+                ${
+                  Number.isFinite(Number(attempt.durationMs))
+                    ? `<p class="muted">Duracion: ${escapeHtml(formatDurationMs(attempt.durationMs))}</p>`
+                    : ""
+                }
+              </li>
+            `
+          )
+          .join("")}
+      </ul>
+    `
+    : '<p class="muted">Aun no has hecho intentos en este test.</p>';
+}
+
+function buildStudentLeaderboardMarkup(leaderboard = []) {
+  return Array.isArray(leaderboard) && leaderboard.length
+    ? `
+      <ol class="stack">
+        ${leaderboard
+          .map(
+            (entry) => `
+              <li class="panel panel-side">
+                <strong>${escapeHtml(entry.displayName || "Participante")}</strong>
+                <p class="muted">${escapeHtml(`${entry.score || 0} punto(s)`)}</p>
+              </li>
+            `
+          )
+          .join("")}
+      </ol>
+    `
+    : '<p class="muted">Todavia no hay puntuaciones para este test.</p>';
+}
+
 function buildStudentTestListMarkup() {
-  const tests = testsViewState.tests.filter((test) => Boolean(test.published));
-  if (!tests.length) {
-    return '<div class="empty-state">No hay tests publicados disponibles ahora mismo.</div>';
+  const visibleTests = testsViewState.tests.filter((test) => Boolean(test.published));
+  if (!visibleTests.length) {
+    return '<div class="empty-state">Todavia no hay tests publicados.</div>';
   }
 
   return `
-    <div class="compact-list">
-      ${tests
+    <div class="stack">
+      ${visibleTests
         .map(
           (test) => `
-            <article class="compact-list-item">
-              <div>
-                <strong>${escapeHtml(test.title)}</strong>
-                <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
-                ${
-                  Number(test.questionCount || 0) > 0
-                    ? ""
-                    : '<p class="muted">Este test esta publicado pero todavia no tiene preguntas.</p>'
-                }
-              </div>
-              ${
-                Number(test.questionCount || 0) > 0
-                  ? `
-                    <button class="primary-button" type="button" data-action="open-test" data-test-id="${escapeHtml(test.id)}">
-                      Hacer test
-                    </button>
-                  `
-                  : ""
-              }
-            </article>
+            <button class="course-link ${testsViewState.activeTestId === test.id ? "is-active" : ""}" type="button" data-action="open-test" data-test-id="${escapeHtml(test.id)}">
+              <span>${escapeHtml(test.title || "Test sin titulo")}</span>
+            </button>
           `
         )
         .join("")}
@@ -1399,33 +1469,41 @@ function buildStudentTestListMarkup() {
 }
 
 function buildStudentActiveTestMarkup() {
-  if (!testsViewState.activeTestId) {
-    return '<div class="empty-state">Selecciona un test publicado para empezar.</div>';
+  const test = getActiveStudentTest();
+  if (!test) {
+    return '<div class="empty-state">Selecciona un test publicado.</div>';
   }
 
-  const test = testsViewState.tests.find((item) => item.id === testsViewState.activeTestId) || null;
-  const questions = getQuestionsForTest(testsViewState.activeTestId);
-  const attempts = getAttemptsForTest(testsViewState.activeTestId);
-  const leaderboard = getLeaderboardForTest(testsViewState.activeTestId);
-  const currentUserRank = getCurrentUserRankForTest(testsViewState.activeTestId);
+  const questions = getQuestionsForTest(test.id);
+  const attempts = getAttemptsForTest(test.id);
+  const leaderboard = getLeaderboardForTest(test.id);
+  const currentUserRank = getCurrentUserRankForTest(test.id);
   const timeLimitSeconds = getStudentTestTimeLimitSeconds(test);
-  const timedAttemptActive = hasActiveTimedAttempt(test);
-  if (!test || !questions.length) {
-    return '<div class="empty-state">Este test está publicado pero todavía no tiene preguntas.</div>';
+  const isAttemptActive = hasActiveTimedAttempt(test);
+
+  if (!questions.length) {
+    return `
+      <section class="panel panel-side">
+        <h3>${escapeHtml(test.title)}</h3>
+        <p class="muted">Este test todavia no tiene preguntas publicadas.</p>
+      </section>
+    `;
   }
 
-  if (timeLimitSeconds && !timedAttemptActive) {
+  if (!isAttemptActive) {
     return `
-      <section class="stack">
-        <div>
-          <p class="eyebrow">Test activo</p>
-          <h3>${escapeHtml(test.title)}</h3>
-          <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
-          <p class="muted">Tiempo limite: ${escapeHtml(String(timeLimitSeconds))} s.</p>
-        </div>
+      <section class="panel panel-side">
+        <h3>${escapeHtml(test.title)}</h3>
+        <p class="muted">${escapeHtml(test.description || "Sin descripcion")}</p>
+        <p class="muted">Preguntas: ${escapeHtml(String(questions.length))}</p>
+        ${
+          timeLimitSeconds
+            ? `<p class="muted">Tiempo limite: ${escapeHtml(String(timeLimitSeconds))} s</p>`
+            : '<p class="muted">Sin limite de tiempo</p>'
+        }
         <div class="chip-row">
           <button class="primary-button" type="button" data-action="start-test-attempt" data-test-id="${escapeHtml(test.id)}">
-            ${attempts.length ? "Reintentar" : "Empezar intento"}
+            Empezar ahora
           </button>
         </div>
         <section class="panel panel-side">
@@ -1611,6 +1689,15 @@ async function handleAdminSubmit(container, form) {
       difficulty: String(formData.get("difficulty") || "").trim()
     });
     setTestsViewMessage("Pregunta guardada en el banco correctamente.", "success");
+  } else if (formType === "question-bank-filters") {
+    setQuestionBankFilterState(String(form.dataset.moduleId || "").trim(), {
+      query: String(formData.get("query") || ""),
+      topic: String(formData.get("topic") || ""),
+      difficulty: String(formData.get("difficulty") || "")
+    });
+    renderTestsMarkup(container);
+    finalizeTestsViewRender(container);
+    return;
   } else if (formType === "question-edit") {
     await client.patch(`/api/questions/${encodeURIComponent(String(form.dataset.questionId || "").trim())}`, {
       prompt: String(formData.get("prompt") || "").trim(),
@@ -1853,28 +1940,6 @@ async function handleStudentLiveAnswer(container, form) {
 }
 
 export function renderTestsView(container, role = "member") {
-  container.oninput = (event) => {
-    const filterField = event.target.closest("[data-question-bank-filter]");
-    if (!isAdminRole(role) || !filterField) {
-      return;
-    }
-    setQuestionBankFilterState(String(filterField.dataset.moduleId || "").trim(), {
-      [String(filterField.name || "").trim()]: String(filterField.value || "")
-    });
-    renderTestsMarkup(container);
-    finalizeTestsViewRender(container);
-  };
-  container.onchange = (event) => {
-    const filterField = event.target.closest("[data-question-bank-filter]");
-    if (!isAdminRole(role) || !filterField) {
-      return;
-    }
-    setQuestionBankFilterState(String(filterField.dataset.moduleId || "").trim(), {
-      [String(filterField.name || "").trim()]: String(filterField.value || "")
-    });
-    renderTestsMarkup(container);
-    finalizeTestsViewRender(container);
-  };
   container.onclick = async (event) => {
     const adminActionButton = event.target.closest("[data-action]");
     const openTestButton = event.target.closest('[data-action="open-test"]');
