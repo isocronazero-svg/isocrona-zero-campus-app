@@ -457,6 +457,10 @@ function ensureLegacyAccountForDbUser(state, dbUser, options = {}) {
   state.liveTestPlayers = Array.isArray(state.liveTestPlayers) ? state.liveTestPlayers : [];
   state.liveTestAnswers = Array.isArray(state.liveTestAnswers) ? state.liveTestAnswers : [];
   state.testResults = Array.isArray(state.testResults) ? state.testResults : [];
+  state.testZoneQuestions = Array.isArray(state.testZoneQuestions) ? state.testZoneQuestions : [];
+  state.testZoneResults = Array.isArray(state.testZoneResults) ? state.testZoneResults : [];
+  state.testZoneReviewMarks = Array.isArray(state.testZoneReviewMarks) ? state.testZoneReviewMarks : [];
+  state.testZoneLiveSessions = Array.isArray(state.testZoneLiveSessions) ? state.testZoneLiveSessions : [];
 
   const normalizedEmail = String(dbUser?.email || "").trim().toLowerCase();
   if (!normalizedEmail) {
@@ -599,6 +603,14 @@ function ensureIndependentTestsState(state) {
   return state;
 }
 
+function ensureTestZoneState(state) {
+  state.testZoneQuestions = Array.isArray(state.testZoneQuestions) ? state.testZoneQuestions : [];
+  state.testZoneResults = Array.isArray(state.testZoneResults) ? state.testZoneResults : [];
+  state.testZoneReviewMarks = Array.isArray(state.testZoneReviewMarks) ? state.testZoneReviewMarks : [];
+  state.testZoneLiveSessions = Array.isArray(state.testZoneLiveSessions) ? state.testZoneLiveSessions : [];
+  return state;
+}
+
 const independentTestTimingGraceMs = 3000;
 const independentTestMaxClientDurationMs = 24 * 60 * 60 * 1000;
 const liveTestFinishedSessionRetentionLimit = 20;
@@ -612,6 +624,464 @@ const liveTestQuestionTimeLimitMinSeconds = 5;
 const liveTestQuestionTimeLimitMaxSeconds = 120;
 const liveTestQuestionTimingGraceMs = 1000;
 const practiceTestRetentionMs = 24 * 60 * 60 * 1000;
+
+function normalizeTestZonePart(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized.includes("espec") ? "Parte específica" : "Parte común";
+}
+
+function normalizeTestZoneCategory(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized.includes("bomber") || normalized.includes("bombero") ? "Bomberos" : "Legislación";
+}
+
+function normalizeTestZoneDifficulty(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "hard" || normalized === "alta") {
+    return "alta";
+  }
+  if (normalized === "easy" || normalized === "baja") {
+    return "baja";
+  }
+  return "media";
+}
+
+function inferLegacyTestZonePart(question = {}) {
+  const topic = String(question?.topic || "").trim().toLowerCase();
+  return /bomber|extinc|rescat|trafic|interv/.test(topic) ? "Parte específica" : "Parte común";
+}
+
+function inferLegacyTestZoneCategory(question = {}) {
+  const topic = String(question?.topic || "").trim().toLowerCase();
+  return /bomber|extinc|rescat|trafic|interv/.test(topic) ? "Bomberos" : "Legislación";
+}
+
+function normalizeTestZoneQuestionRecord(question = {}, questionIndex = 0) {
+  const options = Array.isArray(question?.options)
+    ? question.options.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  return {
+    ...question,
+    id: question?.id || `test-zone-question-${Date.now()}-${questionIndex}`,
+    prompt: String(question?.prompt || question?.question || "").trim(),
+    options,
+    correctIndex:
+      Number.isInteger(Number(question?.correctIndex)) && Number(question.correctIndex) >= 0
+        ? Number(question.correctIndex)
+        : Number.isInteger(Number(question?.correctAnswer)) && Number(question.correctAnswer) >= 0
+          ? Number(question.correctAnswer)
+          : 0,
+    part: String(question?.part || "").trim() ? normalizeTestZonePart(question.part) : inferLegacyTestZonePart(question),
+    category:
+      String(question?.category || "").trim()
+        ? normalizeTestZoneCategory(question.category)
+        : inferLegacyTestZoneCategory(question),
+    difficulty: normalizeTestZoneDifficulty(question?.difficulty),
+    explanation: String(question?.explanation || "").trim(),
+    createdBy: String(question?.createdBy || "").trim(),
+    createdAt: question?.createdAt || new Date().toISOString()
+  };
+}
+
+function buildTestZoneQuestion(payload = {}, account = null) {
+  const prompt = String(payload.prompt || payload.question || "").trim();
+  const options = Array.isArray(payload.options)
+    ? payload.options.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const correctIndex = Number(payload.correctIndex ?? payload.correctAnswer);
+  if (!prompt) {
+    throw new Error("La pregunta necesita un enunciado");
+  }
+  if (options.length < 2) {
+    throw new Error("La pregunta necesita al menos dos opciones");
+  }
+  if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex >= options.length) {
+    throw new Error("La respuesta correcta no es valida");
+  }
+  return normalizeTestZoneQuestionRecord(
+    {
+      id: generateLegacyId("test-zone-question"),
+      prompt,
+      options,
+      correctIndex,
+      part: payload.part,
+      category: payload.category,
+      difficulty: payload.difficulty,
+      explanation: payload.explanation,
+      createdBy: account?.name || account?.email || ""
+    },
+    0
+  );
+}
+
+function buildTestZoneQuestionAudiencePayload(question) {
+  const normalized = normalizeTestZoneQuestionRecord(question);
+  return {
+    id: normalized.id,
+    prompt: normalized.prompt,
+    options: normalized.options,
+    part: normalized.part,
+    category: normalized.category,
+    difficulty: normalized.difficulty
+  };
+}
+
+function buildTestZoneQuestionAdminPayload(question) {
+  const normalized = normalizeTestZoneQuestionRecord(question);
+  return {
+    ...buildTestZoneQuestionAudiencePayload(normalized),
+    correctIndex: normalized.correctIndex,
+    explanation: normalized.explanation,
+    createdBy: normalized.createdBy,
+    createdAt: normalized.createdAt
+  };
+}
+
+function matchesTestZoneFilter(question, filters = {}) {
+  const normalized = normalizeTestZoneQuestionRecord(question);
+  const part = String(filters.part || "").trim();
+  const category = String(filters.category || "").trim();
+  const difficulty = String(filters.difficulty || "").trim();
+  if (part && part !== "all" && normalized.part !== normalizeTestZonePart(part)) {
+    return false;
+  }
+  if (category && category !== "all" && normalized.category !== normalizeTestZoneCategory(category)) {
+    return false;
+  }
+  if (difficulty && difficulty !== "all" && normalized.difficulty !== normalizeTestZoneDifficulty(difficulty)) {
+    return false;
+  }
+  return true;
+}
+
+function shuffleTestZoneQuestions(items = []) {
+  const next = [...(Array.isArray(items) ? items : [])];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+  }
+  return next;
+}
+
+function filterTestZoneQuestionsForRequest(state, filters = {}) {
+  ensureTestZoneState(state);
+  return (state.testZoneQuestions || [])
+    .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
+    .filter((question) => matchesTestZoneFilter(question, filters));
+}
+
+function listTestZoneResultsForOwner(state, account) {
+  ensureTestZoneState(state);
+  const accountId = String(account?.id || "").trim();
+  const memberId = String(account?.memberId || "").trim();
+  return (state.testZoneResults || [])
+    .filter((result) => {
+      if (memberId && String(result.memberId || "").trim() === memberId) {
+        return true;
+      }
+      return accountId && String(result.accountId || "").trim() === accountId;
+    })
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+}
+
+function getTestZoneReviewedQuestionIds(state, account) {
+  ensureTestZoneState(state);
+  const accountId = String(account?.id || "").trim();
+  const memberId = String(account?.memberId || "").trim();
+  return [
+    ...new Set(
+      (state.testZoneReviewMarks || [])
+        .filter((mark) => {
+          if (memberId && String(mark.memberId || "").trim() === memberId) {
+            return true;
+          }
+          return accountId && String(mark.accountId || "").trim() === accountId;
+        })
+        .map((mark) => String(mark.questionId || "").trim())
+        .filter(Boolean)
+    )
+  ];
+}
+
+function getTestZoneFailedQuestionIds(state, account) {
+  const reviewed = new Set(getTestZoneReviewedQuestionIds(state, account));
+  const latestByQuestionId = new Map();
+  for (const result of listTestZoneResultsForOwner(state, account)) {
+    for (const response of Array.isArray(result.responses) ? result.responses : []) {
+      const questionId = String(response?.questionId || "").trim();
+      if (!questionId || latestByQuestionId.has(questionId)) {
+        continue;
+      }
+      latestByQuestionId.set(questionId, response);
+    }
+  }
+  return [...latestByQuestionId.entries()]
+    .filter(([questionId, response]) => !reviewed.has(questionId) && response && !response.isCorrect && !response.isBlank)
+    .map(([questionId]) => questionId);
+}
+
+function buildTestZoneResultStats(results = []) {
+  const totals = (Array.isArray(results) ? results : []).reduce(
+    (summary, result) => {
+      summary.totalTests += 1;
+      summary.totalQuestions += Number(result.total || 0);
+      summary.answered += Number(result.answeredCount || 0);
+      summary.correct += Number(result.correctCount || 0);
+      summary.wrong += Number(result.wrongCount || 0);
+      summary.blank += Number(result.blankCount || 0);
+      return summary;
+    },
+    { totalTests: 0, totalQuestions: 0, answered: 0, correct: 0, wrong: 0, blank: 0 }
+  );
+  return {
+    ...totals,
+    accuracy: totals.totalQuestions ? Math.round((totals.correct / totals.totalQuestions) * 1000) / 10 : 0,
+    evolution: (Array.isArray(results) ? results : [])
+      .map((result) => ({
+        date: String(result.createdAt || "").slice(0, 10),
+        percentage: Number(result.percentage || 0),
+        score: Number(result.score || 0),
+        total: Number(result.total || 0)
+      }))
+      .reverse()
+  };
+}
+
+function buildTestZoneResultAudiencePayload(result) {
+  return {
+    id: String(result?.id || "").trim(),
+    title: String(result?.title || "").trim(),
+    mode: String(result?.mode || "general").trim(),
+    liveCode: String(result?.liveCode || "").trim(),
+    correctCount: Number(result?.correctCount || 0),
+    wrongCount: Number(result?.wrongCount || 0),
+    blankCount: Number(result?.blankCount || 0),
+    answeredCount: Number(result?.answeredCount || 0),
+    score: Number(result?.score || 0),
+    total: Number(result?.total || 0),
+    percentage: Number(result?.percentage || 0),
+    incorrectQuestionIds: Array.isArray(result?.incorrectQuestionIds)
+      ? result.incorrectQuestionIds.map((item) => String(item || "").trim()).filter(Boolean)
+      : [],
+    filters:
+      result?.filters && typeof result.filters === "object"
+        ? {
+            part: String(result.filters.part || "").trim(),
+            category: String(result.filters.category || "").trim(),
+            difficulty: String(result.filters.difficulty || "").trim(),
+            source: String(result.filters.source || "").trim()
+          }
+        : { part: "", category: "", difficulty: "", source: "" },
+    responses: (Array.isArray(result?.responses) ? result.responses : []).map((response) => ({
+      questionId: String(response?.questionId || "").trim(),
+      prompt: String(response?.prompt || "").trim(),
+      part: String(response?.part || "").trim(),
+      category: String(response?.category || "").trim(),
+      difficulty: String(response?.difficulty || "").trim(),
+      isCorrect: Boolean(response?.isCorrect),
+      isBlank: Boolean(response?.isBlank)
+    })),
+    createdAt: String(result?.createdAt || "").trim()
+  };
+}
+
+function createTestZoneResultRecord(state, payload = {}, context = {}) {
+  ensureTestZoneState(state);
+  const questionsById = new Map(
+    (state.testZoneQuestions || []).map((question, index) => {
+      const normalized = normalizeTestZoneQuestionRecord(question, index);
+      return [normalized.id, normalized];
+    })
+  );
+  const questionIds = Array.isArray(payload.questionIds)
+    ? payload.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  if (!questionIds.length) {
+    throw new Error("No se han recibido preguntas para evaluar");
+  }
+  const questions = questionIds.map((questionId) => {
+    const question = questionsById.get(questionId);
+    if (!question) {
+      throw new Error("Una o varias preguntas del intento no existen");
+    }
+    return question;
+  });
+  const normalizedAnswers = questions.map((question, index) => {
+    const rawValue = Array.isArray(payload.answers) ? payload.answers[index] : null;
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      return null;
+    }
+    return Number.isInteger(Number(rawValue)) && Number(rawValue) >= 0 && Number(rawValue) < question.options.length
+      ? Number(rawValue)
+      : null;
+  });
+  const responses = questions.map((question, index) => {
+    const selectedIndex = normalizedAnswers[index];
+    const isBlank = selectedIndex === null;
+    const isCorrect = !isBlank && selectedIndex === question.correctIndex;
+    return {
+      questionId: question.id,
+      prompt: question.prompt,
+      part: question.part,
+      category: question.category,
+      difficulty: question.difficulty,
+      selectedIndex,
+      correctIndex: question.correctIndex,
+      isBlank,
+      isCorrect
+    };
+  });
+  const correctCount = responses.filter((response) => response.isCorrect).length;
+  const blankCount = responses.filter((response) => response.isBlank).length;
+  const wrongCount = Math.max(responses.length - correctCount - blankCount, 0);
+  const answeredCount = responses.length - blankCount;
+  const total = responses.length;
+  const score = correctCount;
+  const percentage = total ? Math.round((score / total) * 1000) / 10 : 0;
+  const result = {
+    id: generateLegacyId("test-zone-result"),
+    accountId: String(context.accountId || "").trim(),
+    memberId: String(context.memberId || "").trim(),
+    guestName: String(context.guestName || "").trim(),
+    liveSessionId: String(context.liveSessionId || "").trim(),
+    liveCode: String(context.liveCode || "").trim(),
+    title: String(context.title || payload.title || "").trim(),
+    mode: String(context.mode || payload.mode || "general").trim(),
+    questionIds: questions.map((question) => question.id),
+    responses,
+    correctCount,
+    wrongCount,
+    blankCount,
+    answeredCount,
+    score,
+    total,
+    percentage,
+    incorrectQuestionIds: responses.filter((response) => !response.isCorrect && !response.isBlank).map((response) => response.questionId),
+    filters:
+      payload.filters && typeof payload.filters === "object"
+        ? {
+            part: String(payload.filters.part || "").trim(),
+            category: String(payload.filters.category || "").trim(),
+            difficulty: String(payload.filters.difficulty || "").trim(),
+            source: String(payload.filters.source || "").trim()
+          }
+        : { part: "", category: "", difficulty: "", source: "" },
+    createdAt: new Date().toISOString()
+  };
+  state.testZoneResults.unshift(result);
+  return result;
+}
+
+function markTestZoneQuestionReviewed(state, account, questionId) {
+  ensureTestZoneState(state);
+  const normalizedQuestionId = String(questionId || "").trim();
+  if (!normalizedQuestionId) {
+    throw new Error("Pregunta no valida");
+  }
+  const questionExists = (state.testZoneQuestions || []).some((question) => String(question.id || "").trim() === normalizedQuestionId);
+  if (!questionExists) {
+    throw new Error("Pregunta no encontrada");
+  }
+  const accountId = String(account?.id || "").trim();
+  const memberId = String(account?.memberId || "").trim();
+  let mark =
+    (state.testZoneReviewMarks || []).find((item) => {
+      if (memberId && String(item.memberId || "").trim() === memberId) {
+        return String(item.questionId || "").trim() === normalizedQuestionId;
+      }
+      return accountId && String(item.accountId || "").trim() === accountId && String(item.questionId || "").trim() === normalizedQuestionId;
+    }) || null;
+  if (!mark) {
+    mark = {
+      id: generateLegacyId("test-zone-review"),
+      accountId,
+      memberId,
+      questionId: normalizedQuestionId,
+      reviewedAt: new Date().toISOString()
+    };
+    state.testZoneReviewMarks.unshift(mark);
+  } else {
+    mark.reviewedAt = new Date().toISOString();
+  }
+  return mark;
+}
+
+function generateLiveTestCode(state) {
+  ensureTestZoneState(state);
+  let nextCode = "";
+  do {
+    nextCode = String(Math.floor(100000 + Math.random() * 900000));
+  } while ((state.testZoneLiveSessions || []).some((session) => String(session.code || "").trim() === nextCode));
+  return nextCode;
+}
+
+function createTestZoneLiveSession(state, account, payload = {}) {
+  ensureTestZoneState(state);
+  const filteredQuestions = shuffleTestZoneQuestions(filterTestZoneQuestionsForRequest(state, payload.filters || {}));
+  const requestedQuestionCount = Math.max(Number(payload.questionCount || 10), 1);
+  const selectedQuestions = filteredQuestions.slice(0, requestedQuestionCount);
+  if (!selectedQuestions.length) {
+    throw new Error("No hay preguntas disponibles para abrir el test en vivo");
+  }
+  const session = {
+    id: generateLegacyId("test-zone-live"),
+    code: generateLiveTestCode(state),
+    title: String(payload.title || "").trim() || "Test en vivo",
+    questionIds: selectedQuestions.map((question) => question.id),
+    questionCount: selectedQuestions.length,
+    status: "active",
+    createdByAccountId: String(account?.id || "").trim(),
+    createdByMemberId: String(account?.memberId || "").trim(),
+    filters: {
+      part: String(payload?.filters?.part || "").trim(),
+      category: String(payload?.filters?.category || "").trim(),
+      difficulty: String(payload?.filters?.difficulty || "").trim()
+    },
+    createdAt: new Date().toISOString()
+  };
+  state.testZoneLiveSessions.unshift(session);
+  return session;
+}
+
+function buildTestZoneLiveSessionAdminPayload(session) {
+  return {
+    id: String(session?.id || "").trim(),
+    code: String(session?.code || "").trim(),
+    title: String(session?.title || "").trim(),
+    questionCount: Number(session?.questionCount || 0),
+    status: String(session?.status || "active").trim(),
+    filters:
+      session?.filters && typeof session.filters === "object"
+        ? {
+            part: String(session.filters.part || "").trim(),
+            category: String(session.filters.category || "").trim(),
+            difficulty: String(session.filters.difficulty || "").trim()
+          }
+        : { part: "", category: "", difficulty: "" },
+    createdAt: String(session?.createdAt || "").trim()
+  };
+}
+
+function getTestZoneLiveSessionByCode(state, code) {
+  ensureTestZoneState(state);
+  const normalizedCode = String(code || "").trim();
+  return (state.testZoneLiveSessions || []).find(
+    (session) => String(session.code || "").trim() === normalizedCode && String(session.status || "").trim() === "active"
+  ) || null;
+}
+
+function getTestZoneLiveSessionById(state, sessionId) {
+  ensureTestZoneState(state);
+  const normalizedSessionId = String(sessionId || "").trim();
+  return (state.testZoneLiveSessions || []).find((session) => String(session.id || "").trim() === normalizedSessionId) || null;
+}
+
+function getTestZoneLiveSessionQuestions(state, session) {
+  const questionIds = new Set(Array.isArray(session?.questionIds) ? session.questionIds : []);
+  return (state.testZoneQuestions || [])
+    .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
+    .filter((question) => questionIds.has(question.id));
+}
 
 function normalizeIndependentTestQuestionsPerAttempt(value) {
   const parsed = Number(value);
@@ -3566,6 +4036,200 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, user: buildLegacyCurrentUser(legacyAccount, state) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo actualizar el usuario" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-zone/questions" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      const questions = (state.testZoneQuestions || []).map((question) =>
+        account.role === "admin"
+          ? buildTestZoneQuestionAdminPayload(question)
+          : buildTestZoneQuestionAudiencePayload(question)
+      );
+      return sendJson(res, 200, { ok: true, questions });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar las preguntas de la zona test" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-zone/questions" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      const question = buildTestZoneQuestion(payload, account);
+      state.testZoneQuestions.unshift(question);
+      writeState(state);
+      return sendJson(res, 201, { ok: true, question: buildTestZoneQuestionAdminPayload(question) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar la pregunta de la zona test" });
+    }
+  }
+
+  if (/^\/api\/test-zone\/questions\/[^/]+\/review$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      const questionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const mark = markTestZoneQuestionReviewed(state, account, questionId);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, reviewedQuestionId: mark.questionId, reviewedAt: mark.reviewedAt });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo marcar la pregunta como repasada" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-zone/results/me" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      const results = listTestZoneResultsForOwner(state, account);
+      return sendJson(res, 200, {
+        ok: true,
+        results: results.map(buildTestZoneResultAudiencePayload),
+        stats: buildTestZoneResultStats(results),
+        failedQuestionIds: getTestZoneFailedQuestionIds(state, account),
+        reviewedQuestionIds: getTestZoneReviewedQuestionIds(state, account)
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cargar el historial de la zona test" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-zone/results" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      const result = createTestZoneResultRecord(state, payload, {
+        accountId: account.id,
+        memberId: account.memberId || "",
+        mode: payload.mode || "general",
+        title: payload.title || "Zona Test"
+      });
+      writeState(state);
+      return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el resultado de la zona test" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-zone/live-sessions" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        sessions: (state.testZoneLiveSessions || [])
+          .map(buildTestZoneLiveSessionAdminPayload)
+          .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar los tests en vivo" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-zone/live-sessions" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      const session = createTestZoneLiveSession(state, account, payload);
+      writeState(state);
+      return sendJson(res, 201, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo abrir el test en vivo" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-zone/live/join" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      ensureTestZoneState(state);
+      const guestName = String(payload.guestName || "").trim();
+      const code = String(payload.code || "").trim();
+      if (!guestName) {
+        throw new Error("Necesitas indicar tu nombre para entrar");
+      }
+      if (!code) {
+        throw new Error("Necesitas indicar el codigo del test en vivo");
+      }
+      const session = getTestZoneLiveSessionByCode(state, code);
+      if (!session) {
+        return sendJson(res, 404, { ok: false, error: "El test en vivo no existe o ya no esta activo" });
+      }
+      const questions = getTestZoneLiveSessionQuestions(state, session);
+      return sendJson(res, 200, {
+        ok: true,
+        liveSession: {
+          id: session.id,
+          code: session.code,
+          title: session.title,
+          questionCount: session.questionCount,
+          questions: questions.map(buildTestZoneQuestionAudiencePayload)
+        }
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo entrar al test en vivo" });
+    }
+  }
+
+  if (/^\/api\/test-zone\/live-sessions\/[^/]+\/attempt$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      ensureTestZoneState(state);
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const session = getTestZoneLiveSessionById(state, sessionId);
+      if (!session || String(session.status || "").trim() !== "active") {
+        return sendJson(res, 404, { ok: false, error: "El test en vivo no existe o ya no esta activo" });
+      }
+      const guestName = String(payload.guestName || "").trim();
+      if (!guestName) {
+        throw new Error("Necesitas indicar tu nombre para enviar el test en vivo");
+      }
+      const result = createTestZoneResultRecord(state, payload, {
+        guestName,
+        liveSessionId: session.id,
+        liveCode: session.code,
+        mode: "live",
+        title: session.title
+      });
+      writeState(state);
+      return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el resultado del test en vivo" });
     }
   }
 

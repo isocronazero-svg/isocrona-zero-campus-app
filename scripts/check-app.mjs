@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const syntaxFiles = ["public/app.js", "server.js", "storage.js"];
+const syntaxFiles = ["public/app.js", "public/public-live-test.js", "server.js", "storage.js"];
 const conflictCheckedFiles = ["public/app.js", "server.js", "storage.js", "package.json", "README.md"];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
-const extraCheckScripts = ["scripts/check-live-tests.mjs"];
+const extraCheckScripts = ["scripts/check-live-tests.mjs", "scripts/check-test-zone.mjs"];
 const associateActionContracts = [
   "approve-associate",
   "approve-associate-payment",
