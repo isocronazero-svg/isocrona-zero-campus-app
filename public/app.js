@@ -20819,7 +20819,7 @@ function isViewAllowed(viewId) {
     return false;
   }
   if (isCampusOnlySession()) {
-    return ["overview", "join", "campus", "test", "tests"].includes(viewId);
+    return ["overview", "join", "campus"].includes(viewId);
   }
   return true;
 }

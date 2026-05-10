@@ -456,6 +456,10 @@ function ensureLegacyAccountForDbUser(state, dbUser, options = {}) {
   state.liveTestSessions = Array.isArray(state.liveTestSessions) ? state.liveTestSessions : [];
   state.liveTestPlayers = Array.isArray(state.liveTestPlayers) ? state.liveTestPlayers : [];
   state.liveTestAnswers = Array.isArray(state.liveTestAnswers) ? state.liveTestAnswers : [];
+  state.liveTestPublicSessions = Array.isArray(state.liveTestPublicSessions) ? state.liveTestPublicSessions : [];
+  state.liveTestParticipantResults = Array.isArray(state.liveTestParticipantResults)
+    ? state.liveTestParticipantResults
+    : [];
   state.testResults = Array.isArray(state.testResults) ? state.testResults : [];
 
   const normalizedEmail = String(dbUser?.email || "").trim().toLowerCase();
@@ -591,11 +595,16 @@ function ensureIndependentTestsState(state) {
   state.tests = Array.isArray(state.tests) ? state.tests : [];
   state.questions = Array.isArray(state.questions) ? state.questions : [];
   state.testAttempts = Array.isArray(state.testAttempts) ? state.testAttempts : [];
+  state.testResults = Array.isArray(state.testResults) ? state.testResults : [];
   state.practiceTests = Array.isArray(state.practiceTests) ? state.practiceTests : [];
   state.practiceAttempts = Array.isArray(state.practiceAttempts) ? state.practiceAttempts : [];
   state.liveTestSessions = Array.isArray(state.liveTestSessions) ? state.liveTestSessions : [];
   state.liveTestPlayers = Array.isArray(state.liveTestPlayers) ? state.liveTestPlayers : [];
   state.liveTestAnswers = Array.isArray(state.liveTestAnswers) ? state.liveTestAnswers : [];
+  state.liveTestPublicSessions = Array.isArray(state.liveTestPublicSessions) ? state.liveTestPublicSessions : [];
+  state.liveTestParticipantResults = Array.isArray(state.liveTestParticipantResults)
+    ? state.liveTestParticipantResults
+    : [];
   return state;
 }
 
@@ -1362,12 +1371,28 @@ function updateIndependentTest(state, test, payload = {}) {
 
 function buildIndependentQuestion(state, payload = {}) {
   ensureIndependentTestsState(state);
-  const moduleId = String(payload.moduleId || "").trim();
-  const prompt = String(payload.prompt || "").trim();
+  let moduleId = String(payload.moduleId || "").trim();
+  const moduleTitle = String(payload.moduleTitle || payload.manual || payload.modulo || "").trim();
+  if (!moduleId && moduleTitle) {
+    let testModule = state.testModules.find(
+      (item) => String(item.title || "").trim().toLowerCase() === moduleTitle.toLowerCase()
+    );
+    if (!testModule) {
+      testModule = {
+        id: generateLegacyId("test-module"),
+        title: moduleTitle,
+        description: "",
+        createdAt: new Date().toISOString()
+      };
+      state.testModules.unshift(testModule);
+    }
+    moduleId = testModule.id;
+  }
+  const prompt = String(payload.prompt || payload.question || payload.enunciado || "").trim();
   const options = Array.isArray(payload.options)
     ? payload.options.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
-  const correctIndex = Number(payload.correctIndex);
+  const correctIndex = Number(payload.correctIndex ?? payload.correctAnswer ?? payload.respuestaCorrecta);
 
   if (!moduleId) {
     throw new Error("La pregunta necesita un modulo");
@@ -1389,11 +1414,20 @@ function buildIndependentQuestion(state, payload = {}) {
     id: generateLegacyId("question"),
     moduleId,
     prompt,
+    question: prompt,
     options,
     correctIndex,
+    correctAnswer: correctIndex,
     explanation: String(payload.explanation || "").trim(),
+    part: String(payload.part || payload.parte || "especifica").trim(),
+    category: String(payload.category || payload.categoria || "bomberos").trim(),
+    moduleTitle,
+    temaNumero: String(payload.temaNumero || "").trim(),
+    temaTitulo: String(payload.temaTitulo || payload.topic || "").trim(),
     topic: String(payload.topic || "").trim(),
     difficulty: String(payload.difficulty || "").trim(),
+    active: payload.active !== false && payload.activo !== false,
+    metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
     createdAt: new Date().toISOString()
   };
 }
@@ -2195,6 +2229,143 @@ function submitLiveTestAnswer(state, session, account, payload = {}) {
     isLate,
     pointsAwarded,
     score: Number(player.score || 0)
+  };
+}
+
+function normalizePublicLiveAnswerIndex(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const answerIndex = Number(value);
+  return Number.isInteger(answerIndex) ? answerIndex : null;
+}
+
+function getPublicLiveQuestionPrompt(question) {
+  return String(question?.prompt || question?.question || question?.enunciado || "").trim();
+}
+
+function getPublicLiveQuestionCorrectIndex(question) {
+  const options = Array.isArray(question?.options) ? question.options : [];
+  const directIndex = Number(question?.correctIndex ?? question?.correctAnswer ?? question?.respuestaCorrecta);
+  if (Number.isInteger(directIndex) && directIndex >= 0 && directIndex < options.length) {
+    return directIndex;
+  }
+
+  const directText = String(question?.correctIndex ?? question?.correctAnswer ?? question?.respuestaCorrecta ?? "")
+    .trim()
+    .toLowerCase();
+  if (directText) {
+    const matchedIndex = options.findIndex((option) => String(option || "").trim().toLowerCase() === directText);
+    if (matchedIndex >= 0) {
+      return matchedIndex;
+    }
+  }
+  return 0;
+}
+
+function getPublicLiveQuestionsByIds(state, questionIds = []) {
+  ensureIndependentTestsState(state);
+  const questionMap = new Map((state.questions || []).map((question) => [String(question.id || "").trim(), question]));
+  return (Array.isArray(questionIds) ? questionIds : [])
+    .map((questionId) => questionMap.get(String(questionId || "").trim()))
+    .filter(Boolean);
+}
+
+function sanitizeQuestionForPublicLive(question) {
+  return {
+    id: String(question?.id || ""),
+    prompt: getPublicLiveQuestionPrompt(question),
+    options: Array.isArray(question?.options) ? question.options.map((item) => String(item || "")) : [],
+    temaNumero: String(question?.temaNumero || question?.topicNumber || "").trim(),
+    temaTitulo: String(question?.temaTitulo || question?.topic || "").trim(),
+    part: String(question?.part || question?.parte || "").trim(),
+    category: String(question?.category || question?.categoria || "").trim()
+  };
+}
+
+function buildPublicLiveSessionCode(state) {
+  ensureIndependentTestsState(state);
+  const existingCodes = new Set(
+    (state.liveTestPublicSessions || []).map((session) => String(session.code || "").trim().toUpperCase()).filter(Boolean)
+  );
+  let code = "";
+  do {
+    code = Math.random().toString(36).slice(2, 8).toUpperCase();
+  } while (existingCodes.has(code));
+  return code;
+}
+
+function buildPublicLiveTestSession(state, payload = {}, account) {
+  ensureIndependentTestsState(state);
+  const title = String(payload.title || "Sesion en vivo Isocrona Zero").trim();
+  const questionIds = Array.isArray(payload.questionIds)
+    ? [...new Set(payload.questionIds.map((item) => String(item || "").trim()).filter(Boolean))]
+    : [];
+  if (!questionIds.length) {
+    throw new Error("La sesion en vivo necesita preguntas");
+  }
+
+  const availableQuestionIds = new Set((state.questions || []).map((question) => String(question.id || "").trim()));
+  const missingQuestionIds = questionIds.filter((questionId) => !availableQuestionIds.has(questionId));
+  if (missingQuestionIds.length) {
+    throw new Error("La sesion contiene preguntas que ya no existen en el banco");
+  }
+
+  return {
+    id: generateLegacyId("live-test-public-session"),
+    code: buildPublicLiveSessionCode(state),
+    title,
+    questionIds,
+    status: "active",
+    createdBy: account?.id || "",
+    createdAt: new Date().toISOString()
+  };
+}
+
+function findPublicLiveSessionByCode(state, code) {
+  ensureIndependentTestsState(state);
+  const normalizedCode = String(code || "").trim().toUpperCase();
+  return (
+    (state.liveTestPublicSessions || []).find(
+      (session) => String(session.code || "").trim().toUpperCase() === normalizedCode
+    ) || null
+  );
+}
+
+function buildPublicLiveParticipantResult(state, session, payload = {}) {
+  const participantName = String(payload.participantName || payload.name || "").trim();
+  if (!participantName) {
+    throw new Error("Indica tu nombre para participar");
+  }
+
+  const questions = getPublicLiveQuestionsByIds(state, session.questionIds);
+  const rawAnswers = payload.answers && typeof payload.answers === "object" ? payload.answers : {};
+  const answers = questions.map((question) => {
+    const answerIndex = normalizePublicLiveAnswerIndex(rawAnswers[question.id]);
+    const correctIndex = getPublicLiveQuestionCorrectIndex(question);
+    return {
+      questionId: question.id,
+      answerIndex,
+      correctIndex,
+      correct: answerIndex !== null && answerIndex === correctIndex,
+      blank: answerIndex === null
+    };
+  });
+  const correctCount = answers.filter((answer) => answer.correct).length;
+  const blankCount = answers.filter((answer) => answer.blank).length;
+  const wrongCount = Math.max(0, answers.length - correctCount - blankCount);
+  const scorePercent = answers.length ? (correctCount / answers.length) * 100 : 0;
+
+  return {
+    id: generateLegacyId("live-test-public-result"),
+    sessionId: session.id,
+    participantName,
+    answers,
+    correctCount,
+    wrongCount,
+    blankCount,
+    scorePercent,
+    submittedAt: new Date().toISOString()
   };
 }
 
@@ -3203,6 +3374,8 @@ function sanitizeStateForAccount(state, account) {
   nextState.liveTestSessions = [];
   nextState.liveTestPlayers = [];
   nextState.liveTestAnswers = [];
+  nextState.liveTestPublicSessions = [];
+  nextState.liveTestParticipantResults = [];
   return nextState;
 }
 
@@ -4243,6 +4416,69 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (requestUrl.pathname === "/api/live-test-sessions" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureIndependentTestsState(state);
+      const session = buildPublicLiveTestSession(state, payload, account);
+      state.liveTestPublicSessions.unshift(session);
+      writeState(state);
+      return sendJson(res, 201, { ok: true, session });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo crear la sesion en vivo" });
+    }
+  }
+
+  const publicLiveSessionMatch = requestUrl.pathname.match(/^\/api\/live-test-sessions\/([^/]+)$/);
+  if (publicLiveSessionMatch && req.method === "GET") {
+    try {
+      const state = readState();
+      ensureIndependentTestsState(state);
+      const session = findPublicLiveSessionByCode(state, decodeURIComponent(publicLiveSessionMatch[1] || ""));
+      if (!session || session.status !== "active") {
+        return sendJson(res, 404, { ok: false, error: "Sesion en vivo no encontrada o cerrada" });
+      }
+      const questions = getPublicLiveQuestionsByIds(state, session.questionIds).map(sanitizeQuestionForPublicLive);
+      return sendJson(res, 200, {
+        ok: true,
+        session: {
+          id: session.id,
+          code: session.code,
+          title: session.title,
+          status: session.status,
+          questionCount: questions.length
+        },
+        questions
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cargar la sesion en vivo" });
+    }
+  }
+
+  const publicLiveSubmitMatch = requestUrl.pathname.match(/^\/api\/live-test-sessions\/([^/]+)\/submit$/);
+  if (publicLiveSubmitMatch && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      ensureIndependentTestsState(state);
+      const session = findPublicLiveSessionByCode(state, decodeURIComponent(publicLiveSubmitMatch[1] || ""));
+      if (!session || session.status !== "active") {
+        return sendJson(res, 404, { ok: false, error: "Sesion en vivo no encontrada o cerrada" });
+      }
+      const result = buildPublicLiveParticipantResult(state, session, payload);
+      state.liveTestParticipantResults.unshift(result);
+      writeState(state);
+      return sendJson(res, 201, { ok: true, result });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el resultado en vivo" });
+    }
+  }
+
   if (requestUrl.pathname === "/api/test-results/me" && req.method === "GET") {
     try {
       if (isDatabaseEnabled()) {
@@ -4275,9 +4511,9 @@ const server = http.createServer(async (req, res) => {
         }
         const result = await saveTestResult({
           userId: user.id,
-          score: payload.score,
+          score: payload.correctCount ?? payload.score,
           total: payload.total,
-          percentage: payload.percentage,
+          percentage: payload.scorePercent ?? payload.percentage,
           answers: payload.answers
         });
         return sendJson(res, 201, { ok: true, result });
@@ -4291,12 +4527,22 @@ const server = http.createServer(async (req, res) => {
       state.testResults = Array.isArray(state.testResults) ? state.testResults : [];
       const result = {
         id: generateLegacyId("test-result"),
+        resultType: "normal",
         userId: account.id,
         memberId: account.memberId || "",
-        score: Number(payload.score || 0),
-        total: Number(payload.total || 0),
-        percentage: Number(payload.percentage || 0),
+        questionIds: Array.isArray(payload.questionIds)
+          ? payload.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
+          : [],
         answers: Array.isArray(payload.answers) ? payload.answers : [],
+        correctCount: Number(payload.correctCount ?? payload.score ?? 0),
+        wrongCount: Number(payload.wrongCount || 0),
+        blankCount: Number(payload.blankCount || 0),
+        score: Number(payload.correctCount ?? payload.score ?? 0),
+        total: Number(payload.total || (Array.isArray(payload.questionIds) ? payload.questionIds.length : 0)),
+        percentage: Number(payload.scorePercent ?? payload.percentage ?? 0),
+        scorePercent: Number(payload.scorePercent ?? payload.percentage ?? 0),
+        duration: Number(payload.duration || 0),
+        selectedConfig: payload.selectedConfig && typeof payload.selectedConfig === "object" ? payload.selectedConfig : {},
         createdAt: new Date().toISOString()
       };
       state.testResults.unshift(result);
