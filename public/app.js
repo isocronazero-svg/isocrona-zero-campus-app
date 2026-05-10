@@ -167,6 +167,47 @@ const CAMPUS_ACCOUNT_ROLE_LABELS = {
 };
 
 const ADMIN_ONLY_VIEWS = new Set(["associates", "validations", "members", "reports", "activity", "automation"]);
+const ASSOCIATE_ADMIN_ONLY_ACTIONS = new Set([
+  "approve-associate",
+  "approve-associate-payment",
+  "approve-associate-profile-request",
+  "bulk-approve-associate-applications",
+  "bulk-approve-associate-payments",
+  "bulk-approve-associate-profile-requests",
+  "cancel-profile-review",
+  "clear-selected-associate-applications",
+  "clear-selected-associate-payments",
+  "clear-selected-associate-profile-requests",
+  "commit-associate-workbook-import",
+  "confirm-profile-review",
+  "create-associate-campus-access",
+  "create-associate-campus-admin-access",
+  "delete-associate",
+  "delete-associate-payment",
+  "mark-associate-paid",
+  "mark-associate-reviewed",
+  "notify-associate-application",
+  "notify-associate-application-reply",
+  "notify-associate-payment",
+  "notify-associate-profile-request",
+  "preview-associate-workbook-import",
+  "reject-associate",
+  "reject-associate-payment",
+  "reject-associate-profile-request",
+  "reopen-associate-application",
+  "request-associate-info",
+  "reset-associate-campus-password",
+  "select-all-visible-associate-applications",
+  "select-all-visible-associate-payments",
+  "select-all-visible-associate-profile-requests",
+  "select-next-associate-application",
+  "send-associate-welcome",
+  "settle-all-visible-associate-fees",
+  "toggle-associate-application-selection",
+  "toggle-associate-payment-selection",
+  "toggle-associate-profile-request-selection"
+]);
+const ASSOCIATE_ADMIN_ONLY_FORM_IDS = new Set(["associateEditForm", "associatePaymentForm"]);
 
 function buildDefaultCampusGroups() {
   return [
@@ -641,7 +682,7 @@ function ensureMobileShellControls() {
       >
         Menu
       </button>
-      <span class="mobile-shell-title">Isocrona Zero</span>
+      <span class="mobile-shell-title">Portal Isocrona Zero</span>
     `;
     contentElement.insertBefore(mobileShellBar, heroElement || contentElement.firstChild);
     mobileShellToggle = mobileShellBar.querySelector("#mobileShellToggle");
@@ -1017,6 +1058,12 @@ document.addEventListener("click", async (event) => {
   const memberId = actionTarget.dataset.memberId;
   let shouldPersist = false;
 
+  if (!isAdminView() && ASSOCIATE_ADMIN_ONLY_ACTIONS.has(action)) {
+    showMemberModeAdminWarning();
+    render();
+    return;
+  }
+
   if (action === "nav") {
     const requestedView = actionTarget.dataset.view;
     const requestedAnchorId = String(actionTarget.dataset.anchor || "").trim();
@@ -1025,15 +1072,13 @@ document.addEventListener("click", async (event) => {
     const effectiveRequestedView = resolveCampusAliasView(normalizedRequestedView);
     const navItem = navItems.find((item) => item.id === effectiveRequestedView);
 
-    if (isAdminSession() && ADMIN_ONLY_TOP_LEVEL_VIEWS.has(effectiveRequestedView) && !isAdminView()) {
-      const wasMemberView = !isAdminView();
-      viewRole = "admin";
-      persistViewRole();
-      if (wasMemberView) {
-        await refreshState();
+    if (ADMIN_ONLY_TOP_LEVEL_VIEWS.has(effectiveRequestedView) && !isAdminView()) {
+      if (isAdminSession()) {
+        showMemberModeAdminWarning("Estas en modo socio/alumno. Vuelve a administracion para abrir esa zona.");
       }
-      applySessionToState();
-      syncStatus = "Vista administracion recuperada";
+      closeMobileMenu();
+      render();
+      return;
     }
 
     if (isAdminSession() && isAdminView() && ADMIN_ONLY_TOP_LEVEL_VIEWS.has(effectiveRequestedView)) {
@@ -3928,6 +3973,13 @@ document.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (!isAdminView() && ASSOCIATE_ADMIN_ONLY_FORM_IDS.has(event.target.id)) {
+    event.preventDefault();
+    showMemberModeAdminWarning();
+    render();
+    return;
+  }
+
   if (event.target.id === "changePasswordForm") {
     event.preventDefault();
 
@@ -5452,6 +5504,9 @@ function render() {
   const hasOwnMemberProfile = Boolean(session?.memberId);
   const currentAssociate = getCurrentAssociate();
   normalizePrimaryMemberView();
+  if (session && !isViewAllowed(state.activeView)) {
+    state.activeView = isCurrentMemberLimitedToAssociateProfile() ? "join" : "overview";
+  }
   if (isSelfMemberSession() && currentAssociate) {
     const staleSelfMessages = [
       /no tiene una ficha de socio vinculada/i,
@@ -5717,25 +5772,33 @@ function renderSidebarContextCard() {
 function renderNav() {
   const campusOnlySession = isCampusOnlySession();
   const memberPrimaryProfile = shouldUseMemberProfileAsPrimaryView();
-  const memberLabels = {
-    overview: "Mi ficha de socio",
-    join: campusOnlySession ? "Hazte socio" : "Mi ficha de socio",
-    campus: "Campus",
-    tests: "Tests",
-    test: "Practica libre"
+  const effectiveNavItems = !isAdminView()
+    ? [
+        { id: "overview", label: "Mi aula", action: "nav", view: "overview" },
+        { id: "test", label: "Tests y practicas", action: "nav", view: "test" },
+        { id: "diplomas", label: "Mis diplomas", action: "open-member-campus-mode", mode: "diplomas" },
+        { id: "join", label: campusOnlySession ? "Hazte socio" : "Mi perfil", action: "nav", view: "join" }
+      ]
+    : navItems;
+  const isNavItemActive = (item) => {
+    if (item.id === "diplomas") {
+      return state.activeView === "campus" && campusSectionMode === "diplomas";
+    }
+    return state.activeView === item.id;
   };
-  navElement.innerHTML = navItems
+
+  navElement.innerHTML = effectiveNavItems
     .filter((item) => isViewAllowed(item.id))
-    .filter((item) => !(memberPrimaryProfile && item.id === "overview"))
+    .filter((item) => !(memberPrimaryProfile && isAdminView() && item.id === "overview"))
     .map(
       (item) => `
-        <div class="nav-item-group ${state.activeView === item.id ? "active" : ""}">
+        <div class="nav-item-group ${isNavItemActive(item) ? "active" : ""}">
           <div class="nav-item-row">
-            <button class="nav-main-button ${state.activeView === item.id ? "active" : ""}" type="button" data-action="nav" data-view="${item.id}">
-              ${!isAdminView() && memberLabels[item.id] ? memberLabels[item.id] : item.label}
+            <button class="nav-main-button ${isNavItemActive(item) ? "active" : ""}" type="button" data-action="${item.action || "nav"}"${item.view ? ` data-view="${item.view}"` : ""}${item.mode ? ` data-mode="${item.mode}"` : ""}>
+              ${item.label}
             </button>
             ${
-              item.sections?.length
+              item.sections?.length && isAdminView()
                 ? `
                     <button
                       class="nav-toggle-button ${isNavGroupExpanded(item.id) ? "expanded" : ""}"
@@ -6204,6 +6267,7 @@ function renderSidePanel() {
     associates: renderAssociatesSide,
     members: () => renderSelectedMember(selectedMember),
     campus: renderCampusSide,
+    tests: () => "",
     courses: () => renderSelectedCourse(selectedCourse),
     operations: () => renderOperationsSummary(selectedCourse),
     diplomas: () => renderDiplomaPreview(selectedCourse),
@@ -6218,7 +6282,7 @@ function renderSidePanel() {
 
 function renderOverview() {
   if (!isAdminView()) {
-    return renderJoinView();
+    return renderMemberOverview();
   }
 
   const selectedMember = findMember(state.selectedMemberId);
@@ -6382,14 +6446,15 @@ function renderMemberOverview() {
   const payments = getAssociatePayments(associate);
   const visibleManualNotices = member ? getVisibleManualCampusNotices(member.id, ownCourses) : [];
   const featuredNotice = visibleManualNotices[0] || null;
+  const diplomaCourses = state.courses.filter((course) => (course.diplomaReady || []).includes(member?.id));
 
   return `
     <div class="panel-stack">
       <div class="panel-header">
         <div>
           <p class="eyebrow">Tu area personal</p>
-          <h3>Resumen de campus y socio</h3>
-          <p class="muted">Aqui solo ves tu informacion operativa y administrativa basica.</p>
+          <h3>Mi aula</h3>
+          <p class="muted">Aqui solo ves tu zona personal: aula, diplomas, avisos y tu ficha de socio.</p>
         </div>
         <div class="chip-row">
           <button class="primary-button" type="button" data-action="nav" data-view="join">Mi ficha de socio</button>
@@ -6457,7 +6522,32 @@ function renderMemberOverview() {
                   `;
                 })
                 .join("")
-            : `<p class="muted">Todavia no estas inscrito en ninguna formacion.</p>`
+            : `<p class="muted">Todavia no tienes cursos asignados.</p>`
+        }
+      </div>
+
+      <div class="mail-card">
+        <div class="panel-header">
+          <div>
+            <h4>Mis diplomas</h4>
+            <p class="muted">Accede a tus documentos disponibles sin depender de un curso activo.</p>
+          </div>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Abrir diplomas</button>
+        </div>
+        ${
+          diplomaCourses.length
+            ? diplomaCourses
+                .slice(0, 4)
+                .map(
+                  (course) => `
+                    <div class="timeline-item">
+                      <strong>${escapeHtml(course.title)}</strong>
+                      <p class="muted">${escapeHtml(formatDate(course.endDate) || "Fecha pendiente")} | Disponible para descarga</p>
+                    </div>
+                  `
+                )
+                .join("")
+            : `<p class="muted">Todavia no tienes diplomas.</p>`
         }
       </div>
 
@@ -7420,6 +7510,7 @@ function renderAssociates() {
   );
   const activeAssociates = state.associates.filter((item) => item.status === "Activa");
   const pendingQuotaAssociates = state.associates.filter((item) => getAssociateQuotaGap(item) > 0);
+  const upToDateAssociates = state.associates.filter((item) => getAssociateQuotaGap(item) <= 0).length;
   const pagedApplications = getAssociatePageMeta(filteredCollections.applications, "applications");
   const pagedPaymentSubmissions = getAssociatePageMeta(filteredCollections.paymentSubmissions, "payments");
   const pagedProfileRequests = getAssociatePageMeta(filteredCollections.profileRequests, "profiles");
@@ -7507,7 +7598,41 @@ function renderAssociates() {
   const selectedAssociateQuotaGap = selectedAssociate ? getAssociateQuotaGap(selectedAssociate) : 0;
   const quickAssociateMatches = getAssociateQuickSearchMatches(associateFilters.query, 8);
   const currentYear = String(new Date().getFullYear());
-      const showAssociateSection = (section) => associatesSectionMode === "all" || associatesSectionMode === section;
+  const associateSummaryNotices = [
+    ...pendingApplications.map((item) => ({
+      id: item.id,
+      title: getAssociateApplicantName(item),
+      detail: `${item.status || "Pendiente"} · ${item.email || "-"}`,
+      submittedAt: item.submittedAt || "",
+      action: "select-associate-application",
+      dataKey: "application-id"
+    })),
+    ...pendingPaymentSubmissions.map((item) => {
+      const associate = findAssociate(item.associateId);
+      return {
+        id: item.id,
+        title: associate ? getAssociateFullName(associate) : item.associateId || "Socio",
+        detail: `Cuota ${item.year || "-"} · ${formatCurrency(Number(item.amount || 0))}`,
+        submittedAt: item.submittedAt || "",
+        action: "select-associate-payment-submission",
+        dataKey: "submission-id"
+      };
+    }),
+    ...pendingProfileRequests.map((item) => {
+      const associate = findAssociate(item.associateId);
+      return {
+        id: item.id,
+        title: associate ? getAssociateFullName(associate) : item.email || "Cambio de ficha",
+        detail: item.status || "Pendiente de revision",
+        submittedAt: item.submittedAt || "",
+        action: "select-associate-profile-request",
+        dataKey: "request-id"
+      };
+    })
+  ]
+    .sort((left, right) => String(right.submittedAt || "").localeCompare(String(left.submittedAt || "")))
+    .slice(0, 4);
+  const showAssociateSection = (section) => associatesSectionMode === "all" || associatesSectionMode === section;
   const showAssociateFiltersSection = ["migration", "legacy", "fees", "applications", "profiles", "directory"].includes(
       associatesSectionMode
     );
@@ -7554,6 +7679,83 @@ function renderAssociates() {
                 </details>
               </div>
             `
+        }
+      </div>
+
+      <div class="course-grid">
+        <div class="metric-card compact-card">
+          <p class="eyebrow">Total socios</p>
+          <strong>${state.associates.length}</strong>
+          <span class="muted">Censo visible en el campus</span>
+        </div>
+        <div class="metric-card compact-card">
+          <p class="eyebrow">Solicitudes pendientes</p>
+          <strong>${pendingApplications.length}</strong>
+          <span class="muted">Altas pendientes o en subsanacion</span>
+        </div>
+        <div class="metric-card compact-card">
+          <p class="eyebrow">Cuotas pendientes</p>
+          <strong>${pendingQuotaAssociates.length}</strong>
+          <span class="muted">Socios con deuda en la anualidad actual</span>
+        </div>
+        <div class="metric-card compact-card">
+          <p class="eyebrow">Socios al dia</p>
+          <strong>${upToDateAssociates}</strong>
+          <span class="muted">Sin deuda de cuota visible</span>
+        </div>
+      </div>
+
+      <div class="mail-card">
+        <div class="panel-header">
+          <div>
+            <h4>Resumen operativo</h4>
+            <p class="muted">Lo importante para trabajar socios y cuotas sin salir de esta pantalla.</p>
+          </div>
+          <div class="chip-row">
+            <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="applications">Solicitudes</button>
+            <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="fees">Cuotas</button>
+            <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="profiles">Cambios</button>
+            <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="directory">Socios</button>
+          </div>
+        </div>
+        <div class="course-grid">
+          <div class="timeline-item">
+            <p>Pagos al dia</p>
+            <strong>${upToDateAssociates}</strong>
+          </div>
+          <div class="timeline-item">
+            <p>Con deuda o pendiente</p>
+            <strong>${pendingQuotaAssociates.length}</strong>
+          </div>
+          <div class="timeline-item">
+            <p>Justificantes por revisar</p>
+            <strong>${pendingPaymentSubmissions.length}</strong>
+          </div>
+          <div class="timeline-item">
+            <p>Cambios de ficha</p>
+            <strong>${pendingProfileRequests.length}</strong>
+          </div>
+        </div>
+        ${
+          associateSummaryNotices.length
+            ? `
+              <div class="compact-list">
+                ${associateSummaryNotices
+                  .map(
+                    (item) => `
+                      <div class="timeline-item compact-card">
+                        <strong>${escapeHtml(item.title)}</strong>
+                        <p class="muted">${escapeHtml(item.detail)}</p>
+                        <div class="chip-row">
+                          <button class="mini-button" type="button" data-action="${item.action}" data-${item.dataKey}="${item.id}">Abrir</button>
+                        </div>
+                      </div>
+                    `
+                  )
+                  .join("")}
+              </div>
+            `
+            : `<p class="muted">No hay avisos recientes de socios/cuotas ahora mismo.</p>`
         }
       </div>
 
@@ -19513,6 +19715,11 @@ function isCampusOnlySession() {
 
 function isDemoSession() {
   return isLocalEnvironment;
+}
+
+function showMemberModeAdminWarning(message = "Estas en modo socio/alumno. Vuelve a administracion para usar esta herramienta.") {
+  syncStatus = message;
+  showToast(syncStatus, "warning");
 }
 
 function buildDiplomaCode(course, member) {
