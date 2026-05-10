@@ -1,5 +1,6 @@
 const testState = {
   tests: [],
+  testModules: [],
   questions: [],
   activeTestId: null
 };
@@ -22,6 +23,10 @@ export function getQuestions() {
   return testState.questions;
 }
 
+export function getTestModules() {
+  return testState.testModules;
+}
+
 export function getQuestionsByTopic(topic) {
   return testState.questions.filter((question) => question.topic === topic);
 }
@@ -36,8 +41,14 @@ export function setQuestions(questions = []) {
   return testState.questions;
 }
 
+export function setTestModules(testModules = []) {
+  testState.testModules = Array.isArray(testModules) ? [...testModules] : [];
+  return testState.testModules;
+}
+
 export function resetTestState() {
   testState.tests = [];
+  testState.testModules = [];
   testState.questions = [];
   testState.activeTestId = null;
   return testState;

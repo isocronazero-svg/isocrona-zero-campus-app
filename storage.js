@@ -277,9 +277,11 @@ function normalizeIndependentQuestion(question, questionIndex) {
     ...question,
     id: question?.id || `question-bank-${Date.now()}-${questionIndex}`,
     moduleId: String(question?.moduleId || "").trim(),
-    prompt: String(question?.prompt || "").trim(),
+    prompt: String(question?.prompt || question?.question || question?.enunciado || "").trim(),
     options,
-    correctIndex: Number.isInteger(Number(question?.correctIndex)) ? Number(question.correctIndex) : 0,
+    correctIndex: Number.isInteger(Number(question?.correctIndex ?? question?.correctAnswer ?? question?.respuestaCorrecta))
+      ? Number(question?.correctIndex ?? question?.correctAnswer ?? question?.respuestaCorrecta)
+      : 0,
     explanation: String(question?.explanation || "").trim(),
     topic: String(question?.topic || "").trim(),
     difficulty: String(question?.difficulty || "").trim(),
@@ -367,6 +369,66 @@ function normalizePracticeAttempt(attempt, attemptIndex) {
     netScore: Number.isFinite(parsedNetScore) && parsedNetScore >= 0 ? parsedNetScore : Number(attempt?.score || 0),
     percentage: Number.isFinite(parsedPercentage) && parsedPercentage >= 0 ? parsedPercentage : 0,
     createdAt: attempt?.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizeNormalTestResult(result, resultIndex) {
+  const questionIds = Array.isArray(result?.questionIds)
+    ? result.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const correctCount = Number(result?.correctCount ?? result?.score ?? 0);
+  const total = Number(result?.total || questionIds.length || 0);
+  const scorePercent = Number(result?.scorePercent ?? result?.percentage ?? (total ? (correctCount / total) * 100 : 0));
+  return {
+    ...result,
+    id: result?.id || `test-result-${Date.now()}-${resultIndex}`,
+    resultType: "normal",
+    userId: String(result?.userId || "").trim(),
+    memberId: String(result?.memberId || "").trim(),
+    questionIds,
+    answers: Array.isArray(result?.answers) ? result.answers : [],
+    correctCount,
+    wrongCount: Number(result?.wrongCount || 0),
+    blankCount: Number(result?.blankCount || 0),
+    score: correctCount,
+    total,
+    percentage: scorePercent,
+    scorePercent,
+    duration: Number(result?.duration || 0),
+    selectedConfig: result?.selectedConfig && typeof result.selectedConfig === "object" ? result.selectedConfig : {},
+    createdAt: result?.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizePublicLiveTestSession(session, sessionIndex) {
+  return {
+    ...session,
+    id: session?.id || `live-test-public-session-${Date.now()}-${sessionIndex}`,
+    code: String(session?.code || "").trim().toUpperCase(),
+    title: String(session?.title || "Sesion en vivo Isocrona Zero").trim(),
+    questionIds: Array.isArray(session?.questionIds)
+      ? session.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
+      : [],
+    status: ["draft", "active", "finished"].includes(String(session?.status || "").trim())
+      ? String(session.status).trim()
+      : "draft",
+    createdBy: String(session?.createdBy || "").trim(),
+    createdAt: session?.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizeLiveTestParticipantResult(result, resultIndex) {
+  return {
+    ...result,
+    id: result?.id || `live-test-public-result-${Date.now()}-${resultIndex}`,
+    sessionId: String(result?.sessionId || "").trim(),
+    participantName: String(result?.participantName || "").trim(),
+    answers: Array.isArray(result?.answers) ? result.answers : [],
+    correctCount: Number(result?.correctCount || 0),
+    wrongCount: Number(result?.wrongCount || 0),
+    blankCount: Number(result?.blankCount || 0),
+    scorePercent: Number(result?.scorePercent || 0),
+    submittedAt: result?.submittedAt || new Date().toISOString()
   };
 }
 
@@ -722,6 +784,9 @@ function normalizeState(state) {
   nextState.testAttempts = (state.testAttempts || []).map((attempt, index) =>
     normalizeIndependentTestAttempt(attempt, index)
   );
+  nextState.testResults = (state.testResults || []).map((result, index) =>
+    normalizeNormalTestResult(result, index)
+  );
   nextState.practiceTests = (state.practiceTests || []).map((practiceTest, index) =>
     normalizePracticeTest(practiceTest, index)
   );
@@ -736,6 +801,12 @@ function normalizeState(state) {
   );
   nextState.liveTestAnswers = (state.liveTestAnswers || []).map((answer, index) =>
     normalizeLiveTestAnswer(answer, index)
+  );
+  nextState.liveTestPublicSessions = (state.liveTestPublicSessions || []).map((session, index) =>
+    normalizePublicLiveTestSession(session, index)
+  );
+  nextState.liveTestParticipantResults = (state.liveTestParticipantResults || []).map((result, index) =>
+    normalizeLiveTestParticipantResult(result, index)
   );
   nextState.associateApplications = (state.associateApplications || []).map((item) => ({
     id: item.id || `associate-application-${Date.now()}`,
