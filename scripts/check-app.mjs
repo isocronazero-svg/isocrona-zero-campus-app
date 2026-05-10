@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 const syntaxFiles = ["public/app.js", "server.js", "storage.js"];
 const conflictCheckedFiles = ["public/app.js", "server.js", "storage.js", "package.json", "README.md"];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
+const extraCheckScripts = ["scripts/check-live-tests.mjs"];
 const associateActionContracts = [
   "approve-associate",
   "approve-associate-payment",
@@ -68,6 +69,16 @@ for (const action of associateActionContracts) {
     publicAppContent.includes(`dataset.action === "${action}"`);
   if (hasRenderedAction && !hasHandler) {
     console.error(`Associate action without handler: ${action}`);
+    failed = true;
+  }
+}
+
+for (const script of extraCheckScripts) {
+  const result = spawnSync(process.execPath, [script], {
+    stdio: "inherit"
+  });
+
+  if (result.status !== 0) {
     failed = true;
   }
 }
