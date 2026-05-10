@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 const syntaxFiles = ["public/app.js", "server.js", "storage.js"];
 const conflictCheckedFiles = ["public/app.js", "server.js", "storage.js", "package.json", "README.md"];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
-const extraCheckScripts = ["scripts/check-live-tests.mjs"];
+const extraCheckScripts = ["scripts/check-live-tests.mjs", "scripts/check-member-notifications.mjs"];
 const associateActionContracts = [
   "approve-associate",
   "approve-associate-payment",

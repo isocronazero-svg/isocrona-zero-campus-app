@@ -372,6 +372,7 @@ const fallbackState = {
   agentLog: [],
   automationInbox: [],
   manualCampusNotices: [],
+  memberNotifications: [],
   automationMeta: {
     lastRunAt: "",
     lastReason: "",
@@ -1361,6 +1362,30 @@ document.addEventListener("click", async (event) => {
       activateMemberCampusMode(actionTarget.dataset.mode || "courses", {
         focusCatalog: true
       });
+      render();
+      return;
+    }
+
+    if (action === "mark-member-notification-read") {
+      if (isMemberPreviewSession()) {
+        showToast("La vista previa no marca avisos reales.", "warning");
+        return;
+      }
+      const notificationId = String(actionTarget.dataset.notificationId || "").trim();
+      if (!notificationId) {
+        return;
+      }
+      const response = await fetch(`/api/member-notifications/${encodeURIComponent(notificationId)}/read`, {
+        method: "POST"
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "No se pudo marcar el aviso como leido");
+      }
+      await refreshState();
+      applySessionToState();
+      syncStatus = "Aviso marcado como leido";
+      showToast("Aviso marcado como leido", "success");
       render();
       return;
     }
@@ -3980,6 +4005,37 @@ document.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (event.target.id === "memberNotificationForm") {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const targetType = String(formData.get("targetType") || "all").trim();
+    const payload = {
+      title: String(formData.get("title") || "").trim(),
+      body: String(formData.get("body") || "").trim(),
+      targetType,
+      memberId: targetType === "member" ? String(formData.get("memberId") || "").trim() : "",
+      priority: String(formData.get("priority") || "normal").trim()
+    };
+
+    const response = await fetch("/api/member-notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok || result.ok === false) {
+      throw new Error(result.error || "No se pudo publicar el aviso");
+    }
+
+    event.target.reset();
+    await refreshState({ forceAdminState: true });
+    applySessionToState();
+    syncStatus = "Aviso interno publicado";
+    showToast("Aviso interno publicado", "success");
+    render();
+    return;
+  }
+
   if (event.target.id === "changePasswordForm") {
     event.preventDefault();
 
@@ -5177,6 +5233,9 @@ function normalizeState(data) {
   nextState.automationInbox = nextState.automationInbox || [];
   nextState.manualCampusNotices = (nextState.manualCampusNotices || []).map((notice, index) =>
     normalizeManualCampusNotice(notice, index)
+  );
+  nextState.memberNotifications = (nextState.memberNotifications || []).map((notification, index) =>
+    normalizeMemberNotification(notification, index)
   );
   nextState.associateApplications = nextState.associateApplications || [];
   nextState.associatePaymentSubmissions = nextState.associatePaymentSubmissions || [];
@@ -6435,6 +6494,87 @@ function renderOverview() {
   `;
 }
 
+function isMemberNotificationRead(notification, memberId) {
+  if (notification?.read === true) {
+    return true;
+  }
+  const normalizedMemberId = String(memberId || "").trim();
+  return Boolean(
+    normalizedMemberId &&
+      Array.isArray(notification?.readByMemberIds) &&
+      notification.readByMemberIds.includes(normalizedMemberId)
+  );
+}
+
+function getCurrentMemberNotifications(memberId) {
+  const normalizedMemberId = String(memberId || "").trim();
+  return [...(state.memberNotifications || [])]
+    .filter((notification) => {
+      const targetType = String(notification?.targetType || "").trim();
+      if (!targetType || !normalizedMemberId) {
+        return false;
+      }
+      if (targetType === "all") {
+        return true;
+      }
+      return targetType === "member" && String(notification?.memberId || "").trim() === normalizedMemberId;
+    })
+    .sort((left, right) => {
+      const leftRead = isMemberNotificationRead(left, normalizedMemberId) ? 1 : 0;
+      const rightRead = isMemberNotificationRead(right, normalizedMemberId) ? 1 : 0;
+      if (leftRead !== rightRead) {
+        return leftRead - rightRead;
+      }
+      return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+    });
+}
+
+function renderMemberNotifications(memberId) {
+  const notifications = getCurrentMemberNotifications(memberId);
+  return `
+    <div class="mail-card">
+      <div class="panel-header">
+        <div>
+          <h4>Avisos</h4>
+          <p class="muted">Comunicaciones internas rapidas de administracion para socios.</p>
+        </div>
+      </div>
+      ${
+        notifications.length
+          ? `<div class="compact-list">
+              ${notifications
+                .map((notification) => {
+                  const read = isMemberNotificationRead(notification, memberId);
+                  return `
+                    <div class="timeline-item compact-card">
+                      <div class="row-between">
+                        <strong>${escapeHtml(notification.title || "Aviso interno")}</strong>
+                        <span class="small-chip">${escapeHtml(
+                          read
+                            ? "Leido"
+                            : notification.priority === "important"
+                              ? "Importante"
+                              : "Pendiente"
+                        )}</span>
+                      </div>
+                      <p>${escapeHtml(notification.body || "")}</p>
+                      <p class="muted">${escapeHtml(formatDateTime(notification.createdAt) || "Fecha pendiente")}</p>
+                      ${
+                        read
+                          ? '<p class="muted">Ya has marcado este aviso como leido.</p>'
+                          : `<div class="chip-row"><button class="mini-button" type="button" data-action="mark-member-notification-read" data-notification-id="${escapeHtml(notification.id)}">Marcar como leido</button></div>`
+                      }
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>`
+          : `<div class="empty-state">No tienes avisos pendientes.</div>`
+      }
+    </div>
+  `;
+}
+
 function renderMemberOverview() {
   const member = getCurrentMember();
   const associate = getCurrentAssociate();
@@ -6487,6 +6627,8 @@ function renderMemberOverview() {
       }
 
       ${member ? renderMemberAlerts(member.id) : ""}
+
+      ${member ? renderMemberNotifications(member.id) : ""}
 
       ${
         primaryCourse && member
@@ -7632,6 +7774,9 @@ function renderAssociates() {
   ]
     .sort((left, right) => String(right.submittedAt || "").localeCompare(String(left.submittedAt || "")))
     .slice(0, 4);
+  const recentMemberNotifications = [...(state.memberNotifications || [])]
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
+    .slice(0, 5);
   const showAssociateSection = (section) => associatesSectionMode === "all" || associatesSectionMode === section;
   const showAssociateFiltersSection = ["migration", "legacy", "fees", "applications", "profiles", "directory"].includes(
       associatesSectionMode
@@ -7756,6 +7901,86 @@ function renderAssociates() {
               </div>
             `
             : `<p class="muted">No hay avisos recientes de socios/cuotas ahora mismo.</p>`
+        }
+      </div>
+
+      <div class="mail-card">
+        <div class="panel-header">
+          <div>
+            <h4>Nuevo aviso a socios</h4>
+            <p class="muted">Publica una notificacion interna visible en Mi aula. No envia email en esta fase.</p>
+          </div>
+        </div>
+        <form class="stack" id="memberNotificationForm">
+          <div class="studio-grid">
+            <label class="inline-field">
+              Titulo
+              <input type="text" name="title" maxlength="120" required />
+            </label>
+            <label class="inline-field">
+              Destinatario
+              <select name="targetType">
+                <option value="all">Todos los socios</option>
+                <option value="member">Socio concreto</option>
+              </select>
+            </label>
+            <label class="inline-field">
+              Socio concreto
+              <select name="memberId">
+                <option value="">Selecciona un socio</option>
+                ${(state.members || [])
+                  .map(
+                    (member) => `
+                      <option value="${escapeHtml(member.id)}">${escapeHtml(member.name || member.email || member.id)}</option>
+                    `
+                  )
+                  .join("")}
+              </select>
+            </label>
+            <label class="inline-field">
+              Prioridad
+              <select name="priority">
+                <option value="normal">Normal</option>
+                <option value="important">Importante</option>
+              </select>
+            </label>
+          </div>
+          <label class="inline-field">
+            Mensaje
+            <textarea name="body" rows="4" required></textarea>
+          </label>
+          <div class="chip-row">
+            <button class="primary-button" type="submit">Publicar aviso</button>
+          </div>
+        </form>
+        ${
+          recentMemberNotifications.length
+            ? `
+              <div class="compact-list">
+                ${recentMemberNotifications
+                  .map((notification) => {
+                    const targetMember = notification.memberId ? findMember(notification.memberId) : null;
+                    return `
+                      <div class="timeline-item compact-card">
+                        <div class="row-between">
+                          <strong>${escapeHtml(notification.title || "Aviso interno")}</strong>
+                          <span class="small-chip">${escapeHtml(
+                            notification.priority === "important" ? "Importante" : "Normal"
+                          )}</span>
+                        </div>
+                        <p>${escapeHtml(notification.body || "")}</p>
+                        <p class="muted">
+                          ${escapeHtml(notification.targetType === "member" ? `Solo ${targetMember?.name || notification.memberId}` : "Todos los socios")}
+                          · ${escapeHtml(formatDateTime(notification.createdAt) || "Fecha pendiente")}
+                          · ${escapeHtml(String((notification.readByMemberIds || []).length))} lectura(s)
+                        </p>
+                      </div>
+                    `;
+                  })
+                  .join("")}
+              </div>
+            `
+            : `<p class="muted">Todavia no hay avisos internos publicados.</p>`
         }
       </div>
 
@@ -19972,6 +20197,27 @@ function normalizeManualCampusNotice(notice, index = 0) {
     expiresAt: String(notice?.expiresAt || "").trim(),
     publishedAt: String(notice?.publishedAt || new Date().toISOString()).trim(),
     active: notice?.active !== false
+  };
+}
+
+function normalizeMemberNotification(notification, index = 0) {
+  const normalizedTargetType = String(notification?.targetType || "").trim() === "member" ? "member" : "all";
+  const normalizedPriority = String(notification?.priority || "").trim() === "important" ? "important" : "normal";
+  const normalizedReadByMemberIds = Array.isArray(notification?.readByMemberIds)
+    ? [...new Set(notification.readByMemberIds.map((value) => String(value || "").trim()).filter(Boolean))]
+    : [];
+  return {
+    ...notification,
+    id: String(notification?.id || `member-notification-${Date.now()}-${index}`).trim(),
+    title: String(notification?.title || "").trim(),
+    body: String(notification?.body || "").trim(),
+    targetType: normalizedTargetType,
+    memberId: normalizedTargetType === "member" ? String(notification?.memberId || "").trim() : "",
+    priority: normalizedPriority,
+    createdByMemberId: String(notification?.createdByMemberId || "").trim(),
+    createdAt: String(notification?.createdAt || new Date().toISOString()).trim(),
+    read: Boolean(notification?.read),
+    readByMemberIds: normalizedReadByMemberIds
   };
 }
 
