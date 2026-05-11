@@ -432,6 +432,25 @@ function normalizeLiveTestParticipantResult(result, resultIndex) {
   };
 }
 
+function normalizeMemberNotification(notification, notificationIndex) {
+  const normalizedTargetType = String(notification?.targetType || "").trim() === "member" ? "member" : "all";
+  const normalizedPriority = String(notification?.priority || "").trim() === "important" ? "important" : "normal";
+  return {
+    ...notification,
+    id: notification?.id || `member-notification-${Date.now()}-${notificationIndex}`,
+    title: String(notification?.title || "").trim(),
+    body: String(notification?.body || "").trim(),
+    targetType: normalizedTargetType,
+    memberId: normalizedTargetType === "member" ? String(notification?.memberId || "").trim() : "",
+    priority: normalizedPriority,
+    createdByMemberId: String(notification?.createdByMemberId || "").trim(),
+    createdAt: notification?.createdAt || new Date().toISOString(),
+    readByMemberIds: Array.isArray(notification?.readByMemberIds)
+      ? [...new Set(notification.readByMemberIds.map((value) => String(value || "").trim()).filter(Boolean))]
+      : []
+  };
+}
+
 function normalizeLiveTestSession(session, sessionIndex) {
   const parsedQuestionIndex = Number(session?.currentQuestionIndex);
   const parsedQuestionTimeLimitSeconds = Number(session?.questionTimeLimitSeconds);
@@ -792,6 +811,9 @@ function normalizeState(state) {
   );
   nextState.practiceAttempts = (state.practiceAttempts || []).map((attempt, index) =>
     normalizePracticeAttempt(attempt, index)
+  );
+  nextState.memberNotifications = (state.memberNotifications || []).map((notification, index) =>
+    normalizeMemberNotification(notification, index)
   );
   nextState.liveTestSessions = (state.liveTestSessions || []).map((session, index) =>
     normalizeLiveTestSession(session, index)

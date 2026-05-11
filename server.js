@@ -3010,6 +3010,131 @@ function restoreTransportSanitizedSecrets(currentState, nextState) {
   return nextState;
 }
 
+function normalizeMemberNotificationTargetType(value) {
+  return String(value || "").trim() === "member" ? "member" : "all";
+}
+
+function normalizeMemberNotificationPriority(value) {
+  return String(value || "").trim() === "important" ? "important" : "normal";
+}
+
+function normalizeMemberNotificationRecord(notification, notificationIndex = 0) {
+  const targetType = normalizeMemberNotificationTargetType(notification?.targetType);
+  return {
+    ...notification,
+    id: notification?.id || `member-notification-${Date.now()}-${notificationIndex}`,
+    title: String(notification?.title || "").trim(),
+    body: String(notification?.body || "").trim(),
+    targetType,
+    memberId: targetType === "member" ? String(notification?.memberId || "").trim() : "",
+    priority: normalizeMemberNotificationPriority(notification?.priority),
+    createdByMemberId: String(notification?.createdByMemberId || "").trim(),
+    createdAt: notification?.createdAt || new Date().toISOString(),
+    readByMemberIds: Array.isArray(notification?.readByMemberIds)
+      ? [...new Set(notification.readByMemberIds.map((value) => String(value || "").trim()).filter(Boolean))]
+      : []
+  };
+}
+
+function ensureMemberNotificationsState(state) {
+  state.memberNotifications = Array.isArray(state.memberNotifications) ? state.memberNotifications : [];
+}
+
+function canMemberAccessNotificationRecord(notification, memberId) {
+  const normalizedMemberId = String(memberId || "").trim();
+  if (!notification || !normalizedMemberId) {
+    return false;
+  }
+  if (String(notification.targetType || "").trim() === "all") {
+    return true;
+  }
+  return String(notification.memberId || "").trim() === normalizedMemberId;
+}
+
+function buildMemberNotificationAudiencePayload(notification, memberId) {
+  const normalizedMemberId = String(memberId || "").trim();
+  const readByMemberIds = Array.isArray(notification?.readByMemberIds) ? notification.readByMemberIds : [];
+  return {
+    id: String(notification?.id || "").trim(),
+    title: String(notification?.title || "").trim(),
+    body: String(notification?.body || "").trim(),
+    targetType: normalizeMemberNotificationTargetType(notification?.targetType),
+    priority: normalizeMemberNotificationPriority(notification?.priority),
+    createdAt: String(notification?.createdAt || "").trim(),
+    read: normalizedMemberId ? readByMemberIds.includes(normalizedMemberId) : false
+  };
+}
+
+function buildMemberNotificationAdminPayload(notification) {
+  return {
+    id: String(notification?.id || "").trim(),
+    title: String(notification?.title || "").trim(),
+    body: String(notification?.body || "").trim(),
+    targetType: normalizeMemberNotificationTargetType(notification?.targetType),
+    memberId: String(notification?.memberId || "").trim(),
+    priority: normalizeMemberNotificationPriority(notification?.priority),
+    createdByMemberId: String(notification?.createdByMemberId || "").trim(),
+    createdAt: String(notification?.createdAt || "").trim(),
+    readCount: Array.isArray(notification?.readByMemberIds) ? notification.readByMemberIds.length : 0
+  };
+}
+
+function listVisibleMemberNotifications(state, memberId) {
+  ensureMemberNotificationsState(state);
+  return (state.memberNotifications || [])
+    .filter((notification) => canMemberAccessNotificationRecord(notification, memberId))
+    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+}
+
+function createMemberNotification(state, account, payload = {}) {
+  ensureMemberNotificationsState(state);
+  const title = String(payload.title || "").trim();
+  const body = String(payload.body || "").trim();
+  const targetType = normalizeMemberNotificationTargetType(payload.targetType);
+  const memberId = String(payload.memberId || "").trim();
+
+  if (!title) {
+    throw new Error("El titulo del aviso es obligatorio");
+  }
+  if (!body) {
+    throw new Error("El mensaje del aviso es obligatorio");
+  }
+  if (targetType === "member") {
+    const member = (state.members || []).find((item) => item.id === memberId);
+    if (!member) {
+      throw new Error("El socio seleccionado no existe");
+    }
+  }
+
+  const notification = normalizeMemberNotificationRecord({
+    id: generateLegacyId("member-notification"),
+    title,
+    body,
+    targetType,
+    memberId,
+    priority: payload.priority,
+    createdByMemberId: account?.memberId || "",
+    createdAt: new Date().toISOString(),
+    readByMemberIds: []
+  });
+
+  state.memberNotifications.unshift(notification);
+  return notification;
+}
+
+function markMemberNotificationAsRead(state, notification, memberId) {
+  ensureMemberNotificationsState(state);
+  const normalizedMemberId = String(memberId || "").trim();
+  if (!canMemberAccessNotificationRecord(notification, normalizedMemberId)) {
+    throw new Error("No tienes acceso a este aviso");
+  }
+  notification.readByMemberIds = Array.isArray(notification.readByMemberIds) ? notification.readByMemberIds : [];
+  if (!notification.readByMemberIds.includes(normalizedMemberId)) {
+    notification.readByMemberIds.push(normalizedMemberId);
+  }
+  return notification;
+}
+
 function getPublicCampusCourses(state) {
   return (state.courses || [])
     .filter((course) => isCoursePublicAccess(course))
@@ -3272,6 +3397,9 @@ function buildMemberScopedState(state, account, memberIdOverride) {
     emailOutbox: quotaLimitedAccess
       ? []
       : (state.emailOutbox || []).filter((item) => item.memberId === memberId || item.associateId === associateId),
+    memberNotifications: listVisibleMemberNotifications(state, memberId).map((notification) =>
+      buildMemberNotificationAudiencePayload(notification, memberId)
+    ),
     settings: {
       ...state.settings,
       smtp: stripSmtpSecrets({
@@ -3516,6 +3644,81 @@ const server = http.createServer(async (req, res) => {
         platformRole
       })
     });
+  }
+
+  if (requestUrl.pathname === "/api/member-notifications/me" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      const memberId = String(account.memberId || "").trim();
+      if (!memberId) {
+        return sendJson(res, 400, { ok: false, error: "Tu cuenta no tiene un socio vinculado para consultar avisos" });
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        notifications: listVisibleMemberNotifications(state, memberId).map((notification) =>
+          buildMemberNotificationAudiencePayload(notification, memberId)
+        )
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar los avisos" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/member-notifications" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      const notification = createMemberNotification(state, account, payload);
+      appendActivity(
+        state,
+        "admin",
+        account.name || "Administracion",
+        `Publica aviso interno para ${notification.targetType === "member" ? notification.memberId : "todos los socios"}: ${notification.title}`
+      );
+      writeState(state);
+      return sendJson(res, 201, {
+        ok: true,
+        notification: buildMemberNotificationAdminPayload(notification)
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo publicar el aviso" });
+    }
+  }
+
+  if (/^\/api\/member-notifications\/[^/]+\/read$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      const memberId = String(account.memberId || "").trim();
+      if (!memberId) {
+        return sendJson(res, 400, { ok: false, error: "Tu cuenta no tiene un socio vinculado para marcar avisos" });
+      }
+      ensureMemberNotificationsState(state);
+      const notificationId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
+      const notification = (state.memberNotifications || []).find((item) => String(item.id || "").trim() === notificationId);
+      if (!notification) {
+        return sendJson(res, 404, { ok: false, error: "Aviso no encontrado" });
+      }
+      markMemberNotificationAsRead(state, notification, memberId);
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        notification: buildMemberNotificationAudiencePayload(notification, memberId)
+      });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo marcar el aviso como leido" });
+    }
   }
 
   if (requestUrl.pathname === "/api/auth/register" && req.method === "POST") {
