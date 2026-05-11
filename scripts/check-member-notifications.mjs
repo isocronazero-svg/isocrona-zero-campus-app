@@ -155,6 +155,10 @@ function assertNoPrivateNotificationFields(notifications, label) {
   }
 }
 
+function countUnreadNotifications(notifications = []) {
+  return notifications.filter((notification) => notification?.read !== true).length;
+}
+
 async function main() {
   const port = await getAvailablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -190,6 +194,7 @@ async function main() {
     assertNoPrivateNotificationFields(memberNotificationsResponse.body?.notifications, "avisos del socio");
     assert.equal(memberNotificationsResponse.body?.notifications?.[0]?.title, "Aviso general");
     assert.equal(memberNotificationsResponse.body?.notifications?.[0]?.read, false);
+    assert.equal(countUnreadNotifications(memberNotificationsResponse.body?.notifications), 1);
 
     const readResponse = await memberClient.request(
       "POST",
@@ -201,6 +206,7 @@ async function main() {
 
     const memberNotificationsAfterReadResponse = await memberClient.request("GET", "/api/member-notifications/me");
     assert.equal(memberNotificationsAfterReadResponse.body?.notifications?.[0]?.read, true);
+    assert.equal(countUnreadNotifications(memberNotificationsAfterReadResponse.body?.notifications), 0);
 
     const secondMemberNotificationsResponse = await secondMemberClient.request("GET", "/api/member-notifications/me");
     assert.equal(secondMemberNotificationsResponse.body?.ok, true);
@@ -209,6 +215,7 @@ async function main() {
       (item) => item.title === "Aviso general"
     );
     assert.equal(secondMemberGlobalNotification?.read, false);
+    assert.equal(countUnreadNotifications(secondMemberNotificationsResponse.body?.notifications), 1);
 
     const targetedNotificationResponse = await adminClient.request("POST", "/api/member-notifications", {
       title: "Aviso individual",
@@ -221,9 +228,11 @@ async function main() {
 
     const memberOneTargetedResponse = await memberClient.request("GET", "/api/member-notifications/me");
     assert.equal(memberOneTargetedResponse.body?.notifications?.some((item) => item.title === "Aviso individual"), true);
+    assert.equal(countUnreadNotifications(memberOneTargetedResponse.body?.notifications), 1);
 
     const memberTwoTargetedResponse = await secondMemberClient.request("GET", "/api/member-notifications/me");
     assert.equal(memberTwoTargetedResponse.body?.notifications?.some((item) => item.title === "Aviso individual"), false);
+    assert.equal(countUnreadNotifications(memberTwoTargetedResponse.body?.notifications), 1);
 
     console.log("Member notification checks passed.");
   } finally {

@@ -5831,6 +5831,8 @@ function renderSidebarContextCard() {
 function renderNav() {
   const campusOnlySession = isCampusOnlySession();
   const memberPrimaryProfile = shouldUseMemberProfileAsPrimaryView();
+  const currentMemberId = getCurrentMember()?.id || session?.memberId || "";
+  const unreadNotificationCount = !isAdminView() && currentMemberId ? getUnreadMemberNotifications(currentMemberId).length : 0;
   const effectiveNavItems = !isAdminView()
     ? [
         { id: "overview", label: "Mi aula", action: "nav", view: "overview" },
@@ -5850,11 +5852,16 @@ function renderNav() {
     .filter((item) => isViewAllowed(item.id))
     .filter((item) => !(memberPrimaryProfile && isAdminView() && item.id === "overview"))
     .map(
-      (item) => `
+      (item) => {
+        const navLabel =
+          item.id === "overview" && unreadNotificationCount > 0
+            ? `${item.label} (${unreadNotificationCount})`
+            : item.label;
+        return `
         <div class="nav-item-group ${isNavItemActive(item) ? "active" : ""}">
           <div class="nav-item-row">
             <button class="nav-main-button ${isNavItemActive(item) ? "active" : ""}" type="button" data-action="${item.action || "nav"}"${item.view ? ` data-view="${item.view}"` : ""}${item.mode ? ` data-mode="${item.mode}"` : ""}>
-              ${item.label}
+              ${escapeHtml(navLabel)}
             </button>
             ${
               item.sections?.length && isAdminView()
@@ -5891,7 +5898,8 @@ function renderNav() {
               : ""
           }
         </div>
-      `
+      `;
+      }
     )
     .join("");
 }
@@ -6506,6 +6514,30 @@ function isMemberNotificationRead(notification, memberId) {
   );
 }
 
+function getMemberNotificationPriorityWeight(notification) {
+  return String(notification?.priority || "").trim() === "important" ? 0 : 1;
+}
+
+function compareMemberNotificationsForMember(memberId) {
+  const normalizedMemberId = String(memberId || "").trim();
+  return (left, right) => {
+    const leftRead = isMemberNotificationRead(left, normalizedMemberId) ? 1 : 0;
+    const rightRead = isMemberNotificationRead(right, normalizedMemberId) ? 1 : 0;
+    if (leftRead !== rightRead) {
+      return leftRead - rightRead;
+    }
+
+    if (!leftRead && !rightRead) {
+      const priorityDiff = getMemberNotificationPriorityWeight(left) - getMemberNotificationPriorityWeight(right);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+    }
+
+    return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+  };
+}
+
 function getCurrentMemberNotifications(memberId) {
   const normalizedMemberId = String(memberId || "").trim();
   return [...(state.memberNotifications || [])]
@@ -6517,20 +6549,22 @@ function getCurrentMemberNotifications(memberId) {
       if (targetType === "all") {
         return true;
       }
-      return targetType === "member" && String(notification?.memberId || "").trim() === normalizedMemberId;
-    })
-    .sort((left, right) => {
-      const leftRead = isMemberNotificationRead(left, normalizedMemberId) ? 1 : 0;
-      const rightRead = isMemberNotificationRead(right, normalizedMemberId) ? 1 : 0;
-      if (leftRead !== rightRead) {
-        return leftRead - rightRead;
-      }
-      return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+      const targetMemberId = String(notification?.memberId || "").trim();
+      return targetType === "member" && (!targetMemberId || targetMemberId === normalizedMemberId);
     });
 }
 
+function sortCurrentMemberNotifications(memberId, notifications = getCurrentMemberNotifications(memberId)) {
+  return [...notifications].sort(compareMemberNotificationsForMember(memberId));
+}
+
+function getUnreadMemberNotifications(memberId) {
+  return getCurrentMemberNotifications(memberId).filter((notification) => !isMemberNotificationRead(notification, memberId));
+}
+
 function renderMemberNotifications(memberId) {
-  const notifications = getCurrentMemberNotifications(memberId);
+  const notifications = sortCurrentMemberNotifications(memberId);
+  const unreadCount = notifications.filter((notification) => !isMemberNotificationRead(notification, memberId)).length;
   return `
     <div class="mail-card">
       <div class="panel-header">
@@ -6538,6 +6572,7 @@ function renderMemberNotifications(memberId) {
           <h4>Avisos</h4>
           <p class="muted">Comunicaciones internas rapidas de administracion para socios.</p>
         </div>
+        <span class="small-chip">${unreadCount} aviso(s) pendiente(s)</span>
       </div>
       ${
         notifications.length
@@ -7774,9 +7809,13 @@ function renderAssociates() {
   ]
     .sort((left, right) => String(right.submittedAt || "").localeCompare(String(left.submittedAt || "")))
     .slice(0, 4);
-  const recentMemberNotifications = [...(state.memberNotifications || [])]
-    .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
-    .slice(0, 5);
+  const publishedMemberNotifications = [...(state.memberNotifications || [])].sort((left, right) =>
+    String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+  );
+  const importantMemberNotificationsCount = publishedMemberNotifications.filter(
+    (notification) => String(notification?.priority || "").trim() === "important"
+  ).length;
+  const recentMemberNotifications = publishedMemberNotifications.slice(0, 5);
   const showAssociateSection = (section) => associatesSectionMode === "all" || associatesSectionMode === section;
   const showAssociateFiltersSection = ["migration", "legacy", "fees", "applications", "profiles", "directory"].includes(
       associatesSectionMode
@@ -7953,6 +7992,20 @@ function renderAssociates() {
             <button class="primary-button" type="submit">Publicar aviso</button>
           </div>
         </form>
+        <div class="course-grid">
+          <div class="timeline-item compact-card">
+            <p>Total avisos publicados</p>
+            <strong>${publishedMemberNotifications.length}</strong>
+          </div>
+          <div class="timeline-item compact-card">
+            <p>Avisos importantes</p>
+            <strong>${importantMemberNotificationsCount}</strong>
+          </div>
+          <div class="timeline-item compact-card">
+            <p>Ultimos 5 avisos</p>
+            <strong>${recentMemberNotifications.length}</strong>
+          </div>
+        </div>
         ${
           recentMemberNotifications.length
             ? `
