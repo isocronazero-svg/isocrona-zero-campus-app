@@ -487,6 +487,14 @@ function getQuestionsForSelectedTopics(mode = "normal") {
   return getQuestions().filter((question) => selectedSet.has(getQuestionTopicKey(question, getModules())));
 }
 
+function getQuestionCategoryLabel(question) {
+  const moduleLabel = question.moduleTitle || question.manual || question.modulo || question.category || "Test normal";
+  const topicLabel = question.temaNumero
+    ? `Tema ${question.temaNumero}${question.temaTitulo ? ` - ${question.temaTitulo}` : ""}`
+    : question.temaTitulo || question.topic || "";
+  return [moduleLabel, topicLabel].filter(Boolean).join(" · ");
+}
+
 function renderTakingTest() {
   const question = getCurrentQuestion();
   if (!question) {
@@ -496,61 +504,75 @@ function renderTakingTest() {
   const total = testSession.currentTest.length;
   const answeredCount = testSession.currentTest.filter((item) => testSession.answersByQuestionId[item.id] !== undefined).length;
   const selectedAnswer = testSession.answersByQuestionId[question.id];
+  const categoryLabel = getQuestionCategoryLabel(question);
 
   return `
-    <section class="test-taking-panel">
-      <header class="test-run-header">
-        <div>
-          <p class="test-view-kicker">Test normal</p>
-          <h3>Pregunta ${testSession.currentQuestionIndex + 1} de ${total}</h3>
-        </div>
-        <div class="test-view-stats">
-          <div class="test-stat-pill">
-            <span class="test-stat-label">Progreso</span>
-            <strong>${answeredCount}/${total}</strong>
+    <section class="test-taking-panel test-taking-panel--exam">
+      <div class="test-exam-shell">
+        <header class="test-exam-topbar">
+          <div class="test-exam-number-grid" aria-label="Preguntas del test">
+            ${testSession.currentTest
+              .map((item, index) => {
+                const isActive = index === testSession.currentQuestionIndex;
+                const isAnswered = testSession.answersByQuestionId[item.id] !== undefined;
+                return `
+                  <button
+                    type="button"
+                    class="test-exam-number ${isActive ? "is-active" : ""} ${isAnswered ? "is-answered" : ""}"
+                    data-test-jump="${index}"
+                    aria-label="Ir a la pregunta ${index + 1}"
+                    aria-current="${isActive ? "true" : "false"}"
+                  >
+                    ${index + 1}
+                  </button>
+                `;
+              })
+              .join("")}
           </div>
-          <div class="test-stat-pill">
-            <span class="test-stat-label">Tiempo</span>
-            <strong data-normal-test-time>${getRemainingSeconds() === null ? "Sin tiempo" : formatDuration(getRemainingSeconds())}</strong>
+          <div class="test-exam-status">
+            <strong>${testSession.currentQuestionIndex + 1} / ${total}</strong>
+            <span data-normal-test-time>${getRemainingSeconds() === null ? "Sin tiempo" : formatDuration(getRemainingSeconds())}</span>
+          </div>
+        </header>
+
+        <div class="test-exam-meta-row">
+          <p><em>Categoria:</em> <strong>${escapeHtml(categoryLabel)}</strong></p>
+          <span class="test-exam-bookmark" aria-hidden="true"></span>
+        </div>
+
+        <article class="test-question-card test-question-card--exam">
+          <h3 class="test-question-title test-question-title--exam">
+            ${testSession.currentQuestionIndex + 1}. ${escapeHtml(question.prompt || question.question)}
+          </h3>
+          <div class="test-options-grid test-options-grid--exam" data-test-options>
+            ${question.options
+              .map(
+                (option, optionIndex) => `
+                  <button
+                    type="button"
+                    class="test-option-button test-option-button--exam ${Number(selectedAnswer) === optionIndex ? "is-selected" : ""}"
+                    data-answer-index="${optionIndex}"
+                    data-question-id="${escapeHtml(question.id)}"
+                  >
+                    <span class="test-option-radio" aria-hidden="true"></span>
+                    <span class="test-option-label"><strong>${String.fromCharCode(97 + optionIndex)})</strong> ${escapeHtml(option)}</span>
+                  </button>
+                `
+              )
+              .join("")}
+          </div>
+        </article>
+
+        <div class="test-exam-footer">
+          <button type="button" class="test-exam-secondary-button" data-test-prev ${testSession.currentQuestionIndex <= 0 ? "disabled" : ""}>Anterior</button>
+          <div class="test-exam-footer-main">
+            <button type="button" class="test-exam-finish-button" data-test-finish>Finalizar</button>
+            <button type="button" class="test-exam-next-button" data-test-next>
+              ${testSession.currentQuestionIndex >= total - 1 ? "Ir al final" : "Siguiente Pregunta"}
+            </button>
           </div>
         </div>
-      </header>
-
-      <div class="test-progress-track" aria-hidden="true">
-        <span style="width: ${Math.round(((testSession.currentQuestionIndex + 1) / total) * 100)}%"></span>
-      </div>
-
-      <article class="test-question-card">
-        <div class="test-question-meta">
-          <span class="test-question-topic">${escapeHtml(question.temaNumero ? `Tema ${question.temaNumero}` : question.temaTitulo || question.topic || "Sin clasificar")}</span>
-          <span class="test-question-difficulty">${escapeHtml(question.category || "bomberos")}</span>
-        </div>
-        <h3 class="test-question-title">${escapeHtml(question.prompt || question.question)}</h3>
-        <div class="test-options-grid" data-test-options>
-          ${question.options
-            .map(
-              (option, optionIndex) => `
-                <button
-                  type="button"
-                  class="test-option-button ${Number(selectedAnswer) === optionIndex ? "is-selected" : ""}"
-                  data-answer-index="${optionIndex}"
-                  data-question-id="${escapeHtml(question.id)}"
-                >
-                  <span class="test-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
-                  <span class="test-option-label">${escapeHtml(option)}</span>
-                </button>
-              `
-            )
-            .join("")}
-        </div>
-      </article>
-
-      <div class="test-action-row test-action-row--split">
-        <button type="button" class="test-secondary-button" data-test-prev ${testSession.currentQuestionIndex <= 0 ? "disabled" : ""}>Anterior</button>
-        <div class="test-action-row">
-          <button type="button" class="test-secondary-button" data-test-next>${testSession.currentQuestionIndex >= total - 1 ? "Ir al final" : "Siguiente"}</button>
-          <button type="button" class="test-primary-button" data-test-finish>Finalizar test</button>
-        </div>
+        <p class="test-exam-progress">${answeredCount} de ${total} respondidas</p>
       </div>
     </section>
   `;
@@ -1230,6 +1252,16 @@ export function renderTestView(container, role = "member") {
     }
 
     if (handleAnswerClick(container, event)) {
+      return;
+    }
+
+    const jumpButton = event.target.closest("[data-test-jump]");
+    if (jumpButton && testSession.mode === "taking") {
+      const nextIndex = Number(jumpButton.dataset.testJump);
+      if (Number.isInteger(nextIndex)) {
+        testSession.currentQuestionIndex = Math.min(testSession.currentTest.length - 1, Math.max(0, nextIndex));
+        renderTestLayout(container);
+      }
       return;
     }
 
