@@ -102,6 +102,7 @@ const VIEW_SECTION_MODES = {
     associateSectionApplications: "applications",
     associateSectionPayments: "fees",
     associateSectionProfiles: "profiles",
+    associateSectionNotifications: "all",
     associateSectionAssociates: "directory"
   },
   members: {
@@ -372,6 +373,7 @@ const fallbackState = {
   agentLog: [],
   automationInbox: [],
   manualCampusNotices: [],
+  memberNotifications: [],
   automationMeta: {
     lastRunAt: "",
     lastReason: "",
@@ -1361,6 +1363,30 @@ document.addEventListener("click", async (event) => {
       activateMemberCampusMode(actionTarget.dataset.mode || "courses", {
         focusCatalog: true
       });
+      render();
+      return;
+    }
+
+    if (action === "mark-member-notification-read") {
+      if (isMemberPreviewSession()) {
+        showToast("La vista previa no marca avisos reales.", "warning");
+        return;
+      }
+      const notificationId = String(actionTarget.dataset.notificationId || "").trim();
+      if (!notificationId) {
+        return;
+      }
+      const response = await fetch(`/api/member-notifications/${encodeURIComponent(notificationId)}/read`, {
+        method: "POST"
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "No se pudo marcar el aviso como leido");
+      }
+      await refreshState();
+      applySessionToState();
+      syncStatus = "Aviso marcado como leido";
+      showToast("Aviso marcado como leido", "success");
       render();
       return;
     }
@@ -3980,6 +4006,37 @@ document.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (event.target.id === "memberNotificationForm") {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const targetType = String(formData.get("targetType") || "all").trim();
+    const payload = {
+      title: String(formData.get("title") || "").trim(),
+      body: String(formData.get("body") || "").trim(),
+      targetType,
+      memberId: targetType === "member" ? String(formData.get("memberId") || "").trim() : "",
+      priority: String(formData.get("priority") || "normal").trim()
+    };
+
+    const response = await fetch("/api/member-notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok || result.ok === false) {
+      throw new Error(result.error || "No se pudo publicar el aviso");
+    }
+
+    event.target.reset();
+    await refreshState({ forceAdminState: true });
+    applySessionToState();
+    syncStatus = "Aviso interno publicado";
+    showToast("Aviso interno publicado", "success");
+    render();
+    return;
+  }
+
   if (event.target.id === "changePasswordForm") {
     event.preventDefault();
 
@@ -5178,6 +5235,9 @@ function normalizeState(data) {
   nextState.manualCampusNotices = (nextState.manualCampusNotices || []).map((notice, index) =>
     normalizeManualCampusNotice(notice, index)
   );
+  nextState.memberNotifications = (nextState.memberNotifications || []).map((notification, index) =>
+    normalizeMemberNotification(notification, index)
+  );
   nextState.associateApplications = nextState.associateApplications || [];
   nextState.associatePaymentSubmissions = nextState.associatePaymentSubmissions || [];
   nextState.associateProfileRequests = nextState.associateProfileRequests || [];
@@ -5773,6 +5833,8 @@ function renderSidebarContextCard() {
 function renderNav() {
   const campusOnlySession = isCampusOnlySession();
   const memberPrimaryProfile = shouldUseMemberProfileAsPrimaryView();
+  const currentMemberId = getCurrentMember()?.id || session?.memberId || "";
+  const unreadNotificationCount = !isAdminView() && currentMemberId ? getUnreadMemberNotifications(currentMemberId).length : 0;
   const effectiveNavItems = !isAdminView()
     ? [
         { id: "overview", label: "Mi aula", action: "nav", view: "overview" },
@@ -5792,11 +5854,16 @@ function renderNav() {
     .filter((item) => isViewAllowed(item.id))
     .filter((item) => !(memberPrimaryProfile && isAdminView() && item.id === "overview"))
     .map(
-      (item) => `
+      (item) => {
+        const navLabel =
+          item.id === "overview" && unreadNotificationCount > 0
+            ? `${item.label} (${unreadNotificationCount})`
+            : item.label;
+        return `
         <div class="nav-item-group ${isNavItemActive(item) ? "active" : ""}">
           <div class="nav-item-row">
             <button class="nav-main-button ${isNavItemActive(item) ? "active" : ""}" type="button" data-action="${item.action || "nav"}"${item.view ? ` data-view="${item.view}"` : ""}${item.mode ? ` data-mode="${item.mode}"` : ""}>
-              ${item.label}
+              ${escapeHtml(navLabel)}
             </button>
             ${
               item.sections?.length && isAdminView()
@@ -5833,7 +5900,8 @@ function renderNav() {
               : ""
           }
         </div>
-      `
+      `;
+      }
     )
     .join("");
 }
@@ -6436,6 +6504,114 @@ function renderOverview() {
   `;
 }
 
+function isMemberNotificationRead(notification, memberId) {
+  if (notification?.read === true) {
+    return true;
+  }
+  const normalizedMemberId = String(memberId || "").trim();
+  return Boolean(
+    normalizedMemberId &&
+      Array.isArray(notification?.readByMemberIds) &&
+      notification.readByMemberIds.includes(normalizedMemberId)
+  );
+}
+
+function getMemberNotificationPriorityWeight(notification) {
+  return String(notification?.priority || "").trim() === "important" ? 0 : 1;
+}
+
+function compareMemberNotificationsForMember(memberId) {
+  const normalizedMemberId = String(memberId || "").trim();
+  return (left, right) => {
+    const leftRead = isMemberNotificationRead(left, normalizedMemberId) ? 1 : 0;
+    const rightRead = isMemberNotificationRead(right, normalizedMemberId) ? 1 : 0;
+    if (leftRead !== rightRead) {
+      return leftRead - rightRead;
+    }
+
+    if (!leftRead && !rightRead) {
+      const priorityDiff = getMemberNotificationPriorityWeight(left) - getMemberNotificationPriorityWeight(right);
+      if (priorityDiff !== 0) {
+        return priorityDiff;
+      }
+    }
+
+    return String(right.createdAt || "").localeCompare(String(left.createdAt || ""));
+  };
+}
+
+function getCurrentMemberNotifications(memberId) {
+  const normalizedMemberId = String(memberId || "").trim();
+  return [...(state.memberNotifications || [])]
+    .filter((notification) => {
+      const targetType = String(notification?.targetType || "").trim();
+      if (!targetType || !normalizedMemberId) {
+        return false;
+      }
+      if (targetType === "all") {
+        return true;
+      }
+      const targetMemberId = String(notification?.memberId || "").trim();
+      return targetType === "member" && (!targetMemberId || targetMemberId === normalizedMemberId);
+    });
+}
+
+function sortCurrentMemberNotifications(memberId, notifications = getCurrentMemberNotifications(memberId)) {
+  return [...notifications].sort(compareMemberNotificationsForMember(memberId));
+}
+
+function getUnreadMemberNotifications(memberId) {
+  return getCurrentMemberNotifications(memberId).filter((notification) => !isMemberNotificationRead(notification, memberId));
+}
+
+function renderMemberNotifications(memberId) {
+  const notifications = sortCurrentMemberNotifications(memberId);
+  const unreadCount = notifications.filter((notification) => !isMemberNotificationRead(notification, memberId)).length;
+  return `
+    <div class="mail-card">
+      <div class="panel-header">
+        <div>
+          <h4>Avisos</h4>
+          <p class="muted">Comunicaciones internas rapidas de administracion para socios.</p>
+        </div>
+        <span class="small-chip">${unreadCount} aviso(s) pendiente(s)</span>
+      </div>
+      ${
+        notifications.length
+          ? `<div class="compact-list">
+              ${notifications
+                .map((notification) => {
+                  const read = isMemberNotificationRead(notification, memberId);
+                  return `
+                    <div class="timeline-item compact-card">
+                      <div class="row-between">
+                        <strong>${escapeHtml(notification.title || "Aviso interno")}</strong>
+                        <span class="small-chip">${escapeHtml(
+                          read
+                            ? "Leido"
+                            : notification.priority === "important"
+                              ? "Importante"
+                              : "Pendiente"
+                        )}</span>
+                      </div>
+                      <p>${escapeHtml(notification.body || "")}</p>
+                      <p class="muted">${escapeHtml(formatDateTime(notification.createdAt) || "Fecha pendiente")}</p>
+                      ${
+                        read
+                          ? '<p class="muted">Ya has marcado este aviso como leido.</p>'
+                          : `<div class="chip-row"><button class="mini-button" type="button" data-action="mark-member-notification-read" data-notification-id="${escapeHtml(notification.id)}">Marcar como leido</button></div>`
+                      }
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>`
+          : `<div class="empty-state">No tienes avisos pendientes.</div>`
+      }
+    </div>
+  `;
+}
+
 function renderMemberOverview() {
   const member = getCurrentMember();
   const associate = getCurrentAssociate();
@@ -6488,6 +6664,8 @@ function renderMemberOverview() {
       }
 
       ${member ? renderMemberAlerts(member.id) : ""}
+
+      ${member ? renderMemberNotifications(member.id) : ""}
 
       ${
         primaryCourse && member
@@ -7511,7 +7689,6 @@ function renderAssociates() {
   );
   const activeAssociates = state.associates.filter((item) => item.status === "Activa");
   const pendingQuotaAssociates = state.associates.filter((item) => getAssociateQuotaGap(item) > 0);
-  const upToDateAssociates = state.associates.filter((item) => getAssociateQuotaGap(item) <= 0).length;
   const pagedApplications = getAssociatePageMeta(filteredCollections.applications, "applications");
   const pagedPaymentSubmissions = getAssociatePageMeta(filteredCollections.paymentSubmissions, "payments");
   const pagedProfileRequests = getAssociatePageMeta(filteredCollections.profileRequests, "profiles");
@@ -7599,11 +7776,12 @@ function renderAssociates() {
   const selectedAssociateQuotaGap = selectedAssociate ? getAssociateQuotaGap(selectedAssociate) : 0;
   const quickAssociateMatches = getAssociateQuickSearchMatches(associateFilters.query, 8);
   const currentYear = String(new Date().getFullYear());
-  const associateSummaryNotices = [
+  const priorityReviewItems = [
     ...pendingApplications.map((item) => ({
       id: item.id,
       title: getAssociateApplicantName(item),
-      detail: `${item.status || "Pendiente"} · ${item.email || "-"}`,
+      type: "Solicitud",
+      detail: item.email || item.status || "Alta pendiente",
       submittedAt: item.submittedAt || "",
       action: "select-associate-application",
       dataKey: "application-id"
@@ -7613,6 +7791,7 @@ function renderAssociates() {
       return {
         id: item.id,
         title: associate ? getAssociateFullName(associate) : item.associateId || "Socio",
+        type: "Justificante",
         detail: `Cuota ${item.year || "-"} · ${formatCurrency(Number(item.amount || 0))}`,
         submittedAt: item.submittedAt || "",
         action: "select-associate-payment-submission",
@@ -7624,15 +7803,32 @@ function renderAssociates() {
       return {
         id: item.id,
         title: associate ? getAssociateFullName(associate) : item.email || "Cambio de ficha",
+        type: "Ficha",
         detail: item.status || "Pendiente de revision",
         submittedAt: item.submittedAt || "",
         action: "select-associate-profile-request",
         dataKey: "request-id"
       };
-    })
+    }),
+    ...urgentPendingQuotaAssociates.map((associate) => ({
+      id: associate.id,
+      title: getAssociateFullName(associate),
+      type: "Cuota",
+      detail: `${formatCurrency(getAssociateQuotaGap(associate))} pendiente`,
+      submittedAt: associate.updatedAt || associate.createdAt || "",
+      action: "select-associate",
+      dataKey: "associate-id"
+    }))
   ]
     .sort((left, right) => String(right.submittedAt || "").localeCompare(String(left.submittedAt || "")))
-    .slice(0, 4);
+    .slice(0, 8);
+  const publishedMemberNotifications = [...(state.memberNotifications || [])].sort((left, right) =>
+    String(right.createdAt || "").localeCompare(String(left.createdAt || ""))
+  );
+  const importantMemberNotificationsCount = publishedMemberNotifications.filter(
+    (notification) => String(notification?.priority || "").trim() === "important"
+  ).length;
+  const recentMemberNotifications = publishedMemberNotifications.slice(0, 5);
   const showAssociateSection = (section) => associatesSectionMode === "all" || associatesSectionMode === section;
   const showAssociateFiltersSection = ["migration", "legacy", "fees", "applications", "profiles", "directory"].includes(
       associatesSectionMode
@@ -7683,72 +7879,89 @@ function renderAssociates() {
         }
       </div>
 
-      <div class="course-grid">
-        <div class="metric-card compact-card">
-          <p class="eyebrow">Total socios</p>
-          <strong>${state.associates.length}</strong>
-          <span class="muted">Censo visible en el campus</span>
+      <div class="mail-card associate-anchor" id="associateSectionToday">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Hoy en socios</p>
+            <h4>Panel operativo</h4>
+            <p class="muted">Indicadores y accesos directos para revisar altas, cuotas, justificantes, cambios y avisos.</p>
+          </div>
         </div>
-        <div class="metric-card compact-card">
-          <p class="eyebrow">Solicitudes pendientes</p>
-          <strong>${pendingApplications.length}</strong>
-          <span class="muted">Altas pendientes o en subsanacion</span>
+        <div class="course-grid">
+          <div class="metric-card compact-card">
+            <p class="eyebrow">Total socios</p>
+            <strong>${state.associates.length}</strong>
+            <span class="muted">Censo visible</span>
+          </div>
+          <div class="metric-card compact-card">
+            <p class="eyebrow">Socios activos</p>
+            <strong>${activeAssociates.length}</strong>
+            <span class="muted">Estado Activa</span>
+          </div>
+          <div class="metric-card compact-card">
+            <p class="eyebrow">Solicitudes pendientes</p>
+            <strong>${pendingApplications.length}</strong>
+            <span class="muted">Altas por revisar</span>
+          </div>
+          <div class="metric-card compact-card">
+            <p class="eyebrow">Cuotas pendientes</p>
+            <strong>${pendingQuotaAssociates.length}</strong>
+            <span class="muted">Deuda visible</span>
+          </div>
+          <div class="metric-card compact-card">
+            <p class="eyebrow">Justificantes pendientes</p>
+            <strong>${pendingPaymentSubmissions.length}</strong>
+            <span class="muted">Pagos enviados</span>
+          </div>
+          <div class="metric-card compact-card">
+            <p class="eyebrow">Cambios de ficha pendientes</p>
+            <strong>${pendingProfileRequests.length}</strong>
+            <span class="muted">Actualizaciones</span>
+          </div>
+          <div class="metric-card compact-card">
+            <p class="eyebrow">Avisos publicados</p>
+            <strong>${publishedMemberNotifications.length}</strong>
+            <span class="muted">Internos a socios</span>
+          </div>
+          <div class="metric-card compact-card">
+            <p class="eyebrow">Avisos importantes</p>
+            <strong>${importantMemberNotificationsCount}</strong>
+            <span class="muted">Prioridad alta</span>
+          </div>
         </div>
-        <div class="metric-card compact-card">
-          <p class="eyebrow">Cuotas pendientes</p>
-          <strong>${pendingQuotaAssociates.length}</strong>
-          <span class="muted">Socios con deuda en la anualidad actual</span>
-        </div>
-        <div class="metric-card compact-card">
-          <p class="eyebrow">Socios al dia</p>
-          <strong>${upToDateAssociates}</strong>
-          <span class="muted">Sin deuda de cuota visible</span>
+        <div class="chip-row">
+          <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="applications">Ver solicitudes</button>
+          <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="fees">Ver cuotas</button>
+          <button class="ghost-button" type="button" data-action="nav-section" data-view="associates" data-section-id="associateSectionPayments">Ver justificantes</button>
+          <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="profiles">Ver cambios de ficha</button>
+          <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="directory">Ver socios</button>
+          <button class="primary-button" type="button" data-action="nav-section" data-view="associates" data-section-id="associateSectionNotifications">Crear aviso a socios</button>
         </div>
       </div>
 
       <div class="mail-card">
         <div class="panel-header">
           <div>
-            <h4>Resumen operativo</h4>
-            <p class="muted">Lo importante para trabajar socios y cuotas sin salir de esta pantalla.</p>
+            <h4>Pendiente de revisar</h4>
+            <p class="muted">Maximo 8 tareas accionables de altas, justificantes, cambios y cuotas.</p>
           </div>
-          <div class="chip-row">
-            <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="applications">Solicitudes</button>
-            <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="fees">Cuotas</button>
-            <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="profiles">Cambios</button>
-            <button class="ghost-button" type="button" data-action="set-associate-section-mode" data-mode="directory">Socios</button>
-          </div>
-        </div>
-        <div class="course-grid">
-          <div class="timeline-item">
-            <p>Pagos al dia</p>
-            <strong>${upToDateAssociates}</strong>
-          </div>
-          <div class="timeline-item">
-            <p>Con deuda o pendiente</p>
-            <strong>${pendingQuotaAssociates.length}</strong>
-          </div>
-          <div class="timeline-item">
-            <p>Justificantes por revisar</p>
-            <strong>${pendingPaymentSubmissions.length}</strong>
-          </div>
-          <div class="timeline-item">
-            <p>Cambios de ficha</p>
-            <strong>${pendingProfileRequests.length}</strong>
-          </div>
+          <span class="small-chip">${priorityReviewItems.length} visible(s)</span>
         </div>
         ${
-          associateSummaryNotices.length
+          priorityReviewItems.length
             ? `
               <div class="compact-list">
-                ${associateSummaryNotices
+                ${priorityReviewItems
                   .map(
                     (item) => `
                       <div class="timeline-item compact-card">
-                        <strong>${escapeHtml(item.title)}</strong>
-                        <p class="muted">${escapeHtml(item.detail)}</p>
+                        <div class="row-between">
+                          <strong>${escapeHtml(item.title)}</strong>
+                          <span class="small-chip">${escapeHtml(item.type)}</span>
+                        </div>
+                        <p class="muted">${escapeHtml(item.detail)}${item.submittedAt ? ` · ${escapeHtml(formatDateTime(item.submittedAt) || formatDate(item.submittedAt))}` : ""}</p>
                         <div class="chip-row">
-                          <button class="mini-button" type="button" data-action="${item.action}" data-${item.dataKey}="${item.id}">Abrir</button>
+                          <button class="mini-button" type="button" data-action="${item.action}" data-${item.dataKey}="${escapeHtml(item.id)}">Abrir</button>
                         </div>
                       </div>
                     `
@@ -7757,6 +7970,100 @@ function renderAssociates() {
               </div>
             `
             : `<p class="muted">No hay avisos recientes de socios/cuotas ahora mismo.</p>`
+        }
+      </div>
+
+      <div class="mail-card associate-anchor" id="associateSectionNotifications">
+        <div class="panel-header">
+          <div>
+            <h4>Nuevo aviso a socios</h4>
+            <p class="muted">Publica una notificacion interna visible en Mi aula. No envia email en esta fase.</p>
+          </div>
+        </div>
+        <form class="stack" id="memberNotificationForm">
+          <div class="studio-grid">
+            <label class="inline-field">
+              Titulo
+              <input type="text" name="title" maxlength="120" required />
+            </label>
+            <label class="inline-field">
+              Destinatario
+              <select name="targetType">
+                <option value="all">Todos los socios</option>
+                <option value="member">Socio concreto</option>
+              </select>
+            </label>
+            <label class="inline-field">
+              Socio concreto
+              <select name="memberId">
+                <option value="">Selecciona un socio</option>
+                ${(state.members || [])
+                  .map(
+                    (member) => `
+                      <option value="${escapeHtml(member.id)}">${escapeHtml(member.name || member.email || member.id)}</option>
+                    `
+                  )
+                  .join("")}
+              </select>
+            </label>
+            <label class="inline-field">
+              Prioridad
+              <select name="priority">
+                <option value="normal">Normal</option>
+                <option value="important">Importante</option>
+              </select>
+            </label>
+          </div>
+          <label class="inline-field">
+            Mensaje
+            <textarea name="body" rows="4" required></textarea>
+          </label>
+          <div class="chip-row">
+            <button class="primary-button" type="submit">Publicar aviso</button>
+          </div>
+        </form>
+        <div class="course-grid">
+          <div class="timeline-item compact-card">
+            <p>Total avisos publicados</p>
+            <strong>${publishedMemberNotifications.length}</strong>
+          </div>
+          <div class="timeline-item compact-card">
+            <p>Avisos importantes</p>
+            <strong>${importantMemberNotificationsCount}</strong>
+          </div>
+          <div class="timeline-item compact-card">
+            <p>Ultimos 5 avisos</p>
+            <strong>${recentMemberNotifications.length}</strong>
+          </div>
+        </div>
+        ${
+          recentMemberNotifications.length
+            ? `
+              <div class="compact-list">
+                ${recentMemberNotifications
+                  .map((notification) => {
+                    const targetMember = notification.memberId ? findMember(notification.memberId) : null;
+                    return `
+                      <div class="timeline-item compact-card">
+                        <div class="row-between">
+                          <strong>${escapeHtml(notification.title || "Aviso interno")}</strong>
+                          <span class="small-chip">${escapeHtml(
+                            notification.priority === "important" ? "Importante" : "Normal"
+                          )}</span>
+                        </div>
+                        <p>${escapeHtml(notification.body || "")}</p>
+                        <p class="muted">
+                          ${escapeHtml(notification.targetType === "member" ? `Solo ${targetMember?.name || notification.memberId}` : "Todos los socios")}
+                          · ${escapeHtml(formatDateTime(notification.createdAt) || "Fecha pendiente")}
+                          · ${escapeHtml(String((notification.readByMemberIds || []).length))} lectura(s)
+                        </p>
+                      </div>
+                    `;
+                  })
+                  .join("")}
+              </div>
+            `
+            : `<p class="muted">Todavia no hay avisos internos publicados.</p>`
         }
       </div>
 
@@ -19976,6 +20283,27 @@ function normalizeManualCampusNotice(notice, index = 0) {
   };
 }
 
+function normalizeMemberNotification(notification, index = 0) {
+  const normalizedTargetType = String(notification?.targetType || "").trim() === "member" ? "member" : "all";
+  const normalizedPriority = String(notification?.priority || "").trim() === "important" ? "important" : "normal";
+  const normalizedReadByMemberIds = Array.isArray(notification?.readByMemberIds)
+    ? [...new Set(notification.readByMemberIds.map((value) => String(value || "").trim()).filter(Boolean))]
+    : [];
+  return {
+    ...notification,
+    id: String(notification?.id || `member-notification-${Date.now()}-${index}`).trim(),
+    title: String(notification?.title || "").trim(),
+    body: String(notification?.body || "").trim(),
+    targetType: normalizedTargetType,
+    memberId: normalizedTargetType === "member" ? String(notification?.memberId || "").trim() : "",
+    priority: normalizedPriority,
+    createdByMemberId: String(notification?.createdByMemberId || "").trim(),
+    createdAt: String(notification?.createdAt || new Date().toISOString()).trim(),
+    read: Boolean(notification?.read),
+    readByMemberIds: normalizedReadByMemberIds
+  };
+}
+
 function isManualCampusNoticeActive(notice) {
   if (!notice || notice.active === false) {
     return false;
@@ -20820,7 +21148,7 @@ function isViewAllowed(viewId) {
     return false;
   }
   if (isCampusOnlySession()) {
-    return ["overview", "join", "campus", "test", "tests"].includes(viewId);
+    return ["overview", "join", "campus"].includes(viewId);
   }
   return true;
 }

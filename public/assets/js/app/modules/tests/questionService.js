@@ -107,6 +107,13 @@ export async function createLiveSession(payload) {
   return response.session;
 }
 
+export async function closeLiveSession(sessionId) {
+  const response = await fetchJson(`/api/test-zone/live-sessions/${encodeURIComponent(String(sessionId || "").trim())}/close`, {
+    method: "POST"
+  });
+  return response.session;
+}
+
 export function getStoredQuestions() {
   return getQuestions();
 }

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Test en vivo | Isocrona Zero</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="public-page-shell">
+      <section class="panel panel-wide public-page-panel">
+        <div class="public-page-brand">
+          <img src="./assets/isocrona-brand.png" alt="Marca Isocrona Zero" />
+          <div>
+            <p class="eyebrow">Test en vivo</p>
+            <h1>Entrar con nombre y codigo</h1>
+          </div>
+        </div>
+
+        <form id="liveJoinForm" class="stack">
+          <div class="course-grid">
+            <label class="inline-field">
+              Nombre
+              <input id="liveParticipantName" name="participantName" required />
+            </label>
+            <label class="inline-field">
+              Codigo
+              <input id="liveSessionCode" name="code" required />
+            </label>
+          </div>
+          <p class="status-note" id="liveStatus">Introduce el codigo que te ha dado administracion.</p>
+          <div class="chip-row">
+            <button class="primary-button" type="submit">Entrar al test en vivo</button>
+            <a class="ghost-button button-link" href="/index.html">Volver al portal</a>
+          </div>
+        </form>
+
+        <section id="liveTestStage" class="test-view test-view--academy" hidden></section>
+      </section>
+    </main>
+    <script src="./live-test.js"></script>
+  </body>
+</html>

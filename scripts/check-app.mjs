@@ -4,7 +4,11 @@ import { spawnSync } from "node:child_process";
 const syntaxFiles = ["public/app.js", "public/public-live-test.js", "server.js", "storage.js"];
 const conflictCheckedFiles = ["public/app.js", "server.js", "storage.js", "package.json", "README.md"];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
-const extraCheckScripts = ["scripts/check-live-tests.mjs", "scripts/check-test-zone.mjs"];
+const extraCheckScripts = [
+  "scripts/check-live-tests.mjs",
+  "scripts/check-member-notifications.mjs",
+  "scripts/check-test-zone.mjs"
+];
 const associateActionContracts = [
   "approve-associate",
   "approve-associate-payment",
@@ -20,6 +24,12 @@ const associateActionContracts = [
   "reject-associate-payment",
   "reject-associate-profile-request",
   "request-associate-info",
+  "nav-section",
+  "select-associate",
+  "select-associate-application",
+  "select-associate-payment-submission",
+  "select-associate-profile-request",
+  "set-associate-section-mode",
   "settle-all-visible-associate-fees",
   "toggle-associate-application-selection",
   "toggle-associate-payment-selection",
@@ -30,7 +40,12 @@ const publicAppSnippets = [
   'const ASSOCIATE_ADMIN_ONLY_ACTIONS = new Set([',
   'Estas en modo socio/alumno. Vuelve a administracion para abrir esa zona.',
   'label: "Mi aula"',
-  'label: "Mis diplomas"'
+  'label: "Mis diplomas"',
+  'id="associateSectionToday"',
+  "Hoy en socios",
+  "Pendiente de revisar",
+  'data-section-id="associateSectionNotifications"',
+  "Crear aviso a socios"
 ];
 
 let failed = false;

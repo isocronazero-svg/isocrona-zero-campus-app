@@ -143,9 +143,11 @@ async function main() {
 
     const adminClient = createJsonClient("admin", baseUrl);
     const memberClient = createJsonClient("member", baseUrl);
+    const secondMemberClient = createJsonClient("member-2", baseUrl);
 
     await login(adminClient, "admin@isocronazero.org", "campus123");
     await login(memberClient, "lucia@isocronazero.org", "bomberos123");
+    await login(secondMemberClient, "javier@isocronazero.org", "bomberos123");
 
     const createdQuestions = [];
     for (const payload of [
@@ -198,6 +200,14 @@ async function main() {
     assert.equal(saveResultResponse.body?.result?.wrongCount, 1);
     assert.equal(saveResultResponse.body?.result?.blankCount, 1);
 
+    const secondMemberResultResponse = await secondMemberClient.request("POST", "/api/test-zone/results", {
+      title: "Entrenamiento otro socio",
+      mode: "general",
+      questionIds,
+      answers: [1, 0, 2]
+    });
+    assert.equal(secondMemberResultResponse.body?.ok, true);
+
     const historyResponse = await memberClient.request("GET", "/api/test-zone/results/me");
     assert.equal(historyResponse.body?.ok, true);
     assert.equal(historyResponse.body?.stats?.totalTests, 1);
@@ -214,6 +224,19 @@ async function main() {
 
     const historyAfterReviewResponse = await memberClient.request("GET", "/api/test-zone/results/me");
     assert.equal((historyAfterReviewResponse.body?.reviewedQuestionIds || []).includes(failedQuestionId), true);
+
+    await memberClient.request("POST", "/api/test-zone/results", {
+      title: "Nuevo fallo despues de repasar",
+      mode: "failed",
+      questionIds: [failedQuestionId],
+      answers: [1]
+    });
+    const historyAfterNewFailureResponse = await memberClient.request("GET", "/api/test-zone/results/me");
+    assert.equal(
+      (historyAfterNewFailureResponse.body?.failedQuestionIds || []).includes(failedQuestionId),
+      true,
+      "Una pregunta repasada debe volver a falladas si se falla despues"
+    );
 
     const liveSessionResponse = await adminClient.request("POST", "/api/test-zone/live-sessions", {
       title: "Simulacro abierto",
@@ -237,6 +260,75 @@ async function main() {
     assert.equal((joinPayload?.liveSession?.questions || []).length, 2);
     (joinPayload?.liveSession?.questions || []).forEach(assertQuestionSafe);
 
+    const liveQuestionIds = (joinPayload?.liveSession?.questions || []).map((question) => question.id);
+    const outsideLiveQuestionId = questionIds.find((questionId) => !liveQuestionIds.includes(questionId));
+    assert.ok(outsideLiveQuestionId, "El check necesita una pregunta fuera de la sesion live");
+
+    const outsideLiveAttemptResponse = await fetch(
+      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/attempt`, baseUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestName: "Visitante",
+          questionIds: [...liveQuestionIds, outsideLiveQuestionId],
+          answers: [0, 0, 0]
+        })
+      }
+    );
+    assert.equal(outsideLiveAttemptResponse.status, 400);
+
+    const duplicateLiveAttemptResponse = await fetch(
+      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/attempt`, baseUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestName: "Visitante",
+          questionIds: [liveQuestionIds[0], liveQuestionIds[0]],
+          answers: [0, 0]
+        })
+      }
+    );
+    assert.equal(duplicateLiveAttemptResponse.status, 400);
+
+    const singleQuestionSessionResponse = await adminClient.request("POST", "/api/test-zone/live-sessions", {
+      title: "Sesion de una pregunta",
+      questionCount: 1,
+      filters: { part: "all", category: "all", difficulty: "all" }
+    });
+    assert.equal(singleQuestionSessionResponse.body?.ok, true);
+    const singleQuestionJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guestName: "Visitante",
+        code: singleQuestionSessionResponse.body?.session?.code
+      })
+    });
+    const singleQuestionJoinPayload = await singleQuestionJoinResponse.json();
+    assert.equal(singleQuestionJoinResponse.ok, true);
+    const singleLiveQuestionIds = (singleQuestionJoinPayload?.liveSession?.questions || []).map((question) => question.id);
+    assert.equal(singleLiveQuestionIds.length, 1);
+    const singleOutsideQuestionId = questionIds.find((questionId) => !singleLiveQuestionIds.includes(questionId));
+    assert.ok(singleOutsideQuestionId, "El check necesita una segunda pregunta fuera de la sesion de una pregunta");
+    const oversizedSingleAttemptResponse = await fetch(
+      new URL(
+        `/api/test-zone/live-sessions/${encodeURIComponent(singleQuestionJoinPayload.liveSession.id)}/attempt`,
+        baseUrl
+      ),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestName: "Visitante",
+          questionIds: [singleLiveQuestionIds[0], singleOutsideQuestionId],
+          answers: [0, 0]
+        })
+      }
+    );
+    assert.equal(oversizedSingleAttemptResponse.status, 400);
+
     const publicAttemptResponse = await fetch(
       new URL(`/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/attempt`, baseUrl),
       {
@@ -244,7 +336,7 @@ async function main() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           guestName: "Visitante",
-          questionIds: (joinPayload?.liveSession?.questions || []).map((question) => question.id),
+          questionIds: liveQuestionIds,
           answers: [0, 0]
         })
       }
@@ -253,6 +345,82 @@ async function main() {
     assert.equal(publicAttemptResponse.ok, true);
     assert.equal(publicAttemptPayload?.ok, true);
     assert.equal(typeof publicAttemptPayload?.result?.score, "number");
+
+    const closeLiveSessionResponse = await adminClient.request(
+      "POST",
+      `/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/close`,
+      {}
+    );
+    assert.equal(closeLiveSessionResponse.body?.ok, true);
+    assert.equal(closeLiveSessionResponse.body?.session?.status, "closed");
+
+    const closedLiveAttemptResponse = await fetch(
+      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/attempt`, baseUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestName: "Visitante",
+          questionIds: liveQuestionIds,
+          answers: [0, 0]
+        })
+      }
+    );
+    assert.equal(closedLiveAttemptResponse.status, 404);
+
+    const expiringSessionResponse = await adminClient.request("POST", "/api/test-zone/live-sessions", {
+      title: "Sesion caducada",
+      questionCount: 1,
+      filters: { part: "all", category: "all", difficulty: "all" },
+      expiresAt: new Date(Date.now() + 1000).toISOString()
+    });
+    assert.equal(expiringSessionResponse.body?.ok, true);
+    const expiringJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        guestName: "Visitante",
+        code: expiringSessionResponse.body?.session?.code
+      })
+    });
+    const expiringJoinPayload = await expiringJoinResponse.json();
+    assert.equal(expiringJoinResponse.ok, true);
+    const expiringQuestionIds = (expiringJoinPayload?.liveSession?.questions || []).map((question) => question.id);
+    assert.equal(expiringQuestionIds.length, 1);
+    await delay(1200);
+    const expiredLiveAttemptResponse = await fetch(
+      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(expiringJoinPayload.liveSession.id)}/attempt`, baseUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestName: "Visitante",
+          questionIds: expiringQuestionIds,
+          answers: [0]
+        })
+      }
+    );
+    assert.equal(expiredLiveAttemptResponse.status, 404);
+
+    const memberStateResponse = await memberClient.request("GET", "/api/state");
+    assert.equal(memberStateResponse.body?.ok, undefined);
+    (memberStateResponse.body?.testZoneQuestions || []).forEach(assertQuestionSafe);
+    assert.equal(
+      (memberStateResponse.body?.testZoneResults || []).some((result) => result.title === "Entrenamiento otro socio"),
+      false,
+      "El state de socio no debe exponer resultados de otros socios"
+    );
+    assert.equal(
+      (memberStateResponse.body?.testZoneResults || []).some((result) => result.title === "Simulacro abierto"),
+      false,
+      "El state de socio no debe exponer resultados de invitados"
+    );
+    assert.equal(
+      (memberStateResponse.body?.testZoneReviewMarks || []).every((mark) => mark.questionId === failedQuestionId),
+      true,
+      "El state de socio solo debe incluir marcas de repaso propias"
+    );
+    assert.equal((memberStateResponse.body?.testZoneLiveSessions || []).length, 0, "El socio no debe ver sesiones live completas");
 
     const publicPageResponse = await fetch(new URL("/public-live-test.html", baseUrl));
     assert.equal(publicPageResponse.ok, true);
