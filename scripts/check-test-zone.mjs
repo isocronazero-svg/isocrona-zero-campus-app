@@ -187,8 +187,23 @@ async function main() {
     );
     assert.match(
       testViewSource,
-      /Banco general[\s\S]*Falladas[\s\S]*Marcadas/,
-      "El panel debe incluir desglose por banco, falladas y marcadas"
+      /Test normal[\s\S]*Preguntas falladas[\s\S]*Marcadas para repasar/,
+      "El panel debe usar etiquetas finales claras para test normal, falladas y marcadas"
+    );
+    assert.match(
+      testViewSource,
+      /function buildReviewMarkedQuestionsMarkup\(\)/,
+      "La Zona Test debe separar el bloque de marcadas para repasar"
+    );
+    assert.match(
+      testViewSource,
+      /Todavia no has hecho ningun test[\s\S]*No tienes preguntas falladas pendientes[\s\S]*No tienes preguntas marcadas para repasar/,
+      "La Zona Test debe mostrar estados vacios claros para progreso, falladas y marcadas"
+    );
+    assert.doesNotMatch(
+      testViewSource,
+      /Banco general|Generar entrenamiento|Solo falladas/,
+      "La UI de Zona Test no debe mostrar etiquetas antiguas o confusas"
     );
     assert.match(
       testViewSource,
@@ -361,7 +376,7 @@ async function main() {
     );
 
     const reviewMarkedResultResponse = await memberClient.request("POST", "/api/test-zone/results", {
-      title: "Repasar marcadas",
+      title: "Marcadas para repasar",
       mode: "reviewMarks",
       source: "reviewMarks",
       filters: { part: "all", category: "all", difficulty: "all", source: "reviewMarks" },
@@ -379,7 +394,7 @@ async function main() {
     const historyAfterReviewMarkedResultResponse = await memberClient.request("GET", "/api/test-zone/results/me");
     assert.equal(
       (historyAfterReviewMarkedResultResponse.body?.results || []).some(
-        (result) => result.title === "Repasar marcadas" && result.source === "reviewMarks"
+        (result) => result.title === "Marcadas para repasar" && result.source === "reviewMarks"
       ),
       true,
       "El resultado del modo Repasar marcadas debe conservar su origen"
