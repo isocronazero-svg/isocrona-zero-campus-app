@@ -160,6 +160,21 @@ async function main() {
       /if \(testSession\.activeRun\?\.source === "reviewMarks"\)/,
       "El handler debe ignorar toggles de marca durante un intento reviewMarks"
     );
+    assert.match(
+      testViewSource,
+      /function buildProgressStatsPanel\(\)/,
+      "La Zona Test debe mostrar un panel de estadisticas personales"
+    );
+    assert.match(
+      testViewSource,
+      /Banco general[\s\S]*Falladas[\s\S]*Marcadas/,
+      "El panel debe incluir desglose por banco, falladas y marcadas"
+    );
+    assert.match(
+      testViewSource,
+      /getLatestProgressActivity\(ownResults, reviewMarks\)/,
+      "El panel debe mostrar ultima actividad desde resultados y marcas propias"
+    );
 
     const createdQuestions = [];
     for (const payload of [

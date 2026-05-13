@@ -4448,6 +4448,32 @@ tr:last-child td {
   font-size: 14px;
 }
 
+.test-zone-metric-card .test-zone-metric-compact {
+  font-size: 18px;
+}
+
+.test-zone-source-breakdown {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.test-zone-source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(110px, auto));
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(180, 111, 43, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.test-zone-source-row span {
+  color: #6c5747;
+  font-size: 14px;
+}
+
 .test-zone-card-head {
   display: flex;
   justify-content: space-between;
@@ -4699,6 +4725,10 @@ tr:last-child td {
 
   .test-zone-history-side {
     justify-items: start;
+  }
+
+  .test-zone-source-row {
+    grid-template-columns: 1fr;
   }
 
   .test-zone-option-row {
