@@ -404,6 +404,142 @@ function buildQuestionAttemptMarkup() {
   `;
 }
 
+function getReviewStatus(response = {}) {
+  if (response.isBlank) {
+    return { className: "is-blank", label: "En blanco" };
+  }
+  if (response.isCorrect) {
+    return { className: "is-correct", label: "Correcta" };
+  }
+  return { className: "is-wrong", label: "Incorrecta" };
+}
+
+function formatAnswerOption(index, text) {
+  if (index === null || index === undefined || index === "") {
+    return String(text || "").trim() || "No disponible";
+  }
+  const normalizedIndex = Number(index);
+  const prefix = Number.isInteger(normalizedIndex) && normalizedIndex >= 0
+    ? `${String.fromCharCode(65 + normalizedIndex)}) `
+    : "";
+  const normalizedText = String(text || "").trim();
+  if (normalizedText) {
+    return `${prefix}${normalizedText}`;
+  }
+  return prefix ? `Opcion ${String.fromCharCode(65 + normalizedIndex)}` : "No disponible";
+}
+
+function formatSelectedReviewAnswer(response = {}) {
+  if (response.isBlank || response.selectedIndex === null || response.selectedIndex === undefined) {
+    return "Sin respuesta";
+  }
+  return formatAnswerOption(response.selectedIndex, response.selectedAnswer);
+}
+
+function formatCorrectReviewAnswer(response = {}) {
+  return formatAnswerOption(response.correctIndex, response.correctAnswer);
+}
+
+function buildReviewMetaTags(response = {}) {
+  const temaNumero = String(response.temaNumero || "").trim();
+  const temaTitulo = String(response.temaTitulo || "").trim();
+  const topicLabel =
+    temaNumero || temaTitulo
+      ? `${temaNumero ? `Tema ${temaNumero}` : "Tema"}${temaTitulo ? ` - ${temaTitulo}` : ""}`
+      : String(response.topic || response.moduleTitle || "").trim();
+  return [response.part, response.category, topicLabel, response.difficulty]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .map((item) => `<span class="test-zone-tag">${escapeHtml(item)}</span>`)
+    .join("");
+}
+
+function buildResultReviewMarkup(result = {}) {
+  const responses = Array.isArray(result.responses) ? result.responses : [];
+  if (!responses.length) {
+    return "";
+  }
+  const markedQuestionIds = getManualReviewQuestionIds();
+  return `
+    <div class="test-zone-result-review">
+      <div class="test-zone-card-head">
+        <div>
+          <p class="test-zone-kicker">Revision detallada</p>
+          <h4>Preguntas revisadas</h4>
+          <p class="muted">Las soluciones se muestran solo despues de finalizar el intento.</p>
+        </div>
+      </div>
+      <div class="test-zone-review-map" aria-label="Navegacion de revision">
+        ${responses
+          .map((response, index) => {
+            const status = getReviewStatus(response);
+            return `
+              <button
+                type="button"
+                class="test-zone-review-map-button ${status.className}"
+                data-action="jump-result-review-question"
+                data-review-index="${index}"
+                aria-label="${escapeHtml(`Ir a revision de pregunta ${index + 1}: ${status.label}`)}"
+              >
+                ${index + 1}
+              </button>
+            `;
+          })
+          .join("")}
+      </div>
+      <div class="test-zone-review-list">
+        ${responses
+          .map((response, index) => {
+            const questionId = String(response.questionId || "").trim();
+            const marked = markedQuestionIds.has(questionId);
+            const status = getReviewStatus(response);
+            return `
+              <article class="test-zone-review-card ${status.className}" id="test-zone-review-card-${index}">
+                <div class="test-zone-question-head">
+                  <div>
+                    <p class="test-zone-question-index">Pregunta ${index + 1}</p>
+                    <h4>${escapeHtml(response.prompt || "Pregunta sin enunciado")}</h4>
+                  </div>
+                  <span class="test-zone-review-status">${escapeHtml(status.label)}</span>
+                </div>
+                <div class="test-zone-tag-row">${buildReviewMetaTags(response)}</div>
+                <div class="test-zone-review-answer-grid">
+                  <div class="test-zone-review-answer ${response.isBlank ? "is-blank" : response.isCorrect ? "is-correct" : "is-wrong"}">
+                    <span>Tu respuesta</span>
+                    <strong>${escapeHtml(formatSelectedReviewAnswer(response))}</strong>
+                  </div>
+                  <div class="test-zone-review-answer is-correct">
+                    <span>Respuesta correcta</span>
+                    <strong>${escapeHtml(formatCorrectReviewAnswer(response))}</strong>
+                  </div>
+                </div>
+                ${
+                  String(response.explanation || "").trim()
+                    ? `<div class="test-zone-review-explanation"><strong>Explicacion</strong><p>${escapeHtml(response.explanation)}</p></div>`
+                    : ""
+                }
+                <div class="test-zone-actions">
+                  <button
+                    type="button"
+                    class="test-zone-secondary-button test-zone-review-toggle ${marked ? "is-active" : ""}"
+                    data-action="toggle-review-mark"
+                    data-question-id="${escapeHtml(questionId)}"
+                    aria-label="${escapeHtml(marked ? `Quitar marca de repaso de la pregunta ${index + 1}` : `Marcar pregunta ${index + 1} para repasar`)}"
+                    aria-pressed="${marked ? "true" : "false"}"
+                    ${questionId ? "" : "disabled"}
+                  >
+                    ${marked ? "Marcada para repasar" : "Marcar para repasar"}
+                  </button>
+                </div>
+              </article>
+            `;
+          })
+          .join("")}
+      </div>
+    </div>
+  `;
+}
+
 function buildLatestResultMarkup() {
   const result = testSession.latestResult;
   if (!result) {
@@ -417,6 +553,7 @@ function buildLatestResultMarkup() {
         Aciertos: ${escapeHtml(result.correctCount)} · Fallos: ${escapeHtml(result.wrongCount)} · Blancas: ${escapeHtml(result.blankCount)} · Nota: ${escapeHtml(result.score)}/${escapeHtml(result.total)} · ${escapeHtml(Number(result.percentage || 0).toFixed(1))}%
       </p>
       <p class="muted">${escapeHtml(formatDate(result.createdAt))}</p>
+      ${buildResultReviewMarkup(result)}
     </section>
   `;
 }
@@ -729,9 +866,12 @@ async function handleAttemptSubmit(container, form) {
   const answers = Array.isArray(run.answers) ? run.answers : [];
   const evaluated = evaluateTest(run, answers, testSession.role);
   const savedResult = await saveTestResult(evaluated);
-  testSession.latestResult = savedResult;
   setActiveRun(null);
-  await loadTestHistory();
+  const historyPayload = await loadTestHistory();
+  const detailedResult = (historyPayload.results || []).find(
+    (result) => String(result.id || "") === String(savedResult?.id || "")
+  );
+  testSession.latestResult = detailedResult || savedResult;
   renderTestView(container, testSession.role);
 }
 
@@ -834,6 +974,11 @@ function bindActions(container) {
     if (action === "jump-test-question") {
       const index = Number(actionTarget.dataset.questionIndex || 0);
       container.querySelector(`#test-zone-question-card-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (action === "jump-result-review-question") {
+      const index = Number(actionTarget.dataset.reviewIndex || 0);
+      container.querySelector(`#test-zone-review-card-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (action === "repeat-result-failed") {

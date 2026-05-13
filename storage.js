@@ -426,7 +426,14 @@ function normalizeTestZoneResult(result, resultIndex) {
         part: String(response?.part || "").trim(),
         category: String(response?.category || "").trim(),
         difficulty: String(response?.difficulty || "").trim(),
-        prompt: String(response?.prompt || "").trim()
+        prompt: String(response?.prompt || "").trim(),
+        selectedAnswer: String(response?.selectedAnswer || "").trim(),
+        correctAnswer: String(response?.correctAnswer || "").trim(),
+        explanation: String(response?.explanation || "").trim(),
+        topic: String(response?.topic || "").trim(),
+        temaNumero: String(response?.temaNumero || "").trim(),
+        temaTitulo: String(response?.temaTitulo || "").trim(),
+        moduleTitle: String(response?.moduleTitle || "").trim()
       }))
     : [];
   return {
