@@ -12,6 +12,7 @@
     "start:local": "node server.js",
     "check:app": "node scripts/check-app.mjs",
     "check:frontend-syntax": "node scripts/check-frontend-syntax.mjs",
+    "check:test-zone-csv": "node scripts/check-test-zone-csv-importer.mjs",
     "health": "node scripts/healthcheck.mjs",
     "smoke:campus-test": "node scripts/smoke-campus-test.mjs",
     "smoke:campus-live-test": "node scripts/check-live-tests.mjs"
