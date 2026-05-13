@@ -153,29 +153,111 @@ function buildQuestionMapMarkup(run, markedQuestionIds) {
   `;
 }
 
-function buildMetricCards() {
-  const { stats } = getTestState();
+function normalizeResultSource(result = {}) {
+  const source = String(result.source || result.filters?.source || "").trim();
+  if (source === "reviewMarks") {
+    return "reviewMarks";
+  }
+  if (source === "failed" || String(result.mode || "").trim() === "failed") {
+    return "failed";
+  }
+  return "bank";
+}
+
+function buildSourceBreakdown(results = []) {
+  const rows = {
+    bank: { label: "Banco general", tests: 0, questions: 0, correct: 0, percentageSum: 0 },
+    failed: { label: "Falladas", tests: 0, questions: 0, correct: 0, percentageSum: 0 },
+    reviewMarks: { label: "Marcadas", tests: 0, questions: 0, correct: 0, percentageSum: 0 }
+  };
+
+  (Array.isArray(results) ? results : []).forEach((result) => {
+    const row = rows[normalizeResultSource(result)] || rows.bank;
+    row.tests += 1;
+    row.questions += Number(result.total || 0);
+    row.correct += Number(result.correctCount || 0);
+    row.percentageSum += Number(result.percentage || 0);
+  });
+
+  return Object.values(rows).map((row) => ({
+    ...row,
+    averagePercentage: row.tests ? row.percentageSum / row.tests : 0
+  }));
+}
+
+function getLatestProgressActivity(results = [], reviewMarks = []) {
+  const timestamps = [
+    ...(Array.isArray(results) ? results : []).map((result) => result.createdAt),
+    ...(Array.isArray(reviewMarks) ? reviewMarks : []).map((mark) => mark.updatedAt || mark.createdAt)
+  ]
+    .map((value) => Date.parse(String(value || "")))
+    .filter((value) => Number.isFinite(value));
+  if (!timestamps.length) {
+    return "Sin actividad";
+  }
+  return formatDate(new Date(Math.max(...timestamps)).toISOString());
+}
+
+function buildProgressStatsPanel() {
+  const { results, failedQuestionIds, reviewMarks } = getTestState();
+  const ownResults = (Array.isArray(results) ? results : []).filter((result) => !String(result.liveCode || "").trim());
+  const totalTests = ownResults.length;
+  const answeredQuestions = ownResults.reduce((total, result) => total + Number(result.answeredCount || 0), 0);
+  const averagePercentage = totalTests
+    ? ownResults.reduce((total, result) => total + Number(result.percentage || 0), 0) / totalTests
+    : 0;
+  const reviewMarkedQuestions = getReviewMarkedQuestions();
+  const sourceBreakdown = buildSourceBreakdown(ownResults);
   const metrics = [
-    { label: "Tests realizados", value: stats.totalTests || 0, hint: "Intentos guardados" },
-    { label: "Preguntas respondidas", value: stats.answered || 0, hint: "Sin contar blancas" },
-    { label: "Aciertos", value: stats.correct || 0, hint: "Total acumulado" },
-    { label: "Fallos", value: stats.wrong || 0, hint: "Pendientes de repaso" },
-    { label: "% acierto", value: `${Number(stats.accuracy || 0).toFixed(1)}%`, hint: "Global acumulado" }
+    { label: "Tests realizados", value: totalTests, hint: "Intentos propios guardados" },
+    { label: "% medio acierto", value: `${Number(averagePercentage || 0).toFixed(1)}%`, hint: "Media de tus tests" },
+    { label: "Preguntas respondidas", value: answeredQuestions, hint: "Sin contar blancas" },
+    { label: "Falladas pendientes", value: (failedQuestionIds || []).length, hint: "Para repasar" },
+    { label: "Marcadas para repasar", value: reviewMarkedQuestions.length, hint: "Marcas manuales" },
+    {
+      label: "Ultima actividad",
+      value: getLatestProgressActivity(ownResults, reviewMarks),
+      hint: "Test o marca reciente",
+      compact: true
+    }
   ];
   return `
-    <div class="test-zone-metrics">
-      ${metrics
-        .map(
-          (metric) => `
-            <article class="test-zone-metric-card">
-              <p class="test-zone-kicker">${escapeHtml(metric.label)}</p>
-              <strong>${escapeHtml(metric.value)}</strong>
-              <span>${escapeHtml(metric.hint)}</span>
-            </article>
-          `
-        )
-        .join("")}
-    </div>
+    <section class="test-zone-card test-zone-progress-panel">
+      <div class="test-zone-card-head">
+        <div>
+          <p class="test-zone-kicker">Progreso personal</p>
+          <h3>Estadisticas basicas</h3>
+          <p class="muted">Resumen calculado solo con tu historial y tus marcas de repaso.</p>
+        </div>
+      </div>
+      <div class="test-zone-metrics">
+        ${metrics
+          .map(
+            (metric) => `
+              <article class="test-zone-metric-card">
+                <p class="test-zone-kicker">${escapeHtml(metric.label)}</p>
+                <strong class="${metric.compact ? "test-zone-metric-compact" : ""}">${escapeHtml(metric.value)}</strong>
+                <span>${escapeHtml(metric.hint)}</span>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+      <div class="test-zone-source-breakdown" aria-label="Desglose por origen">
+        ${sourceBreakdown
+          .map(
+            (row) => `
+              <article class="test-zone-source-row">
+                <strong>${escapeHtml(row.label)}</strong>
+                <span>${escapeHtml(`${row.tests} test(s)`)}</span>
+                <span>${escapeHtml(`${row.questions} pregunta(s)`)}</span>
+                <span>${escapeHtml(`${Number(row.averagePercentage || 0).toFixed(1)}% medio`)}</span>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -563,7 +645,7 @@ function buildLayout() {
           <p class="muted">La práctica libre ahora guarda resultados, detecta fallos y permite repetir solo las preguntas que peor llevas.</p>
         </div>
       </header>
-      ${buildMetricCards()}
+      ${buildProgressStatsPanel()}
       ${buildControlsMarkup()}
       ${buildQuestionAttemptMarkup()}
       ${buildLatestResultMarkup()}
