@@ -3707,6 +3707,140 @@ function findCampusGroupEntry(campusGroups = [], groupId, moduleId, category, en
   return (Array.isArray(scope[category]) ? scope[category] : []).find((item) => item.id === entryId) || null;
 }
 
+function findCampusGroupById(campusGroups = [], groupId) {
+  const normalizedGroupId = String(groupId || "").trim();
+  return (
+    (Array.isArray(campusGroups) ? campusGroups : []).find(
+      (item) => String(item?.id || "").trim() === normalizedGroupId
+    ) || null
+  );
+}
+
+function normalizeCampusGroupAccessList(value, objectKeys = ["id"]) {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return values
+    .flatMap((item) => {
+      if (item && typeof item === "object") {
+        return objectKeys.map((key) => item[key]);
+      }
+      return item;
+    })
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function collectCampusGroupAccessValues(group, fields, objectKeys = ["id"]) {
+  return new Set(
+    fields.flatMap((field) => normalizeCampusGroupAccessList(group?.[field], objectKeys))
+  );
+}
+
+function hasCampusGroupExplicitAccessRules(group) {
+  return [
+    "accountIds",
+    "allowedAccountIds",
+    "memberIds",
+    "allowedMemberIds",
+    "participantMemberIds",
+    "members",
+    "participants",
+    "associateIds",
+    "allowedAssociateIds",
+    "associates",
+    "emailAllowlist",
+    "allowedEmails",
+    "courseIds",
+    "allowedCourseIds",
+    "linkedCourseIds"
+  ].some(
+    (field) =>
+      normalizeCampusGroupAccessList(group?.[field], ["id", "accountId", "memberId", "associateId", "email"]).length > 0
+  );
+}
+
+function isMemberLinkedToCourse(course, memberId) {
+  const normalizedMemberId = String(memberId || "").trim();
+  if (!course || !normalizedMemberId) {
+    return false;
+  }
+  return (
+    (course.enrolledIds || []).includes(normalizedMemberId) ||
+    (course.waitingIds || []).includes(normalizedMemberId) ||
+    (course.diplomaReady || []).includes(normalizedMemberId) ||
+    (course.enrollmentSubmissions || []).some((item) => item.memberId === normalizedMemberId) ||
+    Boolean(course.attendance && Object.prototype.hasOwnProperty.call(course.attendance, normalizedMemberId)) ||
+    Boolean(course.evaluations && Object.prototype.hasOwnProperty.call(course.evaluations, normalizedMemberId)) ||
+    Boolean(course.contentProgress && course.contentProgress[normalizedMemberId])
+  );
+}
+
+function canAccessCampusGroup(state, account, group) {
+  if (!account || !group) {
+    return false;
+  }
+  if (account.role === "admin") {
+    return true;
+  }
+
+  const member = account.memberId
+    ? (state.members || []).find((item) => item.id === account.memberId) || null
+    : null;
+  const associate = findAssociateForAccount(state, account, member);
+  if (isAssociateAccessLimitedByQuota(associate)) {
+    return false;
+  }
+
+  if (!hasCampusGroupExplicitAccessRules(group)) {
+    return Boolean(associate || account.associateId || member?.associateId);
+  }
+
+  const accountId = String(account.id || "").trim();
+  const memberId = String(member?.id || account.memberId || "").trim();
+  const associateId = String(associate?.id || member?.associateId || account.associateId || "").trim();
+  const email = String(member?.email || account.email || "").trim().toLowerCase();
+
+  const accountIds = collectCampusGroupAccessValues(group, ["accountIds", "allowedAccountIds"]);
+  if (accountId && accountIds.has(accountId)) {
+    return true;
+  }
+
+  const memberIds = collectCampusGroupAccessValues(
+    group,
+    ["memberIds", "allowedMemberIds", "participantMemberIds", "members", "participants"],
+    ["id", "memberId"]
+  );
+  if (memberId && memberIds.has(memberId)) {
+    return true;
+  }
+
+  const associateIds = collectCampusGroupAccessValues(
+    group,
+    ["associateIds", "allowedAssociateIds", "associates", "participants"],
+    ["id", "associateId"]
+  );
+  if (associateId && associateIds.has(associateId)) {
+    return true;
+  }
+
+  const allowedEmails = collectCampusGroupAccessValues(
+    group,
+    ["emailAllowlist", "allowedEmails", "members", "participants"],
+    ["email"]
+  );
+  if (email && [...allowedEmails].map((item) => item.toLowerCase()).includes(email)) {
+    return true;
+  }
+
+  const courseIds = collectCampusGroupAccessValues(group, ["courseIds", "allowedCourseIds", "linkedCourseIds"]);
+  if (memberId && courseIds.size > 0) {
+    return (state.courses || []).some(
+      (course) => courseIds.has(String(course.id || "").trim()) && isMemberLinkedToCourse(course, memberId)
+    );
+  }
+
+  return false;
+}
+
 function mergeCampusGroupAttachmentsFromCurrentState(currentGroups = [], nextGroups = []) {
   const mergeCategoryEntries = (currentEntries, nextEntries) =>
     (Array.isArray(nextEntries) ? nextEntries : []).map((entry) => {
@@ -4360,7 +4494,11 @@ function buildMemberScopedState(state, account, memberIdOverride) {
         notes: ""
       }
     },
-    campusGroups: campusOnlyAccess || quotaLimitedAccess ? [] : state.campusGroups || [],
+    campusGroups: campusOnlyAccess || quotaLimitedAccess
+      ? []
+      : (state.campusGroups || []).filter((group) =>
+          canAccessCampusGroup(state, { ...account, memberId, associateId }, group)
+        ),
     courses: visibleCourses
   };
 }
@@ -4502,19 +4640,20 @@ const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
 
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
-    const storageMeta = getStorageMeta();
     return sendJson(res, 200, {
       ok: true,
       service: "isocrona-zero-campus",
       release: appRelease,
-      now: new Date().toISOString(),
-      baseUrl: campusBaseUrl,
-      port: Number(port),
-      storage: storageMeta
+      now: new Date().toISOString()
     });
   }
 
   if (requestUrl.pathname === "/api/debug/storage" && req.method === "GET") {
+    const state = readState();
+    const account = requireAdminAccount(req, res, state);
+    if (!account) {
+      return;
+    }
     const debugInfo = getStorageDebugInfo();
     return sendJson(res, 200, {
       ok: true,
@@ -4663,13 +4802,13 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/auth/register" && req.method === "POST") {
     try {
       const payload = await readJsonBody(req);
-      const role = normalizePlatformRole(payload.role || "socio");
+      const publicRegistrationRole = "socio";
       const user = isDatabaseEnabled()
         ? await createUser({
             name: payload.name,
             email: payload.email,
             password: payload.password,
-            role,
+            role: publicRegistrationRole,
             phone: payload.phone,
             service: payload.service
           })
@@ -6359,17 +6498,21 @@ const server = http.createServer(async (req, res) => {
     if (!account) {
       return;
     }
-    if (account.role !== "admin" && !account.associateId) {
-      return sendJson(res, 403, { ok: false, error: "No tienes acceso a los grupos internos" });
-    }
-
     const groupId = String(requestUrl.searchParams.get("groupId") || "").trim();
     const moduleId = String(requestUrl.searchParams.get("moduleId") || "").trim();
     const category = String(requestUrl.searchParams.get("category") || "").trim();
     const entryId = String(requestUrl.searchParams.get("entryId") || "").trim();
     const download = String(requestUrl.searchParams.get("download") || "").trim() === "1";
 
-    const entry = findCampusGroupEntry(state.campusGroups || [], groupId, moduleId, category, entryId);
+    const group = findCampusGroupById(state.campusGroups || [], groupId);
+    if (!group) {
+      return sendJson(res, 404, { ok: false, error: "Grupo interno no encontrado" });
+    }
+    if (!canAccessCampusGroup(state, account, group)) {
+      return sendJson(res, 403, { ok: false, error: "No tienes acceso a este grupo interno" });
+    }
+
+    const entry = findCampusGroupEntry([group], groupId, moduleId, category, entryId);
     const attachment = entry?.attachment;
     if (!attachment?.contentBase64) {
       return sendJson(res, 404, { ok: false, error: "No se ha encontrado el adjunto" });
