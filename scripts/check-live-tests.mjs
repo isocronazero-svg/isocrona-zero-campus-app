@@ -298,6 +298,129 @@ async function main() {
     await login(memberClient, "lucia@isocronazero.org", "bomberos123");
     await login(secondMemberClient, "javier@isocronazero.org", "bomberos123");
 
+    const memberInitialStateResponse = await memberClient.request("GET", "/api/state");
+    assert.equal((memberInitialStateResponse.body?.questions || []).length, 0, "El state member no debe exponer el banco de preguntas");
+    assert.equal((memberInitialStateResponse.body?.liveTestSessions || []).length, 0, "El state member no debe exponer sesiones live internas");
+    assert.equal((memberInitialStateResponse.body?.liveTestPublicSessions || []).length, 0, "El state member no debe exponer sesiones live publicas");
+    assert.equal((memberInitialStateResponse.body?.liveTestParticipantResults || []).length, 0, "El state member no debe exponer resultados live invitados");
+
+    const publicLiveSessionResponse = await adminClient.request("POST", "/api/live-test-sessions", {
+      title: "Live publico de una pregunta",
+      questionIds: ["question-live-smoke-1"]
+    });
+    assert.equal(publicLiveSessionResponse.status, 201);
+    const publicLiveSession = publicLiveSessionResponse.body?.session;
+    assert.ok(publicLiveSession?.code, "La sesion live publica necesita codigo");
+
+    const publicLiveLoadResponse = await fetch(new URL(`/api/live-test-sessions/${publicLiveSession.code}`, baseUrl));
+    const publicLiveLoadPayload = await publicLiveLoadResponse.json();
+    assert.equal(publicLiveLoadResponse.ok, true);
+    assert.equal((publicLiveLoadPayload?.questions || []).length, 1, "La sesion publica debe cargar solo su pregunta");
+    assertForbiddenKeysAbsent(publicLiveLoadPayload, "public live load payload");
+
+    const contaminatedPublicLiveSubmitResponse = await fetch(
+      new URL(`/api/live-test-sessions/${publicLiveSession.code}/submit`, baseUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participantName: "Invitado contaminado",
+          answers: {
+            "question-live-smoke-1": 0,
+            "question-live-smoke-2": 1
+          }
+        })
+      }
+    );
+    assert.equal(
+      [400, 403].includes(contaminatedPublicLiveSubmitResponse.status),
+      true,
+      "Una sesion live publica de una pregunta no debe aceptar respuestas de dos preguntas"
+    );
+
+    const contaminatedNormalResultResponse = await memberClient.request(
+      "POST",
+      "/api/test-results",
+      {
+        resultType: "live",
+        sessionId: publicLiveSession.id,
+        questionIds: ["question-live-smoke-1", "question-live-smoke-2"],
+        answers: {
+          "question-live-smoke-1": 0,
+          "question-live-smoke-2": 1
+        }
+      },
+      { allowFailure: true }
+    );
+    assert.equal(
+      [400, 403].includes(contaminatedNormalResultResponse.status),
+      true,
+      "El endpoint normal no debe guardar resultados live contaminados"
+    );
+
+    const privatePinNormalResultResponse = await memberClient.request(
+      "POST",
+      "/api/test-results",
+      {
+        resultType: "live",
+        sessionId: "222-222",
+        questionIds: ["question-live-smoke-1"],
+        answers: {
+          "question-live-smoke-1": 0
+        }
+      },
+      { allowFailure: true }
+    );
+    assert.equal(
+      [400, 403].includes(privatePinNormalResultResponse.status),
+      true,
+      "Un resultado live con PIN privado debe validarse o rechazarse sin error interno"
+    );
+    assert.doesNotMatch(
+      String(privatePinNormalResultResponse.body?.error || ""),
+      /ReferenceError|normalizeLiveTestPin/i,
+      "El rechazo de PIN privado no debe exponer errores internos"
+    );
+
+    const validLiveInNormalEndpointResponse = await memberClient.request(
+      "POST",
+      "/api/test-results",
+      {
+        resultType: "live",
+        sessionId: publicLiveSession.id,
+        questionIds: ["question-live-smoke-1"],
+        answers: {
+          "question-live-smoke-1": 0
+        }
+      },
+      { allowFailure: true }
+    );
+    assert.equal(validLiveInNormalEndpointResponse.status, 400, "El endpoint normal debe rechazar resultados live validos");
+
+    const validPublicLiveSubmitResponse = await fetch(
+      new URL(`/api/live-test-sessions/${publicLiveSession.code}/submit`, baseUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participantName: "Invitado valido",
+          answers: {
+            "question-live-smoke-1": 0
+          }
+        })
+      }
+    );
+    const validPublicLiveSubmitPayload = await validPublicLiveSubmitResponse.json();
+    assert.equal(validPublicLiveSubmitResponse.status, 201);
+    assert.equal(validPublicLiveSubmitPayload?.result?.sessionId, publicLiveSession.id);
+
+    const memberStateAfterPublicLiveResponse = await memberClient.request("GET", "/api/state");
+    assert.equal(
+      (memberStateAfterPublicLiveResponse.body?.liveTestParticipantResults || []).length,
+      0,
+      "El state member no debe exponer resultados invitados despues de enviar live"
+    );
+
     const importResponse = await adminClient.request("POST", "/api/tests/import-csv", {
       csv: [
         "moduleTitle,testTitle,published,prompt,optionA,optionB,optionC,optionD,correctOption,explanation,topic,difficulty,questionTimeLimitSeconds,customField1,customField2",
