@@ -853,6 +853,16 @@ function getTestZoneQuestionById(state, questionId) {
   );
 }
 
+function isTestZoneQuestionAvailableForReview(question = {}) {
+  if (Object.prototype.hasOwnProperty.call(question, "active") && question.active === false) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(question, "published") && question.published === false) {
+    return false;
+  }
+  return true;
+}
+
 function findTestZoneReviewMarkForOwnerAndQuestion(state, account, questionId) {
   const normalizedQuestionId = String(questionId || "").trim();
   if (!normalizedQuestionId) {
@@ -906,6 +916,30 @@ function upsertManualTestZoneReviewMark(state, account, questionId) {
     mark.updatedAt = now;
   }
   return mark;
+}
+
+function validateTestZoneReviewMarkedResultPayload(state, account, payload = {}) {
+  const questionIds = Array.isArray(payload.questionIds)
+    ? payload.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  if (!questionIds.length) {
+    throw new Error("No se han recibido preguntas marcadas para repasar");
+  }
+
+  const markedQuestionIds = new Set(
+    listManualTestZoneReviewMarksForOwner(state, account)
+      .map((mark) => String(mark.questionId || "").trim())
+      .filter(Boolean)
+  );
+  for (const questionId of questionIds) {
+    const question = getTestZoneQuestionById(state, questionId);
+    if (!question || !isTestZoneQuestionAvailableForReview(question)) {
+      throw new Error("El repaso incluye preguntas no disponibles");
+    }
+    if (!markedQuestionIds.has(questionId)) {
+      throw new Error("El repaso incluye preguntas no marcadas por el usuario");
+    }
+  }
 }
 
 function deleteManualTestZoneReviewMark(state, account, questionId) {
@@ -1023,6 +1057,7 @@ function buildTestZoneResultAudiencePayload(result) {
     id: String(result?.id || "").trim(),
     title: String(result?.title || "").trim(),
     mode: String(result?.mode || "general").trim(),
+    source: String(result?.source || result?.filters?.source || "").trim(),
     liveCode: String(result?.liveCode || "").trim(),
     correctCount: Number(result?.correctCount || 0),
     wrongCount: Number(result?.wrongCount || 0),
@@ -1136,6 +1171,7 @@ function createTestZoneResultRecord(state, payload = {}, context = {}) {
     liveCode: String(context.liveCode || "").trim(),
     title: String(context.title || payload.title || "").trim(),
     mode: String(context.mode || payload.mode || "general").trim(),
+    source: String(context.source || payload.source || payload.filters?.source || "").trim(),
     questionIds: questions.map((question) => question.id),
     responses,
     correctCount,
@@ -5028,6 +5064,10 @@ const server = http.createServer(async (req, res) => {
           ok: false,
           error: "Los resultados live deben guardarse en el endpoint de Test en Vivo"
         });
+      }
+      const payloadSource = String(payload.source || payload.filters?.source || "").trim();
+      if (payloadSource === "reviewMarks") {
+        validateTestZoneReviewMarkedResultPayload(state, account, payload);
       }
       const result = createTestZoneResultRecord(state, payload, {
         accountId: account.id,

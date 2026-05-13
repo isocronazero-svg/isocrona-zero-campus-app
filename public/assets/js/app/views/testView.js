@@ -88,6 +88,23 @@ function getManualReviewQuestionIds() {
   );
 }
 
+function isQuestionAvailableForReview(question = {}) {
+  if (Object.prototype.hasOwnProperty.call(question, "active") && question.active === false) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(question, "published") && question.published === false) {
+    return false;
+  }
+  return true;
+}
+
+function getReviewMarkedQuestions() {
+  const questionMap = getCurrentQuestionMap();
+  return [...getManualReviewQuestionIds()]
+    .map((questionId) => questionMap.get(questionId))
+    .filter((question) => question && isQuestionAvailableForReview(question));
+}
+
 function setActiveRun(run) {
   testSession.activeRun = run
     ? {
@@ -183,6 +200,7 @@ function buildFilterSelect(name, value, options) {
 function buildControlsMarkup() {
   const { parts, categories, difficulties } = getQuestionFilters(getStoredQuestions());
   const failedQuestions = getFailedQuestions();
+  const reviewMarkedQuestions = getReviewMarkedQuestions();
   return `
     <section class="test-zone-card">
       <div class="test-zone-card-head">
@@ -194,6 +212,7 @@ function buildControlsMarkup() {
         <div class="test-zone-inline-summary">
           <span>${escapeHtml(`${getStoredQuestions().length} preguntas en banco`)}</span>
           <span>${escapeHtml(`${failedQuestions.length} falladas pendientes`)}</span>
+          <span>${escapeHtml(`${reviewMarkedQuestions.length} marcadas`)}</span>
         </div>
       </div>
       <form class="test-zone-controls" data-test-zone-controls>
@@ -209,6 +228,9 @@ function buildControlsMarkup() {
           <button type="button" class="test-zone-secondary-button" data-action="start-failed-test" ${failedQuestions.length ? "" : "disabled"}>
             Solo falladas
           </button>
+          <button type="button" class="test-zone-secondary-button" data-action="start-review-marked-test" ${reviewMarkedQuestions.length ? "" : "disabled"}>
+            Repasar marcadas (${escapeHtml(reviewMarkedQuestions.length)})
+          </button>
         </div>
       </form>
     </section>
@@ -221,12 +243,14 @@ function buildQuestionAttemptMarkup() {
     return "";
   }
   const markedQuestionIds = getManualReviewQuestionIds();
+  const runModeLabel = run.source === "reviewMarks" ? "repaso de marcadas" : run.mode === "failed" ? "repaso" : "entrenamiento";
   return `
     <section class="test-zone-card">
       <div class="test-zone-card-head">
         <div>
           <p class="test-zone-kicker">Test activo</p>
           <h3>${escapeHtml(run.title)}</h3>
+          ${run.source === "reviewMarks" ? `<p class="muted">${escapeHtml(runModeLabel)}</p>` : ""}
           <p class="muted">${escapeHtml(`${run.questions.length} preguntas · modo ${run.mode === "failed" ? "repaso" : "entrenamiento"}`)}</p>
         </div>
         <div class="test-zone-actions">
@@ -585,6 +609,33 @@ async function startGeneratedTest(failedOnly = false) {
   testSession.latestResult = null;
 }
 
+async function startReviewMarkedTest() {
+  const store = getTestState();
+  const markedQuestions = getReviewMarkedQuestions();
+  if (!markedQuestions.length) {
+    throw new Error("No tienes preguntas marcadas para repasar.");
+  }
+  setActiveRun(
+    generateTest(
+      {
+        questions: store.questions || [],
+        numQuestions: testSession.filters.questionCount,
+        filters: {
+          part: "all",
+          category: "all",
+          difficulty: "all"
+        },
+        onlyQuestionIds: markedQuestions.map((question) => question.id),
+        title: "Repasar marcadas",
+        mode: "failed",
+        source: "reviewMarks"
+      },
+      testSession.role
+    )
+  );
+  testSession.latestResult = null;
+}
+
 async function handleAttemptSubmit(container, form) {
   const run = testSession.activeRun;
   if (!run) {
@@ -658,6 +709,19 @@ function bindActions(container) {
         container.querySelector(".test-zone-view")?.insertAdjacentHTML(
           "afterbegin",
           `<div class="test-zone-inline-error">${escapeHtml(error.message || "No se pudo generar el repaso de falladas.")}</div>`
+        );
+      }
+      renderTestView(container, testSession.role);
+      return;
+    }
+    if (action === "start-review-marked-test") {
+      try {
+        await startReviewMarkedTest();
+      } catch (error) {
+        testSession.latestResult = null;
+        container.querySelector(".test-zone-view")?.insertAdjacentHTML(
+          "afterbegin",
+          `<div class="test-zone-inline-error">${escapeHtml(error.message || "No se pudo generar el repaso de marcadas.")}</div>`
         );
       }
       renderTestView(container, testSession.role);

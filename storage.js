@@ -439,6 +439,7 @@ function normalizeTestZoneResult(result, resultIndex) {
     liveCode: String(result?.liveCode || "").trim(),
     title: String(result?.title || "").trim(),
     mode: String(result?.mode || "general").trim(),
+    source: String(result?.source || result?.filters?.source || "").trim(),
     questionIds: Array.isArray(result?.questionIds)
       ? result.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
       : [],
