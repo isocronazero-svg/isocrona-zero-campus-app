@@ -13,6 +13,7 @@ const testState = {
   },
   failedQuestionIds: [],
   reviewedQuestionIds: [],
+  reviewMarks: [],
   liveSessions: []
 };
 
@@ -42,6 +43,11 @@ export function setResults(results = [], stats = null, failedQuestionIds = [], r
   return testState.results;
 }
 
+export function setReviewMarks(marks = []) {
+  testState.reviewMarks = Array.isArray(marks) ? [...marks] : [];
+  return testState.reviewMarks;
+}
+
 export function setLiveSessions(sessions = []) {
   testState.liveSessions = Array.isArray(sessions) ? [...sessions] : [];
   return testState.liveSessions;
@@ -62,6 +68,7 @@ export function resetTestState() {
   };
   testState.failedQuestionIds = [];
   testState.reviewedQuestionIds = [];
+  testState.reviewMarks = [];
   testState.liveSessions = [];
   return testState;
 }

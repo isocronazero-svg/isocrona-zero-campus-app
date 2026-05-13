@@ -4538,6 +4538,31 @@ tr:last-child td {
   cursor: not-allowed;
 }
 
+.test-zone-question-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.test-zone-question-map-button {
+  min-width: 42px;
+  min-height: 42px;
+  border-radius: 14px;
+  border: 1px solid rgba(180, 111, 43, 0.2);
+  background: rgba(255, 255, 255, 0.96);
+  color: #4f4033;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.test-zone-question-map-button.is-marked,
+.test-zone-review-toggle.is-active {
+  border-color: rgba(188, 101, 47, 0.55);
+  background: rgba(255, 235, 190, 0.95);
+  color: #7b3d17;
+}
+
 .test-zone-question-list,
 .test-zone-failed-list,
 .test-zone-history-list,
@@ -4553,6 +4578,10 @@ tr:last-child td {
   border-radius: 22px;
   border: 1px solid rgba(180, 111, 43, 0.14);
   background: rgba(255, 255, 255, 0.94);
+}
+
+.test-zone-question-card {
+  scroll-margin-top: 24px;
 }
 
 .test-zone-question-head {

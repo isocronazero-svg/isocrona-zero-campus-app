@@ -802,8 +802,135 @@ function listTestZoneReviewMarksForOwner(state, account) {
     if (memberId && String(mark.memberId || "").trim() === memberId) {
       return true;
     }
-    return accountId && String(mark.accountId || "").trim() === accountId;
+    return (
+      accountId &&
+      (String(mark.accountId || "").trim() === accountId || String(mark.userId || "").trim() === accountId)
+    );
   });
+}
+
+function isManualTestZoneReviewMark(mark) {
+  return (
+    String(mark?.status || "").trim() === "review" &&
+    String(mark?.source || "").trim() === "manual"
+  );
+}
+
+function hasTestZoneFailureReviewData(mark) {
+  return Boolean(
+    String(mark?.reviewedAt || "").trim() ||
+      String(mark?.reviewedResultId || "").trim() ||
+      String(mark?.reviewedFailureAt || "").trim()
+  );
+}
+
+function listManualTestZoneReviewMarksForOwner(state, account) {
+  return listTestZoneReviewMarksForOwner(state, account).filter(isManualTestZoneReviewMark);
+}
+
+function buildTestZoneManualReviewMarkPayload(mark) {
+  const accountId = String(mark?.accountId || mark?.userId || "").trim();
+  return {
+    id: String(mark?.id || "").trim(),
+    userId: accountId,
+    memberId: String(mark?.memberId || "").trim(),
+    questionId: String(mark?.questionId || "").trim(),
+    status: "review",
+    source: "manual",
+    createdAt: String(mark?.createdAt || "").trim(),
+    updatedAt: String(mark?.updatedAt || "").trim()
+  };
+}
+
+function getTestZoneQuestionById(state, questionId) {
+  const normalizedQuestionId = String(questionId || "").trim();
+  if (!normalizedQuestionId) {
+    return null;
+  }
+  return (
+    (state.testZoneQuestions || []).find((question) => String(question.id || "").trim() === normalizedQuestionId) ||
+    null
+  );
+}
+
+function findTestZoneReviewMarkForOwnerAndQuestion(state, account, questionId) {
+  const normalizedQuestionId = String(questionId || "").trim();
+  if (!normalizedQuestionId) {
+    return null;
+  }
+  return (
+    listTestZoneReviewMarksForOwner(state, account).find(
+      (mark) => String(mark.questionId || "").trim() === normalizedQuestionId
+    ) || null
+  );
+}
+
+function upsertManualTestZoneReviewMark(state, account, questionId) {
+  ensureTestZoneState(state);
+  const normalizedQuestionId = String(questionId || "").trim();
+  if (!normalizedQuestionId) {
+    throw new Error("Pregunta no valida");
+  }
+  if (!getTestZoneQuestionById(state, normalizedQuestionId)) {
+    throw new Error("Pregunta no encontrada");
+  }
+
+  const accountId = String(account?.id || "").trim();
+  const memberId = String(account?.memberId || "").trim();
+  const now = new Date().toISOString();
+  let mark = findTestZoneReviewMarkForOwnerAndQuestion(state, account, normalizedQuestionId);
+  if (!mark) {
+    mark = {
+      id: generateLegacyId("test-zone-review"),
+      accountId,
+      userId: accountId,
+      memberId,
+      questionId: normalizedQuestionId,
+      status: "review",
+      source: "manual",
+      createdAt: now,
+      updatedAt: now,
+      reviewedAt: "",
+      reviewedResultId: "",
+      reviewedFailureAt: ""
+    };
+    state.testZoneReviewMarks.unshift(mark);
+  } else {
+    mark.accountId = String(mark.accountId || mark.userId || accountId).trim() || accountId;
+    mark.userId = String(mark.userId || mark.accountId || accountId).trim() || accountId;
+    mark.memberId = String(mark.memberId || memberId).trim();
+    mark.questionId = normalizedQuestionId;
+    mark.status = "review";
+    mark.source = "manual";
+    mark.createdAt = mark.createdAt || now;
+    mark.updatedAt = now;
+  }
+  return mark;
+}
+
+function deleteManualTestZoneReviewMark(state, account, questionId) {
+  ensureTestZoneState(state);
+  const normalizedQuestionId = String(questionId || "").trim();
+  if (!normalizedQuestionId) {
+    throw new Error("Pregunta no valida");
+  }
+  if (!getTestZoneQuestionById(state, normalizedQuestionId)) {
+    throw new Error("Pregunta no encontrada");
+  }
+
+  const mark = findTestZoneReviewMarkForOwnerAndQuestion(state, account, normalizedQuestionId);
+  if (!mark || !isManualTestZoneReviewMark(mark)) {
+    return false;
+  }
+  if (hasTestZoneFailureReviewData(mark)) {
+    mark.status = "reviewed";
+    mark.source = "failed";
+    mark.updatedAt = new Date().toISOString();
+    return true;
+  }
+
+  state.testZoneReviewMarks = (state.testZoneReviewMarks || []).filter((item) => item !== mark);
+  return true;
 }
 
 function getLatestTestZoneFailureByQuestionId(state, account) {
@@ -840,6 +967,7 @@ function isTestZoneFailureCoveredByReview(mark, failure) {
 function getTestZoneReviewedQuestionIds(state, account) {
   const latestFailures = getLatestTestZoneFailureByQuestionId(state, account);
   return listTestZoneReviewMarksForOwner(state, account)
+    .filter(hasTestZoneFailureReviewData)
     .filter((mark) => {
       const questionId = String(mark.questionId || "").trim();
       if (!questionId) {
@@ -854,7 +982,9 @@ function getTestZoneReviewedQuestionIds(state, account) {
 
 function getTestZoneFailedQuestionIds(state, account) {
   const marksByQuestionId = new Map(
-    listTestZoneReviewMarksForOwner(state, account).map((mark) => [String(mark.questionId || "").trim(), mark])
+    listTestZoneReviewMarksForOwner(state, account)
+      .filter(hasTestZoneFailureReviewData)
+      .map((mark) => [String(mark.questionId || "").trim(), mark])
   );
   return [...getLatestTestZoneFailureByQuestionId(state, account).entries()]
     .filter(([questionId, failure]) => !isTestZoneFailureCoveredByReview(marksByQuestionId.get(questionId), failure))
@@ -1056,14 +1186,26 @@ function markTestZoneQuestionReviewed(state, account, questionId) {
     mark = {
       id: generateLegacyId("test-zone-review"),
       accountId,
+      userId: accountId,
       memberId,
       questionId: normalizedQuestionId,
+      status: "reviewed",
+      source: "failed",
+      createdAt: reviewedAt,
+      updatedAt: reviewedAt,
       reviewedAt,
       reviewedResultId: latestFailure?.resultId || "",
       reviewedFailureAt: latestFailure?.failedAt || reviewedAt
     };
     state.testZoneReviewMarks.unshift(mark);
   } else {
+    mark.accountId = String(mark.accountId || mark.userId || accountId).trim() || accountId;
+    mark.userId = String(mark.userId || mark.accountId || accountId).trim() || accountId;
+    mark.memberId = String(mark.memberId || memberId).trim();
+    mark.status = isManualTestZoneReviewMark(mark) ? mark.status : "reviewed";
+    mark.source = isManualTestZoneReviewMark(mark) ? mark.source : "failed";
+    mark.createdAt = mark.createdAt || reviewedAt;
+    mark.updatedAt = reviewedAt;
     mark.reviewedAt = reviewedAt;
     mark.reviewedResultId = latestFailure?.resultId || "";
     mark.reviewedFailureAt = latestFailure?.failedAt || reviewedAt;
@@ -4124,7 +4266,14 @@ function buildMemberScopedState(state, account, memberIdOverride) {
     buildTestZoneResultAudiencePayload
   );
   const scopedTestZoneReviewMarks = listTestZoneReviewMarksForOwner(state, { ...account, memberId }).map((mark) => ({
+    id: String(mark.id || "").trim(),
+    userId: String(mark.userId || mark.accountId || "").trim(),
+    memberId: String(mark.memberId || "").trim(),
     questionId: String(mark.questionId || "").trim(),
+    status: String(mark.status || "").trim(),
+    source: String(mark.source || "").trim(),
+    createdAt: String(mark.createdAt || "").trim(),
+    updatedAt: String(mark.updatedAt || "").trim(),
     reviewedAt: String(mark.reviewedAt || "").trim(),
     reviewedResultId: String(mark.reviewedResultId || "").trim(),
     reviewedFailureAt: String(mark.reviewedFailureAt || "").trim()
@@ -4786,6 +4935,55 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, reviewedQuestionId: mark.questionId, reviewedAt: mark.reviewedAt });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo marcar la pregunta como repasada" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-zone/review-marks/me" && req.method === "GET") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      const marks = listManualTestZoneReviewMarksForOwner(state, account).map(buildTestZoneManualReviewMarkPayload);
+      return sendJson(res, 200, { ok: true, marks });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar las marcas de repaso" });
+    }
+  }
+
+  if (requestUrl.pathname === "/api/test-zone/review-marks" && req.method === "POST") {
+    try {
+      const payload = await readJsonBody(req);
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      const mark = upsertManualTestZoneReviewMark(state, account, payload.questionId);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, mark: buildTestZoneManualReviewMarkPayload(mark) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo marcar la pregunta para repasar" });
+    }
+  }
+
+  if (/^\/api\/test-zone\/review-marks\/[^/]+$/.test(requestUrl.pathname) && req.method === "DELETE") {
+    try {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      ensureTestZoneState(state);
+      const questionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const deleted = deleteManualTestZoneReviewMark(state, account, questionId);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, questionId, deleted });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo quitar la marca de repaso" });
     }
   }
 

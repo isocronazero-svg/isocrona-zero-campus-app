@@ -187,6 +187,51 @@ async function main() {
     (memberQuestionsResponse.body?.questions || []).forEach(assertQuestionSafe);
 
     const questionIds = [createdQuestions[0]?.id, createdQuestions[1]?.id, createdQuestions[2]?.id];
+    const initialReviewMarksResponse = await memberClient.request("GET", "/api/test-zone/review-marks/me");
+    assert.equal(initialReviewMarksResponse.body?.ok, true);
+    assert.equal((initialReviewMarksResponse.body?.marks || []).length, 0);
+
+    const manualReviewMarkResponse = await memberClient.request("POST", "/api/test-zone/review-marks", {
+      questionId: questionIds[0]
+    });
+    assert.equal(manualReviewMarkResponse.body?.ok, true);
+    assert.equal(manualReviewMarkResponse.body?.mark?.questionId, questionIds[0]);
+    assert.equal(manualReviewMarkResponse.body?.mark?.status, "review");
+    assert.equal(manualReviewMarkResponse.body?.mark?.source, "manual");
+
+    const duplicateReviewMarkResponse = await memberClient.request("POST", "/api/test-zone/review-marks", {
+      questionId: questionIds[0]
+    });
+    assert.equal(duplicateReviewMarkResponse.body?.mark?.id, manualReviewMarkResponse.body?.mark?.id);
+    const reviewMarksAfterDuplicateResponse = await memberClient.request("GET", "/api/test-zone/review-marks/me");
+    assert.equal((reviewMarksAfterDuplicateResponse.body?.marks || []).length, 1, "La marca manual debe ser idempotente");
+
+    const secondMemberReviewMarksResponse = await secondMemberClient.request("GET", "/api/test-zone/review-marks/me");
+    assert.equal(
+      (secondMemberReviewMarksResponse.body?.marks || []).some((mark) => mark.questionId === questionIds[0]),
+      false,
+      "Otro socio no debe ver marcas manuales ajenas"
+    );
+
+    await secondMemberClient.request("POST", "/api/test-zone/review-marks", {
+      questionId: questionIds[2]
+    });
+    const invalidReviewMarkResponse = await memberClient.request(
+      "POST",
+      "/api/test-zone/review-marks",
+      { questionId: "question-missing" },
+      { allowFailure: true }
+    );
+    assert.equal(invalidReviewMarkResponse.status, 400, "No se deben marcar preguntas inexistentes");
+
+    const deleteReviewMarkResponse = await memberClient.request("DELETE", `/api/test-zone/review-marks/${encodeURIComponent(questionIds[0])}`);
+    assert.equal(deleteReviewMarkResponse.body?.ok, true);
+    const reviewMarksAfterDeleteResponse = await memberClient.request("GET", "/api/test-zone/review-marks/me");
+    assert.equal((reviewMarksAfterDeleteResponse.body?.marks || []).length, 0, "DELETE debe quitar solo la marca propia");
+
+    await memberClient.request("POST", "/api/test-zone/review-marks", {
+      questionId: questionIds[0]
+    });
     const answers = [0, 1, null];
     const saveResultResponse = await memberClient.request("POST", "/api/test-zone/results", {
       title: "Entrenamiento legislación",
@@ -453,10 +498,21 @@ async function main() {
       false,
       "El state de socio no debe exponer resultados de invitados"
     );
+    const memberStateReviewMarks = memberStateResponse.body?.testZoneReviewMarks || [];
     assert.equal(
-      (memberStateResponse.body?.testZoneReviewMarks || []).every((mark) => mark.questionId === failedQuestionId),
+      memberStateReviewMarks.some((mark) => mark.questionId === questionIds[2]),
+      false,
+      "El state de socio no debe incluir marcas de repaso de otro socio"
+    );
+    assert.equal(
+      memberStateReviewMarks.some((mark) => mark.questionId === questionIds[0] && mark.status === "review"),
       true,
-      "El state de socio solo debe incluir marcas de repaso propias"
+      "El state de socio debe incluir su marca manual propia"
+    );
+    assert.equal(
+      memberStateReviewMarks.some((mark) => mark.questionId === failedQuestionId),
+      true,
+      "El state de socio debe mantener su marca de fallada repasada"
     );
     assert.equal((memberStateResponse.body?.testZoneLiveSessions || []).length, 0, "El socio no debe ver sesiones live completas");
 

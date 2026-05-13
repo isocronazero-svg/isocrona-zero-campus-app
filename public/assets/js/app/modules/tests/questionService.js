@@ -1,4 +1,4 @@
-import { getQuestions, setQuestions, setResults, setLiveSessions } from "./testStore.js";
+import { getQuestions, setQuestions, setResults, setReviewMarks, setLiveSessions } from "./testStore.js";
 
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {
@@ -77,6 +77,12 @@ export async function loadTestHistory() {
   return payload;
 }
 
+export async function loadReviewMarks() {
+  const payload = await fetchJson("/api/test-zone/review-marks/me", { method: "GET" });
+  setReviewMarks(payload.marks || []);
+  return payload.marks || [];
+}
+
 export async function loadLiveSessions() {
   const payload = await fetchJson("/api/test-zone/live-sessions", { method: "GET" });
   setLiveSessions(payload.sessions || []);
@@ -97,6 +103,23 @@ export async function markQuestionReviewed(questionId) {
     method: "POST"
   });
   return loadTestHistory();
+}
+
+export async function markQuestionForReview(questionId) {
+  const payload = await fetchJson("/api/test-zone/review-marks", {
+    method: "POST",
+    body: JSON.stringify({ questionId: String(questionId || "").trim() })
+  });
+  await loadReviewMarks();
+  return payload.mark;
+}
+
+export async function unmarkQuestionForReview(questionId) {
+  const payload = await fetchJson(`/api/test-zone/review-marks/${encodeURIComponent(String(questionId || "").trim())}`, {
+    method: "DELETE"
+  });
+  await loadReviewMarks();
+  return payload;
 }
 
 export async function createLiveSession(payload) {

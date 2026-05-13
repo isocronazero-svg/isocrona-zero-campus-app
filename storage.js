@@ -467,15 +467,29 @@ function normalizeTestZoneResult(result, resultIndex) {
 }
 
 function normalizeTestZoneReviewMark(mark, markIndex) {
+  const now = new Date().toISOString();
+  const accountId = String(mark?.accountId || mark?.userId || "").trim();
+  const rawStatus = String(mark?.status || "").trim();
+  const rawSource = String(mark?.source || "").trim();
+  const status = rawStatus || (rawSource === "manual" ? "review" : "reviewed");
+  const source = rawSource || (status === "review" ? "manual" : "failed");
+  const createdAt = mark?.createdAt || mark?.reviewedAt || now;
+  const updatedAt = mark?.updatedAt || mark?.reviewedAt || createdAt;
+  const shouldKeepReviewedAt = Boolean(mark?.reviewedAt) || status !== "review" || source !== "manual";
   return {
     ...mark,
     id: mark?.id || `test-zone-review-${Date.now()}-${markIndex}`,
-    accountId: String(mark?.accountId || "").trim(),
+    accountId,
+    userId: accountId,
     memberId: String(mark?.memberId || "").trim(),
     questionId: String(mark?.questionId || "").trim(),
-    reviewedAt: mark?.reviewedAt || new Date().toISOString(),
+    status,
+    source,
+    createdAt,
+    updatedAt,
+    reviewedAt: shouldKeepReviewedAt ? mark?.reviewedAt || createdAt : "",
     reviewedResultId: String(mark?.reviewedResultId || "").trim(),
-    reviewedFailureAt: mark?.reviewedFailureAt || mark?.reviewedAt || new Date().toISOString()
+    reviewedFailureAt: shouldKeepReviewedAt ? mark?.reviewedFailureAt || mark?.reviewedAt || createdAt : ""
   };
 }
 

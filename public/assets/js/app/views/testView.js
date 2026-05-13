@@ -4,10 +4,13 @@ import {
   getQuestionFilters,
   getStoredQuestions,
   loadLiveSessions,
+  loadReviewMarks,
   loadSharedQuestions,
   loadTestHistory,
+  markQuestionForReview,
   markQuestionReviewed,
-  saveQuestion
+  saveQuestion,
+  unmarkQuestionForReview
 } from "../modules/tests/questionService.js";
 import { evaluateTest, generateTest, saveTestResult } from "../modules/tests/testService.js";
 import { getTestState } from "../modules/tests/testStore.js";
@@ -73,6 +76,64 @@ function getFailedQuestions() {
   const store = getTestState();
   const questionMap = getCurrentQuestionMap();
   return (store.failedQuestionIds || []).map((questionId) => questionMap.get(questionId)).filter(Boolean);
+}
+
+function getManualReviewQuestionIds() {
+  const store = getTestState();
+  return new Set(
+    (store.reviewMarks || [])
+      .filter((mark) => String(mark.status || "").trim() === "review" && String(mark.source || "").trim() === "manual")
+      .map((mark) => String(mark.questionId || "").trim())
+      .filter(Boolean)
+  );
+}
+
+function setActiveRun(run) {
+  testSession.activeRun = run
+    ? {
+        ...run,
+        answers: Array.isArray(run.answers) ? [...run.answers] : Array.from({ length: run.questions.length }, () => null)
+      }
+    : null;
+}
+
+function captureActiveAnswers(form) {
+  const run = testSession.activeRun;
+  if (!run || !(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const formData = new FormData(form);
+  run.answers = run.questions.map((question, index) => {
+    const value = formData.get(`question-${index}`);
+    return value === null ? null : Number(value);
+  });
+}
+
+function buildQuestionMapMarkup(run, markedQuestionIds) {
+  if (!run?.questions?.length) {
+    return "";
+  }
+  return `
+    <div class="test-zone-question-map" aria-label="Parrilla de preguntas">
+      ${run.questions
+        .map((question, index) => {
+          const questionId = String(question.id || "").trim();
+          const marked = markedQuestionIds.has(questionId);
+          return `
+            <button
+              type="button"
+              class="test-zone-question-map-button ${marked ? "is-marked" : ""}"
+              data-action="jump-test-question"
+              data-question-index="${index}"
+              aria-label="${escapeHtml(`Ir a pregunta ${index + 1}${marked ? " marcada para repasar" : ""}`)}"
+            >
+              ${index + 1}
+            </button>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
 }
 
 function buildMetricCards() {
@@ -159,6 +220,7 @@ function buildQuestionAttemptMarkup() {
   if (!run) {
     return "";
   }
+  const markedQuestionIds = getManualReviewQuestionIds();
   return `
     <section class="test-zone-card">
       <div class="test-zone-card-head">
@@ -171,12 +233,15 @@ function buildQuestionAttemptMarkup() {
           <button type="button" class="test-zone-secondary-button" data-action="cancel-active-test">Cancelar</button>
         </div>
       </div>
+      ${buildQuestionMapMarkup(run, markedQuestionIds)}
       <form data-test-zone-attempt>
         <div class="test-zone-question-list">
           ${run.questions
-            .map(
-              (question, index) => `
-                <article class="test-zone-question-card">
+            .map((question, index) => {
+              const questionId = String(question.id || "").trim();
+              const marked = markedQuestionIds.has(questionId);
+              return `
+                <article class="test-zone-question-card" id="test-zone-question-card-${index}">
                   <div class="test-zone-question-head">
                     <div>
                       <p class="test-zone-question-index">Pregunta ${index + 1}</p>
@@ -187,13 +252,30 @@ function buildQuestionAttemptMarkup() {
                       <span class="test-zone-tag">${escapeHtml(question.category || "Legislación")}</span>
                       <span class="test-zone-tag">${escapeHtml(question.difficulty || "media")}</span>
                     </div>
+                    <button
+                      type="button"
+                      class="test-zone-secondary-button test-zone-review-toggle ${marked ? "is-active" : ""}"
+                      data-action="toggle-review-mark"
+                      data-question-id="${escapeHtml(questionId)}"
+                      aria-label="${escapeHtml(marked ? `Quitar marca de repaso de la pregunta ${index + 1}` : `Marcar pregunta ${index + 1} para repasar`)}"
+                      aria-pressed="${marked ? "true" : "false"}"
+                    >
+                      ${marked ? "Marcada para repasar" : "Marcar para repasar"}
+                    </button>
                   </div>
                   <div class="test-zone-option-list">
                     ${(Array.isArray(question.options) ? question.options : [])
                       .map(
                         (option, optionIndex) => `
                           <label class="test-zone-option-row">
-                            <input type="radio" name="question-${index}" value="${optionIndex}" />
+                            <input
+                              type="radio"
+                              name="question-${index}"
+                              value="${optionIndex}"
+                              data-test-zone-answer
+                              data-question-index="${index}"
+                              ${run.answers?.[index] !== null && run.answers?.[index] !== undefined && Number(run.answers?.[index]) === optionIndex ? "checked" : ""}
+                            />
                             <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
                             <span class="test-zone-option-copy">${escapeHtml(option)}</span>
                           </label>
@@ -202,8 +284,8 @@ function buildQuestionAttemptMarkup() {
                       .join("")}
                   </div>
                 </article>
-              `
-            )
+              `;
+            })
             .join("")}
         </div>
         <div class="test-zone-footer-actions">
@@ -471,6 +553,7 @@ async function refreshData(role) {
   try {
     await loadSharedQuestions();
     await loadTestHistory();
+    await loadReviewMarks();
     if (role === "admin") {
       await loadLiveSessions();
     }
@@ -482,20 +565,22 @@ async function refreshData(role) {
 async function startGeneratedTest(failedOnly = false) {
   const store = getTestState();
   const onlyQuestionIds = failedOnly ? store.failedQuestionIds || [] : [];
-  testSession.activeRun = generateTest(
-    {
-      questions: store.questions || [],
-      numQuestions: testSession.filters.questionCount,
-      filters: {
-        part: testSession.filters.part,
-        category: testSession.filters.category,
-        difficulty: testSession.filters.difficulty
+  setActiveRun(
+    generateTest(
+      {
+        questions: store.questions || [],
+        numQuestions: testSession.filters.questionCount,
+        filters: {
+          part: testSession.filters.part,
+          category: testSession.filters.category,
+          difficulty: testSession.filters.difficulty
+        },
+        onlyQuestionIds,
+        title: buildRunTitle(testSession.filters, failedOnly ? "failed" : "general"),
+        mode: failedOnly ? "failed" : "general"
       },
-      onlyQuestionIds,
-      title: buildRunTitle(testSession.filters, failedOnly ? "failed" : "general"),
-      mode: failedOnly ? "failed" : "general"
-    },
-    testSession.role
+      testSession.role
+    )
   );
   testSession.latestResult = null;
 }
@@ -505,15 +590,12 @@ async function handleAttemptSubmit(container, form) {
   if (!run) {
     return;
   }
-  const formData = new FormData(form);
-  const answers = run.questions.map((question, index) => {
-    const value = formData.get(`question-${index}`);
-    return value === null ? null : Number(value);
-  });
+  captureActiveAnswers(form);
+  const answers = Array.isArray(run.answers) ? run.answers : [];
   const evaluated = evaluateTest(run, answers, testSession.role);
   const savedResult = await saveTestResult(evaluated);
   testSession.latestResult = savedResult;
-  testSession.activeRun = null;
+  setActiveRun(null);
   await loadTestHistory();
   renderTestView(container, testSession.role);
 }
@@ -564,7 +646,7 @@ function bindActions(container) {
 
     const action = String(actionTarget.dataset.action || "").trim();
     if (action === "cancel-active-test") {
-      testSession.activeRun = null;
+      setActiveRun(null);
       renderTestView(container, testSession.role);
       return;
     }
@@ -585,6 +667,22 @@ function bindActions(container) {
       await markQuestionReviewed(actionTarget.dataset.questionId || "");
       await refreshData(testSession.role);
       renderTestView(container, testSession.role);
+      return;
+    }
+    if (action === "toggle-review-mark") {
+      const questionId = String(actionTarget.dataset.questionId || "").trim();
+      captureActiveAnswers(container.querySelector("[data-test-zone-attempt]"));
+      if (getManualReviewQuestionIds().has(questionId)) {
+        await unmarkQuestionForReview(questionId);
+      } else {
+        await markQuestionForReview(questionId);
+      }
+      renderTestView(container, testSession.role);
+      return;
+    }
+    if (action === "jump-test-question") {
+      const index = Number(actionTarget.dataset.questionIndex || 0);
+      container.querySelector(`#test-zone-question-card-${index}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
     if (action === "repeat-result-failed") {
@@ -611,6 +709,20 @@ function bindActions(container) {
     }
   };
 
+  container.onchange = (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || !target.matches("[data-test-zone-answer]")) {
+      return;
+    }
+    const run = testSession.activeRun;
+    const index = Number(target.dataset.questionIndex || -1);
+    if (!run || !Number.isInteger(index) || index < 0) {
+      return;
+    }
+    run.answers = Array.isArray(run.answers) ? run.answers : Array.from({ length: run.questions.length }, () => null);
+    run.answers[index] = Number(target.value);
+  };
+
   container.onsubmit = async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLFormElement)) {
@@ -629,7 +741,7 @@ function bindActions(container) {
       try {
         await startGeneratedTest(false);
       } catch (error) {
-        testSession.activeRun = null;
+        setActiveRun(null);
         testSession.latestResult = {
           title: "No se pudo iniciar el test",
           correctCount: 0,
