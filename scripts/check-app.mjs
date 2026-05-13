@@ -6,6 +6,7 @@ const conflictCheckedFiles = ["public/app.js", "server.js", "storage.js", "packa
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
   "scripts/check-security-hardening.mjs",
+  "scripts/check-rate-limits.mjs",
   "scripts/check-live-tests.mjs",
   "scripts/check-member-notifications.mjs",
   "scripts/check-test-zone.mjs"
