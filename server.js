@@ -1098,6 +1098,42 @@ function isTestZoneLiveSessionActive(session, now = Date.now()) {
   return !Number.isFinite(expiresAtMs) || expiresAtMs > now;
 }
 
+function validateTestZoneLiveResultPayloadForSession(session, payload = {}) {
+  if (!session) {
+    throw createStatusError("El test en vivo no existe", 400);
+  }
+  if (!isTestZoneLiveSessionActive(session)) {
+    throw createStatusError("El test en vivo no admite resultados en este estado", 403);
+  }
+
+  const submittedSessionId = String(payload.sessionId || payload.liveSessionId || "").trim();
+  if (
+    submittedSessionId &&
+    submittedSessionId !== String(session.id || "").trim() &&
+    submittedSessionId !== String(session.code || "").trim()
+  ) {
+    throw createStatusError("El resultado live no corresponde a la sesion indicada", 403);
+  }
+
+  const allowedQuestionIds = (Array.isArray(session.questionIds) ? session.questionIds : [])
+    .map((questionId) => String(questionId || "").trim())
+    .filter(Boolean);
+  const submittedQuestionIds = Array.isArray(payload.questionIds)
+    ? payload.questionIds.map((questionId) => String(questionId || "").trim()).filter(Boolean)
+    : [];
+  if (submittedQuestionIds.length !== allowedQuestionIds.length) {
+    throw createStatusError("El intento no coincide con las preguntas de la sesion", 400);
+  }
+  if (new Set(submittedQuestionIds).size !== submittedQuestionIds.length) {
+    throw createStatusError("El intento contiene preguntas duplicadas", 400);
+  }
+
+  const allowedQuestionIdSet = new Set(allowedQuestionIds);
+  if (submittedQuestionIds.some((questionId) => !allowedQuestionIdSet.has(questionId))) {
+    throw createStatusError("El intento contiene preguntas que no pertenecen a la sesion", 403);
+  }
+}
+
 function expireStaleTestZoneLiveSessions(state, now = Date.now()) {
   ensureTestZoneState(state);
   let changed = false;
@@ -2906,12 +2942,136 @@ function findPublicLiveSessionByCode(state, code) {
   );
 }
 
+function findPublicLiveSessionByIdOrCode(state, value) {
+  ensureIndependentTestsState(state);
+  const normalizedValue = String(value || "").trim();
+  const normalizedCode = normalizedValue.toUpperCase();
+  return (
+    (state.liveTestPublicSessions || []).find(
+      (session) =>
+        String(session.id || "").trim() === normalizedValue ||
+        String(session.code || "").trim().toUpperCase() === normalizedCode
+    ) || null
+  );
+}
+
+function findPrivateLiveSessionByIdOrPin(state, value) {
+  ensureIndependentTestsState(state);
+  const normalizedValue = String(value || "").trim();
+  const normalizedPin = normalizeLiveTestPin(value);
+  return (
+    (state.liveTestSessions || []).find(
+      (session) =>
+        String(session.id || "").trim() === normalizedValue ||
+        (normalizedPin && String(session.pin || "").trim() === normalizedPin)
+    ) || null
+  );
+}
+
+function createStatusError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function getLiveResultPayloadQuestionIds(payload = {}) {
+  const questionIds = [];
+  const appendQuestionId = (value) => {
+    const questionId = String(value || "").trim();
+    if (questionId) {
+      questionIds.push(questionId);
+    }
+  };
+
+  if (Array.isArray(payload.questionIds)) {
+    payload.questionIds.forEach(appendQuestionId);
+  }
+
+  if (Array.isArray(payload.answers)) {
+    for (const answer of payload.answers) {
+      if (answer && typeof answer === "object") {
+        appendQuestionId(answer.questionId);
+      }
+    }
+  } else if (payload.answers && typeof payload.answers === "object") {
+    Object.keys(payload.answers).forEach(appendQuestionId);
+  }
+
+  return [...new Set(questionIds)];
+}
+
+function validateLiveResultPayloadForSession(session, payload = {}, options = {}) {
+  if (!session) {
+    throw createStatusError("La sesion en vivo no existe", 400);
+  }
+
+  const allowedStatuses = Array.isArray(options.allowedStatuses) ? options.allowedStatuses : ["active"];
+  const sessionStatus = String(session.status || "").trim();
+  if (!allowedStatuses.includes(sessionStatus)) {
+    throw createStatusError("La sesion en vivo no admite resultados en este estado", 403);
+  }
+
+  if (Array.isArray(payload.answers)) {
+    throw createStatusError("Las respuestas live deben enviarse asociadas a id de pregunta", 400);
+  }
+
+  const allowedQuestionIds = new Set(
+    (Array.isArray(session.questionIds) ? session.questionIds : [])
+      .map((questionId) => String(questionId || "").trim())
+      .filter(Boolean)
+  );
+  const submittedQuestionIds = getLiveResultPayloadQuestionIds(payload);
+  const foreignQuestionIds = submittedQuestionIds.filter((questionId) => !allowedQuestionIds.has(questionId));
+  if (foreignQuestionIds.length) {
+    throw createStatusError("El resultado live incluye preguntas ajenas a la sesion", 403);
+  }
+
+  const submittedSessionId = String(payload.sessionId || payload.liveSessionId || "").trim();
+  if (
+    submittedSessionId &&
+    submittedSessionId !== String(session.id || "").trim() &&
+    submittedSessionId.toUpperCase() !== String(session.code || session.pin || "").trim().toUpperCase()
+  ) {
+    throw createStatusError("El resultado live no corresponde a la sesion indicada", 403);
+  }
+}
+
+function isLiveResultPayload(payload = {}) {
+  return (
+    String(payload.resultType || payload.type || "").trim().toLowerCase() === "live" ||
+    String(payload.mode || "").trim().toLowerCase() === "live" ||
+    Boolean(String(payload.sessionId || payload.liveSessionId || "").trim())
+  );
+}
+
+function validateLiveResultPayloadAgainstKnownSession(state, payload = {}) {
+  const sessionId = String(payload.sessionId || payload.liveSessionId || "").trim();
+  if (!sessionId) {
+    throw createStatusError("Indica la sesion del resultado live", 400);
+  }
+
+  const publicSession = findPublicLiveSessionByIdOrCode(state, sessionId);
+  if (publicSession) {
+    validateLiveResultPayloadForSession(publicSession, payload, { allowedStatuses: ["active"] });
+    return publicSession;
+  }
+
+  const privateSession = findPrivateLiveSessionByIdOrPin(state, sessionId);
+  if (privateSession) {
+    validateLiveResultPayloadForSession(privateSession, payload, { allowedStatuses: ["running", "finished"] });
+    return privateSession;
+  }
+
+  throw createStatusError("La sesion en vivo no existe", 400);
+}
+
 function buildPublicLiveParticipantResult(state, session, payload = {}) {
   const participantName = String(payload.participantName || payload.name || "").trim();
   if (!participantName) {
     throw new Error("Indica tu nombre para participar");
   }
 
+  validateLiveResultPayloadForSession(session, payload, { allowedStatuses: ["active"] });
   const questions = getPublicLiveQuestionsByIds(state, session.questionIds);
   const rawAnswers = payload.answers && typeof payload.answers === "object" ? payload.answers : {};
   const answers = questions.map((question) => {
@@ -3851,6 +4011,28 @@ function resolveAssociateForAuthenticatedAccount(state, account) {
   return findAssociateForAccount(state, account, member);
 }
 
+function buildMemberTestResultAudiencePayload(result) {
+  return {
+    id: String(result?.id || "").trim(),
+    resultType: String(result?.resultType || "normal").trim() || "normal",
+    userId: String(result?.userId || "").trim(),
+    memberId: String(result?.memberId || "").trim(),
+    questionIds: Array.isArray(result?.questionIds)
+      ? result.questionIds.map((questionId) => String(questionId || "").trim()).filter(Boolean)
+      : [],
+    correctCount: Number(result?.correctCount ?? result?.score ?? 0),
+    wrongCount: Number(result?.wrongCount || 0),
+    blankCount: Number(result?.blankCount || 0),
+    score: Number(result?.score ?? result?.correctCount ?? 0),
+    total: Number(result?.total || (Array.isArray(result?.questionIds) ? result.questionIds.length : 0)),
+    percentage: Number(result?.percentage ?? result?.scorePercent ?? 0),
+    scorePercent: Number(result?.scorePercent ?? result?.percentage ?? 0),
+    duration: Number(result?.duration || 0),
+    selectedConfig: result?.selectedConfig && typeof result.selectedConfig === "object" ? result.selectedConfig : {},
+    createdAt: String(result?.createdAt || "").trim()
+  };
+}
+
 function getAssociateCurrentYearQuotaGap(associate) {
   if (!associate) {
     return 0;
@@ -3942,9 +4124,13 @@ function buildMemberScopedState(state, account, memberIdOverride) {
     reviewedResultId: String(mark.reviewedResultId || "").trim(),
     reviewedFailureAt: String(mark.reviewedFailureAt || "").trim()
   }));
+  const visibleTestsAccount = { ...account, role: "member" };
+  const ownTestResults = (state.testResults || [])
+    .filter((item) => item.userId === account.id || item.memberId === memberId)
+    .filter((item) => String(item.resultType || "normal").trim() !== "live")
+    .map(buildMemberTestResultAudiencePayload);
 
   return {
-    ...state,
     role: "member",
     activeView: quotaLimitedAccess ? "join" : state.activeView,
     selectedMemberId: memberId || null,
@@ -3987,6 +4173,18 @@ function buildMemberScopedState(state, account, memberIdOverride) {
     testZoneResults: scopedTestZoneResults,
     testZoneReviewMarks: scopedTestZoneReviewMarks,
     testZoneLiveSessions: [],
+    testModules: quotaLimitedAccess ? [] : listVisibleIndependentTestModules(state, visibleTestsAccount),
+    tests: quotaLimitedAccess ? [] : listVisibleIndependentTests(state, visibleTestsAccount),
+    questions: [],
+    testAttempts: (state.testAttempts || [])
+      .filter((attempt) => String(attempt.memberId || "").trim() === String(memberId || "").trim())
+      .map(buildIndependentTestAttemptAudiencePayload),
+    testResults: quotaLimitedAccess ? [] : ownTestResults,
+    liveTestSessions: [],
+    liveTestPlayers: [],
+    liveTestAnswers: [],
+    liveTestPublicSessions: [],
+    liveTestParticipantResults: [],
     settings: {
       ...state.settings,
       smtp: stripSmtpSecrets({
@@ -4616,6 +4814,18 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       ensureTestZoneState(state);
+      if (isLiveResultPayload(payload)) {
+        const sessionKey = String(payload.sessionId || payload.liveSessionId || "").trim();
+        const session =
+          getTestZoneLiveSessionById(state, sessionKey) ||
+          (state.testZoneLiveSessions || []).find((item) => String(item.code || "").trim() === sessionKey) ||
+          null;
+        validateTestZoneLiveResultPayloadForSession(session, payload);
+        return sendJson(res, 400, {
+          ok: false,
+          error: "Los resultados live deben guardarse en el endpoint de Test en Vivo"
+        });
+      }
       const result = createTestZoneResultRecord(state, payload, {
         accountId: account.id,
         memberId: account.memberId || "",
@@ -4625,7 +4835,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el resultado de la zona test" });
+      return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado de la zona test" });
     }
   }
 
@@ -4749,6 +4959,7 @@ const server = http.createServer(async (req, res) => {
       if (!guestName) {
         throw new Error("Necesitas indicar tu nombre para enviar el test en vivo");
       }
+      validateTestZoneLiveResultPayloadForSession(session, payload);
       const result = createTestZoneResultRecord(state, payload, {
         guestName,
         liveSessionId: session.id,
@@ -4760,7 +4971,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el resultado del test en vivo" });
+      return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado del test en vivo" });
     }
   }
 
@@ -5497,7 +5708,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 201, { ok: true, result });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el resultado en vivo" });
+      return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado en vivo" });
     }
   }
 
@@ -5526,6 +5737,14 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/test-results" && req.method === "POST") {
     try {
       const payload = await readJsonBody(req);
+      if (isLiveResultPayload(payload)) {
+        const state = readState();
+        validateLiveResultPayloadAgainstKnownSession(state, payload);
+        return sendJson(res, 400, {
+          ok: false,
+          error: "Los resultados live deben guardarse en el endpoint de Test en Vivo"
+        });
+      }
       if (isDatabaseEnabled()) {
         const user = await requireAuthenticatedDbUser(req, res);
         if (!user) {
@@ -5571,7 +5790,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 201, { ok: true, result });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el resultado" });
+      return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado" });
     }
   }
 

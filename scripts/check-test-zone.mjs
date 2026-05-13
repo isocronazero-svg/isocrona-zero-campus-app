@@ -329,6 +329,40 @@ async function main() {
     );
     assert.equal(oversizedSingleAttemptResponse.status, 400);
 
+    const contaminatedLiveViaNormalEndpointResponse = await memberClient.request(
+      "POST",
+      "/api/test-zone/results",
+      {
+        mode: "live",
+        liveSessionId: singleQuestionJoinPayload.liveSession.id,
+        questionIds: [singleLiveQuestionIds[0], singleOutsideQuestionId],
+        answers: [0, 0]
+      },
+      { allowFailure: true }
+    );
+    assert.equal(
+      [400, 403].includes(contaminatedLiveViaNormalEndpointResponse.status),
+      true,
+      "El endpoint normal de Zona Test no debe guardar resultados live con preguntas ajenas"
+    );
+
+    const validLiveViaNormalEndpointResponse = await memberClient.request(
+      "POST",
+      "/api/test-zone/results",
+      {
+        mode: "live",
+        liveSessionId: singleQuestionJoinPayload.liveSession.id,
+        questionIds: [singleLiveQuestionIds[0]],
+        answers: [0]
+      },
+      { allowFailure: true }
+    );
+    assert.equal(
+      validLiveViaNormalEndpointResponse.status,
+      400,
+      "El endpoint normal de Zona Test debe rechazar resultados live aunque sean validos"
+    );
+
     const publicAttemptResponse = await fetch(
       new URL(`/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/attempt`, baseUrl),
       {
@@ -404,6 +438,10 @@ async function main() {
 
     const memberStateResponse = await memberClient.request("GET", "/api/state");
     assert.equal(memberStateResponse.body?.ok, undefined);
+    assert.equal((memberStateResponse.body?.questions || []).length, 0, "El state de socio no debe exponer el banco de preguntas completo");
+    assert.equal((memberStateResponse.body?.liveTestSessions || []).length, 0, "El state de socio no debe exponer sesiones live internas");
+    assert.equal((memberStateResponse.body?.liveTestPublicSessions || []).length, 0, "El state de socio no debe exponer sesiones live publicas");
+    assert.equal((memberStateResponse.body?.liveTestParticipantResults || []).length, 0, "El state de socio no debe exponer resultados live invitados");
     (memberStateResponse.body?.testZoneQuestions || []).forEach(assertQuestionSafe);
     assert.equal(
       (memberStateResponse.body?.testZoneResults || []).some((result) => result.title === "Entrenamiento otro socio"),
