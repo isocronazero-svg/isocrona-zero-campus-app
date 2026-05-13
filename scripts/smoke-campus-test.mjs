@@ -11,7 +11,7 @@ async function check(pathname) {
 }
 
 async function main() {
-  const targets = ["/healthz", "/", "/join.html", "/application.html"];
+  const targets = ["/healthz", "/", "/join.html", "/application.html", "/public-live-test.html"];
   const results = [];
 
   for (const target of targets) {

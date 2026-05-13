@@ -1,275 +1,161 @@
-import { canPerformTestAction } from "../../router/viewPermissions.js";
-import { getQuestions } from "./testStore.js";
-import { normalizeQuestionPayload } from "./questionService.js";
-
-const PART_LABELS = Object.freeze({
-  comun: "Parte comun",
-  especifica: "Parte especifica"
-});
-
-const CATEGORY_LABELS = Object.freeze({
-  legislacion: "Legislacion",
-  bomberos: "Bomberos"
-});
-
-export function createTestService() {
-  return {};
-}
-
-function normalizeText(value, fallback = "") {
-  return String(value ?? fallback ?? "").trim();
-}
-
-function normalizeTopicKeyPart(value, fallback = "sin-definir") {
-  return normalizeText(value || fallback)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || fallback;
-}
-
-function getPartLabel(part) {
-  const normalizedPart = normalizeTopicKeyPart(part, "especifica");
-  return PART_LABELS[normalizedPart] || normalizeText(part || "Parte especifica");
-}
-
-function getCategoryLabel(category) {
-  const normalizedCategory = normalizeTopicKeyPart(category, "bomberos");
-  return CATEGORY_LABELS[normalizedCategory] || normalizeText(category || "Bomberos");
-}
-
-function getModuleTitle(question, moduleMap) {
-  return (
-    normalizeText(question.moduleTitle) ||
-    normalizeText(moduleMap.get(question.moduleId)?.title) ||
-    normalizeText(question.manual) ||
-    normalizeText(question.modulo) ||
-    normalizeText(question.block) ||
-    ""
-  );
-}
-
-function getTopicTitle(question, moduleMap) {
-  return (
-    normalizeText(question.temaTitulo) ||
-    normalizeText(question.topic) ||
-    normalizeText(question.title) ||
-    getModuleTitle(question, moduleMap) ||
-    "Sin clasificar"
-  );
-}
-
-function buildTopicKey(question, moduleMap) {
-  return [
-    normalizeTopicKeyPart(question.part, "especifica"),
-    normalizeTopicKeyPart(question.category, "bomberos"),
-    normalizeTopicKeyPart(getModuleTitle(question, moduleMap), "general"),
-    normalizeTopicKeyPart(question.temaNumero || "0", "0"),
-    normalizeTopicKeyPart(getTopicTitle(question, moduleMap), "sin-clasificar")
-  ].join("|");
-}
-
-function buildTopicLabel(question, moduleMap) {
-  const topicTitle = getTopicTitle(question, moduleMap);
-  const topicNumber = normalizeText(question.temaNumero);
-  if (topicNumber) {
-    return `Tema ${topicNumber} - ${topicTitle}`;
+function randomize(items = []) {
+  const next = [...(Array.isArray(items) ? items : [])];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
   }
-  return topicTitle;
+  return next;
 }
 
-function compareByText(left, right) {
-  return String(left || "").localeCompare(String(right || ""), "es", {
-    numeric: true,
-    sensitivity: "base"
-  });
-}
-
-export function normalizeQuestionForTest(question) {
-  return normalizeQuestionPayload(question);
-}
-
-export function buildQuestionTopicGroups(questions = [], modules = []) {
-  const moduleMap = new Map((Array.isArray(modules) ? modules : []).map((module) => [module.id, module]));
-  const blockMap = new Map();
-
-  for (const rawQuestion of Array.isArray(questions) ? questions : []) {
-    const question = normalizeQuestionForTest(rawQuestion);
-    if (!question.active || !question.prompt || question.options.length < 2) {
-      continue;
-    }
-
-    const part = normalizeTopicKeyPart(question.part, "especifica");
-    const category = normalizeTopicKeyPart(question.category, "bomberos");
-    const blockKey = `${part}|${category}|${normalizeTopicKeyPart(getModuleTitle(question, moduleMap), "general")}`;
-    const topicKey = buildTopicKey(question, moduleMap);
-    const moduleTitle = getModuleTitle(question, moduleMap);
-
-    if (!blockMap.has(blockKey)) {
-      blockMap.set(blockKey, {
-        key: blockKey,
-        part,
-        category,
-        label: `${getPartLabel(part)} · ${getCategoryLabel(category)}`,
-        moduleTitle,
-        topics: new Map(),
-        count: 0
-      });
-    }
-
-    const block = blockMap.get(blockKey);
-    block.count += 1;
-
-    if (!block.topics.has(topicKey)) {
-      block.topics.set(topicKey, {
-        key: topicKey,
-        label: buildTopicLabel(question, moduleMap),
-        moduleTitle,
-        topicNumber: normalizeText(question.temaNumero),
-        count: 0,
-        questionIds: []
-      });
-    }
-
-    const topic = block.topics.get(topicKey);
-    topic.count += 1;
-    topic.questionIds.push(question.id);
+function matchesFilter(question, filters = {}) {
+  const normalizedPart = String(filters.part || "").trim();
+  const normalizedCategory = String(filters.category || "").trim();
+  const normalizedDifficulty = String(filters.difficulty || "").trim();
+  if (normalizedPart && normalizedPart !== "all" && String(question.part || "").trim() !== normalizedPart) {
+    return false;
   }
-
-  return Array.from(blockMap.values())
-    .map((block) => ({
-      ...block,
-      topics: Array.from(block.topics.values()).sort((left, right) => {
-        const numberDiff = compareByText(left.topicNumber, right.topicNumber);
-        return numberDiff || compareByText(left.label, right.label);
-      })
-    }))
-    .sort((left, right) => {
-      const partDiff = compareByText(left.part, right.part);
-      const categoryDiff = compareByText(left.category, right.category);
-      return partDiff || categoryDiff || compareByText(left.moduleTitle, right.moduleTitle);
-    });
+  if (normalizedCategory && normalizedCategory !== "all" && String(question.category || "").trim() !== normalizedCategory) {
+    return false;
+  }
+  if (normalizedDifficulty && normalizedDifficulty !== "all" && String(question.difficulty || "").trim() !== normalizedDifficulty) {
+    return false;
+  }
+  return true;
 }
 
-export function getQuestionTopicKey(question, modules = []) {
-  const moduleMap = new Map((Array.isArray(modules) ? modules : []).map((module) => [module.id, module]));
-  return buildTopicKey(normalizeQuestionForTest(question), moduleMap);
-}
-
-export function getQuestionsForTopicSelection(questions = [], selectedTopicKeys = [], modules = []) {
-  const selectedKeys = new Set(Array.isArray(selectedTopicKeys) ? selectedTopicKeys : []);
-  const hasSelection = selectedKeys.size > 0;
-
-  return (Array.isArray(questions) ? questions : [])
-    .map(normalizeQuestionForTest)
-    .filter((question) => question.active && question.prompt && question.options.length >= 2)
-    .filter((question) => !hasSelection || selectedKeys.has(getQuestionTopicKey(question, modules)));
-}
-
-export function shuffleQuestions(questions = []) {
-  return [...questions]
-    .map((question) => ({ question, sort: Math.random() }))
-    .sort((left, right) => left.sort - right.sort)
-    .map(({ question }) => question);
-}
-
-export function generateNormalTest(
-  { questions = getQuestions(), modules = [], questionCount = 25, selectedTopicKeys = [], questionIds = null } = {},
+export function generateTest(
+  {
+    questions = [],
+    numQuestions = 20,
+    filters = {},
+    onlyQuestionIds = [],
+    title = "Zona Test",
+    mode = "general"
+  } = {},
   role = "member"
 ) {
-  if (!canPerformTestAction(role, "generateTest")) {
+  if (!["admin", "member"].includes(String(role || "member"))) {
     throw new Error("No tienes permiso para generar tests.");
   }
 
-  const requestedCount = Number(questionCount || 25);
-  const forcedIds = Array.isArray(questionIds) ? new Set(questionIds.map((item) => String(item))) : null;
-  const pool = forcedIds
-    ? (Array.isArray(questions) ? questions : [])
-        .map(normalizeQuestionForTest)
-        .filter((question) => forcedIds.has(question.id) && question.active && question.prompt && question.options.length >= 2)
-    : getQuestionsForTopicSelection(questions, selectedTopicKeys, modules);
+  const safeQuestions = Array.isArray(questions) ? questions : [];
+  const subsetIds = new Set((Array.isArray(onlyQuestionIds) ? onlyQuestionIds : []).map((item) => String(item || "").trim()).filter(Boolean));
+  let pool = safeQuestions.filter((question) => matchesFilter(question, filters));
 
-  if (!pool.length) {
-    throw new Error("No hay preguntas activas para los bloques seleccionados.");
+  if (subsetIds.size) {
+    pool = pool.filter((question) => subsetIds.has(String(question.id || "").trim()));
   }
 
-  if (pool.length < requestedCount) {
-    throw new Error(`Solo hay ${pool.length} pregunta(s) disponibles para esa seleccion. Elige menos preguntas o mas temas.`);
+  const requestedCount = Math.max(Number(numQuestions || 0), 1);
+  const selectedQuestions = randomize(pool).slice(0, Math.min(requestedCount, pool.length));
+  if (!selectedQuestions.length) {
+    throw new Error(
+      subsetIds.size
+        ? "Todavia no tienes preguntas falladas disponibles con esos filtros."
+        : "No hay preguntas disponibles con los filtros seleccionados."
+    );
   }
-
-  return shuffleQuestions(pool).slice(0, requestedCount);
-}
-
-export function generateTest({ numQuestions = 10, topic = null } = {}, role = "member") {
-  const pool = topic ? getQuestions().filter((question) => question.topic === topic) : getQuestions();
-  return generateNormalTest({ questions: pool, questionCount: numQuestions }, role);
-}
-
-export function evaluateNormalTest(testQuestions = [], answersByQuestionId = {}, role = "member") {
-  if (!canPerformTestAction(role, "evaluateTest")) {
-    throw new Error("No tienes permiso para responder o evaluar tests.");
-  }
-
-  let correctCount = 0;
-  let wrongCount = 0;
-  let blankCount = 0;
-  const answers = [];
-  const failedQuestionIds = [];
-
-  const questions = (Array.isArray(testQuestions) ? testQuestions : []).map(normalizeQuestionForTest);
-
-  for (const question of questions) {
-    const answerValue = answersByQuestionId?.[question.id];
-    const answerIndex = answerValue === null || answerValue === undefined || answerValue === "" ? null : Number(answerValue);
-    const isBlank = answerIndex === null || !Number.isInteger(answerIndex);
-    const isCorrect = !isBlank && answerIndex === Number(question.correctIndex);
-
-    if (isBlank) {
-      blankCount += 1;
-      failedQuestionIds.push(question.id);
-    } else if (isCorrect) {
-      correctCount += 1;
-    } else {
-      wrongCount += 1;
-      failedQuestionIds.push(question.id);
-    }
-
-    answers.push({
-      questionId: question.id,
-      answerIndex,
-      correctIndex: Number(question.correctIndex),
-      correct: isCorrect,
-      blank: isBlank
-    });
-  }
-
-  const total = questions.length;
-  const scorePercent = total ? (correctCount / total) * 100 : 0;
 
   return {
-    total,
-    correctCount,
-    wrongCount,
-    blankCount,
-    score: correctCount,
-    percentage: scorePercent,
-    scorePercent,
-    answers,
-    failedQuestionIds
+    id: `test-zone-run-${Date.now()}`,
+    title,
+    mode,
+    filters: {
+      part: String(filters.part || "").trim(),
+      category: String(filters.category || "").trim(),
+      difficulty: String(filters.difficulty || "").trim(),
+      source: subsetIds.size ? "failed" : "bank"
+    },
+    questions: selectedQuestions
   };
 }
 
-export function evaluateTest(test, answers, role = "member") {
-  const answersByQuestionId = {};
-  (Array.isArray(test) ? test : []).forEach((question, index) => {
-    answersByQuestionId[question.id] = Array.isArray(answers) ? answers[index] : null;
+export function evaluateTest(testRun, answers = [], role = "member") {
+  if (!["admin", "member"].includes(String(role || "member"))) {
+    throw new Error("No tienes permiso para evaluar tests.");
+  }
+
+  const questions = Array.isArray(testRun?.questions) ? testRun.questions : [];
+  const responses = questions.map((question, index) => {
+    const selectedIndex =
+      answers[index] === null || answers[index] === undefined || answers[index] === ""
+        ? null
+        : Number.isInteger(Number(answers[index]))
+          ? Number(answers[index])
+          : null;
+    const isBlank = selectedIndex === null;
+    const isCorrect = !isBlank && selectedIndex === Number(question.correctIndex);
+    return {
+      questionId: question.id,
+      prompt: question.prompt,
+      part: question.part,
+      category: question.category,
+      difficulty: question.difficulty,
+      selectedIndex,
+      correctIndex: Number(question.correctIndex),
+      isCorrect,
+      isBlank
+    };
   });
-  return evaluateNormalTest(test, answersByQuestionId, role);
+
+  const correctCount = responses.filter((response) => response.isCorrect).length;
+  const blankCount = responses.filter((response) => response.isBlank).length;
+  const wrongCount = Math.max(responses.length - correctCount - blankCount, 0);
+  const answeredCount = responses.length - blankCount;
+  const total = responses.length;
+  const score = correctCount;
+  const percentage = total ? Math.round((score / total) * 1000) / 10 : 0;
+
+  return {
+    title: String(testRun?.title || "Zona Test").trim(),
+    mode: String(testRun?.mode || "general").trim(),
+    filters: testRun?.filters || {},
+    questionIds: questions.map((question) => question.id),
+    responses,
+    correctCount,
+    wrongCount,
+    blankCount,
+    answeredCount,
+    score,
+    total,
+    percentage
+  };
 }
 
-export function loadTests() {}
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    },
+    ...options
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.error || "No se pudo completar la operacion del test");
+  }
+  return payload;
+}
 
-export function saveTest() {}
+export async function saveTestResult(result) {
+  const payload = await fetchJson("/api/test-zone/results", {
+    method: "POST",
+    body: JSON.stringify({
+      title: result?.title || "Zona Test",
+      mode: result?.mode || "general",
+      filters: result?.filters || {},
+      questionIds: result?.questionIds || [],
+      answers: (Array.isArray(result?.responses) ? result.responses : []).map((response) =>
+        response.isBlank ? null : response.selectedIndex ?? null
+      )
+    })
+  });
+  return payload.result;
+}
 
-export default createTestService;
+export default {
+  generateTest,
+  evaluateTest,
+  saveTestResult
+};

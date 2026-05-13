@@ -372,6 +372,143 @@ function normalizePracticeAttempt(attempt, attemptIndex) {
   };
 }
 
+function normalizeTestZoneQuestion(question, questionIndex) {
+  const options = Array.isArray(question?.options)
+    ? question.options.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const rawPart = String(question?.part || "").trim().toLowerCase();
+  const rawCategory = String(question?.category || "").trim().toLowerCase();
+  const rawDifficulty = String(question?.difficulty || "").trim().toLowerCase();
+  return {
+    ...question,
+    id: question?.id || `test-zone-question-${Date.now()}-${questionIndex}`,
+    prompt: String(question?.prompt || question?.question || "").trim(),
+    options,
+    correctIndex:
+      Number.isInteger(Number(question?.correctIndex)) && Number(question.correctIndex) >= 0
+        ? Number(question.correctIndex)
+        : Number.isInteger(Number(question?.correctAnswer)) && Number(question.correctAnswer) >= 0
+          ? Number(question.correctAnswer)
+          : 0,
+    part: rawPart.includes("espec") ? "Parte específica" : "Parte común",
+    category:
+      rawCategory.includes("bomber") || rawCategory.includes("bombero")
+        ? "Bomberos"
+        : "Legislación",
+    difficulty:
+      rawDifficulty === "hard" || rawDifficulty === "alta"
+        ? "alta"
+        : rawDifficulty === "easy" || rawDifficulty === "baja"
+          ? "baja"
+          : "media",
+    explanation: String(question?.explanation || "").trim(),
+    createdAt: question?.createdAt || new Date().toISOString(),
+    createdBy: String(question?.createdBy || "").trim()
+  };
+}
+
+function normalizeTestZoneResult(result, resultIndex) {
+  const responses = Array.isArray(result?.responses)
+    ? result.responses.map((response) => ({
+        questionId: String(response?.questionId || "").trim(),
+        selectedIndex:
+          response?.selectedIndex === null || response?.selectedIndex === undefined
+            ? null
+            : Number.isFinite(Number(response.selectedIndex))
+              ? Number(response.selectedIndex)
+              : null,
+        correctIndex:
+          Number.isFinite(Number(response?.correctIndex)) && Number(response.correctIndex) >= 0
+            ? Number(response.correctIndex)
+            : 0,
+        isCorrect: Boolean(response?.isCorrect),
+        isBlank: Boolean(response?.isBlank),
+        part: String(response?.part || "").trim(),
+        category: String(response?.category || "").trim(),
+        difficulty: String(response?.difficulty || "").trim(),
+        prompt: String(response?.prompt || "").trim()
+      }))
+    : [];
+  return {
+    ...result,
+    id: result?.id || `test-zone-result-${Date.now()}-${resultIndex}`,
+    accountId: String(result?.accountId || "").trim(),
+    memberId: String(result?.memberId || "").trim(),
+    guestName: String(result?.guestName || "").trim(),
+    liveSessionId: String(result?.liveSessionId || "").trim(),
+    liveCode: String(result?.liveCode || "").trim(),
+    title: String(result?.title || "").trim(),
+    mode: String(result?.mode || "general").trim(),
+    questionIds: Array.isArray(result?.questionIds)
+      ? result.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
+      : [],
+    responses,
+    correctCount: Number(result?.correctCount || 0),
+    wrongCount: Number(result?.wrongCount || 0),
+    blankCount: Number(result?.blankCount || 0),
+    answeredCount: Number(result?.answeredCount || 0),
+    total: Number(result?.total || 0),
+    score: Number(result?.score || result?.correctCount || 0),
+    percentage: Number(result?.percentage || 0),
+    incorrectQuestionIds: Array.isArray(result?.incorrectQuestionIds)
+      ? result.incorrectQuestionIds.map((item) => String(item || "").trim()).filter(Boolean)
+      : [],
+    filters:
+      result?.filters && typeof result.filters === "object"
+        ? {
+            part: String(result.filters.part || "").trim(),
+            category: String(result.filters.category || "").trim(),
+            difficulty: String(result.filters.difficulty || "").trim(),
+            source: String(result.filters.source || "").trim()
+          }
+        : { part: "", category: "", difficulty: "", source: "" },
+    createdAt: result?.createdAt || new Date().toISOString()
+  };
+}
+
+function normalizeTestZoneReviewMark(mark, markIndex) {
+  return {
+    ...mark,
+    id: mark?.id || `test-zone-review-${Date.now()}-${markIndex}`,
+    accountId: String(mark?.accountId || "").trim(),
+    memberId: String(mark?.memberId || "").trim(),
+    questionId: String(mark?.questionId || "").trim(),
+    reviewedAt: mark?.reviewedAt || new Date().toISOString(),
+    reviewedResultId: String(mark?.reviewedResultId || "").trim(),
+    reviewedFailureAt: mark?.reviewedFailureAt || mark?.reviewedAt || new Date().toISOString()
+  };
+}
+
+function normalizeTestZoneLiveSession(session, sessionIndex) {
+  const createdAt = session?.createdAt || new Date().toISOString();
+  return {
+    ...session,
+    id: session?.id || `test-zone-live-${Date.now()}-${sessionIndex}`,
+    code: String(session?.code || "").trim(),
+    title: String(session?.title || "").trim(),
+    questionIds: Array.isArray(session?.questionIds)
+      ? session.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
+      : [],
+    status: ["active", "closed", "expired"].includes(String(session?.status || "").trim())
+      ? String(session.status).trim()
+      : "active",
+    questionCount: Number(session?.questionCount || 0),
+    createdByAccountId: String(session?.createdByAccountId || "").trim(),
+    createdByMemberId: String(session?.createdByMemberId || "").trim(),
+    filters:
+      session?.filters && typeof session.filters === "object"
+        ? {
+            part: String(session.filters.part || "").trim(),
+            category: String(session.filters.category || "").trim(),
+            difficulty: String(session.filters.difficulty || "").trim()
+          }
+        : { part: "", category: "", difficulty: "" },
+    createdAt,
+    expiresAt: session?.expiresAt || new Date(Date.parse(createdAt) + 24 * 60 * 60 * 1000).toISOString(),
+    closedAt: session?.closedAt || ""
+  };
+}
+
 function normalizeNormalTestResult(result, resultIndex) {
   const questionIds = Array.isArray(result?.questionIds)
     ? result.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
@@ -811,6 +948,18 @@ function normalizeState(state) {
   );
   nextState.practiceAttempts = (state.practiceAttempts || []).map((attempt, index) =>
     normalizePracticeAttempt(attempt, index)
+  );
+  nextState.testZoneQuestions = (state.testZoneQuestions || []).map((question, index) =>
+    normalizeTestZoneQuestion(question, index)
+  );
+  nextState.testZoneResults = (state.testZoneResults || []).map((result, index) =>
+    normalizeTestZoneResult(result, index)
+  );
+  nextState.testZoneReviewMarks = (state.testZoneReviewMarks || []).map((mark, index) =>
+    normalizeTestZoneReviewMark(mark, index)
+  );
+  nextState.testZoneLiveSessions = (state.testZoneLiveSessions || []).map((session, index) =>
+    normalizeTestZoneLiveSession(session, index)
   );
   nextState.memberNotifications = (state.memberNotifications || []).map((notification, index) =>
     normalizeMemberNotification(notification, index)

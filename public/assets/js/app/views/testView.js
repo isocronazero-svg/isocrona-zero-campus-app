@@ -1,355 +1,99 @@
 import {
-  buildQuestionTopicGroups,
-  evaluateNormalTest,
-  generateNormalTest,
-  getQuestionTopicKey,
-  shuffleQuestions
-} from "../modules/tests/testService.js";
-import {
+  createLiveSession,
   createQuestion,
-  generateDummyQuestions,
-  getStoredModules,
+  getQuestionFilters,
   getStoredQuestions,
-  loadModulesFromServer,
-  loadQuestions,
-  loadQuestionsFromServer,
-  loadStoredModules,
-  saveQuestion,
-  saveQuestionToServer
+  loadLiveSessions,
+  loadSharedQuestions,
+  loadTestHistory,
+  markQuestionReviewed,
+  saveQuestion
 } from "../modules/tests/questionService.js";
-
-const NORMAL_RESULT_STORAGE_KEY = "iz-normal-test-results";
-const FAILED_QUESTION_STORAGE_KEY = "iz-normal-test-failed-question-ids";
-const DEFAULT_QUESTION_COUNT = 25;
-const DEFAULT_TIME_LIMIT = "none";
+import { evaluateTest, generateTest, saveTestResult } from "../modules/tests/testService.js";
+import { getTestState } from "../modules/tests/testStore.js";
 
 const testSession = {
   role: "member",
-  activeTab: "generator",
-  mode: "generator",
-  questionCount: DEFAULT_QUESTION_COUNT,
-  timeLimit: DEFAULT_TIME_LIMIT,
-  selectedTopicKeys: new Set(),
-  liveSelectedTopicKeys: new Set(),
-  currentTest: [],
-  answersByQuestionId: {},
-  currentQuestionIndex: 0,
-  startedAt: null,
-  finishedAt: null,
-  timerId: null,
-  result: null,
-  results: [],
-  failedQuestionIds: new Set(),
-  message: "",
-  messageTone: "neutral",
-  liveMessage: "",
-  liveMessageTone: "neutral",
-  liveSession: null,
-  failedMode: "summary",
-  hydrated: false,
-  hydrateToken: 0
+  loading: false,
+  activeRun: null,
+  latestResult: null,
+  loadedRole: "",
+  filters: {
+    part: "all",
+    category: "all",
+    difficulty: "all",
+    questionCount: 20
+  }
 };
 
 function escapeHtml(value) {
   return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
-function canUseLocalStorage() {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-}
-
-function readJsonStorage(key, fallback) {
-  if (!canUseLocalStorage()) {
-    return fallback;
-  }
-
-  try {
-    return JSON.parse(window.localStorage.getItem(key) || JSON.stringify(fallback));
-  } catch (error) {
-    return fallback;
-  }
-}
-
-function writeJsonStorage(key, value) {
-  if (!canUseLocalStorage()) {
-    return;
-  }
-
-  window.localStorage.setItem(key, JSON.stringify(value));
-}
-
-function getQuestions() {
-  return getStoredQuestions().filter((question) => question.active !== false && question.prompt && question.options.length >= 2);
-}
-
-function getModules() {
-  return getStoredModules();
-}
-
-function getTopicGroups() {
-  return buildQuestionTopicGroups(getQuestions(), getModules());
-}
-
-function getAllTopicKeys(groups = getTopicGroups()) {
-  return groups.flatMap((group) => group.topics.map((topic) => topic.key));
-}
-
-function getSelectedTopicKeys(mode = "normal", groups = getTopicGroups()) {
-  const source = mode === "live" ? testSession.liveSelectedTopicKeys : testSession.selectedTopicKeys;
-  if (!source.size) {
-    return getAllTopicKeys(groups);
-  }
-  return Array.from(source).filter((key) => getAllTopicKeys(groups).includes(key));
-}
-
-function setMessage(message, tone = "neutral") {
-  testSession.message = message;
-  testSession.messageTone = tone;
-}
-
-function setLiveMessage(message, tone = "neutral") {
-  testSession.liveMessage = message;
-  testSession.liveMessageTone = tone;
-}
-
-function stopTimer() {
-  if (testSession.timerId) {
-    clearInterval(testSession.timerId);
-    testSession.timerId = null;
-  }
-}
-
-function getTimeLimitMinutes() {
-  if (testSession.timeLimit === "30") {
-    return 30;
-  }
-  if (testSession.timeLimit === "60") {
-    return 60;
-  }
-  return null;
-}
-
-function getDurationSeconds() {
-  if (!testSession.startedAt) {
-    return 0;
-  }
-  const endTime = testSession.finishedAt || new Date();
-  return Math.max(0, Math.round((endTime.getTime() - testSession.startedAt.getTime()) / 1000));
-}
-
-function formatDuration(seconds) {
-  const safeSeconds = Math.max(0, Number(seconds || 0));
-  const minutes = Math.floor(safeSeconds / 60);
-  const rest = safeSeconds % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
-}
-
-function getRemainingSeconds() {
-  const limitMinutes = getTimeLimitMinutes();
-  if (!limitMinutes || !testSession.startedAt) {
-    return null;
-  }
-  return Math.max(0, limitMinutes * 60 - getDurationSeconds());
-}
-
-function updateTimerDisplay(container) {
-  const timerEl = container.querySelector("[data-normal-test-time]");
-  if (!timerEl) {
-    return;
-  }
-
-  const remainingSeconds = getRemainingSeconds();
-  timerEl.textContent = remainingSeconds === null ? "Sin tiempo" : formatDuration(remainingSeconds);
-}
-
-function startTimer(container) {
-  stopTimer();
-  if (!getTimeLimitMinutes()) {
-    updateTimerDisplay(container);
-    return;
-  }
-
-  testSession.timerId = window.setInterval(() => {
-    updateTimerDisplay(container);
-    if (getRemainingSeconds() === 0) {
-      finishNormalTest(container);
-    }
-  }, 1000);
-}
-
-function normalizeStoredResult(result = {}) {
-  const correctCount = Number(result.correctCount ?? result.score ?? 0);
-  const total = Number(result.total ?? result.questionIds?.length ?? 0);
-  const wrongCount = Number(result.wrongCount ?? 0);
-  const blankCount = Number(result.blankCount ?? 0);
-  const scorePercent = Number(result.scorePercent ?? result.percentage ?? (total ? (correctCount / total) * 100 : 0));
-
-  return {
-    id: String(result.id || `normal-result-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`),
-    userId: String(result.userId || ""),
-    memberId: String(result.memberId || ""),
-    questionIds: Array.isArray(result.questionIds) ? result.questionIds : [],
-    answers: Array.isArray(result.answers) ? result.answers : [],
-    correctCount,
-    wrongCount,
-    blankCount,
-    scorePercent,
-    percentage: scorePercent,
-    total,
-    duration: Number(result.duration || 0),
-    createdAt: result.createdAt || new Date().toISOString(),
-    selectedConfig: result.selectedConfig || {}
-  };
-}
-
-function loadLocalResults() {
-  testSession.results = readJsonStorage(NORMAL_RESULT_STORAGE_KEY, []).map(normalizeStoredResult);
-}
-
-function saveLocalResult(result) {
-  const normalizedResult = normalizeStoredResult(result);
-  const results = [
-    normalizedResult,
-    ...testSession.results.filter((item) => item.id !== normalizedResult.id)
-  ].slice(0, 100);
-  testSession.results = results;
-  writeJsonStorage(NORMAL_RESULT_STORAGE_KEY, results);
-  return normalizedResult;
-}
-
-function loadFailedQuestionIds() {
-  testSession.failedQuestionIds = new Set(readJsonStorage(FAILED_QUESTION_STORAGE_KEY, []).map((item) => String(item)));
-}
-
-function saveFailedQuestionIds(ids) {
-  const nextIds = new Set([...testSession.failedQuestionIds, ...(Array.isArray(ids) ? ids : [])].map((item) => String(item)));
-  testSession.failedQuestionIds = nextIds;
-  writeJsonStorage(FAILED_QUESTION_STORAGE_KEY, Array.from(nextIds));
-}
-
-function removeFailedQuestionIds(ids) {
-  const removeSet = new Set((Array.isArray(ids) ? ids : []).map((item) => String(item)));
-  testSession.failedQuestionIds = new Set(Array.from(testSession.failedQuestionIds).filter((id) => !removeSet.has(id)));
-  writeJsonStorage(FAILED_QUESTION_STORAGE_KEY, Array.from(testSession.failedQuestionIds));
-}
-
-async function loadResultsFromServer() {
-  if (typeof fetch !== "function") {
-    return testSession.results;
-  }
-
-  try {
-    const response = await fetch("/api/test-results/me", { credentials: "same-origin" });
-    if (!response.ok) {
-      return testSession.results;
-    }
-    const payload = await response.json();
-    const remoteResults = Array.isArray(payload.results) ? payload.results.map(normalizeStoredResult) : [];
-    const merged = [...remoteResults, ...testSession.results];
-    const seen = new Set();
-    testSession.results = merged.filter((result) => {
-      if (seen.has(result.id)) {
-        return false;
-      }
-      seen.add(result.id);
-      return true;
-    });
-    writeJsonStorage(NORMAL_RESULT_STORAGE_KEY, testSession.results);
-    return testSession.results;
-  } catch (error) {
-    return testSession.results;
-  }
-}
-
-async function saveResultToServer(result) {
-  if (typeof fetch !== "function") {
-    return null;
-  }
-
-  try {
-    const response = await fetch("/api/test-results", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        resultType: "normal",
-        score: result.correctCount,
-        total: result.total,
-        percentage: result.scorePercent,
-        questionIds: result.questionIds,
-        answers: result.answers,
-        correctCount: result.correctCount,
-        wrongCount: result.wrongCount,
-        blankCount: result.blankCount,
-        scorePercent: result.scorePercent,
-        duration: result.duration,
-        selectedConfig: result.selectedConfig
-      })
-    });
-    if (!response.ok) {
-      return null;
-    }
-    const payload = await response.json();
-    return payload.result || null;
-  } catch (error) {
-    return null;
-  }
-}
-
-function getCurrentQuestion() {
-  return testSession.currentTest[testSession.currentQuestionIndex] || null;
-}
-
-function renderStatusMessage(message, tone = "neutral") {
-  if (!message) {
+function formatDate(value) {
+  if (!value) {
     return "";
   }
-  return `<div class="test-status-message is-${escapeHtml(tone)}">${escapeHtml(message)}</div>`;
+  try {
+    return new Date(value).toLocaleString("es-ES", {
+      dateStyle: "medium",
+      timeStyle: "short"
+    });
+  } catch (error) {
+    return String(value);
+  }
 }
 
-function renderTabs() {
-  const tabs = [
-    ["generator", "Generador de test"],
-    ["failed", "Preguntas falladas"],
-    ["history", "Historial"],
-    ["live", "Test en vivo"],
-    ...(testSession.role === "admin" ? [["bank", "Banco de preguntas"]] : [])
+function buildRunTitle(filters = {}, mode = "general") {
+  const parts = [];
+  if (mode === "failed") {
+    parts.push("Repaso de falladas");
+  } else {
+    parts.push("Test de entrenamiento");
+  }
+  if (filters.part && filters.part !== "all") {
+    parts.push(filters.part);
+  }
+  if (filters.category && filters.category !== "all") {
+    parts.push(filters.category);
+  }
+  return parts.join(" · ");
+}
+
+function getCurrentQuestionMap() {
+  return new Map((getStoredQuestions() || []).map((question) => [String(question.id || "").trim(), question]));
+}
+
+function getFailedQuestions() {
+  const store = getTestState();
+  const questionMap = getCurrentQuestionMap();
+  return (store.failedQuestionIds || []).map((questionId) => questionMap.get(questionId)).filter(Boolean);
+}
+
+function buildMetricCards() {
+  const { stats } = getTestState();
+  const metrics = [
+    { label: "Tests realizados", value: stats.totalTests || 0, hint: "Intentos guardados" },
+    { label: "Preguntas respondidas", value: stats.answered || 0, hint: "Sin contar blancas" },
+    { label: "Aciertos", value: stats.correct || 0, hint: "Total acumulado" },
+    { label: "Fallos", value: stats.wrong || 0, hint: "Pendientes de repaso" },
+    { label: "% acierto", value: `${Number(stats.accuracy || 0).toFixed(1)}%`, hint: "Global acumulado" }
   ];
-
   return `
-    <nav class="test-tabs" aria-label="Zona Test">
-      ${tabs
+    <div class="test-zone-metrics">
+      ${metrics
         .map(
-          ([id, label]) => `
-            <button
-              type="button"
-              class="test-tab ${testSession.activeTab === id ? "is-active" : ""}"
-              data-test-tab="${id}"
-            >
-              ${escapeHtml(label)}
-            </button>
-          `
-        )
-        .join("")}
-    </nav>
-  `;
-}
-
-function renderQuestionCountOptions(name, selectedValue, values = [25, 50, 100]) {
-  return `
-    <div class="test-segmented" role="radiogroup" aria-label="Numero de preguntas">
-      ${values
-        .map(
-          (value) => `
-            <label class="test-segment">
-              <input type="radio" name="${escapeHtml(name)}" value="${value}" ${Number(selectedValue) === value ? "checked" : ""} />
-              <span>${value}</span>
-            </label>
+          (metric) => `
+            <article class="test-zone-metric-card">
+              <p class="test-zone-kicker">${escapeHtml(metric.label)}</p>
+              <strong>${escapeHtml(metric.value)}</strong>
+              <span>${escapeHtml(metric.hint)}</span>
+            </article>
           `
         )
         .join("")}
@@ -357,989 +101,593 @@ function renderQuestionCountOptions(name, selectedValue, values = [25, 50, 100])
   `;
 }
 
-function renderTimeOptions() {
-  const options = [
-    ["30", "30 min"],
-    ["60", "60 min"],
-    ["none", "Sin tiempo"]
-  ];
-
+function buildFilterSelect(name, value, options) {
   return `
-    <div class="test-segmented" role="radiogroup" aria-label="Tiempo">
-      ${options
-        .map(
-          ([value, label]) => `
-            <label class="test-segment">
-              <input type="radio" name="timeLimit" value="${value}" ${testSession.timeLimit === value ? "checked" : ""} />
-              <span>${escapeHtml(label)}</span>
-            </label>
-          `
-        )
-        .join("")}
-    </div>
+    <label class="test-zone-field">
+      <span>${escapeHtml(name === "part" ? "Parte" : name === "category" ? "Bloque" : "Dificultad")}</span>
+      <select name="${escapeHtml(name)}">
+        <option value="all">Todas</option>
+        ${options
+          .map(
+            (option) => `
+              <option value="${escapeHtml(option)}" ${String(value || "") === String(option) ? "selected" : ""}>${escapeHtml(option)}</option>
+            `
+          )
+          .join("")}
+      </select>
+    </label>
   `;
 }
 
-function renderTopicSelector({ mode = "normal", groups = getTopicGroups() } = {}) {
-  if (!groups.length) {
-    return `
-      <div class="test-empty-state">
-        No hay preguntas activas en el banco. Administracion puede cargar preguntas desde Banco de preguntas.
-      </div>
-    `;
-  }
-
-  const selectedKeys = new Set(getSelectedTopicKeys(mode, groups));
-  const blockAttribute = mode === "live" ? "data-live-topic-block" : "data-topic-block";
-  const topicAttribute = mode === "live" ? "data-live-topic-checkbox" : "data-topic-checkbox";
-
+function buildControlsMarkup() {
+  const { parts, categories, difficulties } = getQuestionFilters(getStoredQuestions());
+  const failedQuestions = getFailedQuestions();
   return `
-    <div class="test-topic-list">
-      ${groups
-        .map((group) => {
-          const everyTopicSelected = group.topics.every((topic) => selectedKeys.has(topic.key));
-          return `
-            <section class="test-topic-group">
-              <label class="test-topic-group-header">
-                <input
-                  type="checkbox"
-                  ${blockAttribute}
-                  data-topic-mode="${mode}"
-                  data-topic-keys="${escapeHtml(group.topics.map((topic) => topic.key).join(","))}"
-                  ${everyTopicSelected ? "checked" : ""}
-                />
-                <span>
-                  <strong>${escapeHtml(group.label)}</strong>
-                  ${group.moduleTitle ? `<small>${escapeHtml(group.moduleTitle)}</small>` : ""}
-                </span>
-                <em>${group.count}</em>
-              </label>
-              <div class="test-topic-items">
-                ${group.topics
-                  .map(
-                    (topic) => `
-                      <label class="test-topic-row">
-                        <input
-                          type="checkbox"
-                          ${topicAttribute}
-                          data-topic-mode="${mode}"
-                          value="${escapeHtml(topic.key)}"
-                          ${selectedKeys.has(topic.key) ? "checked" : ""}
-                        />
-                        <span>${escapeHtml(topic.label)} <small>(${topic.count})</small></span>
-                      </label>
-                    `
-                  )
-                  .join("")}
-              </div>
-            </section>
-          `;
-        })
-        .join("")}
-    </div>
-  `;
-}
-
-function renderGenerator() {
-  const groups = getTopicGroups();
-  const totalQuestions = getQuestions().length;
-  const selectedCount = getQuestionsForSelectedTopics("normal").length;
-
-  return `
-    <form class="test-generator-panel" data-normal-test-form>
-      <div class="test-generator-grid">
-        <section class="test-config-block">
-          <p class="test-view-kicker">Preguntas</p>
-          <h3>Numero de preguntas</h3>
-          ${renderQuestionCountOptions("questionCount", testSession.questionCount)}
-        </section>
-        <section class="test-config-block">
-          <p class="test-view-kicker">Tiempo</p>
-          <h3>Duracion</h3>
-          ${renderTimeOptions()}
-        </section>
-      </div>
-
-      <section class="test-topic-panel">
-        <div class="test-section-heading">
-          <div>
-            <p class="test-view-kicker">Temario</p>
-            <h3>Bloques y temas</h3>
-          </div>
-          <span class="test-builder-count">${selectedCount} de ${totalQuestions} preguntas</span>
-        </div>
-        ${renderTopicSelector({ mode: "normal", groups })}
-      </section>
-
-      ${renderStatusMessage(testSession.message, testSession.messageTone)}
-
-      <div class="test-action-row">
-        <button type="submit" class="test-primary-button" ${!totalQuestions ? "disabled" : ""}>Generar test</button>
-      </div>
-    </form>
-  `;
-}
-
-function getQuestionsForSelectedTopics(mode = "normal") {
-  const groups = getTopicGroups();
-  const selectedTopicKeys = getSelectedTopicKeys(mode, groups);
-  const selectedSet = new Set(selectedTopicKeys);
-  return getQuestions().filter((question) => selectedSet.has(getQuestionTopicKey(question, getModules())));
-}
-
-function getQuestionCategoryLabel(question) {
-  const moduleLabel = question.moduleTitle || question.manual || question.modulo || question.category || "Test normal";
-  const topicLabel = question.temaNumero
-    ? `Tema ${question.temaNumero}${question.temaTitulo ? ` - ${question.temaTitulo}` : ""}`
-    : question.temaTitulo || question.topic || "";
-  return [moduleLabel, topicLabel].filter(Boolean).join(" · ");
-}
-
-function renderTakingTest() {
-  const question = getCurrentQuestion();
-  if (!question) {
-    return `<div class="test-empty-state">No hay preguntas disponibles para este test.</div>`;
-  }
-
-  const total = testSession.currentTest.length;
-  const answeredCount = testSession.currentTest.filter((item) => testSession.answersByQuestionId[item.id] !== undefined).length;
-  const selectedAnswer = testSession.answersByQuestionId[question.id];
-  const categoryLabel = getQuestionCategoryLabel(question);
-
-  return `
-    <section class="test-taking-panel test-taking-panel--exam">
-      <div class="test-exam-shell">
-        <header class="test-exam-topbar">
-          <div class="test-exam-number-grid" aria-label="Preguntas del test">
-            ${testSession.currentTest
-              .map((item, index) => {
-                const isActive = index === testSession.currentQuestionIndex;
-                const isAnswered = testSession.answersByQuestionId[item.id] !== undefined;
-                return `
-                  <button
-                    type="button"
-                    class="test-exam-number ${isActive ? "is-active" : ""} ${isAnswered ? "is-answered" : ""}"
-                    data-test-jump="${index}"
-                    aria-label="Ir a la pregunta ${index + 1}"
-                    aria-current="${isActive ? "true" : "false"}"
-                  >
-                    ${index + 1}
-                  </button>
-                `;
-              })
-              .join("")}
-          </div>
-          <div class="test-exam-status">
-            <strong>${testSession.currentQuestionIndex + 1} / ${total}</strong>
-            <span data-normal-test-time>${getRemainingSeconds() === null ? "Sin tiempo" : formatDuration(getRemainingSeconds())}</span>
-          </div>
-        </header>
-
-        <div class="test-exam-meta-row">
-          <p><em>Categoria:</em> <strong>${escapeHtml(categoryLabel)}</strong></p>
-          <span class="test-exam-bookmark" aria-hidden="true"></span>
-        </div>
-
-        <article class="test-question-card test-question-card--exam">
-          <h3 class="test-question-title test-question-title--exam">
-            ${testSession.currentQuestionIndex + 1}. ${escapeHtml(question.prompt || question.question)}
-          </h3>
-          <div class="test-options-grid test-options-grid--exam" data-test-options>
-            ${question.options
-              .map(
-                (option, optionIndex) => `
-                  <button
-                    type="button"
-                    class="test-option-button test-option-button--exam ${Number(selectedAnswer) === optionIndex ? "is-selected" : ""}"
-                    data-answer-index="${optionIndex}"
-                    data-question-id="${escapeHtml(question.id)}"
-                  >
-                    <span class="test-option-radio" aria-hidden="true"></span>
-                    <span class="test-option-label"><strong>${String.fromCharCode(97 + optionIndex)})</strong> ${escapeHtml(option)}</span>
-                  </button>
-                `
-              )
-              .join("")}
-          </div>
-        </article>
-
-        <div class="test-exam-footer">
-          <button type="button" class="test-exam-secondary-button" data-test-prev ${testSession.currentQuestionIndex <= 0 ? "disabled" : ""}>Anterior</button>
-          <div class="test-exam-footer-main">
-            <button type="button" class="test-exam-finish-button" data-test-finish>Finalizar</button>
-            <button type="button" class="test-exam-next-button" data-test-next>
-              ${testSession.currentQuestionIndex >= total - 1 ? "Ir al final" : "Siguiente Pregunta"}
-            </button>
-          </div>
-        </div>
-        <p class="test-exam-progress">${answeredCount} de ${total} respondidas</p>
-      </div>
-    </section>
-  `;
-}
-
-function renderResults() {
-  const result = testSession.result;
-  if (!result) {
-    return renderGenerator();
-  }
-
-  return `
-    <section class="test-result-card">
-      <p class="test-result-kicker">Test finalizado</p>
-      <h3 class="test-result-title">${result.correctCount} aciertos de ${result.total}</h3>
-      <div class="test-result-grid">
-        <div><span>Aciertos</span><strong>${result.correctCount}</strong></div>
-        <div><span>Fallos</span><strong>${result.wrongCount}</strong></div>
-        <div><span>Blancas</span><strong>${result.blankCount}</strong></div>
-        <div><span>Porcentaje</span><strong>${result.scorePercent.toFixed(1)}%</strong></div>
-        <div><span>Tiempo</span><strong>${formatDuration(result.duration)}</strong></div>
-      </div>
-      <p class="test-result-summary">
-        Resultado guardado en el historial normal. Las preguntas falladas y en blanco quedan disponibles para repaso.
-      </p>
-      <div class="test-action-row">
-        <button type="button" class="test-primary-button" data-test-new>Nuevo test</button>
-        <button type="button" class="test-secondary-button" data-test-open-failed>Ver falladas</button>
-        <button type="button" class="test-secondary-button" data-test-open-history>Historial</button>
-      </div>
-    </section>
-  `;
-}
-
-function renderFailedQuestions() {
-  const failedIds = Array.from(testSession.failedQuestionIds);
-  const failedQuestions = getQuestions().filter((question) => failedIds.includes(question.id));
-
-  if (!failedQuestions.length) {
-    return `
-      <section class="test-simple-panel">
-        <p class="test-view-kicker">Repaso</p>
-        <h3>Preguntas falladas</h3>
-        <div class="test-empty-state">Todavia no hay preguntas falladas de tests normales.</div>
-      </section>
-    `;
-  }
-
-  return `
-    <section class="test-simple-panel">
-      <div class="test-section-heading">
+    <section class="test-zone-card">
+      <div class="test-zone-card-head">
         <div>
-          <p class="test-view-kicker">Repaso</p>
-          <h3>Preguntas falladas</h3>
+          <p class="test-zone-kicker">Configuración</p>
+          <h3>Generar entrenamiento</h3>
+          <p class="muted">Filtra por estructura oficial y lanza tests normales o solo con preguntas falladas.</p>
         </div>
-        <span class="test-builder-count">${failedQuestions.length} pregunta(s)</span>
+        <div class="test-zone-inline-summary">
+          <span>${escapeHtml(`${getStoredQuestions().length} preguntas en banco`)}</span>
+          <span>${escapeHtml(`${failedQuestions.length} falladas pendientes`)}</span>
+        </div>
       </div>
-      <div class="test-action-row">
-        <button type="button" class="test-primary-button" data-test-failed-start>Generar test con falladas</button>
-        <button type="button" class="test-secondary-button" data-test-failed-review>Repasar falladas</button>
-        <button type="button" class="test-secondary-button" data-test-failed-clear>Limpiar falladas resueltas</button>
+      <form class="test-zone-controls" data-test-zone-controls>
+        ${buildFilterSelect("part", testSession.filters.part, parts)}
+        ${buildFilterSelect("category", testSession.filters.category, categories)}
+        ${buildFilterSelect("difficulty", testSession.filters.difficulty, difficulties)}
+        <label class="test-zone-field">
+          <span>Preguntas</span>
+          <input type="number" name="questionCount" min="1" max="100" value="${escapeHtml(testSession.filters.questionCount)}" />
+        </label>
+        <div class="test-zone-actions">
+          <button type="submit" class="test-zone-primary-button">Empezar test</button>
+          <button type="button" class="test-zone-secondary-button" data-action="start-failed-test" ${failedQuestions.length ? "" : "disabled"}>
+            Solo falladas
+          </button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function buildQuestionAttemptMarkup() {
+  const run = testSession.activeRun;
+  if (!run) {
+    return "";
+  }
+  return `
+    <section class="test-zone-card">
+      <div class="test-zone-card-head">
+        <div>
+          <p class="test-zone-kicker">Test activo</p>
+          <h3>${escapeHtml(run.title)}</h3>
+          <p class="muted">${escapeHtml(`${run.questions.length} preguntas · modo ${run.mode === "failed" ? "repaso" : "entrenamiento"}`)}</p>
+        </div>
+        <div class="test-zone-actions">
+          <button type="button" class="test-zone-secondary-button" data-action="cancel-active-test">Cancelar</button>
+        </div>
+      </div>
+      <form data-test-zone-attempt>
+        <div class="test-zone-question-list">
+          ${run.questions
+            .map(
+              (question, index) => `
+                <article class="test-zone-question-card">
+                  <div class="test-zone-question-head">
+                    <div>
+                      <p class="test-zone-question-index">Pregunta ${index + 1}</p>
+                      <h4>${escapeHtml(question.prompt)}</h4>
+                    </div>
+                    <div class="test-zone-tag-row">
+                      <span class="test-zone-tag">${escapeHtml(question.part || "Parte común")}</span>
+                      <span class="test-zone-tag">${escapeHtml(question.category || "Legislación")}</span>
+                      <span class="test-zone-tag">${escapeHtml(question.difficulty || "media")}</span>
+                    </div>
+                  </div>
+                  <div class="test-zone-option-list">
+                    ${(Array.isArray(question.options) ? question.options : [])
+                      .map(
+                        (option, optionIndex) => `
+                          <label class="test-zone-option-row">
+                            <input type="radio" name="question-${index}" value="${optionIndex}" />
+                            <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
+                            <span class="test-zone-option-copy">${escapeHtml(option)}</span>
+                          </label>
+                        `
+                      )
+                      .join("")}
+                  </div>
+                </article>
+              `
+            )
+            .join("")}
+        </div>
+        <div class="test-zone-footer-actions">
+          <button type="submit" class="test-zone-primary-button">Finalizar test</button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
+function buildLatestResultMarkup() {
+  const result = testSession.latestResult;
+  if (!result) {
+    return "";
+  }
+  return `
+    <section class="test-zone-card test-zone-card-highlight">
+      <p class="test-zone-kicker">Último resultado</p>
+      <h3>${escapeHtml(result.title || "Test finalizado")}</h3>
+      <p class="test-zone-result-line">
+        Aciertos: ${escapeHtml(result.correctCount)} · Fallos: ${escapeHtml(result.wrongCount)} · Blancas: ${escapeHtml(result.blankCount)} · Nota: ${escapeHtml(result.score)}/${escapeHtml(result.total)} · ${escapeHtml(Number(result.percentage || 0).toFixed(1))}%
+      </p>
+      <p class="muted">${escapeHtml(formatDate(result.createdAt))}</p>
+    </section>
+  `;
+}
+
+function buildFailedQuestionsMarkup() {
+  const failedQuestions = getFailedQuestions();
+  return `
+    <section class="test-zone-card">
+      <div class="test-zone-card-head">
+        <div>
+          <p class="test-zone-kicker">Repaso</p>
+          <h3>Preguntas falladas</h3>
+          <p class="muted">Tu bolsa de repaso usa las últimas respuestas incorrectas todavía no marcadas como repasadas.</p>
+        </div>
+        <div class="test-zone-actions">
+          <button type="button" class="test-zone-secondary-button" data-action="start-failed-test" ${failedQuestions.length ? "" : "disabled"}>Repetir falladas</button>
+        </div>
       </div>
       ${
-        testSession.failedMode === "review"
-          ? `
-            <div class="test-review-list">
+        failedQuestions.length
+          ? `<div class="test-zone-failed-list">
               ${failedQuestions
+                .slice(0, 12)
                 .map(
                   (question) => `
-                    <article class="test-review-item">
-                      <p class="test-view-kicker">${escapeHtml(question.temaNumero ? `Tema ${question.temaNumero}` : question.temaTitulo || "Repaso")}</p>
-                      <h4>${escapeHtml(question.prompt)}</h4>
-                      <p><strong>Respuesta correcta:</strong> ${escapeHtml(question.options[question.correctIndex] || "")}</p>
-                      ${question.explanation ? `<p class="muted">${escapeHtml(question.explanation)}</p>` : ""}
+                    <article class="test-zone-mini-card">
+                      <strong>${escapeHtml(question.prompt)}</strong>
+                      <p class="muted">${escapeHtml(`${question.part} · ${question.category} · ${question.difficulty}`)}</p>
+                      <div class="test-zone-actions">
+                        <button type="button" class="test-zone-secondary-button" data-action="mark-reviewed" data-question-id="${escapeHtml(question.id)}">Marcar repasada</button>
+                      </div>
                     </article>
                   `
                 )
                 .join("")}
-            </div>
-          `
-          : ""
+            </div>`
+          : '<div class="test-zone-empty">No tienes preguntas falladas pendientes.</div>'
       }
     </section>
   `;
 }
 
-function renderHistory() {
-  const results = [...testSession.results].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
-  const totals = results.reduce(
-    (acc, result) => {
-      acc.tests += 1;
-      acc.questions += Number(result.total || result.questionIds.length || 0);
-      acc.correct += Number(result.correctCount || 0);
-      acc.wrong += Number(result.wrongCount || 0);
-      return acc;
-    },
-    { tests: 0, questions: 0, correct: 0, wrong: 0 }
-  );
-  const globalPercent = totals.questions ? (totals.correct / totals.questions) * 100 : 0;
-
+function buildHistoryMarkup() {
+  const { results, stats } = getTestState();
   return `
-    <section class="test-simple-panel">
-      <div class="test-section-heading">
+    <section class="test-zone-card">
+      <div class="test-zone-card-head">
         <div>
-          <p class="test-view-kicker">Historial normal</p>
-          <h3>Resultados y estadisticas</h3>
+          <p class="test-zone-kicker">Historial</p>
+          <h3>Estadísticas y evolución</h3>
+          <p class="muted">Consulta tu histórico de entrenamiento y la evolución por fecha.</p>
         </div>
       </div>
-      <div class="test-result-grid test-result-grid--compact">
-        <div><span>Tests</span><strong>${totals.tests}</strong></div>
-        <div><span>Preguntas</span><strong>${totals.questions}</strong></div>
-        <div><span>Aciertos</span><strong>${totals.correct}</strong></div>
-        <div><span>Fallos</span><strong>${totals.wrong}</strong></div>
-        <div><span>Global</span><strong>${globalPercent.toFixed(1)}%</strong></div>
-      </div>
-      ${
-        results.length
-          ? `
-            <div class="test-history-table" role="table" aria-label="Historial de tests normales">
-              <div class="test-history-row is-head" role="row">
-                <span>Fecha</span>
-                <span>Preguntas</span>
-                <span>Aciertos</span>
-                <span>Fallos</span>
-                <span>Blancas</span>
-                <span>%</span>
-                <span>Tiempo</span>
-              </div>
-              ${results
+      <div class="test-zone-evolution-list">
+        ${
+          (stats.evolution || []).length
+            ? stats.evolution
+                .slice(-8)
                 .map(
-                  (result) => `
-                    <div class="test-history-row" role="row">
-                      <span>${escapeHtml(new Date(result.createdAt).toLocaleDateString("es-ES"))}</span>
-                      <span>${result.total || result.questionIds.length}</span>
-                      <span>${result.correctCount}</span>
-                      <span>${result.wrongCount}</span>
-                      <span>${result.blankCount}</span>
-                      <span>${Number(result.scorePercent || 0).toFixed(1)}%</span>
-                      <span>${formatDuration(result.duration)}</span>
+                  (point) => `
+                    <div class="test-zone-evolution-item">
+                      <strong>${escapeHtml(point.date)}</strong>
+                      <span>${escapeHtml(`${Number(point.percentage || 0).toFixed(1)}%`)}</span>
                     </div>
                   `
                 )
+                .join("")
+            : '<span class="muted">Todavía no hay evolución registrada.</span>'
+        }
+      </div>
+      ${
+        results.length
+          ? `<div class="test-zone-history-list">
+              ${results
+                .map(
+                  (result) => `
+                    <article class="test-zone-history-item">
+                      <div>
+                        <strong>${escapeHtml(result.title || "Test")}</strong>
+                        <p class="muted">${escapeHtml(formatDate(result.createdAt))}</p>
+                        <p class="muted">${escapeHtml(`Aciertos ${result.correctCount} · Fallos ${result.wrongCount} · Blancas ${result.blankCount}`)}</p>
+                      </div>
+                      <div class="test-zone-history-side">
+                        <strong>${escapeHtml(`${result.score}/${result.total}`)}</strong>
+                        <span>${escapeHtml(`${Number(result.percentage || 0).toFixed(1)}%`)}</span>
+                        <button type="button" class="test-zone-secondary-button" data-action="repeat-result-failed" data-result-id="${escapeHtml(result.id)}" ${result.incorrectQuestionIds?.length ? "" : "disabled"}>
+                          Repetir falladas
+                        </button>
+                      </div>
+                    </article>
+                  `
+                )
                 .join("")}
-            </div>
-          `
-          : `<div class="test-empty-state">Todavia no hay tests normales en el historial.</div>`
+            </div>`
+          : '<div class="test-zone-empty">Todavía no hay tests guardados.</div>'
       }
     </section>
   `;
 }
 
-function renderLiveTab() {
-  const groups = getTopicGroups();
-  const totalQuestions = getQuestions().length;
-
+function buildAdminQuestionForm() {
   if (testSession.role !== "admin") {
-    return `
-      <section class="test-simple-panel">
-        <p class="test-view-kicker">Test en vivo</p>
-        <h3>Acceso con nombre y codigo</h3>
-        <p class="muted">El test en vivo esta separado del generador normal. Sus resultados no se mezclan con tu historial de socio.</p>
-        <div class="test-action-row">
-          <a class="test-primary-button test-link-button" href="/live-test.html">Entrar a un test en vivo</a>
-        </div>
-      </section>
-    `;
+    return "";
   }
-
+  const liveSessions = getTestState().liveSessions || [];
   return `
-    <form class="test-simple-panel" data-live-session-form>
-      <div class="test-section-heading">
+    <section class="test-zone-card">
+      <div class="test-zone-card-head">
         <div>
-          <p class="test-view-kicker">Test en vivo</p>
-          <h3>Crear sesion tipo Kahoot</h3>
+          <p class="test-zone-kicker">Administración</p>
+          <h3>Banco y test en vivo</h3>
+          <p class="muted">Mantén el banco compartido y abre sesiones de test en vivo con código para externos.</p>
         </div>
-        <span class="test-builder-count">${totalQuestions} preguntas en banco</span>
       </div>
-      <div class="test-generator-grid">
-        <label class="test-inline-field">
-          Titulo de la sesion
-          <input name="liveTitle" type="text" value="Sesion en vivo Isocrona Zero" required />
+      <form class="test-zone-admin-form" data-test-zone-question-form>
+        <label class="test-zone-field test-zone-field-full">
+          <span>Pregunta</span>
+          <textarea name="prompt" rows="3" required></textarea>
         </label>
-        <section class="test-config-block">
-          <p class="test-view-kicker">Preguntas</p>
-          ${renderQuestionCountOptions("liveQuestionCount", 25, [10, 25, 50])}
-        </section>
-      </div>
-      <section class="test-topic-panel">
-        <div class="test-section-heading">
-          <div>
-            <p class="test-view-kicker">Banco compartido</p>
-            <h3>Bloques para la sesion</h3>
-          </div>
-        </div>
-        ${renderTopicSelector({ mode: "live", groups })}
-      </section>
-      ${renderStatusMessage(testSession.liveMessage, testSession.liveMessageTone)}
-      ${
-        testSession.liveSession
-          ? `
-            <div class="test-live-code-card">
-              <span>Codigo</span>
-              <strong>${escapeHtml(testSession.liveSession.code)}</strong>
-              <a href="/live-test.html?code=${encodeURIComponent(testSession.liveSession.code)}">Abrir acceso publico</a>
-            </div>
-          `
-          : ""
-      }
-      <div class="test-action-row">
-        <button type="submit" class="test-primary-button" ${!totalQuestions ? "disabled" : ""}>Crear sesion en vivo</button>
-      </div>
-    </form>
-  `;
-}
-
-function renderBankTab() {
-  return `
-    <section class="test-builder-card">
-      <div class="test-builder-header">
-        <div>
-          <p class="test-view-kicker">Administracion</p>
-          <h3 class="test-builder-title">Banco de preguntas</h3>
-        </div>
-        <div class="test-builder-actions">
-          <button type="button" class="test-secondary-button" data-test-generate-dummy>Cargar 30 de prueba</button>
-          <span class="test-builder-count" data-test-question-count>${getQuestions().length} preguntas</span>
-        </div>
-      </div>
-      <form class="test-builder-form" data-test-question-form>
-        <label>
-          <span>Enunciado</span>
-          <input type="text" name="question" required />
+        <label class="test-zone-field"><span>Opción A</span><input type="text" name="option0" required /></label>
+        <label class="test-zone-field"><span>Opción B</span><input type="text" name="option1" required /></label>
+        <label class="test-zone-field"><span>Opción C</span><input type="text" name="option2" required /></label>
+        <label class="test-zone-field"><span>Opción D</span><input type="text" name="option3" required /></label>
+        <label class="test-zone-field">
+          <span>Correcta</span>
+          <select name="correctIndex">
+            <option value="0">A</option>
+            <option value="1">B</option>
+            <option value="2">C</option>
+            <option value="3">D</option>
+          </select>
         </label>
-        <label>
+        <label class="test-zone-field">
           <span>Parte</span>
-          <select name="part" required>
-            <option value="comun">Parte comun</option>
-            <option value="especifica" selected>Parte especifica</option>
+          <select name="part">
+            <option value="Parte común">Parte común</option>
+            <option value="Parte específica">Parte específica</option>
           </select>
         </label>
-        <label>
-          <span>Categoria</span>
-          <select name="category" required>
-            <option value="legislacion">Legislacion</option>
-            <option value="bomberos" selected>Bomberos</option>
+        <label class="test-zone-field">
+          <span>Bloque</span>
+          <select name="category">
+            <option value="Legislación">Legislación</option>
+            <option value="Bomberos">Bomberos</option>
           </select>
         </label>
-        <label>
-          <span>Manual / modulo</span>
-          <input type="text" name="moduleTitle" value="Manual bomberos" />
-        </label>
-        <label>
-          <span>Numero de tema</span>
-          <input type="text" name="temaNumero" placeholder="1" />
-        </label>
-        <label>
-          <span>Titulo del tema</span>
-          <input type="text" name="temaTitulo" placeholder="Principios de la lucha contra incendios" required />
-        </label>
-        <label>
-          <span>Opcion A</span>
-          <input type="text" name="option0" required />
-        </label>
-        <label>
-          <span>Opcion B</span>
-          <input type="text" name="option1" required />
-        </label>
-        <label>
-          <span>Opcion C</span>
-          <input type="text" name="option2" required />
-        </label>
-        <label>
-          <span>Opcion D</span>
-          <input type="text" name="option3" required />
-        </label>
-        <label>
-          <span>Respuesta correcta</span>
-          <select name="correctAnswer" required>
-            <option value="0">Opcion A</option>
-            <option value="1">Opcion B</option>
-            <option value="2">Opcion C</option>
-            <option value="3">Opcion D</option>
+        <label class="test-zone-field">
+          <span>Dificultad</span>
+          <select name="difficulty">
+            <option value="baja">baja</option>
+            <option value="media" selected>media</option>
+            <option value="alta">alta</option>
           </select>
         </label>
-        <label>
-          <span>Explicacion opcional</span>
-          <input type="text" name="explanation" />
-        </label>
-        <div class="test-builder-submit">
-          <button type="submit" class="test-primary-button">Guardar pregunta</button>
+        <div class="test-zone-actions test-zone-field-full">
+          <button type="submit" class="test-zone-primary-button">Guardar pregunta</button>
         </div>
       </form>
-      ${renderStatusMessage(testSession.message, testSession.messageTone)}
+      <form class="test-zone-live-form" data-test-zone-live-form>
+        <label class="test-zone-field test-zone-field-full">
+          <span>Título del test en vivo</span>
+          <input type="text" name="title" placeholder="Ej. Simulacro abierto de legislación" />
+        </label>
+        <label class="test-zone-field">
+          <span>Parte</span>
+          <select name="part">
+            <option value="all">Todas</option>
+            <option value="Parte común">Parte común</option>
+            <option value="Parte específica">Parte específica</option>
+          </select>
+        </label>
+        <label class="test-zone-field">
+          <span>Bloque</span>
+          <select name="category">
+            <option value="all">Todos</option>
+            <option value="Legislación">Legislación</option>
+            <option value="Bomberos">Bomberos</option>
+          </select>
+        </label>
+        <label class="test-zone-field">
+          <span>Dificultad</span>
+          <select name="difficulty">
+            <option value="all">Todas</option>
+            <option value="baja">baja</option>
+            <option value="media">media</option>
+            <option value="alta">alta</option>
+          </select>
+        </label>
+        <label class="test-zone-field">
+          <span>Preguntas</span>
+          <input type="number" name="questionCount" min="1" max="100" value="20" />
+        </label>
+        <div class="test-zone-actions test-zone-field-full">
+          <button type="submit" class="test-zone-secondary-button">Abrir test en vivo</button>
+        </div>
+      </form>
+      <div class="test-zone-live-list">
+        ${
+          liveSessions.length
+            ? liveSessions
+                .slice(0, 6)
+                .map(
+                  (session) => `
+                    <article class="test-zone-mini-card">
+                      <strong>${escapeHtml(session.title || "Test en vivo")}</strong>
+                      <p class="muted">Código ${escapeHtml(session.code)} · ${escapeHtml(`${session.questionCount} preguntas`)}</p>
+                      <p class="muted">${escapeHtml(formatDate(session.createdAt))}</p>
+                    </article>
+                  `
+                )
+                .join("")
+            : '<div class="test-zone-empty">Todavía no hay tests en vivo creados.</div>'
+        }
+      </div>
     </section>
   `;
 }
 
-function renderActiveTab() {
-  if (testSession.activeTab === "generator") {
-    if (testSession.mode === "taking") {
-      return renderTakingTest();
-    }
-    if (testSession.mode === "results") {
-      return renderResults();
-    }
-    return renderGenerator();
-  }
-  if (testSession.activeTab === "failed") {
-    return renderFailedQuestions();
-  }
-  if (testSession.activeTab === "history") {
-    return renderHistory();
-  }
-  if (testSession.activeTab === "live") {
-    return renderLiveTab();
-  }
-  if (testSession.activeTab === "bank" && testSession.role === "admin") {
-    return renderBankTab();
-  }
-  return renderGenerator();
-}
-
-function renderTestLayout(container) {
-  container.innerHTML = `
-    <section class="test-view test-view--academy">
-      <header class="test-view-header">
+function buildLayout() {
+  return `
+    <section class="test-zone-view">
+      <header class="test-zone-hero">
         <div>
-          <p class="test-view-kicker">Zona Test</p>
-          <h2 class="test-view-title">Generador de test</h2>
-          <p class="muted">Practica individual para socios y administracion, separada del test en vivo.</p>
-        </div>
-        <div class="test-view-stats">
-          <div class="test-stat-pill">
-            <span class="test-stat-label">Banco</span>
-            <strong>${getQuestions().length}</strong>
-          </div>
-          <div class="test-stat-pill">
-            <span class="test-stat-label">Falladas</span>
-            <strong>${testSession.failedQuestionIds.size}</strong>
-          </div>
+          <p class="test-zone-kicker">Zona Test</p>
+          <h2>Entrenamiento real con historial y repasos</h2>
+          <p class="muted">La práctica libre ahora guarda resultados, detecta fallos y permite repetir solo las preguntas que peor llevas.</p>
         </div>
       </header>
-      ${renderTabs()}
-      ${renderActiveTab()}
+      ${buildMetricCards()}
+      ${buildControlsMarkup()}
+      ${buildQuestionAttemptMarkup()}
+      ${buildLatestResultMarkup()}
+      ${buildFailedQuestionsMarkup()}
+      ${buildHistoryMarkup()}
+      ${buildAdminQuestionForm()}
     </section>
   `;
-
-  if (testSession.mode === "taking") {
-    startTimer(container);
-  } else {
-    stopTimer();
-  }
 }
 
-function getCheckedTopicKeys(container, mode = "normal") {
-  const selector = mode === "live" ? "[data-live-topic-checkbox]:checked" : "[data-topic-checkbox]:checked";
-  return Array.from(container.querySelectorAll(selector)).map((input) => String(input.value || ""));
-}
-
-function syncSelectedTopicsFromDom(container, mode = "normal") {
-  const keys = getCheckedTopicKeys(container, mode);
-  if (mode === "live") {
-    testSession.liveSelectedTopicKeys = new Set(keys);
-  } else {
-    testSession.selectedTopicKeys = new Set(keys);
-  }
-  return keys;
-}
-
-function startNormalTest(container) {
-  const form = container.querySelector("[data-normal-test-form]");
-  const formData = new FormData(form);
-  testSession.questionCount = Number(formData.get("questionCount") || DEFAULT_QUESTION_COUNT);
-  testSession.timeLimit = String(formData.get("timeLimit") || DEFAULT_TIME_LIMIT);
-  const selectedTopicKeys = syncSelectedTopicsFromDom(container, "normal");
-
-  if (!selectedTopicKeys.length) {
-    setMessage("Selecciona al menos un bloque o tema.", "error");
-    renderTestLayout(container);
-    return;
-  }
-
+async function refreshData(role) {
+  testSession.loading = true;
   try {
-    testSession.currentTest = generateNormalTest(
-      {
-        questions: getQuestions(),
-        modules: getModules(),
-        questionCount: testSession.questionCount,
-        selectedTopicKeys
+    await loadSharedQuestions();
+    await loadTestHistory();
+    if (role === "admin") {
+      await loadLiveSessions();
+    }
+  } finally {
+    testSession.loading = false;
+  }
+}
+
+async function startGeneratedTest(failedOnly = false) {
+  const store = getTestState();
+  const onlyQuestionIds = failedOnly ? store.failedQuestionIds || [] : [];
+  testSession.activeRun = generateTest(
+    {
+      questions: store.questions || [],
+      numQuestions: testSession.filters.questionCount,
+      filters: {
+        part: testSession.filters.part,
+        category: testSession.filters.category,
+        difficulty: testSession.filters.difficulty
       },
-      testSession.role
-    );
-    testSession.answersByQuestionId = {};
-    testSession.currentQuestionIndex = 0;
-    testSession.startedAt = new Date();
-    testSession.finishedAt = null;
-    testSession.result = null;
-    testSession.mode = "taking";
-    setMessage("", "neutral");
-    renderTestLayout(container);
-  } catch (error) {
-    setMessage(error.message || "No se pudo generar el test.", "error");
-    renderTestLayout(container);
-  }
+      onlyQuestionIds,
+      title: buildRunTitle(testSession.filters, failedOnly ? "failed" : "general"),
+      mode: failedOnly ? "failed" : "general"
+    },
+    testSession.role
+  );
+  testSession.latestResult = null;
 }
 
-function startFailedTest(container) {
-  const failedQuestions = getQuestions().filter((question) => testSession.failedQuestionIds.has(question.id));
-  if (!failedQuestions.length) {
-    setMessage("No hay preguntas falladas disponibles para generar un test.", "error");
-    renderTestLayout(container);
+async function handleAttemptSubmit(container, form) {
+  const run = testSession.activeRun;
+  if (!run) {
     return;
   }
-
-  const requestedCount = Math.min(Number(testSession.questionCount || DEFAULT_QUESTION_COUNT), failedQuestions.length);
-  testSession.currentTest = shuffleQuestions(failedQuestions).slice(0, requestedCount);
-  testSession.answersByQuestionId = {};
-  testSession.currentQuestionIndex = 0;
-  testSession.startedAt = new Date();
-  testSession.finishedAt = null;
-  testSession.result = null;
-  testSession.activeTab = "generator";
-  testSession.mode = "taking";
-  testSession.timeLimit = DEFAULT_TIME_LIMIT;
-  setMessage("", "neutral");
-  renderTestLayout(container);
-}
-
-async function finishNormalTest(container) {
-  if (testSession.mode !== "taking" || testSession.result) {
-    return;
-  }
-
-  stopTimer();
-  testSession.finishedAt = new Date();
-  const evaluation = evaluateNormalTest(testSession.currentTest, testSession.answersByQuestionId, testSession.role);
-  const result = {
-    id: `normal-result-${Date.now()}`,
-    questionIds: testSession.currentTest.map((question) => question.id),
-    answers: evaluation.answers,
-    correctCount: evaluation.correctCount,
-    wrongCount: evaluation.wrongCount,
-    blankCount: evaluation.blankCount,
-    scorePercent: evaluation.scorePercent,
-    total: evaluation.total,
-    duration: getDurationSeconds(),
-    createdAt: new Date().toISOString(),
-    selectedConfig: {
-      questionCount: testSession.questionCount,
-      timeLimit: testSession.timeLimit,
-      selectedTopicKeys: Array.from(testSession.selectedTopicKeys)
-    }
-  };
-
-  testSession.result = saveLocalResult(result);
-  saveFailedQuestionIds(evaluation.failedQuestionIds);
-  const correctIds = evaluation.answers.filter((answer) => answer.correct).map((answer) => answer.questionId);
-  removeFailedQuestionIds(correctIds);
-  testSession.mode = "results";
-  renderTestLayout(container);
-
-  const serverResult = await saveResultToServer(result);
-  if (serverResult?.id) {
-    testSession.result = saveLocalResult({ ...result, id: serverResult.id, createdAt: serverResult.createdAt || result.createdAt });
-    renderTestLayout(container);
-  }
-}
-
-function moveQuestion(container, direction) {
-  const total = testSession.currentTest.length;
-  testSession.currentQuestionIndex = Math.min(total - 1, Math.max(0, testSession.currentQuestionIndex + direction));
-  renderTestLayout(container);
-}
-
-function handleAnswerClick(container, event) {
-  const button = event.target.closest("[data-answer-index]");
-  if (!button || testSession.mode !== "taking") {
-    return false;
-  }
-
-  const questionId = String(button.dataset.questionId || "");
-  testSession.answersByQuestionId[questionId] = Number(button.dataset.answerIndex);
-  renderTestLayout(container);
-  return true;
-}
-
-function handleTopicChange(container, event) {
-  const block = event.target.closest("[data-topic-block], [data-live-topic-block]");
-  if (block) {
-    const mode = block.dataset.topicMode || "normal";
-    const checked = block.checked;
-    const keys = String(block.dataset.topicKeys || "").split(",").filter(Boolean);
-    const selector = mode === "live" ? "[data-live-topic-checkbox]" : "[data-topic-checkbox]";
-    container.querySelectorAll(selector).forEach((input) => {
-      if (keys.includes(input.value)) {
-        input.checked = checked;
-      }
-    });
-    syncSelectedTopicsFromDom(container, mode);
-    renderTestLayout(container);
-    return true;
-  }
-
-  const topic = event.target.closest("[data-topic-checkbox], [data-live-topic-checkbox]");
-  if (topic) {
-    syncSelectedTopicsFromDom(container, topic.dataset.topicMode || "normal");
-    renderTestLayout(container);
-    return true;
-  }
-
-  return false;
-}
-
-async function handleQuestionFormSubmit(container, event) {
-  const form = event.target.closest("[data-test-question-form]");
-  if (!form) {
-    return false;
-  }
-
-  event.preventDefault();
-
-  try {
-    const formData = new FormData(form);
-    const question = createQuestion({
-      question: String(formData.get("question") || "").trim(),
-      options: [
-        String(formData.get("option0") || "").trim(),
-        String(formData.get("option1") || "").trim(),
-        String(formData.get("option2") || "").trim(),
-        String(formData.get("option3") || "").trim()
-      ],
-      correctAnswer: Number(formData.get("correctAnswer")),
-      part: String(formData.get("part") || "especifica"),
-      category: String(formData.get("category") || "bomberos"),
-      moduleTitle: String(formData.get("moduleTitle") || "").trim(),
-      temaNumero: String(formData.get("temaNumero") || "").trim(),
-      temaTitulo: String(formData.get("temaTitulo") || "").trim(),
-      explanation: String(formData.get("explanation") || "").trim(),
-      createdBy: testSession.role
-    });
-
-    const serverQuestion = await saveQuestionToServer(question, testSession.role);
-    if (!serverQuestion) {
-      saveQuestion(question, testSession.role);
-    }
-    setMessage(
-      serverQuestion
-        ? "Pregunta guardada correctamente en el banco compartido."
-        : "Pregunta guardada localmente. No se pudo sincronizar con el servidor.",
-      serverQuestion ? "success" : "neutral"
-    );
-    form.reset();
-    renderTestLayout(container);
-  } catch (error) {
-    setMessage(error.message || "No se pudo guardar la pregunta.", "error");
-    renderTestLayout(container);
-  }
-
-  return true;
-}
-
-async function handleGenerateDummy(container) {
-  try {
-    const beforeIds = new Set(getQuestions().map((question) => question.id));
-    const nextQuestions = generateDummyQuestions(testSession.role);
-    const generatedQuestions = nextQuestions.filter((question) => !beforeIds.has(question.id));
-    const syncedQuestions = await Promise.all(
-      generatedQuestions.map((question) => saveQuestionToServer(question, testSession.role))
-    );
-    if (syncedQuestions.some(Boolean)) {
-      await Promise.all([loadModulesFromServer(), loadQuestionsFromServer()]);
-    }
-    setMessage(
-      syncedQuestions.some(Boolean)
-        ? "Se han cargado 30 preguntas de prueba y se han sincronizado con el banco compartido."
-        : "Se han cargado 30 preguntas de prueba en el banco local.",
-      "success"
-    );
-    renderTestLayout(container);
-  } catch (error) {
-    setMessage(error.message || "No se pudieron generar preguntas de prueba.", "error");
-    renderTestLayout(container);
-  }
-}
-
-async function handleLiveSessionSubmit(container, event) {
-  const form = event.target.closest("[data-live-session-form]");
-  if (!form) {
-    return false;
-  }
-
-  event.preventDefault();
   const formData = new FormData(form);
-  const selectedTopicKeys = syncSelectedTopicsFromDom(container, "live");
-  const questionCount = Number(formData.get("liveQuestionCount") || 25);
-  const title = String(formData.get("liveTitle") || "Sesion en vivo Isocrona Zero").trim();
-
-  try {
-    const questions = generateNormalTest(
-      {
-        questions: getQuestions(),
-        modules: getModules(),
-        questionCount,
-        selectedTopicKeys
-      },
-      testSession.role
-    );
-
-    const response = await fetch("/api/live-test-sessions", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        questionIds: questions.map((question) => question.id)
-      })
-    });
-    const payload = await response.json();
-    if (!response.ok || payload.ok === false) {
-      throw new Error(payload.error || "No se pudo crear la sesion en vivo.");
-    }
-    testSession.liveSession = payload.session;
-    setLiveMessage("Sesion en vivo creada. Comparte el codigo con los participantes.", "success");
-  } catch (error) {
-    setLiveMessage(error.message || "No se pudo crear la sesion en vivo.", "error");
-  }
-
-  renderTestLayout(container);
-  return true;
+  const answers = run.questions.map((question, index) => {
+    const value = formData.get(`question-${index}`);
+    return value === null ? null : Number(value);
+  });
+  const evaluated = evaluateTest(run, answers, testSession.role);
+  const savedResult = await saveTestResult(evaluated);
+  testSession.latestResult = savedResult;
+  testSession.activeRun = null;
+  await loadTestHistory();
+  renderTestView(container, testSession.role);
 }
 
-async function hydrateTestData(container) {
-  const token = ++testSession.hydrateToken;
-  await Promise.all([loadModulesFromServer(), loadQuestionsFromServer(), loadResultsFromServer()]);
-  if (token !== testSession.hydrateToken) {
-    return;
-  }
-  testSession.hydrated = true;
-  if (!testSession.selectedTopicKeys.size) {
-    testSession.selectedTopicKeys = new Set(getAllTopicKeys());
-  }
-  if (!testSession.liveSelectedTopicKeys.size) {
-    testSession.liveSelectedTopicKeys = new Set(getAllTopicKeys());
-  }
-  renderTestLayout(container);
+async function handleQuestionFormSubmit(container, form) {
+  const formData = new FormData(form);
+  const question = createQuestion({
+    prompt: String(formData.get("prompt") || "").trim(),
+    options: [
+      String(formData.get("option0") || "").trim(),
+      String(formData.get("option1") || "").trim(),
+      String(formData.get("option2") || "").trim(),
+      String(formData.get("option3") || "").trim()
+    ],
+    correctIndex: Number(formData.get("correctIndex")),
+    part: String(formData.get("part") || "").trim(),
+    category: String(formData.get("category") || "").trim(),
+    difficulty: String(formData.get("difficulty") || "").trim()
+  });
+  await saveQuestion(question);
+  form.reset();
+  await refreshData(testSession.role);
+  renderTestView(container, testSession.role);
 }
 
-export function renderTestView(container, role = "member") {
-  stopTimer();
-  testSession.role = role === "admin" ? "admin" : "member";
-  testSession.activeTab = testSession.activeTab || "generator";
-  testSession.mode = testSession.mode === "taking" ? "generator" : testSession.mode || "generator";
-  loadQuestions();
-  loadStoredModules();
-  loadLocalResults();
-  loadFailedQuestionIds();
+async function handleLiveFormSubmit(container, form) {
+  const formData = new FormData(form);
+  await createLiveSession({
+    title: String(formData.get("title") || "").trim(),
+    questionCount: Number(formData.get("questionCount") || 20),
+    filters: {
+      part: String(formData.get("part") || "").trim(),
+      category: String(formData.get("category") || "").trim(),
+      difficulty: String(formData.get("difficulty") || "").trim()
+    }
+  });
+  form.reset();
+  await refreshData(testSession.role);
+  renderTestView(container, testSession.role);
+}
 
-  if (!testSession.selectedTopicKeys.size) {
-    testSession.selectedTopicKeys = new Set(getAllTopicKeys());
-  }
-  if (!testSession.liveSelectedTopicKeys.size) {
-    testSession.liveSelectedTopicKeys = new Set(getAllTopicKeys());
-  }
+function bindActions(container) {
+  container.onclick = async (event) => {
+    const actionTarget = event.target.closest("[data-action]");
+    if (!actionTarget) {
+      return;
+    }
 
-  renderTestLayout(container);
-  hydrateTestData(container);
-
-  container.onclick = (event) => {
-    const tab = event.target.closest("[data-test-tab]");
-    if (tab) {
-      testSession.activeTab = tab.dataset.testTab || "generator";
-      if (testSession.activeTab !== "generator") {
-        testSession.mode = "generator";
+    const action = String(actionTarget.dataset.action || "").trim();
+    if (action === "cancel-active-test") {
+      testSession.activeRun = null;
+      renderTestView(container, testSession.role);
+      return;
+    }
+    if (action === "start-failed-test") {
+      try {
+        await startGeneratedTest(true);
+      } catch (error) {
+        testSession.latestResult = null;
+        container.querySelector(".test-zone-view")?.insertAdjacentHTML(
+          "afterbegin",
+          `<div class="test-zone-inline-error">${escapeHtml(error.message || "No se pudo generar el repaso de falladas.")}</div>`
+        );
       }
-      renderTestLayout(container);
+      renderTestView(container, testSession.role);
       return;
     }
-
-    if (handleAnswerClick(container, event)) {
+    if (action === "mark-reviewed") {
+      await markQuestionReviewed(actionTarget.dataset.questionId || "");
+      await refreshData(testSession.role);
+      renderTestView(container, testSession.role);
       return;
     }
-
-    const jumpButton = event.target.closest("[data-test-jump]");
-    if (jumpButton && testSession.mode === "taking") {
-      const nextIndex = Number(jumpButton.dataset.testJump);
-      if (Number.isInteger(nextIndex)) {
-        testSession.currentQuestionIndex = Math.min(testSession.currentTest.length - 1, Math.max(0, nextIndex));
-        renderTestLayout(container);
+    if (action === "repeat-result-failed") {
+      const result = (getTestState().results || []).find((entry) => String(entry.id || "") === String(actionTarget.dataset.resultId || ""));
+      if (result?.incorrectQuestionIds?.length) {
+        testSession.activeRun = generateTest(
+          {
+            questions: getTestState().questions || [],
+            numQuestions: result.incorrectQuestionIds.length,
+            filters: {
+              part: testSession.filters.part,
+              category: testSession.filters.category,
+              difficulty: testSession.filters.difficulty
+            },
+            onlyQuestionIds: result.incorrectQuestionIds,
+            title: "Repetición de falladas",
+            mode: "failed"
+          },
+          testSession.role
+        );
+        testSession.latestResult = null;
+        renderTestView(container, testSession.role);
       }
-      return;
     }
-
-    if (event.target.closest("[data-test-prev]")) {
-      moveQuestion(container, -1);
-      return;
-    }
-
-    if (event.target.closest("[data-test-next]")) {
-      moveQuestion(container, 1);
-      return;
-    }
-
-    if (event.target.closest("[data-test-finish]")) {
-      finishNormalTest(container);
-      return;
-    }
-
-    if (event.target.closest("[data-test-new]")) {
-      testSession.mode = "generator";
-      testSession.result = null;
-      renderTestLayout(container);
-      return;
-    }
-
-    if (event.target.closest("[data-test-open-failed]")) {
-      testSession.activeTab = "failed";
-      testSession.mode = "generator";
-      renderTestLayout(container);
-      return;
-    }
-
-    if (event.target.closest("[data-test-open-history]")) {
-      testSession.activeTab = "history";
-      testSession.mode = "generator";
-      renderTestLayout(container);
-      return;
-    }
-
-    if (event.target.closest("[data-test-failed-start]")) {
-      startFailedTest(container);
-      return;
-    }
-
-    if (event.target.closest("[data-test-failed-review]")) {
-      testSession.failedMode = testSession.failedMode === "review" ? "summary" : "review";
-      renderTestLayout(container);
-      return;
-    }
-
-    if (event.target.closest("[data-test-failed-clear]")) {
-      removeFailedQuestionIds(Array.from(testSession.failedQuestionIds));
-      renderTestLayout(container);
-      return;
-    }
-
-    if (event.target.closest("[data-test-generate-dummy]")) {
-      handleGenerateDummy(container);
-    }
-  };
-
-  container.onchange = (event) => {
-    handleTopicChange(container, event);
   };
 
   container.onsubmit = async (event) => {
-    if (event.target.closest("[data-normal-test-form]")) {
-      event.preventDefault();
-      startNormalTest(container);
+    const target = event.target;
+    if (!(target instanceof HTMLFormElement)) {
+      return;
+    }
+    event.preventDefault();
+
+    if (target.hasAttribute("data-test-zone-controls")) {
+      const formData = new FormData(target);
+      testSession.filters = {
+        part: String(formData.get("part") || "all").trim() || "all",
+        category: String(formData.get("category") || "all").trim() || "all",
+        difficulty: String(formData.get("difficulty") || "all").trim() || "all",
+        questionCount: Math.max(Number(formData.get("questionCount") || 20), 1)
+      };
+      try {
+        await startGeneratedTest(false);
+      } catch (error) {
+        testSession.activeRun = null;
+        testSession.latestResult = {
+          title: "No se pudo iniciar el test",
+          correctCount: 0,
+          wrongCount: 0,
+          blankCount: 0,
+          score: 0,
+          total: 0,
+          percentage: 0,
+          createdAt: new Date().toISOString()
+        };
+      }
+      renderTestView(container, testSession.role);
       return;
     }
 
-    if (await handleLiveSessionSubmit(container, event)) {
+    if (target.hasAttribute("data-test-zone-attempt")) {
+      await handleAttemptSubmit(container, target);
       return;
     }
 
-    await handleQuestionFormSubmit(container, event);
+    if (target.hasAttribute("data-test-zone-question-form")) {
+      await handleQuestionFormSubmit(container, target);
+      return;
+    }
+
+    if (target.hasAttribute("data-test-zone-live-form")) {
+      await handleLiveFormSubmit(container, target);
+    }
   };
+}
+
+export async function renderTestView(container, role = "member") {
+  testSession.role = String(role || "member").trim() || "member";
+
+  if (testSession.loading) {
+    container.innerHTML = '<section class="test-zone-view"><div class="test-zone-empty">Cargando Zona Test...</div></section>';
+    return;
+  }
+
+  if (
+    testSession.loadedRole !== testSession.role ||
+    !(getTestState().questions || []).length ||
+    (!(getTestState().results || []).length && testSession.role !== "admin")
+  ) {
+    testSession.loading = true;
+    container.innerHTML = '<section class="test-zone-view"><div class="test-zone-empty">Cargando Zona Test...</div></section>';
+    try {
+      await refreshData(testSession.role);
+      testSession.loadedRole = testSession.role;
+    } catch (error) {
+      testSession.loading = false;
+      container.innerHTML = `<section class="test-zone-view"><div class="test-zone-inline-error">${escapeHtml(error.message || "No se pudo cargar la Zona Test.")}</div></section>`;
+      return;
+    }
+  }
+
+  container.innerHTML = buildLayout();
+  bindActions(container);
 }
 
 export default renderTestView;
