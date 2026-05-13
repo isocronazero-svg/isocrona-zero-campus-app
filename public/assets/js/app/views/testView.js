@@ -866,9 +866,12 @@ async function handleAttemptSubmit(container, form) {
   const answers = Array.isArray(run.answers) ? run.answers : [];
   const evaluated = evaluateTest(run, answers, testSession.role);
   const savedResult = await saveTestResult(evaluated);
-  testSession.latestResult = savedResult;
   setActiveRun(null);
-  await loadTestHistory();
+  const historyPayload = await loadTestHistory();
+  const detailedResult = (historyPayload.results || []).find(
+    (result) => String(result.id || "") === String(savedResult?.id || "")
+  );
+  testSession.latestResult = detailedResult || savedResult;
   renderTestView(container, testSession.role);
 }
 

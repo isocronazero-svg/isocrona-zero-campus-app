@@ -134,6 +134,26 @@ function assertQuestionSafe(question) {
   assert.equal(Object.prototype.hasOwnProperty.call(question, "explanation"), false);
 }
 
+function assertResultHasNoSensitiveReviewDetails(result, context) {
+  (result?.responses || []).forEach((response, index) => {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(response, "correctIndex"),
+      false,
+      `${context}: respuesta ${index + 1} no debe exponer correctIndex`
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(response, "correctAnswer"),
+      false,
+      `${context}: respuesta ${index + 1} no debe exponer correctAnswer`
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(response, "explanation"),
+      false,
+      `${context}: respuesta ${index + 1} no debe exponer explanation`
+    );
+  });
+}
+
 async function main() {
   const port = await getAvailablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -287,16 +307,10 @@ async function main() {
     assert.equal(saveResultResponse.body?.result?.correctCount, 1);
     assert.equal(saveResultResponse.body?.result?.wrongCount, 1);
     assert.equal(saveResultResponse.body?.result?.blankCount, 1);
-    assert.equal(saveResultResponse.body?.result?.responses?.[0]?.selectedAnswer, "Ley 31/1995");
-    assert.equal(saveResultResponse.body?.result?.responses?.[0]?.correctAnswer, "Ley 31/1995");
-    assert.equal(
-      saveResultResponse.body?.result?.responses?.[0]?.explanation,
-      "La Ley 31/1995 regula la prevencion de riesgos laborales."
+    assertResultHasNoSensitiveReviewDetails(
+      saveResultResponse.body?.result,
+      "El POST normal fabricado con questionIds de cliente no debe cosechar solucionario"
     );
-    assert.equal(saveResultResponse.body?.result?.responses?.[1]?.selectedAnswer, "Camilla");
-    assert.equal(saveResultResponse.body?.result?.responses?.[1]?.correctAnswer, "ERA");
-    assert.equal(saveResultResponse.body?.result?.responses?.[2]?.selectedAnswer, "");
-    assert.equal(saveResultResponse.body?.result?.responses?.[2]?.correctAnswer, "Verde");
 
     const secondMemberResultResponse = await secondMemberClient.request("POST", "/api/test-zone/results", {
       title: "Entrenamiento otro socio",
@@ -316,6 +330,15 @@ async function main() {
       "Ley 31/1995",
       "El historial propio debe conservar respuestas correctas solo tras finalizar"
     );
+    assert.equal(historyResponse.body?.results?.[0]?.responses?.[0]?.selectedAnswer, "Ley 31/1995");
+    assert.equal(
+      historyResponse.body?.results?.[0]?.responses?.[0]?.explanation,
+      "La Ley 31/1995 regula la prevencion de riesgos laborales."
+    );
+    assert.equal(historyResponse.body?.results?.[0]?.responses?.[1]?.selectedAnswer, "Camilla");
+    assert.equal(historyResponse.body?.results?.[0]?.responses?.[1]?.correctAnswer, "ERA");
+    assert.equal(historyResponse.body?.results?.[0]?.responses?.[2]?.selectedAnswer, "");
+    assert.equal(historyResponse.body?.results?.[0]?.responses?.[2]?.correctAnswer, "Verde");
 
     const failedQuestionId = historyResponse.body?.failedQuestionIds?.[0];
     const unmarkedReviewMarkedResultResponse = await memberClient.request(
@@ -348,6 +371,10 @@ async function main() {
     assert.equal(reviewMarkedResultResponse.body?.ok, true);
     assert.equal(reviewMarkedResultResponse.body?.result?.source, "reviewMarks");
     assert.equal(reviewMarkedResultResponse.body?.result?.filters?.source, "reviewMarks");
+    assertResultHasNoSensitiveReviewDetails(
+      reviewMarkedResultResponse.body?.result,
+      "El POST reviewMarks tampoco debe devolver solucionario en la respuesta de creacion"
+    );
 
     const historyAfterReviewMarkedResultResponse = await memberClient.request("GET", "/api/test-zone/results/me");
     assert.equal(

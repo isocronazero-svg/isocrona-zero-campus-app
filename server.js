@@ -5365,7 +5365,7 @@ const server = http.createServer(async (req, res) => {
         title: payload.title || "Zona Test"
       });
       writeState(state);
-      return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result, { includeReviewDetails: true }) });
+      return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
     } catch (error) {
       return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado de la zona test" });
     }
