@@ -7,6 +7,7 @@ const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
   "scripts/check-security-hardening.mjs",
   "scripts/check-rate-limits.mjs",
+  "scripts/check-payload-limits.mjs",
   "scripts/check-live-tests.mjs",
   "scripts/check-member-notifications.mjs",
   "scripts/check-test-zone.mjs"

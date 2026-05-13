@@ -136,7 +136,24 @@ const rateLimitMaxBuckets = 20000;
 const rateLimitMinuteMs = 60 * 1000;
 const rateLimitHourMs = 60 * 60 * 1000;
 const rateLimitDayMs = 24 * rateLimitHourMs;
+const payloadLimitBytes = Object.freeze({
+  small: 16 * 1024,
+  registration: 32 * 1024,
+  liveJoin: 32 * 1024,
+  liveAttempt: 128 * 1024,
+  testAttempt: 256 * 1024,
+  defaultJson: 100_000_000
+});
 const campusGroupResourceCategories = ["documents", "practiceSheets", "videos", "links"];
+
+class PayloadTooLargeError extends Error {
+  constructor(maxBytes) {
+    super("El contenido enviado es demasiado grande. Reduce el tamano del archivo o usa un enlace.");
+    this.name = "PayloadTooLargeError";
+    this.maxBytes = maxBytes;
+    this.statusCode = 413;
+  }
+}
 
 initDatabase().catch((error) => {
   console.warn("No se pudo inicializar PostgreSQL:", error.message);
@@ -4945,7 +4962,7 @@ const server = http.createServer(async (req, res) => {
       if (enforceRateLimit(res, `auth-register:ip:${clientIp}`, 5, rateLimitHourMs)) {
         return;
       }
-      const payload = await readJsonBody(req);
+      const payload = await readJsonBody(req, payloadLimitBytes.registration);
       const email = String(payload.email || "").trim().toLowerCase();
       if (email && enforceRateLimit(res, `auth-register:email:${email}`, 3, rateLimitHourMs)) {
         return;
@@ -4976,7 +4993,7 @@ const server = http.createServer(async (req, res) => {
         accountId: ensured?.account?.id || ""
       });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar el usuario" });
+      return sendJsonError(res, error, "No se pudo registrar el usuario");
     }
   }
 
@@ -4986,7 +5003,7 @@ const server = http.createServer(async (req, res) => {
       if (enforceRateLimit(res, `auth-login:ip:${clientIp}`, 20, 15 * rateLimitMinuteMs)) {
         return;
       }
-      const payload = await readJsonBody(req);
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
       const email = String(payload.email || "").trim().toLowerCase();
       if (email && enforceRateLimit(res, `auth-login:email-ip:${email}:${clientIp}`, 5, 15 * rateLimitMinuteMs)) {
         return;
@@ -5017,7 +5034,7 @@ const server = http.createServer(async (req, res) => {
         })
       });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "Login invalido" });
+      return sendJsonError(res, error, "Login invalido");
     }
   }
 
@@ -5304,12 +5321,12 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/test-zone/results" && req.method === "POST") {
     try {
-      const payload = await readJsonBody(req);
       const state = readState();
       const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
         return;
       }
+      const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
       ensureTestZoneState(state);
       if (isLiveResultPayload(payload)) {
         const sessionKey = String(payload.sessionId || payload.liveSessionId || "").trim();
@@ -5336,7 +5353,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado de la zona test" });
+      return sendJsonError(res, error, "No se pudo guardar el resultado de la zona test");
     }
   }
 
@@ -5408,7 +5425,7 @@ const server = http.createServer(async (req, res) => {
       if (enforceRateLimit(res, `test-zone-live-join:ip:${clientIp}`, 60, rateLimitMinuteMs)) {
         return;
       }
-      const payload = await readJsonBody(req);
+      const payload = await readJsonBody(req, payloadLimitBytes.liveJoin);
       const state = readState();
       ensureTestZoneState(state);
       const expired = expireStaleTestZoneLiveSessions(state);
@@ -5453,7 +5470,7 @@ const server = http.createServer(async (req, res) => {
         }
       });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo entrar al test en vivo" });
+      return sendJsonError(res, error, "No se pudo entrar al test en vivo");
     }
   }
 
@@ -5471,7 +5488,7 @@ const server = http.createServer(async (req, res) => {
       ) {
         return;
       }
-      const payload = await readJsonBody(req);
+      const payload = await readJsonBody(req, payloadLimitBytes.liveAttempt);
       const state = readState();
       ensureTestZoneState(state);
       const expired = expireStaleTestZoneLiveSessions(state);
@@ -5508,7 +5525,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado del test en vivo" });
+      return sendJsonError(res, error, "No se pudo guardar el resultado del test en vivo");
     }
   }
 
@@ -5620,12 +5637,12 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/tests/practice/start" && req.method === "POST") {
     try {
-      const payload = await readJsonBody(req);
       const state = readState();
       const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
         return;
       }
+      const payload = await readJsonBody(req, payloadLimitBytes.liveJoin);
       ensureIndependentTestsState(state);
       pruneExpiredPracticeTests(state);
       const { practiceTest, questions } = startPracticeTest(state, account, payload);
@@ -5635,7 +5652,7 @@ const server = http.createServer(async (req, res) => {
         practice: buildPracticeTestAudiencePayload(practiceTest, questions)
       });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo iniciar la practica" });
+      return sendJsonError(res, error, "No se pudo iniciar la practica");
     }
   }
 
@@ -5678,12 +5695,12 @@ const server = http.createServer(async (req, res) => {
 
   if (/^\/api\/tests\/practice\/[^/]+\/attempt$/.test(requestUrl.pathname) && req.method === "POST") {
     try {
-      const payload = await readJsonBody(req);
       const state = readState();
       const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
         return;
       }
+      const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
       ensureIndependentTestsState(state);
       const prunedPracticeTests = pruneExpiredPracticeTests(state);
       const practiceTestId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
@@ -5723,7 +5740,7 @@ const server = http.createServer(async (req, res) => {
         percentage: attempt.percentage
       });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo enviar la practica" });
+      return sendJsonError(res, error, "No se pudo enviar la practica");
     }
   }
 
@@ -5884,12 +5901,12 @@ const server = http.createServer(async (req, res) => {
 
   if (/^\/api\/tests\/[^/]+\/attempt$/.test(requestUrl.pathname) && req.method === "POST") {
     try {
-      const payload = await readJsonBody(req);
       const state = readState();
       const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
         return;
       }
+      const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
       ensureIndependentTestsState(state);
       const testId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
       const test = state.tests.find((item) => item.id === testId);
@@ -5936,7 +5953,7 @@ const server = http.createServer(async (req, res) => {
         timedOut: attempt.timedOut
       });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el intento del test" });
+      return sendJsonError(res, error, "No se pudo guardar el intento del test");
     }
   }
 
@@ -6024,12 +6041,12 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/live-tests/join" && req.method === "POST") {
     try {
-      const payload = await readJsonBody(req);
       const state = readState();
       const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
         return;
       }
+      const payload = await readJsonBody(req, payloadLimitBytes.liveJoin);
       ensureIndependentTestsState(state);
       const expired = expireStaleLiveTestSessions(state);
       const pin = String(payload.pin || "").replace(/\D/g, "");
@@ -6051,7 +6068,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 200, { ok: true, session: buildLiveTestPlayerState(state, session, player) });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo unir a la sesion live" });
+      return sendJsonError(res, error, "No se pudo unir a la sesion live");
     }
   }
 
@@ -6165,12 +6182,12 @@ const server = http.createServer(async (req, res) => {
 
   if (/^\/api\/live-tests\/[^/]+\/answer$/.test(requestUrl.pathname) && req.method === "POST") {
     try {
-      const payload = await readJsonBody(req);
       const state = readState();
       const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
         return;
       }
+      const payload = await readJsonBody(req, payloadLimitBytes.liveAttempt);
       ensureIndependentTestsState(state);
       expireStaleLiveTestSessions(state);
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[3] || "");
@@ -6182,7 +6199,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 200, { ok: true, ...result });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo registrar la respuesta live" });
+      return sendJsonError(res, error, "No se pudo registrar la respuesta live");
     }
   }
 
@@ -6245,7 +6262,7 @@ const server = http.createServer(async (req, res) => {
       ) {
         return;
       }
-      const payload = await readJsonBody(req);
+      const payload = await readJsonBody(req, payloadLimitBytes.liveAttempt);
       const state = readState();
       ensureIndependentTestsState(state);
       const session = findPublicLiveSessionByCode(state, submittedCode);
@@ -6268,7 +6285,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 201, { ok: true, result });
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado en vivo" });
+      return sendJsonError(res, error, "No se pudo guardar el resultado en vivo");
     }
   }
 
@@ -6296,7 +6313,7 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/test-results" && req.method === "POST") {
     try {
-      const payload = await readJsonBody(req);
+      const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
       if (isLiveResultPayload(payload)) {
         const state = readState();
         validateLiveResultPayloadAgainstKnownSession(state, payload);
@@ -6350,7 +6367,7 @@ const server = http.createServer(async (req, res) => {
       writeState(state);
       return sendJson(res, 201, { ok: true, result });
     } catch (error) {
-      return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado" });
+      return sendJsonError(res, error, "No se pudo guardar el resultado");
     }
   }
 
@@ -6423,7 +6440,7 @@ const server = http.createServer(async (req, res) => {
           error: "La recuperacion de administrador no esta habilitada en este entorno."
         });
       }
-      const payload = await readJsonBody(req);
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
       const submittedPassword = String(payload.password || "").trim();
       const acceptedPassword = submittedPassword === recoveryConfig.password ? submittedPassword : "";
 
@@ -6461,6 +6478,9 @@ const server = http.createServer(async (req, res) => {
           message: "Acceso administrador recuperado"
         });
     } catch (error) {
+      if (isPayloadTooLargeError(error)) {
+        return sendPayloadTooLarge(res, error);
+      }
       return sendJson(res, 400, { ok: false, error: "Recuperacion invalida" });
     }
   }
@@ -6471,7 +6491,7 @@ const server = http.createServer(async (req, res) => {
       if (enforceRateLimit(res, `legacy-login:ip:${clientIp}`, 20, 15 * rateLimitMinuteMs)) {
         return;
       }
-      const payload = await readJsonBody(req);
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
       const recoveryConfig = getRecoveryAdminEnvConfig();
       const recoveryEmail = recoveryConfig.email;
       const recoveryPassword = recoveryConfig.password;
@@ -6608,6 +6628,9 @@ const server = http.createServer(async (req, res) => {
           session: buildSessionPayload(account, token)
         });
     } catch (error) {
+      if (isPayloadTooLargeError(error)) {
+        return sendPayloadTooLarge(res, error);
+      }
       return sendJson(res, 400, { ok: false, error: "Login invalido" });
     }
   }
@@ -6621,12 +6644,12 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/account/change-password" && req.method === "POST") {
     let state = null;
     try {
-      const payload = await readJsonBody(req);
       state = readState();
       const authenticatedAccount = requireAuthenticatedAccount(req, res, state);
       if (!authenticatedAccount) {
         return;
       }
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
       const accountId = String(payload.accountId || "").trim();
       const currentPassword = String(payload.currentPassword || "");
       const newPassword = String(payload.newPassword || "");
@@ -6679,10 +6702,7 @@ const server = http.createServer(async (req, res) => {
       if (state) {
         writeState(state);
       }
-      return sendJson(res, 400, {
-        ok: false,
-        error: error.message || "No se pudo actualizar la contrasena"
-      });
+      return sendJsonError(res, error, "No se pudo actualizar la contrasena");
     }
   }
 
@@ -6697,7 +6717,7 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/public-campus/register" && req.method === "POST") {
     let state = null;
     try {
-      const payload = await readJsonBody(req);
+      const payload = await readJsonBody(req, payloadLimitBytes.registration);
       state = readState();
       const { account, member } = registerPublicCampusAccount(state, payload);
       writeState(state);
@@ -6717,10 +6737,7 @@ const server = http.createServer(async (req, res) => {
       if (state) {
         writeState(state);
       }
-      return sendJson(res, 400, {
-        ok: false,
-        error: error.message || "No se pudo crear el acceso solo campus"
-      });
+      return sendJsonError(res, error, "No se pudo crear el acceso solo campus");
     }
   }
 
@@ -7074,7 +7091,7 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
-      const payload = await readJsonBody(req).catch(() => ({}));
+      const payload = await readJsonBodyOrDefault(req);
       const result = approveAssociateProfileRequest(
         state,
         approveAssociateProfileRequestMatch[1],
@@ -7104,10 +7121,7 @@ const server = http.createServer(async (req, res) => {
       if (state) {
         writeState(state);
       }
-      return sendJson(res, 400, {
-        ok: false,
-        error: error.message || "No se pudo aprobar la actualizacion de ficha"
-      });
+      return sendJsonError(res, error, "No se pudo aprobar la actualizacion de ficha");
     }
   }
 
@@ -7122,7 +7136,7 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
-      const payload = await readJsonBody(req).catch(() => ({}));
+      const payload = await readJsonBodyOrDefault(req);
       const result = rejectAssociateProfileRequest(
         state,
         rejectAssociateProfileRequestMatch[1],
@@ -7146,10 +7160,7 @@ const server = http.createServer(async (req, res) => {
       if (state) {
         writeState(state);
       }
-      return sendJson(res, 400, {
-        ok: false,
-        error: error.message || "No se pudo rechazar la actualizacion de ficha"
-      });
+      return sendJsonError(res, error, "No se pudo rechazar la actualizacion de ficha");
     }
   }
 
@@ -7290,7 +7301,7 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
-      const payload = await readJsonBody(req).catch(() => ({}));
+      const payload = await readJsonBodyOrDefault(req);
       const requestedAccountRole = payload.role ? normalizeCampusAccountRole(payload.role) : "";
       const associate = (state.associates || []).find(
         (item) => item.id === createAssociateCampusAccessMatch[1]
@@ -7319,10 +7330,7 @@ const server = http.createServer(async (req, res) => {
       if (state) {
         writeState(state);
       }
-      return sendJson(res, 400, {
-        ok: false,
-        error: error.message || "No se pudo crear el acceso al campus"
-      });
+      return sendJsonError(res, error, "No se pudo crear el acceso al campus");
     }
   }
 
@@ -7851,7 +7859,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      const payload = await readJsonBody(req).catch(() => ({}));
+      const payload = await readJsonBodyOrDefault(req);
       const preview = buildLegacyAssociateImportPreview(state, payload.workbookFile ? payload : String(payload.workbookPath || legacyAssociateWorkbookPath).trim());
       return sendJson(res, 200, {
         ok: true,
@@ -7859,10 +7867,7 @@ const server = http.createServer(async (req, res) => {
         preview
       });
     } catch (error) {
-      return sendJson(res, 400, {
-        ok: false,
-        error: error.message || "No se pudo analizar el Excel de socios"
-      });
+      return sendJsonError(res, error, "No se pudo analizar el Excel de socios");
     }
   }
 
@@ -7875,7 +7880,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const payload = await readJsonBody(req).catch(() => ({}));
+      const payload = await readJsonBodyOrDefault(req);
       const preview = buildLegacyAssociateImportPreview(
         state,
         payload.workbookFile ? payload : String(payload.workbookPath || legacyAssociateWorkbookPath).trim()
@@ -7895,10 +7900,7 @@ const server = http.createServer(async (req, res) => {
       if (state) {
         writeState(state);
       }
-      return sendJson(res, 400, {
-        ok: false,
-        error: error.message || "No se pudo importar el Excel de socios"
-      });
+      return sendJsonError(res, error, "No se pudo importar el Excel de socios");
     }
   }
 
@@ -7960,7 +7962,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
   if (memberEnrollMatch && req.method === "POST") {
     let state = null;
     try {
-      const payload = await readJsonBody(req).catch(() => ({}));
+      const payload = await readJsonBodyOrDefault(req);
       state = readState();
       const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
@@ -8039,7 +8041,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if (state) {
         writeState(state);
       }
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo completar la inscripcion" });
+      return sendJsonError(res, error, "No se pudo completar la inscripcion");
     }
   }
 
@@ -8047,7 +8049,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
   if (memberEnrollProofMatch && req.method === "POST") {
     let state = null;
     try {
-      const payload = await readJsonBody(req).catch(() => ({}));
+      const payload = await readJsonBodyOrDefault(req);
       state = readState();
       const account = requireAuthenticatedAccount(req, res, state);
       if (!account) {
@@ -8092,7 +8094,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if (state) {
         writeState(state);
       }
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo adjuntar el justificante" });
+      return sendJsonError(res, error, "No se pudo adjuntar el justificante");
     }
   }
 
@@ -8102,7 +8104,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     try {
       const courseId = reviewEnrollmentMatch[1];
       const submissionId = reviewEnrollmentMatch[2];
-      const payload = await readJsonBody(req).catch(() => ({}));
+      const payload = await readJsonBodyOrDefault(req);
       state = readState();
       const account = requireAdminAccount(req, res, state);
       if (!account) {
@@ -8174,7 +8176,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if (state) {
         writeState(state);
       }
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo actualizar la inscripcion" });
+      return sendJsonError(res, error, "No se pudo actualizar la inscripcion");
     }
   }
 
@@ -8917,34 +8919,81 @@ setInterval(() => {
   runBackgroundAutomationSweep().catch(() => {});
 }, automationIntervalMs).unref();
 
-function readJsonBody(req, maxBytes = 100_000_000) {
+function isPayloadTooLargeError(error) {
+  return error instanceof PayloadTooLargeError || error?.name === "PayloadTooLargeError";
+}
+
+async function readJsonBodyOrDefault(req, maxBytes = payloadLimitBytes.defaultJson) {
+  try {
+    return await readJsonBody(req, maxBytes);
+  } catch (error) {
+    if (isPayloadTooLargeError(error)) {
+      throw error;
+    }
+    return {};
+  }
+}
+
+function readJsonBody(req, maxBytes = payloadLimitBytes.defaultJson) {
   return new Promise((resolve, reject) => {
-    let raw = "";
+    const normalizedMaxBytes = Math.max(1, Number(maxBytes || payloadLimitBytes.defaultJson));
+    const chunks = [];
     let totalBytes = 0;
-    let payloadTooLarge = false;
+    let settled = false;
 
-    req.on("data", (chunk) => {
+    const rejectPayloadTooLarge = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      chunks.length = 0;
+      req.removeListener("data", handleData);
+      req.resume();
+      reject(new PayloadTooLargeError(normalizedMaxBytes));
+    };
+
+    const contentLengthHeader = Array.isArray(req.headers["content-length"])
+      ? req.headers["content-length"][0]
+      : req.headers["content-length"];
+    const contentLength = Number(contentLengthHeader || 0);
+
+    const handleData = (chunk) => {
+      if (settled) {
+        return;
+      }
       totalBytes += chunk.length;
-      if (totalBytes > maxBytes) {
-        payloadTooLarge = true;
+      if (totalBytes > normalizedMaxBytes) {
+        rejectPayloadTooLarge();
         return;
       }
-      raw += chunk;
-    });
+      chunks.push(chunk);
+    };
 
+    req.on("data", handleData);
     req.on("end", () => {
-      if (payloadTooLarge) {
-        reject(new Error("El archivo es demasiado grande para guardarlo en el campus. Reduce el tamano o usa un enlace."));
+      if (settled) {
         return;
       }
+      settled = true;
       try {
+        const raw = Buffer.concat(chunks, totalBytes).toString("utf8");
         resolve(JSON.parse(raw || "{}"));
       } catch (error) {
         reject(error);
       }
     });
 
-    req.on("error", reject);
+    req.on("error", (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(error);
+    });
+
+    if (Number.isFinite(contentLength) && contentLength > normalizedMaxBytes) {
+      rejectPayloadTooLarge();
+    }
   });
 }
 
@@ -9007,6 +9056,31 @@ function serveAssociateFile(fileName, res) {
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(payload));
+}
+
+function sendPayloadTooLarge(res, error) {
+  const maxBytes = Math.max(1, Number(error?.maxBytes || 1));
+  res.writeHead(413, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
+  });
+  res.end(
+    JSON.stringify({
+      ok: false,
+      error: "El contenido enviado es demasiado grande. Reduce el tamaño del archivo o usa un enlace.",
+      maxBytes
+    })
+  );
+}
+
+function sendJsonError(res, error, fallbackMessage, statusCode = 400) {
+  if (isPayloadTooLargeError(error)) {
+    return sendPayloadTooLarge(res, error);
+  }
+  return sendJson(res, error.statusCode || statusCode, {
+    ok: false,
+    error: error.message || fallbackMessage
+  });
 }
 
 function getMemberDocumentId(state, member) {
