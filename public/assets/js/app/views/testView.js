@@ -166,9 +166,9 @@ function normalizeResultSource(result = {}) {
 
 function buildSourceBreakdown(results = []) {
   const rows = {
-    bank: { label: "Banco general", tests: 0, questions: 0, correct: 0, percentageSum: 0 },
-    failed: { label: "Falladas", tests: 0, questions: 0, correct: 0, percentageSum: 0 },
-    reviewMarks: { label: "Marcadas", tests: 0, questions: 0, correct: 0, percentageSum: 0 }
+    bank: { label: "Test normal", tests: 0, questions: 0, correct: 0, percentageSum: 0 },
+    failed: { label: "Preguntas falladas", tests: 0, questions: 0, correct: 0, percentageSum: 0 },
+    reviewMarks: { label: "Marcadas para repasar", tests: 0, questions: 0, correct: 0, percentageSum: 0 }
   };
 
   (Array.isArray(results) ? results : []).forEach((result) => {
@@ -209,11 +209,11 @@ function buildProgressStatsPanel() {
   const reviewMarkedQuestions = getReviewMarkedQuestions();
   const sourceBreakdown = buildSourceBreakdown(ownResults);
   const metrics = [
-    { label: "Tests realizados", value: totalTests, hint: "Intentos propios guardados" },
+    { label: "Tests realizados", value: totalTests, hint: "Tests guardados" },
     { label: "% medio acierto", value: `${Number(averagePercentage || 0).toFixed(1)}%`, hint: "Media de tus tests" },
     { label: "Preguntas respondidas", value: answeredQuestions, hint: "Sin contar blancas" },
-    { label: "Falladas pendientes", value: (failedQuestionIds || []).length, hint: "Para repasar" },
-    { label: "Marcadas para repasar", value: reviewMarkedQuestions.length, hint: "Marcas manuales" },
+    { label: "Preguntas falladas", value: (failedQuestionIds || []).length, hint: "Pendientes" },
+    { label: "Marcadas para repasar", value: reviewMarkedQuestions.length, hint: "Guardadas por ti" },
     {
       label: "Ultima actividad",
       value: getLatestProgressActivity(ownResults, reviewMarks),
@@ -226,8 +226,8 @@ function buildProgressStatsPanel() {
       <div class="test-zone-card-head">
         <div>
           <p class="test-zone-kicker">Progreso personal</p>
-          <h3>Estadisticas basicas</h3>
-          <p class="muted">Resumen calculado solo con tu historial y tus marcas de repaso.</p>
+          <h3>Tu avance</h3>
+          <p class="muted">Un vistazo rapido a tus tests y repasos.</p>
         </div>
       </div>
       <div class="test-zone-metrics">
@@ -243,20 +243,24 @@ function buildProgressStatsPanel() {
           )
           .join("")}
       </div>
-      <div class="test-zone-source-breakdown" aria-label="Desglose por origen">
-        ${sourceBreakdown
-          .map(
-            (row) => `
-              <article class="test-zone-source-row">
-                <strong>${escapeHtml(row.label)}</strong>
-                <span>${escapeHtml(`${row.tests} test(s)`)}</span>
-                <span>${escapeHtml(`${row.questions} pregunta(s)`)}</span>
-                <span>${escapeHtml(`${Number(row.averagePercentage || 0).toFixed(1)}% medio`)}</span>
-              </article>
-            `
-          )
-          .join("")}
-      </div>
+      ${
+        totalTests
+          ? `<div class="test-zone-source-breakdown" aria-label="Desglose por tipo de test">
+              ${sourceBreakdown
+                .map(
+                  (row) => `
+                    <article class="test-zone-source-row">
+                      <strong>${escapeHtml(row.label)}</strong>
+                      <span>${escapeHtml(`${row.tests} tests`)}</span>
+                      <span>${escapeHtml(`${row.questions} preguntas`)}</span>
+                      <span>${escapeHtml(`${Number(row.averagePercentage || 0).toFixed(1)}% medio`)}</span>
+                    </article>
+                  `
+                )
+                .join("")}
+            </div>`
+          : '<div class="test-zone-empty test-zone-empty-compact">Todavia no has hecho ningun test.</div>'
+      }
     </section>
   `;
 }
@@ -281,20 +285,16 @@ function buildFilterSelect(name, value, options) {
 
 function buildControlsMarkup() {
   const { parts, categories, difficulties } = getQuestionFilters(getStoredQuestions());
-  const failedQuestions = getFailedQuestions();
-  const reviewMarkedQuestions = getReviewMarkedQuestions();
   return `
     <section class="test-zone-card">
       <div class="test-zone-card-head">
         <div>
-          <p class="test-zone-kicker">Configuración</p>
-          <h3>Generar entrenamiento</h3>
-          <p class="muted">Filtra por estructura oficial y lanza tests normales o solo con preguntas falladas.</p>
+          <p class="test-zone-kicker">Crear test normal</p>
+          <h3>Nuevo test</h3>
+          <p class="muted">Elige filtros, numero de preguntas y empieza.</p>
         </div>
         <div class="test-zone-inline-summary">
-          <span>${escapeHtml(`${getStoredQuestions().length} preguntas en banco`)}</span>
-          <span>${escapeHtml(`${failedQuestions.length} falladas pendientes`)}</span>
-          <span>${escapeHtml(`${reviewMarkedQuestions.length} marcadas`)}</span>
+          <span>${escapeHtml(`${getStoredQuestions().length} preguntas disponibles`)}</span>
         </div>
       </div>
       <form class="test-zone-controls" data-test-zone-controls>
@@ -302,17 +302,11 @@ function buildControlsMarkup() {
         ${buildFilterSelect("category", testSession.filters.category, categories)}
         ${buildFilterSelect("difficulty", testSession.filters.difficulty, difficulties)}
         <label class="test-zone-field">
-          <span>Preguntas</span>
+          <span>Numero de preguntas</span>
           <input type="number" name="questionCount" min="1" max="100" value="${escapeHtml(testSession.filters.questionCount)}" />
         </label>
         <div class="test-zone-actions">
-          <button type="submit" class="test-zone-primary-button">Empezar test</button>
-          <button type="button" class="test-zone-secondary-button" data-action="start-failed-test" ${failedQuestions.length ? "" : "disabled"}>
-            Solo falladas
-          </button>
-          <button type="button" class="test-zone-secondary-button" data-action="start-review-marked-test" ${reviewMarkedQuestions.length ? "" : "disabled"}>
-            Repasar marcadas (${escapeHtml(reviewMarkedQuestions.length)})
-          </button>
+          <button type="submit" class="test-zone-primary-button">Crear test normal</button>
         </div>
       </form>
     </section>
@@ -325,7 +319,7 @@ function buildQuestionAttemptMarkup() {
     return "";
   }
   const markedQuestionIds = getManualReviewQuestionIds();
-  const runModeLabel = run.source === "reviewMarks" ? "repaso de marcadas" : run.mode === "failed" ? "repaso" : "entrenamiento";
+  const runModeLabel = run.source === "reviewMarks" ? "marcadas para repasar" : run.mode === "failed" ? "preguntas falladas" : "test normal";
   const reviewMarkToggleDisabled = run.source === "reviewMarks";
   return `
     <section class="test-zone-card">
@@ -334,7 +328,7 @@ function buildQuestionAttemptMarkup() {
           <p class="test-zone-kicker">Test activo</p>
           <h3>${escapeHtml(run.title)}</h3>
           ${run.source === "reviewMarks" ? `<p class="muted">${escapeHtml(runModeLabel)}</p>` : ""}
-          <p class="muted">${escapeHtml(`${run.questions.length} preguntas · modo ${run.mode === "failed" ? "repaso" : "entrenamiento"}`)}</p>
+          <p class="muted">${escapeHtml(`${run.questions.length} preguntas · ${runModeLabel}`)}</p>
         </div>
         <div class="test-zone-actions">
           <button type="button" class="test-zone-secondary-button" data-action="cancel-active-test">Cancelar</button>
@@ -564,12 +558,12 @@ function buildFailedQuestionsMarkup() {
     <section class="test-zone-card">
       <div class="test-zone-card-head">
         <div>
-          <p class="test-zone-kicker">Repaso</p>
+          <p class="test-zone-kicker">Preguntas falladas</p>
           <h3>Preguntas falladas</h3>
-          <p class="muted">Tu bolsa de repaso usa las últimas respuestas incorrectas todavía no marcadas como repasadas.</p>
+          <p class="muted">Practica solo las preguntas que has fallado.</p>
         </div>
         <div class="test-zone-actions">
-          <button type="button" class="test-zone-secondary-button" data-action="start-failed-test" ${failedQuestions.length ? "" : "disabled"}>Repetir falladas</button>
+          <button type="button" class="test-zone-secondary-button" data-action="start-failed-test" ${failedQuestions.length ? "" : "disabled"}>Hacer test con falladas</button>
         </div>
       </div>
       ${
@@ -596,6 +590,43 @@ function buildFailedQuestionsMarkup() {
   `;
 }
 
+function buildReviewMarkedQuestionsMarkup() {
+  const reviewMarkedQuestions = getReviewMarkedQuestions();
+  return `
+    <section class="test-zone-card">
+      <div class="test-zone-card-head">
+        <div>
+          <p class="test-zone-kicker">Marcadas para repasar</p>
+          <h3>Marcadas para repasar</h3>
+          <p class="muted">Agrupa las preguntas que quieres volver a mirar.</p>
+        </div>
+        <div class="test-zone-actions">
+          <button type="button" class="test-zone-secondary-button" data-action="start-review-marked-test" ${reviewMarkedQuestions.length ? "" : "disabled"}>
+            Hacer test con marcadas (${escapeHtml(reviewMarkedQuestions.length)})
+          </button>
+        </div>
+      </div>
+      ${
+        reviewMarkedQuestions.length
+          ? `<div class="test-zone-failed-list">
+              ${reviewMarkedQuestions
+                .slice(0, 12)
+                .map(
+                  (question) => `
+                    <article class="test-zone-mini-card">
+                      <strong>${escapeHtml(question.prompt)}</strong>
+                      <p class="muted">${escapeHtml(`${question.part} - ${question.category} - ${question.difficulty}`)}</p>
+                    </article>
+                  `
+                )
+                .join("")}
+            </div>`
+          : '<div class="test-zone-empty">No tienes preguntas marcadas para repasar.</div>'
+      }
+    </section>
+  `;
+}
+
 function buildHistoryMarkup() {
   const { results, stats } = getTestState();
   return `
@@ -603,8 +634,8 @@ function buildHistoryMarkup() {
       <div class="test-zone-card-head">
         <div>
           <p class="test-zone-kicker">Historial</p>
-          <h3>Estadísticas y evolución</h3>
-          <p class="muted">Consulta tu histórico de entrenamiento y la evolución por fecha.</p>
+          <h3>Historial</h3>
+          <p class="muted">Tus ultimos tests guardados.</p>
         </div>
       </div>
       <div class="test-zone-evolution-list">
@@ -621,7 +652,7 @@ function buildHistoryMarkup() {
                   `
                 )
                 .join("")
-            : '<span class="muted">Todavía no hay evolución registrada.</span>'
+            : '<span class="muted">Todavia no has hecho ningun test.</span>'
         }
       </div>
       ${
@@ -648,7 +679,7 @@ function buildHistoryMarkup() {
                 )
                 .join("")}
             </div>`
-          : '<div class="test-zone-empty">Todavía no hay tests guardados.</div>'
+          : '<div class="test-zone-empty">Todavia no has hecho ningun test.</div>'
       }
     </section>
   `;
@@ -778,8 +809,8 @@ function buildLayout() {
       <header class="test-zone-hero">
         <div>
           <p class="test-zone-kicker">Zona Test</p>
-          <h2>Entrenamiento real con historial y repasos</h2>
-          <p class="muted">La práctica libre ahora guarda resultados, detecta fallos y permite repetir solo las preguntas que peor llevas.</p>
+          <h2>Tests rapidos para socios</h2>
+          <p class="muted">Crea un test, revisa fallos y guarda preguntas para repasar.</p>
         </div>
       </header>
       ${buildProgressStatsPanel()}
@@ -787,6 +818,7 @@ function buildLayout() {
       ${buildQuestionAttemptMarkup()}
       ${buildLatestResultMarkup()}
       ${buildFailedQuestionsMarkup()}
+      ${buildReviewMarkedQuestionsMarkup()}
       ${buildHistoryMarkup()}
       ${buildAdminQuestionForm()}
     </section>
@@ -847,7 +879,7 @@ async function startReviewMarkedTest() {
           difficulty: "all"
         },
         onlyQuestionIds: markedQuestions.map((question) => question.id),
-        title: "Repasar marcadas",
+        title: "Marcadas para repasar",
         mode: "failed",
         source: "reviewMarks"
       },
@@ -945,7 +977,7 @@ function bindActions(container) {
         testSession.latestResult = null;
         container.querySelector(".test-zone-view")?.insertAdjacentHTML(
           "afterbegin",
-          `<div class="test-zone-inline-error">${escapeHtml(error.message || "No se pudo generar el repaso de marcadas.")}</div>`
+          `<div class="test-zone-inline-error">${escapeHtml(error.message || "No se pudo crear el test con marcadas.")}</div>`
         );
       }
       renderTestView(container, testSession.role);
