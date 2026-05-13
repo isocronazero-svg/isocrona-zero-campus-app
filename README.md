@@ -1,5 +1,14 @@
 # Isocrona Zero Campus
 
+## CI / GitHub Actions
+
+El repositorio ejecuta automaticamente los checks de app en cada Pull Request hacia `main` y en cada push a `main`.
+
+Checks principales:
+
+- `npm run check:app`
+- `npm run smoke:campus-test`
+
 ## Configuracion de PostgreSQL SSL
 
 - `DATABASE_URL`: cadena de conexion de PostgreSQL
