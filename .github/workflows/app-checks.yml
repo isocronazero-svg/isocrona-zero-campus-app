@@ -20,6 +20,9 @@ jobs:
     name: Run app safety and smoke checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      IZ_DATA_DIR: /tmp/isocrona-campus-data
+      NODE_ENV: test
 
     steps:
       - name: Checkout repository
@@ -37,5 +40,27 @@ jobs:
       - name: Run full app safety checks
         run: npm run check:app
 
+      - name: Start app server for smoke checks
+        run: |
+          mkdir -p "$IZ_DATA_DIR"
+          npm run start:local > /tmp/isocrona-campus.log 2>&1 &
+          echo $! > /tmp/isocrona-campus.pid
+          for i in {1..30}; do
+            if curl --silent --fail http://localhost:3210/healthz > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server did not become ready in time"
+          cat /tmp/isocrona-campus.log
+          exit 1
+
       - name: Run campus smoke checks
         run: npm run smoke:campus-test
+
+      - name: Stop app server
+        if: always()
+        run: |
+          if [ -f /tmp/isocrona-campus.pid ]; then
+            kill $(cat /tmp/isocrona-campus.pid) || true
+          fi
