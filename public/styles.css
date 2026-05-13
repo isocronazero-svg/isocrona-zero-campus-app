@@ -4657,6 +4657,111 @@ tr:last-child td {
   color: #4f4033;
 }
 
+.test-zone-result-review {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(180, 111, 43, 0.16);
+}
+
+.test-zone-review-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.test-zone-review-map-button {
+  min-width: 38px;
+  min-height: 38px;
+  border-radius: 14px;
+  border: 1px solid rgba(180, 111, 43, 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  color: #4f4033;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.test-zone-review-list {
+  display: grid;
+  gap: 14px;
+}
+
+.test-zone-review-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(180, 111, 43, 0.16);
+  border-left-width: 5px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.94);
+  scroll-margin-top: 24px;
+}
+
+.test-zone-review-status {
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: 800;
+  background: rgba(180, 111, 43, 0.1);
+}
+
+.test-zone-review-card.is-correct,
+.test-zone-review-map-button.is-correct {
+  border-color: rgba(61, 132, 86, 0.38);
+}
+
+.test-zone-review-card.is-wrong,
+.test-zone-review-map-button.is-wrong {
+  border-color: rgba(180, 61, 43, 0.38);
+}
+
+.test-zone-review-card.is-blank,
+.test-zone-review-map-button.is-blank {
+  border-color: rgba(119, 111, 101, 0.34);
+}
+
+.test-zone-review-answer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.test-zone-review-answer,
+.test-zone-review-explanation {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(180, 111, 43, 0.14);
+}
+
+.test-zone-review-answer span {
+  color: #6c5747;
+  font-size: 13px;
+  text-transform: uppercase;
+}
+
+.test-zone-review-answer.is-correct {
+  border-color: rgba(61, 132, 86, 0.3);
+  background: rgba(235, 249, 239, 0.82);
+}
+
+.test-zone-review-answer.is-wrong {
+  border-color: rgba(180, 61, 43, 0.3);
+  background: rgba(255, 240, 236, 0.82);
+}
+
+.test-zone-review-answer.is-blank {
+  border-color: rgba(119, 111, 101, 0.24);
+  background: rgba(246, 243, 238, 0.82);
+}
+
+.test-zone-review-explanation p {
+  margin: 0;
+  color: #5f493b;
+}
+
 .test-zone-evolution-list {
   display: flex;
   flex-wrap: wrap;
@@ -4733,5 +4838,9 @@ tr:last-child td {
 
   .test-zone-option-row {
     grid-template-columns: auto auto 1fr;
+  }
+
+  .test-zone-review-answer-grid {
+    grid-template-columns: 1fr;
   }
 }

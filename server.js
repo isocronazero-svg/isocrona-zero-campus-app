@@ -1156,7 +1156,8 @@ function buildTestZoneResultStats(results = []) {
   };
 }
 
-function buildTestZoneResultAudiencePayload(result) {
+function buildTestZoneResultAudiencePayload(result, options = {}) {
+  const includeReviewDetails = Boolean(options.includeReviewDetails);
   return {
     id: String(result?.id || "").trim(),
     title: String(result?.title || "").trim(),
@@ -1182,15 +1183,38 @@ function buildTestZoneResultAudiencePayload(result) {
             source: String(result.filters.source || "").trim()
           }
         : { part: "", category: "", difficulty: "", source: "" },
-    responses: (Array.isArray(result?.responses) ? result.responses : []).map((response) => ({
-      questionId: String(response?.questionId || "").trim(),
-      prompt: String(response?.prompt || "").trim(),
-      part: String(response?.part || "").trim(),
-      category: String(response?.category || "").trim(),
-      difficulty: String(response?.difficulty || "").trim(),
-      isCorrect: Boolean(response?.isCorrect),
-      isBlank: Boolean(response?.isBlank)
-    })),
+    responses: (Array.isArray(result?.responses) ? result.responses : []).map((response) => {
+      const baseResponse = {
+        questionId: String(response?.questionId || "").trim(),
+        prompt: String(response?.prompt || "").trim(),
+        part: String(response?.part || "").trim(),
+        category: String(response?.category || "").trim(),
+        difficulty: String(response?.difficulty || "").trim(),
+        isCorrect: Boolean(response?.isCorrect),
+        isBlank: Boolean(response?.isBlank)
+      };
+      if (!includeReviewDetails) {
+        return baseResponse;
+      }
+      return {
+        ...baseResponse,
+        selectedIndex:
+          response?.selectedIndex === null || response?.selectedIndex === undefined || response?.selectedIndex === ""
+            ? null
+            : Number(response.selectedIndex),
+        correctIndex:
+          response?.correctIndex === null || response?.correctIndex === undefined || response?.correctIndex === ""
+            ? null
+            : Number(response.correctIndex),
+        selectedAnswer: String(response?.selectedAnswer || "").trim(),
+        correctAnswer: String(response?.correctAnswer || "").trim(),
+        explanation: String(response?.explanation || "").trim(),
+        topic: String(response?.topic || "").trim(),
+        temaNumero: String(response?.temaNumero || "").trim(),
+        temaTitulo: String(response?.temaTitulo || "").trim(),
+        moduleTitle: String(response?.moduleTitle || "").trim()
+      };
+    }),
     createdAt: String(result?.createdAt || "").trim()
   };
 }
@@ -1253,8 +1277,15 @@ function createTestZoneResultRecord(state, payload = {}, context = {}) {
       part: question.part,
       category: question.category,
       difficulty: question.difficulty,
+      topic: String(question.topic || "").trim(),
+      temaNumero: String(question.temaNumero || "").trim(),
+      temaTitulo: String(question.temaTitulo || "").trim(),
+      moduleTitle: String(question.moduleTitle || "").trim(),
       selectedIndex,
       correctIndex: question.correctIndex,
+      selectedAnswer: selectedIndex === null ? "" : String(question.options[selectedIndex] || "").trim(),
+      correctAnswer: String(question.options[question.correctIndex] || "").trim(),
+      explanation: String(question.explanation || "").trim(),
       isBlank,
       isCorrect
     };
@@ -5292,7 +5323,7 @@ const server = http.createServer(async (req, res) => {
       const results = listTestZoneResultsForOwner(state, account);
       return sendJson(res, 200, {
         ok: true,
-        results: results.map(buildTestZoneResultAudiencePayload),
+        results: results.map((result) => buildTestZoneResultAudiencePayload(result, { includeReviewDetails: true })),
         stats: buildTestZoneResultStats(results),
         failedQuestionIds: getTestZoneFailedQuestionIds(state, account),
         reviewedQuestionIds: getTestZoneReviewedQuestionIds(state, account)
@@ -5334,7 +5365,7 @@ const server = http.createServer(async (req, res) => {
         title: payload.title || "Zona Test"
       });
       writeState(state);
-      return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
+      return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result, { includeReviewDetails: true }) });
     } catch (error) {
       return sendJson(res, error.statusCode || 400, { ok: false, error: error.message || "No se pudo guardar el resultado de la zona test" });
     }

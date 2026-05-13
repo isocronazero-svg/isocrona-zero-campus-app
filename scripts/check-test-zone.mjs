@@ -175,6 +175,21 @@ async function main() {
       /getLatestProgressActivity\(ownResults, reviewMarks\)/,
       "El panel debe mostrar ultima actividad desde resultados y marcas propias"
     );
+    assert.match(
+      testViewSource,
+      /function buildResultReviewMarkup\(result = \{\}\)/,
+      "La Zona Test debe construir revision detallada del resultado finalizado"
+    );
+    assert.match(
+      testViewSource,
+      /data-action="jump-result-review-question"/,
+      "La revision detallada debe incluir navegacion entre preguntas"
+    );
+    assert.match(
+      testViewSource,
+      /formatSelectedReviewAnswer\(response\)[\s\S]*formatCorrectReviewAnswer\(response\)/,
+      "La revision debe mostrar respuesta elegida y respuesta correcta"
+    );
 
     const createdQuestions = [];
     for (const payload of [
@@ -184,7 +199,8 @@ async function main() {
         correctIndex: 0,
         part: "Parte común",
         category: "Legislación",
-        difficulty: "media"
+        difficulty: "media",
+        explanation: "La Ley 31/1995 regula la prevencion de riesgos laborales."
       },
       {
         prompt: "¿Qué equipo se usa para ataque interior?",
@@ -271,6 +287,16 @@ async function main() {
     assert.equal(saveResultResponse.body?.result?.correctCount, 1);
     assert.equal(saveResultResponse.body?.result?.wrongCount, 1);
     assert.equal(saveResultResponse.body?.result?.blankCount, 1);
+    assert.equal(saveResultResponse.body?.result?.responses?.[0]?.selectedAnswer, "Ley 31/1995");
+    assert.equal(saveResultResponse.body?.result?.responses?.[0]?.correctAnswer, "Ley 31/1995");
+    assert.equal(
+      saveResultResponse.body?.result?.responses?.[0]?.explanation,
+      "La Ley 31/1995 regula la prevencion de riesgos laborales."
+    );
+    assert.equal(saveResultResponse.body?.result?.responses?.[1]?.selectedAnswer, "Camilla");
+    assert.equal(saveResultResponse.body?.result?.responses?.[1]?.correctAnswer, "ERA");
+    assert.equal(saveResultResponse.body?.result?.responses?.[2]?.selectedAnswer, "");
+    assert.equal(saveResultResponse.body?.result?.responses?.[2]?.correctAnswer, "Verde");
 
     const secondMemberResultResponse = await secondMemberClient.request("POST", "/api/test-zone/results", {
       title: "Entrenamiento otro socio",
@@ -285,6 +311,11 @@ async function main() {
     assert.equal(historyResponse.body?.stats?.totalTests, 1);
     assert.equal(historyResponse.body?.stats?.correct, 1);
     assert.equal((historyResponse.body?.failedQuestionIds || []).length, 1);
+    assert.equal(
+      historyResponse.body?.results?.[0]?.responses?.[0]?.correctAnswer,
+      "Ley 31/1995",
+      "El historial propio debe conservar respuestas correctas solo tras finalizar"
+    );
 
     const failedQuestionId = historyResponse.body?.failedQuestionIds?.[0];
     const unmarkedReviewMarkedResultResponse = await memberClient.request(
@@ -491,6 +522,11 @@ async function main() {
     assert.equal(publicAttemptResponse.ok, true);
     assert.equal(publicAttemptPayload?.ok, true);
     assert.equal(typeof publicAttemptPayload?.result?.score, "number");
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(publicAttemptPayload?.result?.responses?.[0] || {}, "correctAnswer"),
+      false,
+      "El endpoint publico live no debe recibir los detalles de revision del test normal"
+    );
 
     const closeLiveSessionResponse = await adminClient.request(
       "POST",
@@ -564,6 +600,13 @@ async function main() {
       (memberStateResponse.body?.testZoneResults || []).some((result) => result.title === "Simulacro abierto"),
       false,
       "El state de socio no debe exponer resultados de invitados"
+    );
+    assert.equal(
+      (memberStateResponse.body?.testZoneResults || []).some((result) =>
+        (result.responses || []).some((response) => Object.prototype.hasOwnProperty.call(response, "correctAnswer"))
+      ),
+      false,
+      "El state de socio no debe exponer respuestas correctas de resultados antes de pedir el historial finalizado"
     );
     const memberStateReviewMarks = memberStateResponse.body?.testZoneReviewMarks || [];
     assert.equal(
