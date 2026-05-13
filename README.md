@@ -1,5 +1,7 @@
 # Isocrona Zero Campus
 
+> Repositorio con comprobaciones automaticas mediante GitHub Actions para validar seguridad basica y smoke tests antes de mergear cambios.
+
 ## Configuracion de PostgreSQL SSL
 
 - `DATABASE_URL`: cadena de conexion de PostgreSQL
