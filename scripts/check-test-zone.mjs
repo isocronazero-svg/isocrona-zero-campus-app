@@ -149,6 +149,18 @@ async function main() {
     await login(memberClient, "lucia@isocronazero.org", "bomberos123");
     await login(secondMemberClient, "javier@isocronazero.org", "bomberos123");
 
+    const testViewSource = readFileSync(path.join(repoRoot, "public", "assets", "js", "app", "views", "testView.js"), "utf8");
+    assert.match(
+      testViewSource,
+      /const reviewMarkToggleDisabled = run\.source === "reviewMarks";/,
+      "El intento reviewMarks debe declarar bloqueo de desmarcado"
+    );
+    assert.match(
+      testViewSource,
+      /if \(testSession\.activeRun\?\.source === "reviewMarks"\)/,
+      "El handler debe ignorar toggles de marca durante un intento reviewMarks"
+    );
+
     const createdQuestions = [];
     for (const payload of [
       {

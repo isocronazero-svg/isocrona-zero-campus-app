@@ -244,6 +244,7 @@ function buildQuestionAttemptMarkup() {
   }
   const markedQuestionIds = getManualReviewQuestionIds();
   const runModeLabel = run.source === "reviewMarks" ? "repaso de marcadas" : run.mode === "failed" ? "repaso" : "entrenamiento";
+  const reviewMarkToggleDisabled = run.source === "reviewMarks";
   return `
     <section class="test-zone-card">
       <div class="test-zone-card-head">
@@ -281,8 +282,9 @@ function buildQuestionAttemptMarkup() {
                       class="test-zone-secondary-button test-zone-review-toggle ${marked ? "is-active" : ""}"
                       data-action="toggle-review-mark"
                       data-question-id="${escapeHtml(questionId)}"
-                      aria-label="${escapeHtml(marked ? `Quitar marca de repaso de la pregunta ${index + 1}` : `Marcar pregunta ${index + 1} para repasar`)}"
+                      aria-label="${escapeHtml(reviewMarkToggleDisabled ? `Marca de repaso bloqueada durante el test de la pregunta ${index + 1}` : marked ? `Quitar marca de repaso de la pregunta ${index + 1}` : `Marcar pregunta ${index + 1} para repasar`)}"
                       aria-pressed="${marked ? "true" : "false"}"
+                      ${reviewMarkToggleDisabled ? "disabled" : ""}
                     >
                       ${marked ? "Marcada para repasar" : "Marcar para repasar"}
                     </button>
@@ -734,6 +736,9 @@ function bindActions(container) {
       return;
     }
     if (action === "toggle-review-mark") {
+      if (testSession.activeRun?.source === "reviewMarks") {
+        return;
+      }
       const questionId = String(actionTarget.dataset.questionId || "").trim();
       captureActiveAnswers(container.querySelector("[data-test-zone-attempt]"));
       if (getManualReviewQuestionIds().has(questionId)) {
