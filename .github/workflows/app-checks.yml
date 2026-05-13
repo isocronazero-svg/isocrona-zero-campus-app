@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      IZ_DATA_DIR: ${{ runner.temp }}/isocrona-campus-data
+      IZ_DATA_DIR: /tmp/isocrona-campus-data
       NODE_ENV: test
 
     steps:
