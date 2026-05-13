@@ -87,6 +87,7 @@ const navItems = [
   { id: "associates", label: "Socios y cuotas", sections: ASSOCIATE_SECTION_LINKS },
   { id: "campus", label: "Campus", sections: CAMPUS_SECTION_LINKS },
   { id: "test", label: "Zona Test" },
+  { id: "tests", label: "Tests" },
   { id: "reports", label: "Informes y validacion", sections: REPORT_SECTION_LINKS },
 ];
 
