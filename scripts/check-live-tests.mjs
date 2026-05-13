@@ -358,6 +358,30 @@ async function main() {
       "El endpoint normal no debe guardar resultados live contaminados"
     );
 
+    const privatePinNormalResultResponse = await memberClient.request(
+      "POST",
+      "/api/test-results",
+      {
+        resultType: "live",
+        sessionId: "222-222",
+        questionIds: ["question-live-smoke-1"],
+        answers: {
+          "question-live-smoke-1": 0
+        }
+      },
+      { allowFailure: true }
+    );
+    assert.equal(
+      [400, 403].includes(privatePinNormalResultResponse.status),
+      true,
+      "Un resultado live con PIN privado debe validarse o rechazarse sin error interno"
+    );
+    assert.doesNotMatch(
+      String(privatePinNormalResultResponse.body?.error || ""),
+      /ReferenceError|normalizeLiveTestPin/i,
+      "El rechazo de PIN privado no debe exponer errores internos"
+    );
+
     const validLiveInNormalEndpointResponse = await memberClient.request(
       "POST",
       "/api/test-results",

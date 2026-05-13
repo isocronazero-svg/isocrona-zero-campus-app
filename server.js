@@ -2359,6 +2359,11 @@ function resolveLiveSessionCreatedAtTimestamp(session) {
   return null;
 }
 
+function normalizeLiveTestPin(value) {
+  const pin = String(value || "").replace(/\D/g, "");
+  return /^\d{6}$/.test(pin) ? pin : "";
+}
+
 function buildLiveTestPin(state) {
   ensureIndependentTestsState(state);
   const usedPins = new Set(
