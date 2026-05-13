@@ -149,6 +149,18 @@ async function main() {
     await login(memberClient, "lucia@isocronazero.org", "bomberos123");
     await login(secondMemberClient, "javier@isocronazero.org", "bomberos123");
 
+    const testViewSource = readFileSync(path.join(repoRoot, "public", "assets", "js", "app", "views", "testView.js"), "utf8");
+    assert.match(
+      testViewSource,
+      /const reviewMarkToggleDisabled = run\.source === "reviewMarks";/,
+      "El intento reviewMarks debe declarar bloqueo de desmarcado"
+    );
+    assert.match(
+      testViewSource,
+      /if \(testSession\.activeRun\?\.source === "reviewMarks"\)/,
+      "El handler debe ignorar toggles de marca durante un intento reviewMarks"
+    );
+
     const createdQuestions = [];
     for (const payload of [
       {
@@ -260,6 +272,46 @@ async function main() {
     assert.equal((historyResponse.body?.failedQuestionIds || []).length, 1);
 
     const failedQuestionId = historyResponse.body?.failedQuestionIds?.[0];
+    const unmarkedReviewMarkedResultResponse = await memberClient.request(
+      "POST",
+      "/api/test-zone/results",
+      {
+        title: "Repasar marcadas contaminado",
+        mode: "reviewMarks",
+        source: "reviewMarks",
+        filters: { part: "all", category: "all", difficulty: "all", source: "reviewMarks" },
+        questionIds: [questionIds[1]],
+        answers: [0]
+      },
+      { allowFailure: true }
+    );
+    assert.equal(
+      unmarkedReviewMarkedResultResponse.status,
+      400,
+      "Un resultado reviewMarks no debe aceptar preguntas no marcadas por el socio"
+    );
+
+    const reviewMarkedResultResponse = await memberClient.request("POST", "/api/test-zone/results", {
+      title: "Repasar marcadas",
+      mode: "reviewMarks",
+      source: "reviewMarks",
+      filters: { part: "all", category: "all", difficulty: "all", source: "reviewMarks" },
+      questionIds: [questionIds[0]],
+      answers: [0]
+    });
+    assert.equal(reviewMarkedResultResponse.body?.ok, true);
+    assert.equal(reviewMarkedResultResponse.body?.result?.source, "reviewMarks");
+    assert.equal(reviewMarkedResultResponse.body?.result?.filters?.source, "reviewMarks");
+
+    const historyAfterReviewMarkedResultResponse = await memberClient.request("GET", "/api/test-zone/results/me");
+    assert.equal(
+      (historyAfterReviewMarkedResultResponse.body?.results || []).some(
+        (result) => result.title === "Repasar marcadas" && result.source === "reviewMarks"
+      ),
+      true,
+      "El resultado del modo Repasar marcadas debe conservar su origen"
+    );
+
     const reviewResponse = await memberClient.request(
       "POST",
       `/api/test-zone/questions/${encodeURIComponent(failedQuestionId)}/review`,

@@ -30,7 +30,8 @@ export function generateTest(
     filters = {},
     onlyQuestionIds = [],
     title = "Zona Test",
-    mode = "general"
+    mode = "general",
+    source = ""
   } = {},
   role = "member"
 ) {
@@ -46,9 +47,13 @@ export function generateTest(
     pool = pool.filter((question) => subsetIds.has(String(question.id || "").trim()));
   }
 
+  const normalizedSource = String(source || (subsetIds.size ? "failed" : "bank")).trim() || "bank";
   const requestedCount = Math.max(Number(numQuestions || 0), 1);
   const selectedQuestions = randomize(pool).slice(0, Math.min(requestedCount, pool.length));
   if (!selectedQuestions.length) {
+    if (normalizedSource === "reviewMarks") {
+      throw new Error("No tienes preguntas marcadas para repasar.");
+    }
     throw new Error(
       subsetIds.size
         ? "Todavia no tienes preguntas falladas disponibles con esos filtros."
@@ -64,8 +69,9 @@ export function generateTest(
       part: String(filters.part || "").trim(),
       category: String(filters.category || "").trim(),
       difficulty: String(filters.difficulty || "").trim(),
-      source: subsetIds.size ? "failed" : "bank"
+      source: normalizedSource
     },
+    source: normalizedSource,
     questions: selectedQuestions
   };
 }
@@ -109,6 +115,7 @@ export function evaluateTest(testRun, answers = [], role = "member") {
   return {
     title: String(testRun?.title || "Zona Test").trim(),
     mode: String(testRun?.mode || "general").trim(),
+    source: String(testRun?.source || testRun?.filters?.source || "").trim(),
     filters: testRun?.filters || {},
     questionIds: questions.map((question) => question.id),
     responses,
@@ -144,6 +151,7 @@ export async function saveTestResult(result) {
     body: JSON.stringify({
       title: result?.title || "Zona Test",
       mode: result?.mode || "general",
+      source: result?.source || result?.filters?.source || "",
       filters: result?.filters || {},
       questionIds: result?.questionIds || [],
       answers: (Array.isArray(result?.responses) ? result.responses : []).map((response) =>
