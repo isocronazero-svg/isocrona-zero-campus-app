@@ -131,6 +131,11 @@ const fallbackCertificateContentSections = [
 
 ensureUploadDir();
 const activeSessions = new Map();
+const rateLimitBuckets = new Map();
+const rateLimitMaxBuckets = 20000;
+const rateLimitMinuteMs = 60 * 1000;
+const rateLimitHourMs = 60 * 60 * 1000;
+const rateLimitDayMs = 24 * rateLimitHourMs;
 const campusGroupResourceCategories = ["documents", "practiceSheets", "videos", "links"];
 
 initDatabase().catch((error) => {
@@ -216,6 +221,105 @@ function parseCookies(req) {
 
 function getSessionTokenFromRequest(req) {
   return String(parseCookies(req).iz_session || "").trim();
+}
+
+function isEnvEnabled(value) {
+  return String(value || "").trim().toLowerCase() === "true";
+}
+
+function normalizeRateLimitKeyPart(value) {
+  return String(value || "unknown").trim().toLowerCase() || "unknown";
+}
+
+function getClientIp(req) {
+  if (isEnvEnabled(process.env.IZ_TRUST_PROXY_HEADERS)) {
+    const forwardedFor = String(req.headers["x-forwarded-for"] || "")
+      .split(",")[0]
+      .trim();
+    const realIp = String(req.headers["x-real-ip"] || "").trim();
+    if (forwardedFor) {
+      return forwardedFor;
+    }
+    if (realIp) {
+      return realIp;
+    }
+  }
+
+  return String(req.socket?.remoteAddress || req.connection?.remoteAddress || "unknown")
+    .trim()
+    .replace(/^::ffff:/, "") || "unknown";
+}
+
+function pruneRateLimitBuckets(now = Date.now()) {
+  for (const [key, entry] of rateLimitBuckets.entries()) {
+    if (!entry || Number(entry.resetAt || 0) <= now) {
+      rateLimitBuckets.delete(key);
+    }
+  }
+}
+
+function checkRateLimit(key, limit, windowMs) {
+  const normalizedKey = normalizeRateLimitKeyPart(key);
+  const normalizedLimit = Math.max(1, Number(limit || 1));
+  const normalizedWindowMs = Math.max(1000, Number(windowMs || 1000));
+  const now = Date.now();
+
+  if (rateLimitBuckets.size > rateLimitMaxBuckets) {
+    pruneRateLimitBuckets(now);
+  }
+
+  let entry = rateLimitBuckets.get(normalizedKey);
+  if (!entry || Number(entry.resetAt || 0) <= now) {
+    entry = {
+      count: 0,
+      resetAt: now + normalizedWindowMs
+    };
+    rateLimitBuckets.set(normalizedKey, entry);
+  }
+
+  const retryAfterSeconds = Math.max(1, Math.ceil((entry.resetAt - now) / 1000));
+  if (entry.count >= normalizedLimit) {
+    return {
+      limited: true,
+      retryAfterSeconds,
+      limit: normalizedLimit,
+      resetAt: entry.resetAt
+    };
+  }
+
+  entry.count += 1;
+  return {
+    limited: false,
+    retryAfterSeconds,
+    limit: normalizedLimit,
+    remaining: Math.max(0, normalizedLimit - entry.count),
+    resetAt: entry.resetAt
+  };
+}
+
+function sendRateLimited(res, result) {
+  const retryAfterSeconds = Math.max(1, Number(result?.retryAfterSeconds || 1));
+  res.writeHead(429, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Retry-After": String(retryAfterSeconds),
+    "Cache-Control": "no-store"
+  });
+  res.end(
+    JSON.stringify({
+      ok: false,
+      error: "Demasiados intentos. Espera unos minutos y vuelve a probar.",
+      retryAfterSeconds
+    })
+  );
+}
+
+function enforceRateLimit(res, key, limit, windowMs) {
+  const result = checkRateLimit(key, limit, windowMs);
+  if (result.limited) {
+    sendRateLimited(res, result);
+    return true;
+  }
+  return false;
 }
 
 function buildSessionPayload(account, sessionToken = "") {
@@ -4837,12 +4941,20 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/auth/register" && req.method === "POST") {
     try {
+      const clientIp = getClientIp(req);
+      if (enforceRateLimit(res, `auth-register:ip:${clientIp}`, 5, rateLimitHourMs)) {
+        return;
+      }
       const payload = await readJsonBody(req);
+      const email = String(payload.email || "").trim().toLowerCase();
+      if (email && enforceRateLimit(res, `auth-register:email:${email}`, 3, rateLimitHourMs)) {
+        return;
+      }
       const publicRegistrationRole = "socio";
       const user = isDatabaseEnabled()
         ? await createUser({
             name: payload.name,
-            email: payload.email,
+            email,
             password: payload.password,
             role: publicRegistrationRole,
             phone: payload.phone,
@@ -4870,8 +4982,15 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/auth/login" && req.method === "POST") {
     try {
+      const clientIp = getClientIp(req);
+      if (enforceRateLimit(res, `auth-login:ip:${clientIp}`, 20, 15 * rateLimitMinuteMs)) {
+        return;
+      }
       const payload = await readJsonBody(req);
       const email = String(payload.email || "").trim().toLowerCase();
+      if (email && enforceRateLimit(res, `auth-login:email-ip:${email}:${clientIp}`, 5, 15 * rateLimitMinuteMs)) {
+        return;
+      }
       const password = String(payload.password || "").trim();
       if (!isDatabaseEnabled()) {
         return sendJson(res, 503, { ok: false, error: "DATABASE_URL no configurada" });
@@ -5285,6 +5404,10 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/test-zone/live/join" && req.method === "POST") {
     try {
+      const clientIp = getClientIp(req);
+      if (enforceRateLimit(res, `test-zone-live-join:ip:${clientIp}`, 60, rateLimitMinuteMs)) {
+        return;
+      }
       const payload = await readJsonBody(req);
       const state = readState();
       ensureTestZoneState(state);
@@ -5299,6 +5422,17 @@ const server = http.createServer(async (req, res) => {
       }
       const session = getTestZoneLiveSessionByCode(state, code);
       if (!session) {
+        const failedCodeLimit = checkRateLimit(
+          `test-zone-live-join:failed-code:${clientIp}:${code || "missing"}`,
+          10,
+          10 * rateLimitMinuteMs
+        );
+        if (failedCodeLimit.limited) {
+          if (expired) {
+            writeState(state);
+          }
+          return sendRateLimited(res, failedCodeLimit);
+        }
         if (expired) {
           writeState(state);
         }
@@ -5325,11 +5459,22 @@ const server = http.createServer(async (req, res) => {
 
   if (/^\/api\/test-zone\/live-sessions\/[^/]+\/attempt$/.test(requestUrl.pathname) && req.method === "POST") {
     try {
+      const clientIp = getClientIp(req);
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      if (
+        enforceRateLimit(
+          res,
+          `test-zone-live-attempt:ip-session:${clientIp}:${sessionId || "missing"}`,
+          120,
+          10 * rateLimitMinuteMs
+        )
+      ) {
+        return;
+      }
       const payload = await readJsonBody(req);
       const state = readState();
       ensureTestZoneState(state);
       const expired = expireStaleTestZoneLiveSessions(state);
-      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
       const session = getTestZoneLiveSessionById(state, sessionId);
       if (!session || !isTestZoneLiveSessionActive(session)) {
         if (expired) {
@@ -5340,6 +5485,16 @@ const server = http.createServer(async (req, res) => {
       const guestName = String(payload.guestName || "").trim();
       if (!guestName) {
         throw new Error("Necesitas indicar tu nombre para enviar el test en vivo");
+      }
+      if (
+        enforceRateLimit(
+          res,
+          `test-zone-live-attempt:session-guest:${session.id}:${guestName}`,
+          3,
+          15 * rateLimitMinuteMs
+        )
+      ) {
+        return;
       }
       validateTestZoneLiveResultPayloadForSession(session, payload);
       const result = createTestZoneResultRecord(state, payload, {
@@ -6078,12 +6233,35 @@ const server = http.createServer(async (req, res) => {
   const publicLiveSubmitMatch = requestUrl.pathname.match(/^\/api\/live-test-sessions\/([^/]+)\/submit$/);
   if (publicLiveSubmitMatch && req.method === "POST") {
     try {
+      const clientIp = getClientIp(req);
+      const submittedCode = decodeURIComponent(publicLiveSubmitMatch[1] || "");
+      if (
+        enforceRateLimit(
+          res,
+          `public-live-submit:ip-code:${clientIp}:${submittedCode || "missing"}`,
+          120,
+          10 * rateLimitMinuteMs
+        )
+      ) {
+        return;
+      }
       const payload = await readJsonBody(req);
       const state = readState();
       ensureIndependentTestsState(state);
-      const session = findPublicLiveSessionByCode(state, decodeURIComponent(publicLiveSubmitMatch[1] || ""));
+      const session = findPublicLiveSessionByCode(state, submittedCode);
       if (!session || session.status !== "active") {
         return sendJson(res, 404, { ok: false, error: "Sesion en vivo no encontrada o cerrada" });
+      }
+      const participantName = String(payload.participantName || payload.name || "").trim();
+      if (
+        enforceRateLimit(
+          res,
+          `public-live-submit:code-participant:${session.code || submittedCode}:${participantName || "missing"}`,
+          3,
+          15 * rateLimitMinuteMs
+        )
+      ) {
+        return;
       }
       const result = buildPublicLiveParticipantResult(state, session, payload);
       state.liveTestParticipantResults.unshift(result);
@@ -6231,6 +6409,13 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/recovery-admin" && req.method === "POST") {
     try {
+      const clientIp = getClientIp(req);
+      if (enforceRateLimit(res, `recovery-admin:ip:${clientIp}`, 3, rateLimitHourMs)) {
+        return;
+      }
+      if (enforceRateLimit(res, "recovery-admin:global", 10, rateLimitHourMs)) {
+        return;
+      }
       const recoveryConfig = getRecoveryAdminEnvConfig();
       if (!recoveryConfig.enabled) {
         return sendJson(res, 403, {
@@ -6282,6 +6467,10 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/login" && req.method === "POST") {
     try {
+      const clientIp = getClientIp(req);
+      if (enforceRateLimit(res, `legacy-login:ip:${clientIp}`, 20, 15 * rateLimitMinuteMs)) {
+        return;
+      }
       const payload = await readJsonBody(req);
       const recoveryConfig = getRecoveryAdminEnvConfig();
       const recoveryEmail = recoveryConfig.email;
@@ -6295,6 +6484,9 @@ const server = http.createServer(async (req, res) => {
         stateChanged = true;
       }
       const email = String(payload.email || "").trim().toLowerCase();
+      if (email && enforceRateLimit(res, `legacy-login:email-ip:${email}:${clientIp}`, 5, 15 * rateLimitMinuteMs)) {
+        return;
+      }
       const password = String(payload.password || "").trim();
       let account = (state.accounts || []).find(
         (item) =>
@@ -6640,7 +6832,22 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/associates/apply" && req.method === "POST") {
     let state = null;
     try {
+      const clientIp = getClientIp(req);
+      if (enforceRateLimit(res, `associate-apply:ip-hour:${clientIp}`, 10, rateLimitHourMs)) {
+        return;
+      }
+      if (enforceRateLimit(res, `associate-apply:ip-day:${clientIp}`, 20, rateLimitDayMs)) {
+        return;
+      }
       const payload = await readJsonBody(req);
+      const email = String(payload.email || payload.submitterEmail || "").trim().toLowerCase();
+      const dni = String(payload.dni || "").trim().toUpperCase();
+      if (email && enforceRateLimit(res, `associate-apply:email:${email}`, 2, rateLimitDayMs)) {
+        return;
+      }
+      if (dni && enforceRateLimit(res, `associate-apply:dni:${dni}`, 2, rateLimitDayMs)) {
+        return;
+      }
       state = readState();
       const application = createAssociateApplication(state, payload);
       await maybeSendAssociateApplicationReceiptEmail(state, application);
