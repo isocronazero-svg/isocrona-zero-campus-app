@@ -65,6 +65,12 @@ const {
   verifyLegacyAccountPassword
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
+const {
+  handleRoute,
+  withAdmin,
+  withAuth,
+  withJsonBodyLimit
+} = require("./server/router-utils");
 
 loadDotEnv(path.join(__dirname, ".env"));
 
@@ -4103,8 +4109,13 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (requestUrl.pathname === "/api/auth/register" && req.method === "POST") {
-    try {
+  if (
+    await handleRoute(
+      req,
+      res,
+      requestUrl,
+      { path: "/api/auth/register", method: "POST", fallbackMessage: "No se pudo registrar el usuario" },
+      async () => {
       const clientIp = getClientIp(req);
       if (enforceRateLimit(res, `auth-register:ip:${clientIp}`, 5, rateLimitHourMs)) {
         return;
@@ -4139,13 +4150,19 @@ const server = http.createServer(async (req, res) => {
         user,
         accountId: ensured?.account?.id || ""
       });
-    } catch (error) {
-      return sendJsonError(res, error, "No se pudo registrar el usuario");
-    }
+      }
+    )
+  ) {
+    return;
   }
 
-  if (requestUrl.pathname === "/api/auth/login" && req.method === "POST") {
-    try {
+  if (
+    await handleRoute(
+      req,
+      res,
+      requestUrl,
+      { path: "/api/auth/login", method: "POST", fallbackMessage: "Login invalido" },
+      async () => {
       const clientIp = getClientIp(req);
       if (enforceRateLimit(res, `auth-login:ip:${clientIp}`, 20, 15 * rateLimitMinuteMs)) {
         return;
@@ -4180,9 +4197,10 @@ const server = http.createServer(async (req, res) => {
           platformRole: dbUser.role
         })
       });
-    } catch (error) {
-      return sendJsonError(res, error, "Login invalido");
-    }
+      }
+    )
+  ) {
+    return;
   }
 
   if (requestUrl.pathname === "/api/auth/me" && req.method === "GET") {
@@ -4342,13 +4360,21 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (requestUrl.pathname === "/api/test-zone/questions" && req.method === "GET") {
-    try {
-      const state = readState();
-      const account = requireAuthenticatedAccount(req, res, state);
-      if (!account) {
-        return;
-      }
+  if (
+    await handleRoute(
+      req,
+      res,
+      requestUrl,
+      {
+        path: "/api/test-zone/questions",
+        method: "GET",
+        onError: (error) =>
+          sendJson(res, 400, {
+            ok: false,
+            error: error.message || "No se pudieron cargar las preguntas de la zona test"
+          })
+      },
+      withAuth({ readState, requireAuthenticatedAccount }, async ({ state, account }) => {
       ensureTestZoneState(state);
       const questions = (state.testZoneQuestions || []).map((question) =>
         account.role === "admin"
@@ -4356,9 +4382,10 @@ const server = http.createServer(async (req, res) => {
           : buildTestZoneQuestionAudiencePayload(question)
       );
       return sendJson(res, 200, { ok: true, questions });
-    } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar las preguntas de la zona test" });
-    }
+      })
+    )
+  ) {
+    return;
   }
 
   if (requestUrl.pathname === "/api/test-zone/questions" && req.method === "POST") {
@@ -4466,14 +4493,19 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (requestUrl.pathname === "/api/test-zone/results" && req.method === "POST") {
-    try {
-      const state = readState();
-      const account = requireAuthenticatedAccount(req, res, state);
-      if (!account) {
-        return;
-      }
-      const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
+  if (
+    await handleRoute(
+      req,
+      res,
+      requestUrl,
+      {
+        path: "/api/test-zone/results",
+        method: "POST",
+        fallbackMessage: "No se pudo guardar el resultado de la zona test"
+      },
+      withAuth(
+        { readState, requireAuthenticatedAccount },
+        withJsonBodyLimit(payloadLimitBytes.testAttempt, async ({ state, account, body: payload }) => {
       ensureTestZoneState(state);
       if (isLiveResultPayload(payload)) {
         const sessionKey = String(payload.sessionId || payload.liveSessionId || "").trim();
@@ -4499,18 +4531,28 @@ const server = http.createServer(async (req, res) => {
       });
       writeState(state);
       return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
-    } catch (error) {
-      return sendJsonError(res, error, "No se pudo guardar el resultado de la zona test");
-    }
+        })
+      )
+    )
+  ) {
+    return;
   }
 
-  if (requestUrl.pathname === "/api/test-zone/live-sessions" && req.method === "GET") {
-    try {
-      const state = readState();
-      const account = requireAdminAccount(req, res, state);
-      if (!account) {
-        return;
-      }
+  if (
+    await handleRoute(
+      req,
+      res,
+      requestUrl,
+      {
+        path: "/api/test-zone/live-sessions",
+        method: "GET",
+        onError: (error) =>
+          sendJson(res, 400, {
+            ok: false,
+            error: error.message || "No se pudieron cargar los tests en vivo"
+          })
+      },
+      withAdmin({ readState, requireAdminAccount }, async ({ state }) => {
       ensureTestZoneState(state);
       if (expireStaleTestZoneLiveSessions(state)) {
         writeState(state);
@@ -4521,9 +4563,10 @@ const server = http.createServer(async (req, res) => {
           .map(buildTestZoneLiveSessionAdminPayload)
           .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
       });
-    } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudieron cargar los tests en vivo" });
-    }
+      })
+    )
+  ) {
+    return;
   }
 
   if (requestUrl.pathname === "/api/test-zone/live-sessions" && req.method === "POST") {
@@ -5571,8 +5614,22 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, prepareStateForTransport(state, account));
   }
 
-  if (requestUrl.pathname === "/api/recovery-admin" && req.method === "POST") {
-    try {
+  if (
+    await handleRoute(
+      req,
+      res,
+      requestUrl,
+      {
+        path: "/api/recovery-admin",
+        method: "POST",
+        onError: (error) => {
+          if (isPayloadTooLargeError(error)) {
+            return sendPayloadTooLarge(res, error);
+          }
+          return sendJson(res, 400, { ok: false, error: "Recuperacion invalida" });
+        }
+      },
+      async () => {
       const clientIp = getClientIp(req);
       if (enforceRateLimit(res, `recovery-admin:ip:${clientIp}`, 3, rateLimitHourMs)) {
         return;
@@ -5624,16 +5681,28 @@ const server = http.createServer(async (req, res) => {
           session: buildSessionPayload(account, token),
           message: "Acceso administrador recuperado"
         });
-    } catch (error) {
-      if (isPayloadTooLargeError(error)) {
-        return sendPayloadTooLarge(res, error);
       }
-      return sendJson(res, 400, { ok: false, error: "Recuperacion invalida" });
-    }
+    )
+  ) {
+    return;
   }
 
-  if (requestUrl.pathname === "/api/login" && req.method === "POST") {
-    try {
+  if (
+    await handleRoute(
+      req,
+      res,
+      requestUrl,
+      {
+        path: "/api/login",
+        method: "POST",
+        onError: (error) => {
+          if (isPayloadTooLargeError(error)) {
+            return sendPayloadTooLarge(res, error);
+          }
+          return sendJson(res, 400, { ok: false, error: "Login invalido" });
+        }
+      },
+      async () => {
       const clientIp = getClientIp(req);
       if (enforceRateLimit(res, `legacy-login:ip:${clientIp}`, 20, 15 * rateLimitMinuteMs)) {
         return;
@@ -5774,12 +5843,10 @@ const server = http.createServer(async (req, res) => {
           ok: true,
           session: buildSessionPayload(account, token)
         });
-    } catch (error) {
-      if (isPayloadTooLargeError(error)) {
-        return sendPayloadTooLarge(res, error);
       }
-      return sendJson(res, 400, { ok: false, error: "Login invalido" });
-    }
+    )
+  ) {
+    return;
   }
 
   if (requestUrl.pathname === "/api/logout" && req.method === "POST") {
