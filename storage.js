@@ -372,13 +372,54 @@ function normalizePracticeAttempt(attempt, attemptIndex) {
   };
 }
 
+function normalizeTestZoneComparableText(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function normalizeStoredTestZonePart(value) {
+  const rawValue = String(value || "").trim();
+  const normalized = normalizeTestZoneComparableText(rawValue);
+  if (!rawValue) {
+    return "";
+  }
+  if (normalized === "ivaspe") {
+    return "IVASPE";
+  }
+  if (normalized.includes("espec")) {
+    return "Parte específica";
+  }
+  if (normalized.includes("comun")) {
+    return "Parte común";
+  }
+  return rawValue;
+}
+
+function normalizeStoredTestZoneDifficulty(value) {
+  const rawValue = String(value || "").trim();
+  const normalized = normalizeTestZoneComparableText(rawValue);
+  if (!rawValue) {
+    return "media";
+  }
+  if (["facil", "easy", "baja"].includes(normalized)) {
+    return "facil";
+  }
+  if (["media", "medium"].includes(normalized)) {
+    return "media";
+  }
+  if (["dificil", "hard", "alta"].includes(normalized)) {
+    return "dificil";
+  }
+  return rawValue;
+}
+
 function normalizeTestZoneQuestion(question, questionIndex) {
   const options = Array.isArray(question?.options)
     ? question.options.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
-  const rawPart = String(question?.part || "").trim().toLowerCase();
-  const rawCategory = String(question?.category || "").trim().toLowerCase();
-  const rawDifficulty = String(question?.difficulty || "").trim().toLowerCase();
   return {
     ...question,
     id: question?.id || `test-zone-question-${Date.now()}-${questionIndex}`,
@@ -390,18 +431,13 @@ function normalizeTestZoneQuestion(question, questionIndex) {
         : Number.isInteger(Number(question?.correctAnswer)) && Number(question.correctAnswer) >= 0
           ? Number(question.correctAnswer)
           : 0,
-    part: rawPart.includes("espec") ? "Parte específica" : "Parte común",
-    category:
-      rawCategory.includes("bomber") || rawCategory.includes("bombero")
-        ? "Bomberos"
-        : "Legislación",
-    difficulty:
-      rawDifficulty === "hard" || rawDifficulty === "alta"
-        ? "alta"
-        : rawDifficulty === "easy" || rawDifficulty === "baja"
-          ? "baja"
-          : "media",
+    part: normalizeStoredTestZonePart(question?.part),
+    category: String(question?.category || "").trim(),
+    difficulty: normalizeStoredTestZoneDifficulty(question?.difficulty),
     explanation: String(question?.explanation || "").trim(),
+    temaNumero: String(question?.temaNumero || "").trim(),
+    temaTitulo: String(question?.temaTitulo || "").trim(),
+    moduleTitle: String(question?.moduleTitle || "IVASPE").trim() || "IVASPE",
     createdAt: question?.createdAt || new Date().toISOString(),
     createdBy: String(question?.createdBy || "").trim()
   };

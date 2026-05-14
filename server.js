@@ -286,24 +286,49 @@ const liveTestQuestionTimingGraceMs = 1000;
 const practiceTestRetentionMs = 24 * 60 * 60 * 1000;
 
 function normalizeTestZonePart(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return normalized.includes("espec") ? "Parte específica" : "Parte común";
+  const rawValue = String(value || "").trim();
+  const normalized = rawValue
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (!rawValue) {
+    return "";
+  }
+  if (normalized === "ivaspe") {
+    return "IVASPE";
+  }
+  if (normalized.includes("espec")) {
+    return "Parte específica";
+  }
+  if (normalized.includes("comun")) {
+    return "Parte común";
+  }
+  return rawValue;
 }
 
 function normalizeTestZoneCategory(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return normalized.includes("bomber") || normalized.includes("bombero") ? "Bomberos" : "Legislación";
+  return String(value || "").trim();
 }
 
 function normalizeTestZoneDifficulty(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "hard" || normalized === "alta") {
-    return "alta";
+  const rawValue = String(value || "").trim();
+  const normalized = rawValue
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (!rawValue) {
+    return "media";
   }
-  if (normalized === "easy" || normalized === "baja") {
-    return "baja";
+  if (["facil", "easy", "baja"].includes(normalized)) {
+    return "facil";
   }
-  return "media";
+  if (["media", "medium"].includes(normalized)) {
+    return "media";
+  }
+  if (["dificil", "hard", "alta"].includes(normalized)) {
+    return "dificil";
+  }
+  return rawValue;
 }
 
 function inferLegacyTestZonePart(question = {}) {
@@ -338,6 +363,9 @@ function normalizeTestZoneQuestionRecord(question = {}, questionIndex = 0) {
         : inferLegacyTestZoneCategory(question),
     difficulty: normalizeTestZoneDifficulty(question?.difficulty),
     explanation: String(question?.explanation || "").trim(),
+    temaNumero: String(question?.temaNumero || "").trim(),
+    temaTitulo: String(question?.temaTitulo || "").trim(),
+    moduleTitle: String(question?.moduleTitle || "IVASPE").trim() || "IVASPE",
     createdBy: String(question?.createdBy || "").trim(),
     createdAt: question?.createdAt || new Date().toISOString()
   };
@@ -368,6 +396,9 @@ function buildTestZoneQuestion(payload = {}, account = null) {
       category: payload.category,
       difficulty: payload.difficulty,
       explanation: payload.explanation,
+      temaNumero: payload.temaNumero,
+      temaTitulo: payload.temaTitulo,
+      moduleTitle: payload.moduleTitle || "IVASPE",
       createdBy: account?.name || account?.email || ""
     },
     0
