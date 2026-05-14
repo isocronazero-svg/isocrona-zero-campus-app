@@ -42,8 +42,8 @@ async function getAvailablePort() {
 
 function assertPublicRegisterRoleIsFixed() {
   const serverContent = readFileSync(path.join(repoRoot, "server.js"), "utf8");
-  const start = serverContent.indexOf('if (requestUrl.pathname === "/api/auth/register"');
-  const end = serverContent.indexOf('if (requestUrl.pathname === "/api/auth/login"', start);
+  const start = serverContent.indexOf('path: "/api/auth/register"');
+  const end = serverContent.indexOf('path: "/api/auth/login"', start);
   assert.notEqual(start, -1, "No se encontro la ruta publica de registro");
   assert.notEqual(end, -1, "No se pudo aislar la ruta publica de registro");
 
