@@ -1,12 +1,21 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const syntaxFiles = ["public/app.js", "public/public-live-test.js", "server.js", "server/http.js", "server/auth.js", "storage.js"];
+const syntaxFiles = [
+  "public/app.js",
+  "public/public-live-test.js",
+  "server.js",
+  "server/http.js",
+  "server/auth.js",
+  "server/state-transport.js",
+  "storage.js"
+];
 const conflictCheckedFiles = [
   "public/app.js",
   "server.js",
   "server/http.js",
   "server/auth.js",
+  "server/state-transport.js",
   "storage.js",
   "package.json",
   "README.md"
@@ -14,6 +23,7 @@ const conflictCheckedFiles = [
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
   "scripts/check-auth-utils.mjs",
+  "scripts/check-state-transport.mjs",
   "scripts/check-security-hardening.mjs",
   "scripts/check-rate-limits.mjs",
   "scripts/check-payload-limits.mjs",
