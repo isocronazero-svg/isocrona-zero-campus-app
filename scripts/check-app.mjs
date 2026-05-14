@@ -10,7 +10,8 @@ const extraCheckScripts = [
   "scripts/check-payload-limits.mjs",
   "scripts/check-live-tests.mjs",
   "scripts/check-member-notifications.mjs",
-  "scripts/check-test-zone.mjs"
+  "scripts/check-test-zone.mjs",
+  "scripts/check-test-zone-normalizer.mjs"
 ];
 const associateActionContracts = [
   "approve-associate",
