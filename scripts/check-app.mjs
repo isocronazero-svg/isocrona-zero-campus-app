@@ -33,6 +33,7 @@ const extraCheckScripts = [
   "scripts/check-live-tests.mjs",
   "scripts/check-member-notifications.mjs",
   "scripts/check-test-zone.mjs",
+  "scripts/check-test-zone-ivaspe-csv-files.mjs",
   "scripts/check-test-zone-normalizer.mjs"
 ];
 const associateActionContracts = [
