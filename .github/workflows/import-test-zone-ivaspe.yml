@@ -1,0 +1,107 @@
+name: Import Test Zone IVASPE to Railway
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run only the remote dry-run. Set to false to import in Railway production."
+        required: true
+        type: boolean
+        default: true
+      railway_environment:
+        description: "Railway environment name or id."
+        required: false
+        type: string
+        default: "production"
+      railway_service:
+        description: "Railway service name or id. Falls back to repository variable RAILWAY_SERVICE."
+        required: false
+        type: string
+        default: ""
+      railway_project_id:
+        description: "Railway project id. Falls back to repository variable RAILWAY_PROJECT_ID."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: import-test-zone-ivaspe-production
+  cancel-in-progress: false
+
+jobs:
+  import-ivaspe:
+    name: Import IVASPE questions in Railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ inputs.railway_project_id || vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_SERVICE: ${{ inputs.railway_service || vars.RAILWAY_SERVICE }}
+      RAILWAY_ENVIRONMENT: ${{ inputs.railway_environment || vars.RAILWAY_ENVIRONMENT || 'production' }}
+      DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Run IVASPE import inside Railway
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::error::Missing required GitHub secret RAILWAY_TOKEN."
+            exit 1
+          fi
+
+          railway_args=()
+          if [ -n "${RAILWAY_PROJECT_ID:-}" ]; then
+            railway_args+=(--project "$RAILWAY_PROJECT_ID")
+            echo "Railway project id configured."
+          else
+            echo "::warning::RAILWAY_PROJECT_ID is not configured. The Railway token or linked context must resolve the project."
+          fi
+
+          if [ -n "${RAILWAY_SERVICE:-}" ]; then
+            railway_args+=(--service "$RAILWAY_SERVICE")
+            echo "Railway service configured."
+          else
+            echo "::warning::RAILWAY_SERVICE is not configured. Railway must resolve the default service."
+          fi
+
+          railway_args+=(--environment "$RAILWAY_ENVIRONMENT")
+          echo "Railway environment: $RAILWAY_ENVIRONMENT"
+
+          echo "Railway CLI version:"
+          railway --version
+
+          # Important: use railway ssh, not railway run. railway run executes locally with
+          # Railway variables, while this import must mutate the deployed Railway state/volume.
+          echo "Remote storage target:"
+          railway ssh "${railway_args[@]}" -- sh -lc 'node -e '"'"'const storage = require("./storage.js"); const meta = storage.getStorageMeta(); const safe = { IZ_DATA_DIR: meta.IZ_DATA_DIR ? "[set]" : "", dataDir: meta.dataDir, dbPath: meta.dbPath, snapshotPath: meta.snapshotPath, backupDir: meta.backupDir, updatedAt: meta.updatedAt }; console.log(JSON.stringify(safe, null, 2));'"'"''
+
+          echo "Running remote IVASPE dry-run..."
+          railway ssh "${railway_args[@]}" -- sh -lc 'npm run import:test-zone-ivaspe -- --dry-run'
+
+          if [ "$DRY_RUN" != "false" ]; then
+            echo "Dry-run requested. No production data was modified."
+            exit 0
+          fi
+
+          echo "Running remote IVASPE import..."
+          railway ssh "${railway_args[@]}" -- sh -lc 'npm run import:test-zone-ivaspe'
+
+          echo "Validating remote Test Zone question count..."
+          railway ssh "${railway_args[@]}" -- sh -lc 'node -e '"'"'const storage = require("./storage.js"); const state = storage.readState(); const questions = Array.isArray(state.testZoneQuestions) ? state.testZoneQuestions : []; const categories = [...new Set(questions.map((question) => question.category).filter(Boolean))].sort(); console.log(JSON.stringify({ total: questions.length, categories }, null, 2)); if (questions.length <= 0) { process.exit(1); }'"'"''
