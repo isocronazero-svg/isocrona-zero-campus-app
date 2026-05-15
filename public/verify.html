@@ -50,11 +50,11 @@
         if (!code) {
           return;
         }
-        validateCode(code);
+        await validateCode(code);
       });
 
       async function validateCode(code) {
-        resultCard.innerHTML = '<p class="muted">Buscando diploma...</p>';
+        renderLoading();
 
         try {
           const response = await fetch(`/api/verify?code=${encodeURIComponent(code)}`);
@@ -65,29 +65,64 @@
           }
 
           const diploma = payload.diploma;
-          resultCard.innerHTML = `
-            <p class="eyebrow">Resultado</p>
-            <h2>Diploma valido</h2>
-            <div class="table-card">
-              <table>
-                <tbody>
-                  <tr><td>Codigo</td><td>${diploma.code}</td></tr>
-                  <tr><td>Alumno</td><td>${diploma.memberName}</td></tr>
-                  <tr><td>Curso</td><td>${diploma.courseTitle}</td></tr>
-                  <tr><td>Tipo</td><td>${diploma.courseType}</td></tr>
-                  <tr><td>Fin</td><td>${diploma.endDate}</td></tr>
-                  <tr><td>Horas</td><td>${diploma.hours}</td></tr>
-                </tbody>
-              </table>
-            </div>
-          `;
+          renderDiplomaResult(diploma);
         } catch (error) {
-          resultCard.innerHTML = `
-            <p class="eyebrow">Resultado</p>
-            <h2>Diploma no encontrado</h2>
-            <p class="muted">No existe un diploma registrado con ese codigo en este campus.</p>
-          `;
+          renderNotFound();
         }
+      }
+
+      function createTextElement(tagName, text, className = "") {
+        const element = document.createElement(tagName);
+        if (className) {
+          element.className = className;
+        }
+        element.textContent = String(text ?? "");
+        return element;
+      }
+
+      function replaceResultContent(...children) {
+        resultCard.textContent = "";
+        children.forEach((child) => resultCard.appendChild(child));
+      }
+
+      function renderLoading() {
+        replaceResultContent(createTextElement("p", "Buscando diploma...", "muted"));
+      }
+
+      function renderDiplomaResult(diploma = {}) {
+        const tableWrapper = document.createElement("div");
+        tableWrapper.className = "table-card";
+        const table = document.createElement("table");
+        const tbody = document.createElement("tbody");
+        [
+          ["Codigo", diploma.code],
+          ["Alumno", diploma.memberName],
+          ["Curso", diploma.courseTitle],
+          ["Tipo", diploma.courseType],
+          ["Fin", diploma.endDate],
+          ["Horas", diploma.hours]
+        ].forEach(([label, value]) => {
+          const row = document.createElement("tr");
+          row.appendChild(createTextElement("td", label));
+          row.appendChild(createTextElement("td", value));
+          tbody.appendChild(row);
+        });
+        table.appendChild(tbody);
+        tableWrapper.appendChild(table);
+
+        replaceResultContent(
+          createTextElement("p", "Resultado", "eyebrow"),
+          createTextElement("h2", "Diploma valido"),
+          tableWrapper
+        );
+      }
+
+      function renderNotFound() {
+        replaceResultContent(
+          createTextElement("p", "Resultado", "eyebrow"),
+          createTextElement("h2", "Diploma no encontrado"),
+          createTextElement("p", "No existe un diploma registrado con ese codigo en este campus.", "muted")
+        );
       }
     </script>
   </body>
