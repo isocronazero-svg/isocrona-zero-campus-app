@@ -3005,6 +3005,27 @@ function buildPublicLiveParticipantResult(state, session, payload = {}) {
   };
 }
 
+function sanitizePublicLiveParticipantResultForGuest(result = {}) {
+  const answers = Array.isArray(result.answers) ? result.answers : [];
+  return {
+    id: result.id,
+    sessionId: result.sessionId,
+    participantName: result.participantName,
+    answers: answers.map((answer) => ({
+      questionId: answer?.questionId,
+      answerIndex: answer?.answerIndex ?? null,
+      blank: Boolean(answer?.blank)
+    })),
+    correctCount: Number(result.correctCount || 0),
+    wrongCount: Number(result.wrongCount || 0),
+    blankCount: Number(result.blankCount || 0),
+    total: answers.length,
+    scorePercent: Number(result.scorePercent || 0),
+    status: String(result.status || "submitted"),
+    submittedAt: result.submittedAt
+  };
+}
+
 function buildIndependentTestQuestionAudiencePayload(question, options = {}) {
   if (options.admin) {
     return question;
@@ -5473,7 +5494,7 @@ const server = http.createServer(async (req, res) => {
       const result = buildPublicLiveParticipantResult(state, session, payload);
       state.liveTestParticipantResults.unshift(result);
       writeState(state);
-      return sendJson(res, 201, { ok: true, result });
+      return sendJson(res, 201, { ok: true, result: sanitizePublicLiveParticipantResultForGuest(result) });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo guardar el resultado en vivo");
     }
