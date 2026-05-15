@@ -16,6 +16,7 @@
     "check:test-zone-ivaspe-csv": "node scripts/check-test-zone-ivaspe-csv-files.mjs",
     "check:test-zone-normalizer": "node scripts/check-test-zone-normalizer.mjs",
     "health": "node scripts/healthcheck.mjs",
+    "import:test-zone-ivaspe": "node scripts/import-test-zone-ivaspe.mjs",
     "smoke:campus-test": "node scripts/smoke-campus-test.mjs",
     "smoke:campus-live-test": "node scripts/check-live-tests.mjs"
   },
