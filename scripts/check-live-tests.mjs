@@ -182,6 +182,14 @@ function assertForbiddenKeysAbsent(payload, label) {
   assert.equal(forbiddenPath, "", `${label} expone una clave privada: ${forbiddenPath}`);
 }
 
+function assertPublicLiveSubmitPayloadSafe(payload, label) {
+  const forbiddenPath = getForbiddenKeyPath(
+    payload,
+    new Set(["correct", "correctIndex", "correctAnswer", "correctOption", "explanation"])
+  );
+  assert.equal(forbiddenPath, "", `${label} expone correccion privada: ${forbiddenPath}`);
+}
+
 function createJsonClient(label, baseUrl) {
   const cookies = new Map();
 
@@ -413,6 +421,23 @@ async function main() {
     const validPublicLiveSubmitPayload = await validPublicLiveSubmitResponse.json();
     assert.equal(validPublicLiveSubmitResponse.status, 201);
     assert.equal(validPublicLiveSubmitPayload?.result?.sessionId, publicLiveSession.id);
+    assertPublicLiveSubmitPayloadSafe(validPublicLiveSubmitPayload, "public live submit payload");
+    assert.equal(validPublicLiveSubmitPayload?.result?.total, 1, "El resultado publico debe conservar el total");
+    assert.equal(validPublicLiveSubmitPayload?.result?.correctCount, 1, "El resultado publico debe conservar aciertos");
+    assert.equal(validPublicLiveSubmitPayload?.result?.wrongCount, 0, "El resultado publico debe conservar fallos");
+    assert.equal(validPublicLiveSubmitPayload?.result?.status, "submitted", "El resultado publico debe conservar estado final");
+    assert.equal(
+      validPublicLiveSubmitPayload?.result?.answers?.[0]?.answerIndex,
+      0,
+      "El resultado publico debe conservar la respuesta del participante"
+    );
+
+    const adminStateAfterPublicLiveResponse = await adminClient.request("GET", "/api/state");
+    assert.equal(
+      adminStateAfterPublicLiveResponse.body?.liveTestParticipantResults?.[0]?.answers?.[0]?.correctIndex,
+      0,
+      "El admin debe conservar correctIndex internamente en resultados live publicos"
+    );
 
     const memberStateAfterPublicLiveResponse = await memberClient.request("GET", "/api/state");
     assert.equal(
