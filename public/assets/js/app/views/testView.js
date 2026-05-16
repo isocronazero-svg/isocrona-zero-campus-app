@@ -283,6 +283,24 @@ function buildFilterSelect(name, value, options) {
   `;
 }
 
+function buildEmptyStateMarkup(role) {
+  const adminGuidance = role === "admin"
+    ? `<p class="muted">Importa un banco de preguntas desde administración para activar esta zona.</p>`
+    : "";
+  return `
+    <section class="test-zone-card">
+      <div class="test-zone-card-head">
+        <div>
+          <p class="test-zone-kicker">Estado vacío</p>
+          <h3>No hay preguntas cargadas todavía.</h3>
+          <p class="muted">Cuando el administrador importe un banco de preguntas, podrás practicar desde aquí.</p>
+          ${adminGuidance}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 function buildControlsMarkup() {
   const { parts, categories, difficulties } = getQuestionFilters(getStoredQuestions());
   return `
@@ -358,7 +376,7 @@ function buildQuestionAttemptMarkup() {
                       class="test-zone-secondary-button test-zone-review-toggle ${marked ? "is-active" : ""}"
                       data-action="toggle-review-mark"
                       data-question-id="${escapeHtml(questionId)}"
-                      aria-label="${escapeHtml(reviewMarkToggleDisabled ? `Marca de repaso bloqueada durante el test de la pregunta ${index + 1}` : marked ? `Quitar marca de repaso de la pregunta ${index + 1}` : `Marcar pregunta ${index + 1} para repasar`)}"
+                      aria-label="${escapeHtml(reviewMarkToggleDisabled ? `Marca de repaso bloqueada durante el test de la pregunta ${index + 1}` : marked ? `Quitar marca de repaso de la pregunta[...]
                       aria-pressed="${marked ? "true" : "false"}"
                       ${reviewMarkToggleDisabled ? "disabled" : ""}
                     >
@@ -544,7 +562,7 @@ function buildLatestResultMarkup() {
       <p class="test-zone-kicker">Último resultado</p>
       <h3>${escapeHtml(result.title || "Test finalizado")}</h3>
       <p class="test-zone-result-line">
-        Aciertos: ${escapeHtml(result.correctCount)} · Fallos: ${escapeHtml(result.wrongCount)} · Blancas: ${escapeHtml(result.blankCount)} · Nota: ${escapeHtml(result.score)}/${escapeHtml(result.total)} · ${escapeHtml(Number(result.percentage || 0).toFixed(1))}%
+        Aciertos: ${escapeHtml(result.correctCount)} · Fallos: ${escapeHtml(result.wrongCount)} · Blancas: ${escapeHtml(result.blankCount)} · Nota: ${escapeHtml(result.score)}/${escapeHtml(res[...]
       </p>
       <p class="muted">${escapeHtml(formatDate(result.createdAt))}</p>
       ${buildResultReviewMarkup(result)}
@@ -670,7 +688,7 @@ function buildHistoryMarkup() {
                       <div class="test-zone-history-side">
                         <strong>${escapeHtml(`${result.score}/${result.total}`)}</strong>
                         <span>${escapeHtml(`${Number(result.percentage || 0).toFixed(1)}%`)}</span>
-                        <button type="button" class="test-zone-secondary-button" data-action="repeat-result-failed" data-result-id="${escapeHtml(result.id)}" ${result.incorrectQuestionIds?.length ? "" : "disabled"}>
+                        <button type="button" class="test-zone-secondary-button" data-action="repeat-result-failed" data-result-id="${escapeHtml(result.id)}" ${result.incorrectQuestionIds?.length[...]
                           Repetir falladas
                         </button>
                       </div>
@@ -804,6 +822,8 @@ function buildAdminQuestionForm() {
 }
 
 function buildLayout() {
+  const hasQuestions = getStoredQuestions().length > 0;
+  
   return `
     <section class="test-zone-view">
       <header class="test-zone-hero">
@@ -813,13 +833,13 @@ function buildLayout() {
           <p class="muted">Crea un test, revisa fallos y guarda preguntas para repasar.</p>
         </div>
       </header>
-      ${buildProgressStatsPanel()}
-      ${buildControlsMarkup()}
+      ${hasQuestions ? buildProgressStatsPanel() : buildEmptyStateMarkup(testSession.role)}
+      ${hasQuestions ? buildControlsMarkup() : ""}
       ${buildQuestionAttemptMarkup()}
       ${buildLatestResultMarkup()}
-      ${buildFailedQuestionsMarkup()}
-      ${buildReviewMarkedQuestionsMarkup()}
-      ${buildHistoryMarkup()}
+      ${hasQuestions ? buildFailedQuestionsMarkup() : ""}
+      ${hasQuestions ? buildReviewMarkedQuestionsMarkup() : ""}
+      ${hasQuestions ? buildHistoryMarkup() : ""}
       ${buildAdminQuestionForm()}
     </section>
   `;
