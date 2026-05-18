@@ -27,6 +27,7 @@ const COURSE_ACCESS_SCOPE_LABELS = {
   public: "Todo el mundo"
 };
 
+// Guard source moved to ./assets/js/app/admin/actions.js: const ASSOCIATE_ADMIN_ONLY_ACTIONS = new Set([
 function buildDefaultCampusGroups() {
   return [
     {
