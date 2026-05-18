@@ -19,7 +19,7 @@ function fixMojibakeText(value) {
   return raw;
 }
 
-function normalizeDisplayTextForHtml(value) {
+function normalizeDisplayText(value) {
   const rawValue = String(value ?? "");
   if (/^(https?:|data:|mailto:)/i.test(rawValue) || rawValue.includes("://")) {
     return rawValue;
@@ -91,10 +91,14 @@ export function formatDate(value) {
 }
 
 export function escapeHtml(value) {
-  return normalizeDisplayTextForHtml(value)
+  return normalizeDisplayText(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
+Object.defineProperty(escapeHtml, "normalizeDisplayText", {
+  value: normalizeDisplayText
+});
