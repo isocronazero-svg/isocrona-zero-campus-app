@@ -9,6 +9,7 @@ import {
   MANUAL_NOTICE_AUDIENCE_LABELS,
   MANUAL_NOTICE_TONE_LABELS
 } from "./assets/js/app/ui/labels.js";
+import { escapeHtml, formatDate } from "./assets/js/app/ui/formatters.js";
 
 const SESSION_KEY = "iz-campus-session";
 const VIEW_ROLE_KEY = "iz-campus-view-role";
@@ -21396,14 +21397,6 @@ function buildEmailBody(member, course) {
     .replaceAll("{{course}}", course.title);
 }
 
-function formatDate(value) {
-  return new Date(value).toLocaleDateString("es-ES", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
-}
-
 function formatDateTime(value) {
   return new Date(value).toLocaleString("es-ES", {
     day: "2-digit",
@@ -21496,15 +21489,6 @@ function normalizeDisplayText(value) {
     ["Tr�fico", "Tráfico"]
   ];
   return replacements.reduce((result, [from, to]) => result.replaceAll(from, to), raw);
-}
-
-function escapeHtml(value) {
-  return normalizeDisplayText(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 async function readJsonResponse(response, fallbackMessage) {
