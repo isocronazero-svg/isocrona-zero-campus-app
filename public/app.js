@@ -9,6 +9,7 @@ import {
   MANUAL_NOTICE_AUDIENCE_LABELS,
   MANUAL_NOTICE_TONE_LABELS
 } from "./assets/js/app/ui/labels.js";
+import { escapeHtml, formatDate } from "./assets/js/app/ui/formatters.js";
 
 const SESSION_KEY = "iz-campus-session";
 const VIEW_ROLE_KEY = "iz-campus-view-role";
@@ -16408,16 +16409,16 @@ const COURSE_RESOURCE_VISIBILITIES = ["alumnado", "interno"];
 const LESSON_BLOCK_TYPES = ["document", "video", "checklist", "download", "evaluation", "practice"];
 
 function normalizeCourseQuestion(question, fallbackId = "") {
-  const prompt = normalizeDisplayText(question?.prompt || "");
+  const prompt = escapeHtml.normalizeDisplayText(question?.prompt || "");
   return {
     id: question?.id || fallbackId || `question-${Date.now()}`,
     prompt: prompt || "Pregunta",
     options: Array.isArray(question?.options)
-      ? question.options.map((option) => normalizeDisplayText(option)).filter(Boolean)
+      ? question.options.map((option) => escapeHtml.normalizeDisplayText(option)).filter(Boolean)
       : [],
-    correctAnswer: normalizeDisplayText(question?.correctAnswer || ""),
-    explanation: normalizeDisplayText(question?.explanation || ""),
-    label: normalizeDisplayText(question?.label || prompt || ""),
+    correctAnswer: escapeHtml.normalizeDisplayText(question?.correctAnswer || ""),
+    explanation: escapeHtml.normalizeDisplayText(question?.explanation || ""),
+    label: escapeHtml.normalizeDisplayText(question?.label || prompt || ""),
     sourceModuleId: question?.sourceModuleId || "",
     sourceLessonId: question?.sourceLessonId || "",
     createdAt: question?.createdAt || "",
@@ -16430,8 +16431,8 @@ function normalizeCourseBlock(block, moduleIndex, lessonIndex, blockIndex) {
   return {
     id: block.id || `block-${Date.now()}-${moduleIndex}-${lessonIndex}-${blockIndex}`,
     type: block.type || "document",
-    title: normalizeDisplayText(block.title || `Bloque ${blockIndex + 1}`),
-    content: normalizeDisplayText(block.content || ""),
+    title: escapeHtml.normalizeDisplayText(block.title || `Bloque ${blockIndex + 1}`),
+    content: escapeHtml.normalizeDisplayText(block.content || ""),
     url: block.url || "",
     questions: Array.isArray(block.questions)
       ? block.questions.map((question, questionIndex) =>
@@ -16466,15 +16467,15 @@ function normalizeCourseClass(value) {
 function normalizeCourseLesson(lesson, moduleIndex, lessonIndex) {
   return {
     id: lesson.id || `lesson-${Date.now()}-${moduleIndex}-${lessonIndex}`,
-    title: normalizeDisplayText(lesson.title || `Leccion ${lessonIndex + 1}`),
-    type: normalizeDisplayText(lesson.type || "Practica"),
+    title: escapeHtml.normalizeDisplayText(lesson.title || `Leccion ${lessonIndex + 1}`),
+    type: escapeHtml.normalizeDisplayText(lesson.type || "Practica"),
     duration: Number(lesson.duration || 0),
-    resource: normalizeDisplayText(lesson.resource || ""),
-    instructions: normalizeDisplayText(lesson.instructions || ""),
-    body: normalizeDisplayText(lesson.body || ""),
-    activity: normalizeDisplayText(lesson.activity || ""),
-    takeaway: normalizeDisplayText(lesson.takeaway || ""),
-    assetLabel: normalizeDisplayText(lesson.assetLabel || ""),
+    resource: escapeHtml.normalizeDisplayText(lesson.resource || ""),
+    instructions: escapeHtml.normalizeDisplayText(lesson.instructions || ""),
+    body: escapeHtml.normalizeDisplayText(lesson.body || ""),
+    activity: escapeHtml.normalizeDisplayText(lesson.activity || ""),
+    takeaway: escapeHtml.normalizeDisplayText(lesson.takeaway || ""),
+    assetLabel: escapeHtml.normalizeDisplayText(lesson.assetLabel || ""),
     assetUrl: lesson.assetUrl || "",
     publicationStatus: lesson.publicationStatus || "draft",
     blocks: Array.isArray(lesson.blocks)
@@ -16488,10 +16489,10 @@ function normalizeCourseLesson(lesson, moduleIndex, lessonIndex) {
 function normalizeCourseModule(module, moduleIndex) {
   return {
     id: module.id || `module-${Date.now()}-${moduleIndex}`,
-    title: normalizeDisplayText(module.title || `Modulo ${moduleIndex + 1}`),
-    goal: normalizeDisplayText(module.goal || ""),
-    format: normalizeDisplayText(module.format || "Sesion guiada"),
-    deliverable: normalizeDisplayText(module.deliverable || ""),
+    title: escapeHtml.normalizeDisplayText(module.title || `Modulo ${moduleIndex + 1}`),
+    goal: escapeHtml.normalizeDisplayText(module.goal || ""),
+    format: escapeHtml.normalizeDisplayText(module.format || "Sesion guiada"),
+    deliverable: escapeHtml.normalizeDisplayText(module.deliverable || ""),
     lessons: Array.isArray(module.lessons)
       ? module.lessons.map((lesson, lessonIndex) => normalizeCourseLesson(lesson, moduleIndex, lessonIndex))
       : [],
@@ -16502,10 +16503,10 @@ function normalizeCourseModule(module, moduleIndex) {
 function normalizeCourseResource(resource, resourceIndex) {
   return {
     id: resource.id || `resource-${Date.now()}-${resourceIndex}`,
-    label: normalizeDisplayText(resource.label || `Recurso ${resourceIndex + 1}`),
-    type: normalizeDisplayText(resource.type || "Documento"),
+    label: escapeHtml.normalizeDisplayText(resource.label || `Recurso ${resourceIndex + 1}`),
+    type: escapeHtml.normalizeDisplayText(resource.type || "Documento"),
     url: resource.url || "",
-    description: normalizeDisplayText(resource.description || ""),
+    description: escapeHtml.normalizeDisplayText(resource.description || ""),
     visibility: resource.visibility || "alumnado",
     ...resource
   };
@@ -16609,36 +16610,36 @@ function normalizeCourse(course) {
       : {};
   return {
     id: course.id || `course-${Date.now()}`,
-    title: normalizeDisplayText(course.title || ""),
+    title: escapeHtml.normalizeDisplayText(course.title || ""),
     courseClass: normalizeCourseClass(course.courseClass || course.classType),
-    type: normalizeDisplayText(course.type || ""),
-    status: normalizeDisplayText(course.status || "Planificacion"),
-    summary: normalizeDisplayText(course.summary || ""),
+    type: escapeHtml.normalizeDisplayText(course.type || ""),
+    status: escapeHtml.normalizeDisplayText(course.status || "Planificacion"),
+    summary: escapeHtml.normalizeDisplayText(course.summary || ""),
     startDate: course.startDate || "",
     endDate: course.endDate || "",
     hours: Number(course.hours || 0),
     capacity: Number(course.capacity || 0),
-    modality: normalizeDisplayText(course.modality || "Presencial"),
-    audience: normalizeDisplayText(course.audience || "Socios y voluntariado operativo"),
+    modality: escapeHtml.normalizeDisplayText(course.modality || "Presencial"),
+    audience: escapeHtml.normalizeDisplayText(course.audience || "Socios y voluntariado operativo"),
     accessScope: normalizeCourseAccessScope(
       course.accessScope || course.enrollmentScope || course.visibility,
       course.audience || ""
     ),
     enrollmentOpensAt: normalizeDateTimeLocalInput(course.enrollmentOpensAt || ""),
-    coordinator: normalizeDisplayText(course.coordinator || ""),
+    coordinator: escapeHtml.normalizeDisplayText(course.coordinator || ""),
     contentTemplate: course.contentTemplate || "operativo",
-    objectives: Array.isArray(course.objectives) ? course.objectives.map((item) => normalizeDisplayText(item)) : [],
+    objectives: Array.isArray(course.objectives) ? course.objectives.map((item) => escapeHtml.normalizeDisplayText(item)) : [],
     sessions,
     modules,
     resources,
     questionBank,
-    materials: Array.isArray(course.materials) ? course.materials.map((item) => normalizeDisplayText(item)) : [],
-    evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria.map((item) => normalizeDisplayText(item)) : [],
+    materials: Array.isArray(course.materials) ? course.materials.map((item) => escapeHtml.normalizeDisplayText(item)) : [],
+    evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria.map((item) => escapeHtml.normalizeDisplayText(item)) : [],
     contentStatus: course.contentStatus || "draft",
-    certificateCity: normalizeDisplayText(course.certificateCity || ""),
-    certificateContents: Array.isArray(course.certificateContents) ? course.certificateContents.map((item) => normalizeDisplayText(item)) : [],
+    certificateCity: escapeHtml.normalizeDisplayText(course.certificateCity || ""),
+    certificateContents: Array.isArray(course.certificateContents) ? course.certificateContents.map((item) => escapeHtml.normalizeDisplayText(item)) : [],
     enrollmentFee: Number(course.enrollmentFee || 0),
-    enrollmentPaymentInstructions: normalizeDisplayText(course.enrollmentPaymentInstructions || ""),
+    enrollmentPaymentInstructions: escapeHtml.normalizeDisplayText(course.enrollmentPaymentInstructions || ""),
     enrollmentSubmissions: Array.isArray(course.enrollmentSubmissions)
       ? course.enrollmentSubmissions.map((submission, submissionIndex) => ({
           id: submission.id || `enrollment-${Date.now()}-${submissionIndex}`,
@@ -21396,14 +21397,6 @@ function buildEmailBody(member, course) {
     .replaceAll("{{course}}", course.title);
 }
 
-function formatDate(value) {
-  return new Date(value).toLocaleDateString("es-ES", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric"
-  });
-}
-
 function formatDateTime(value) {
   return new Date(value).toLocaleString("es-ES", {
     day: "2-digit",
@@ -21412,99 +21405,6 @@ function formatDateTime(value) {
     hour: "2-digit",
     minute: "2-digit"
   });
-}
-
-function countReplacementChars(text) {
-  return (String(text || "").match(/\uFFFD/g) || []).length;
-}
-
-function fixMojibakeText(value) {
-  const raw = String(value ?? "");
-  if (!/[\u00C0-\u00FF\uFFFD]/.test(raw)) {
-    return raw;
-  }
-  try {
-    const bytes = Uint8Array.from(raw, (char) => char.charCodeAt(0));
-    const repaired = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    if (countReplacementChars(repaired) <= countReplacementChars(raw)) {
-      return repaired;
-    }
-  } catch (error) {
-    // Ignore decoding issues and fall back to raw input.
-  }
-  return raw;
-}
-
-function normalizeDisplayText(value) {
-  const rawValue = String(value ?? "");
-  if (/^(https?:|data:|mailto:)/i.test(rawValue) || rawValue.includes("://")) {
-    return rawValue;
-  }
-  const raw = fixMojibakeText(rawValue);
-  if (!raw.includes("?") && !raw.includes("\uFFFD")) {
-    return raw;
-  }
-  const replacements = [
-    ["Rodr?guez", "Rodríguez"],
-    ["T?cnicas", "Técnicas"],
-    ["T?cnico", "Técnico"],
-    ["T?cnicos", "Técnicos"],
-    ["t?cnicas", "técnicas"],
-    ["t?cnico", "técnico"],
-    ["t?cnicos", "técnicos"],
-    ["Pr?ctica", "Práctica"],
-    ["pr?ctica", "práctica"],
-    ["Pr?cticas", "Prácticas"],
-    ["pr?cticas", "prácticas"],
-    ["activaci?n", "activación"],
-    ["evacuaci?n", "evacuación"],
-    ["intervenci?n", "intervención"],
-    ["evaluaci?n", "evaluación"],
-    ["situaci?n", "situación"],
-    ["localizaci?n", "localización"],
-    ["extracci?n", "extracción"],
-    ["progresi?n", "progresión"],
-    ["estabilizaci?n", "estabilización"],
-    ["inscripci?n", "inscripción"],
-    ["matr?cula", "matrícula"],
-    ["presentaci?n", "presentación"],
-    ["com?n", "común"],
-    ["compa?ero", "compañero"],
-    ["compa?eros", "compañeros"],
-    ["m?nimo", "mínimo"],
-    ["m?nimos", "mínimos"],
-    ["b?squeda", "búsqueda"],
-    ["b?sicas", "básicas"],
-    ["b?sica", "básica"],
-    ["v?deo", "vídeo"],
-    ["v?ctima", "víctima"],
-    ["r?pido", "rápido"],
-    ["qu? ", "qué "],
-    ["Qu? ", "Qué "],
-    ["?Cuando", "¿Cuándo"],
-    ["?Que", "¿Qué"],
-    ["?Cual", "¿Cuál"],
-    ["?Donde", "¿Dónde"],
-    ["?Como", "¿Cómo"],
-    ["?Por", "¿Por"],
-    ["?Se", "¿Se"],
-    ["m�quina", "máquina"],
-    ["m��quina", "máquina"],
-    ["M�quina", "Máquina"],
-    ["M��quina", "Máquina"],
-    ["tr�fico", "tráfico"],
-    ["Tr�fico", "Tráfico"]
-  ];
-  return replacements.reduce((result, [from, to]) => result.replaceAll(from, to), raw);
-}
-
-function escapeHtml(value) {
-  return normalizeDisplayText(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 async function readJsonResponse(response, fallbackMessage) {
