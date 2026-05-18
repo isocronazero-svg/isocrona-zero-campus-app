@@ -16,6 +16,7 @@ import {
   ASSOCIATE_ADMIN_ONLY_FORM_IDS
 } from "./assets/js/app/admin/actions.js";
 import { buildDefaultCampusGroups } from "./assets/js/app/campus/defaultGroups.js";
+import { clearCampusDraft, getCampusDraftStorageKey } from "./assets/js/app/storage/localStorage.js";
 
 const SESSION_KEY = "iz-campus-session";
 const VIEW_ROLE_KEY = "iz-campus-view-role";
@@ -20560,10 +20561,6 @@ function countCampusGroupResources(group) {
   return (group?.modules || []).reduce((sum, module) => sum + countCampusGroupModuleResources(module), 0);
 }
 
-function getCampusDraftStorageKey(groupId) {
-  return `campus_draft_${String(groupId || "").trim()}`;
-}
-
 function sanitizeCampusDraftAttachment(attachment) {
   if (!attachment) {
     return null;
@@ -20651,18 +20648,6 @@ function loadCampusDraft(groupId) {
     return buildCampusDraftData({ ...parsed, id: normalizedGroupId });
   } catch (error) {
     return null;
-  }
-}
-
-function clearCampusDraft(groupId) {
-  const normalizedGroupId = String(groupId || "").trim();
-  if (!normalizedGroupId) {
-    return;
-  }
-
-  try {
-    sessionStorage.removeItem(getCampusDraftStorageKey(normalizedGroupId));
-  } catch (error) {
   }
 }
 
