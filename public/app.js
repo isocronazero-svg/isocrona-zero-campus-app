@@ -10,6 +10,11 @@ import {
   MANUAL_NOTICE_TONE_LABELS
 } from "./assets/js/app/ui/labels.js";
 import { escapeHtml, formatDate } from "./assets/js/app/ui/formatters.js";
+import {
+  ADMIN_ONLY_VIEWS,
+  ASSOCIATE_ADMIN_ONLY_ACTIONS,
+  ASSOCIATE_ADMIN_ONLY_FORM_IDS
+} from "./assets/js/app/admin/actions.js";
 
 const SESSION_KEY = "iz-campus-session";
 const VIEW_ROLE_KEY = "iz-campus-view-role";
@@ -21,49 +26,6 @@ const COURSE_ACCESS_SCOPE_LABELS = {
   members: "Solo socios",
   public: "Todo el mundo"
 };
-
-const ADMIN_ONLY_VIEWS = new Set(["associates", "validations", "members", "reports", "activity", "automation"]);
-const ASSOCIATE_ADMIN_ONLY_ACTIONS = new Set([
-  "approve-associate",
-  "approve-associate-payment",
-  "approve-associate-profile-request",
-  "bulk-approve-associate-applications",
-  "bulk-approve-associate-payments",
-  "bulk-approve-associate-profile-requests",
-  "cancel-profile-review",
-  "clear-selected-associate-applications",
-  "clear-selected-associate-payments",
-  "clear-selected-associate-profile-requests",
-  "commit-associate-workbook-import",
-  "confirm-profile-review",
-  "create-associate-campus-access",
-  "create-associate-campus-admin-access",
-  "delete-associate",
-  "delete-associate-payment",
-  "mark-associate-paid",
-  "mark-associate-reviewed",
-  "notify-associate-application",
-  "notify-associate-application-reply",
-  "notify-associate-payment",
-  "notify-associate-profile-request",
-  "preview-associate-workbook-import",
-  "reject-associate",
-  "reject-associate-payment",
-  "reject-associate-profile-request",
-  "reopen-associate-application",
-  "request-associate-info",
-  "reset-associate-campus-password",
-  "select-all-visible-associate-applications",
-  "select-all-visible-associate-payments",
-  "select-all-visible-associate-profile-requests",
-  "select-next-associate-application",
-  "send-associate-welcome",
-  "settle-all-visible-associate-fees",
-  "toggle-associate-application-selection",
-  "toggle-associate-payment-selection",
-  "toggle-associate-profile-request-selection"
-]);
-const ASSOCIATE_ADMIN_ONLY_FORM_IDS = new Set(["associateEditForm", "associatePaymentForm"]);
 
 function buildDefaultCampusGroups() {
   return [

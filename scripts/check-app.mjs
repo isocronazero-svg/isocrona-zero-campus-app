@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
   "public/app.js",
+  "public/assets/js/app/admin/actions.js",
   "public/public-live-test.js",
   "server.js",
   "server/http.js",
@@ -13,6 +14,7 @@ const syntaxFiles = [
 ];
 const conflictCheckedFiles = [
   "public/app.js",
+  "public/assets/js/app/admin/actions.js",
   "server.js",
   "server/http.js",
   "server/auth.js",
@@ -65,7 +67,6 @@ const associateActionContracts = [
 ];
 const publicAppSnippets = [
   'return renderMemberOverview();',
-  'const ASSOCIATE_ADMIN_ONLY_ACTIONS = new Set([',
   'Estas en modo socio/alumno. Vuelve a administracion para abrir esa zona.',
   'label: "Mi aula"',
   'label: "Mis diplomas"',
@@ -75,6 +76,7 @@ const publicAppSnippets = [
   'data-section-id="associateSectionNotifications"',
   "Crear aviso a socios"
 ];
+const adminActionSnippets = ['export const ASSOCIATE_ADMIN_ONLY_ACTIONS = new Set(['];
 
 let failed = false;
 
@@ -100,6 +102,15 @@ const publicAppContent = readFileSync("public/app.js", "utf8");
 
 for (const snippet of publicAppSnippets) {
   if (!publicAppContent.includes(snippet)) {
+    console.error(`Missing frontend guard snippet: ${snippet}`);
+    failed = true;
+  }
+}
+
+const adminActionContent = readFileSync("public/assets/js/app/admin/actions.js", "utf8");
+
+for (const snippet of adminActionSnippets) {
+  if (!adminActionContent.includes(snippet)) {
     console.error(`Missing frontend guard snippet: ${snippet}`);
     failed = true;
   }
