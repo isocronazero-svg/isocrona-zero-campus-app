@@ -4,6 +4,11 @@
   navItems,
   VIEW_SECTION_MODES
 } from "./assets/js/app/navigation/config.js";
+import {
+  CAMPUS_ACCOUNT_ROLE_LABELS,
+  MANUAL_NOTICE_AUDIENCE_LABELS,
+  MANUAL_NOTICE_TONE_LABELS
+} from "./assets/js/app/ui/labels.js";
 
 const SESSION_KEY = "iz-campus-session";
 const VIEW_ROLE_KEY = "iz-campus-view-role";
@@ -14,25 +19,6 @@ const UI_SNAPSHOT_KEY = "iz-campus-ui-snapshot";
 const COURSE_ACCESS_SCOPE_LABELS = {
   members: "Solo socios",
   public: "Todo el mundo"
-};
-
-const MANUAL_NOTICE_AUDIENCE_LABELS = {
-  all: "Todo el campus",
-  "active-associates": "Socios activos",
-  associates: "Solo socios",
-  "campus-only": "Solo externos",
-  course: "Alumnado de un curso"
-};
-
-const MANUAL_NOTICE_TONE_LABELS = {
-  info: "Informativo",
-  warning: "Importante",
-  success: "Resuelto"
-};
-
-const CAMPUS_ACCOUNT_ROLE_LABELS = {
-  member: "Socio / alumno",
-  admin: "Administracion"
 };
 
 const ADMIN_ONLY_VIEWS = new Set(["associates", "validations", "members", "reports", "activity", "automation"]);
