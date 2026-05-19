@@ -108,8 +108,7 @@ jobs:
           echo "Railway environment: $RAILWAY_ENVIRONMENT"
           railway --version
 
-          echo "Running Railway auth diagnostics..."
-          railway whoami
+          echo "Skipping railway whoami for token-based CI auth."
 
           echo "Running Railway project/service diagnostics..."
           railway status "${railway_args[@]}"

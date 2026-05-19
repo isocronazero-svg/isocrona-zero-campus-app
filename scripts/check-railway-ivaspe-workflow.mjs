@@ -37,7 +37,8 @@ assertIncludes("RAILWAY_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_SSH_PRIVATE_KEY }}"
 assertIncludes("Missing required GitHub secret RAILWAY_SSH_PRIVATE_KEY");
 assertIncludes("--identity-file \"$ssh_key\"");
 assertIncludes("railway ssh");
-assertIncludes("railway whoami");
+assertIncludes("Skipping railway whoami for token-based CI auth.");
+assertNotMatches(/^\s*railway whoami\b/m, "railway whoami must not run as a blocking CI command");
 assertIncludes("railway status \"${railway_args[@]}\"");
 assertNotMatches(/\brailway run\b/, "Workflow must execute inside Railway via ssh, not railway run");
 
