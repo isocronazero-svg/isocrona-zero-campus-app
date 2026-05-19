@@ -96,6 +96,12 @@ jobs:
           echo "Railway environment: $RAILWAY_ENVIRONMENT"
           railway --version
 
+          echo "Running Railway auth diagnostics..."
+          railway whoami
+
+          echo "Running Railway project/service diagnostics..."
+          railway status "${railway_args[@]}"
+
           railway_ssh() {
             railway ssh "${railway_args[@]}" --identity-file "$ssh_key" -- "$@"
           }
