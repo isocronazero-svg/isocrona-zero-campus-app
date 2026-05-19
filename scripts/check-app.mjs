@@ -9,7 +9,8 @@ const syntaxFiles = [
   "server/auth.js",
   "server/router-utils.js",
   "server/state-transport.js",
-  "storage.js"
+  "storage.js",
+  "db.js"
 ];
 const conflictCheckedFiles = [
   "public/app.js",
@@ -19,6 +20,7 @@ const conflictCheckedFiles = [
   "server/router-utils.js",
   "server/state-transport.js",
   "storage.js",
+  "db.js",
   "package.json",
   "README.md"
 ];
@@ -26,6 +28,7 @@ const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
   "scripts/check-auth-utils.mjs",
   "scripts/check-production-demo-admin-guard.mjs",
+  "scripts/check-production-storage-guard.mjs",
   "scripts/check-router-utils.mjs",
   "scripts/check-state-transport.mjs",
   "scripts/check-security-hardening.mjs",
