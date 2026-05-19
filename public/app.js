@@ -15471,7 +15471,11 @@ function generateDiplomas(courseId) {
     return;
   }
 
-  course.diplomaReady = course.enrolledIds.filter((memberId) => isMemberReadyForDiploma(course, memberId));
+  const readyIds = new Set(Array.isArray(course.diplomaReady) ? course.diplomaReady : []);
+  course.enrolledIds
+    .filter((memberId) => isMemberReadyForDiploma(course, memberId))
+    .forEach((memberId) => readyIds.add(memberId));
+  course.diplomaReady = Array.from(readyIds);
 }
 
 function getMemberDiplomaBlockingLabels(course, memberId) {
