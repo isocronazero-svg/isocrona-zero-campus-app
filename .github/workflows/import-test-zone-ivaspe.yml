@@ -109,9 +109,7 @@ jobs:
           railway --version
 
           echo "Skipping railway whoami for token-based CI auth."
-
-          echo "Running Railway project/service diagnostics..."
-          railway status "${railway_args[@]}"
+          echo "Skipping railway status because Railway CLI status does not accept project/service/environment flags in CI."
 
           railway_ssh() {
             railway ssh "${railway_args[@]}" --identity-file "$ssh_key" -- "$@"
