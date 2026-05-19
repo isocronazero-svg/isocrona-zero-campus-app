@@ -39,7 +39,8 @@ assertIncludes("--identity-file \"$ssh_key\"");
 assertIncludes("railway ssh");
 assertIncludes("Skipping railway whoami for token-based CI auth.");
 assertNotMatches(/^\s*railway whoami\b/m, "railway whoami must not run as a blocking CI command");
-assertIncludes("railway status \"${railway_args[@]}\"");
+assertIncludes("Skipping railway status because Railway CLI status does not accept project/service/environment flags in CI.");
+assertNotMatches(/^\s*railway status\b/m, "railway status must not run as a blocking CI command");
 assertNotMatches(/\brailway run\b/, "Workflow must execute inside Railway via ssh, not railway run");
 
 assertIncludes("IZ_ALLOW_EPHEMERAL_STORAGE_IN_PRODUCTION");
