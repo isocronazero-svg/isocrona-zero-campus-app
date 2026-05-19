@@ -5601,6 +5601,7 @@ const server = http.createServer(async (req, res) => {
             }
           : mergeMemberScopedStateIntoFullState(currentState, payload, account);
       restoreTransportSanitizedSecrets(currentState, state);
+      preserveIssuedDiplomasByCourse(currentState, state);
       let summary = null;
 
       if (state.settings?.automation?.autoRunOnSave !== false) {
@@ -11816,8 +11817,9 @@ async function runAutomationEngine(state, options = {}) {
           );
         });
 
-        if (!sameIdSet(previousReady, new Set(computedReady))) {
-          course.diplomaReady = computedReady;
+        const nextReady = mergeDiplomaReadyIds(course.diplomaReady, computedReady);
+        if (!sameIdSet(previousReady, new Set(nextReady))) {
+          course.diplomaReady = nextReady;
           summary.updatedDiplomas += 1;
         }
       }
@@ -12299,6 +12301,38 @@ function sameIdSet(a, b) {
     }
   }
   return true;
+}
+
+function mergeDiplomaReadyIds(existingReady = [], computedReady = []) {
+  return Array.from(
+    new Set(
+      [...(Array.isArray(existingReady) ? existingReady : []), ...(Array.isArray(computedReady) ? computedReady : [])]
+        .map((memberId) => String(memberId || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function preserveIssuedDiplomasByCourse(currentState, nextState) {
+  const previousCoursesById = new Map(
+    (currentState?.courses || [])
+      .map((course) => [String(course?.id || "").trim(), course])
+      .filter(([courseId]) => Boolean(courseId))
+  );
+
+  if (!Array.isArray(nextState?.courses)) {
+    return;
+  }
+
+  nextState.courses.forEach((course) => {
+    const courseId = String(course?.id || "").trim();
+    const previousCourse = previousCoursesById.get(courseId);
+    if (!courseId || !previousCourse) {
+      return;
+    }
+
+    course.diplomaReady = mergeDiplomaReadyIds(previousCourse.diplomaReady, course.diplomaReady);
+  });
 }
 
 function isCourseDiplomaWindowOpen(course, today = new Date().toISOString().slice(0, 10)) {
