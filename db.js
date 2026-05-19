@@ -1,10 +1,14 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
-const { getStorageMeta } = require("./storage");
+const { getStorageMeta, readState } = require("./storage");
 
 let pool = null;
 let initPromise = null;
+const demoAdminEmail = "admin@isocronazero.org";
+const allowDemoAdminInProductionFlag = "IZ_ALLOW_DEMO_ADMIN_IN_PRODUCTION";
+
+assertNoDemoAdminInProduction();
 
 function isDatabaseEnabled() {
   return Boolean(String(process.env.DATABASE_URL || "").trim());
@@ -16,6 +20,42 @@ function getJwtSecret() {
 
 function isTrue(value) {
   return String(value || "").trim().toLowerCase() === "true";
+}
+
+function hasDemoAdminAccount(state) {
+  return (Array.isArray(state?.accounts) ? state.accounts : []).some(
+    (account) =>
+      String(account?.email || "").trim().toLowerCase() === demoAdminEmail &&
+      String(account?.role || "").trim() === "admin"
+  );
+}
+
+function assertNoDemoAdminInProduction() {
+  if (String(process.env.NODE_ENV || "").trim() !== "production") {
+    return;
+  }
+
+  const allowDemoAdmin = isTrue(process.env[allowDemoAdminInProductionFlag]);
+  if (allowDemoAdmin) {
+    console.warn(
+      `${allowDemoAdminInProductionFlag}=true permite arrancar produccion con el admin demo ${demoAdminEmail}. Usalo solo para recuperacion de emergencia.`
+    );
+    return;
+  }
+
+  const state = readState();
+  if (!hasDemoAdminAccount(state)) {
+    return;
+  }
+
+  console.error(
+    [
+      `Arranque bloqueado: existe el admin demo ${demoAdminEmail} en produccion.`,
+      "Elimina esa cuenta del estado persistente o configura un admin real antes de publicar.",
+      `Solo para emergencia puedes arrancar con ${allowDemoAdminInProductionFlag}=true.`
+    ].join(" ")
+  );
+  process.exit(1);
 }
 
 function getPostgresSslConfig() {
@@ -300,7 +340,7 @@ async function createUser({ name, email, password, role = "socio", status = "act
     throw new Error("El email es obligatorio");
   }
   if (!normalizedPassword) {
-    throw new Error("La contraseña es obligatoria");
+    throw new Error("La contraseÃ±a es obligatoria");
   }
 
   const db = getPool();
