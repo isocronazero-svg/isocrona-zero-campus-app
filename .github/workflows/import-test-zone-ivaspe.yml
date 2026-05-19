@@ -38,7 +38,6 @@ jobs:
     timeout-minutes: 20
     environment: production
     env:
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       RAILWAY_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_SSH_PRIVATE_KEY }}
       RAILWAY_PROJECT_ID: ${{ inputs.railway_project_id || vars.RAILWAY_PROJECT_ID }}
@@ -63,13 +62,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${RAILWAY_API_TOKEN:-}" ] && [ -z "${RAILWAY_TOKEN:-}" ]; then
-            echo "::error::Missing Railway auth secret. Configure exactly one of RAILWAY_API_TOKEN or RAILWAY_TOKEN."
-            exit 1
-          fi
-
-          if [ -n "${RAILWAY_API_TOKEN:-}" ] && [ -n "${RAILWAY_TOKEN:-}" ]; then
-            echo "::error::Both RAILWAY_API_TOKEN and RAILWAY_TOKEN are configured. Railway CLI accepts only one auth token environment variable at a time."
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::error::Missing required GitHub secret RAILWAY_TOKEN."
             exit 1
           fi
 
@@ -78,11 +72,7 @@ jobs:
             exit 1
           fi
 
-          if [ -n "${RAILWAY_API_TOKEN:-}" ]; then
-            echo "Using Railway account/workspace token authentication."
-          else
-            echo "Using Railway project token authentication."
-          fi
+          echo "Using Railway project token authentication."
 
           ssh_key="$(mktemp)"
           trap 'rm -f "$ssh_key"' EXIT
