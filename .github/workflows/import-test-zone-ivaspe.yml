@@ -1,0 +1,204 @@
+name: Import Test Zone IVASPE to Railway
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run the remote dry-run only. Set to false to import in Railway production."
+        required: true
+        type: boolean
+        default: true
+      railway_environment:
+        description: "Railway environment name or id."
+        required: false
+        type: string
+        default: "production"
+      railway_service:
+        description: "Railway service name or id. Falls back to repository variable RAILWAY_SERVICE."
+        required: false
+        type: string
+        default: ""
+      railway_project_id:
+        description: "Railway project id. Falls back to repository variable RAILWAY_PROJECT_ID."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: import-test-zone-ivaspe-production
+  cancel-in-progress: false
+
+jobs:
+  import-ivaspe:
+    name: Import IVASPE questions in Railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_SSH_PRIVATE_KEY }}
+      RAILWAY_PROJECT_ID: ${{ inputs.railway_project_id || vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_SERVICE: ${{ inputs.railway_service || vars.RAILWAY_SERVICE }}
+      RAILWAY_ENVIRONMENT: ${{ inputs.railway_environment || vars.RAILWAY_ENVIRONMENT || 'production' }}
+      DRY_RUN: ${{ inputs.dry_run }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Run guarded IVASPE import inside Railway
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::error::Missing required GitHub secret RAILWAY_TOKEN."
+            exit 1
+          fi
+
+          if [ -z "${RAILWAY_SSH_PRIVATE_KEY:-}" ]; then
+            echo "::error::Missing required GitHub secret RAILWAY_SSH_PRIVATE_KEY with a Railway-registered SSH private key."
+            exit 1
+          fi
+
+          ssh_key="$(mktemp)"
+          trap 'rm -f "$ssh_key"' EXIT
+          umask 077
+          printf '%s\n' "$RAILWAY_SSH_PRIVATE_KEY" > "$ssh_key"
+
+          railway_args=()
+          if [ -n "${RAILWAY_PROJECT_ID:-}" ]; then
+            railway_args+=(--project "$RAILWAY_PROJECT_ID")
+            echo "Railway project id configured."
+          else
+            echo "::warning::RAILWAY_PROJECT_ID is not configured. Railway must resolve the project from the token/context."
+          fi
+
+          if [ -n "${RAILWAY_SERVICE:-}" ]; then
+            railway_args+=(--service "$RAILWAY_SERVICE")
+            echo "Railway service configured."
+          else
+            echo "::warning::RAILWAY_SERVICE is not configured. Railway must resolve the default service."
+          fi
+
+          railway_args+=(--environment "$RAILWAY_ENVIRONMENT")
+          echo "Railway environment: $RAILWAY_ENVIRONMENT"
+          railway --version
+
+          railway_ssh() {
+            railway ssh "${railway_args[@]}" --identity-file "$ssh_key" -- "$@"
+          }
+
+          remote_preflight="$(cat <<'REMOTE'
+          set -eu
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const isTrue = (value) => String(value || "").trim().toLowerCase() === "true";
+          const hasDatabaseUrl = Boolean(String(process.env.DATABASE_URL || "").trim());
+          const dataDir = String(process.env.IZ_DATA_DIR || "").trim();
+          const hasDataDir = Boolean(dataDir);
+          const bypassEnabled = isTrue(process.env.IZ_ALLOW_EPHEMERAL_STORAGE_IN_PRODUCTION);
+
+          if (bypassEnabled) {
+            console.error("IZ_ALLOW_EPHEMERAL_STORAGE_IN_PRODUCTION=true is not allowed for this production import workflow.");
+            process.exit(1);
+          }
+
+          if (!hasDatabaseUrl && !hasDataDir) {
+            console.error("Production import blocked: configure DATABASE_URL or IZ_DATA_DIR with real persistence before importing IVASPE questions.");
+            process.exit(1);
+          }
+
+          if (hasDataDir) {
+            const resolvedDataDir = path.resolve(dataDir);
+            try {
+              const stats = fs.statSync(resolvedDataDir);
+              if (!stats.isDirectory()) {
+                console.error("Production import blocked: IZ_DATA_DIR is configured but is not a directory.");
+                process.exit(1);
+              }
+            } catch (error) {
+              console.error("Production import blocked: IZ_DATA_DIR is configured but is not accessible.");
+              process.exit(1);
+            }
+          }
+
+          console.log(JSON.stringify({
+            nodeEnv: String(process.env.NODE_ENV || ""),
+            databaseUrl: hasDatabaseUrl ? "[set]" : "",
+            izDataDir: hasDataDir ? "[set]" : "",
+            ephemeralStorageBypass: false
+          }, null, 2));
+          NODE
+          REMOTE
+          )"
+
+          remote_source_count="$(cat <<'REMOTE'
+          set -eu
+          node <<'NODE'
+          const { readdirSync, readFileSync } = require("node:fs");
+          const path = require("node:path");
+          const dir = path.join(process.cwd(), "data", "test-zone", "ivaspe");
+          const files = readdirSync(dir).filter((name) => name.endsWith(".csv") && !name.startsWith("_")).sort();
+          let rows = 0;
+          for (const file of files) {
+            const content = readFileSync(path.join(dir, file), "utf8").trim();
+            if (content) {
+              rows += Math.max(0, content.split(/\r?\n/).length - 1);
+            }
+          }
+          console.log(JSON.stringify({ files: files.length, sourceQuestionRows: rows }, null, 2));
+          if (!files.length || rows <= 0) {
+            process.exit(1);
+          }
+          NODE
+          REMOTE
+          )"
+
+          remote_validate_import="$(cat <<'REMOTE'
+          set -eu
+          node <<'NODE'
+          const storage = require("./storage.js");
+          const state = storage.readState();
+          const questions = Array.isArray(state.testZoneQuestions) ? state.testZoneQuestions : [];
+          const categories = [...new Set(questions.map((question) => question.category).filter(Boolean))].sort();
+          console.log(JSON.stringify({ total: questions.length, categories }, null, 2));
+          if (questions.length <= 0) {
+            process.exit(1);
+          }
+          NODE
+          REMOTE
+          )"
+
+          echo "Running remote persistence preflight..."
+          railway_ssh sh -lc "$remote_preflight"
+
+          echo "Validating remote IVASPE source files..."
+          railway_ssh sh -lc "$remote_source_count"
+
+          echo "Running remote IVASPE dry-run..."
+          railway_ssh sh -lc 'npm run import:test-zone-ivaspe -- --dry-run'
+
+          if [ "$DRY_RUN" != "false" ]; then
+            echo "Dry-run requested. No production data was modified."
+            exit 0
+          fi
+
+          echo "Running remote IVASPE import..."
+          railway_ssh sh -lc 'npm run import:test-zone-ivaspe'
+
+          echo "Validating remote Test Zone question count..."
+          railway_ssh sh -lc "$remote_validate_import"

@@ -34,10 +34,12 @@ const extraCheckScripts = [
   "scripts/check-payload-limits.mjs",
   "scripts/check-public-verify-xss.mjs",
   "scripts/check-issued-diplomas.mjs",
+  "scripts/check-railway-ivaspe-workflow.mjs",
   "scripts/check-live-tests.mjs",
   "scripts/check-member-notifications.mjs",
   "scripts/check-test-zone.mjs",
   "scripts/check-test-zone-ivaspe-csv-files.mjs",
+  "scripts/check-test-zone-ivaspe-dry-run.mjs",
   "scripts/check-test-zone-normalizer.mjs"
 ];
 const associateActionContracts = [
