@@ -1,11 +1,6 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
-
-const allowEphemeralStorageInProductionFlag = "IZ_ALLOW_EPHEMERAL_STORAGE_IN_PRODUCTION";
-
-assertProductionStorageIsConfigured();
-
 const { getStorageMeta, readState } = require("./storage");
 
 let pool = null;
@@ -33,38 +28,6 @@ function hasDemoAdminAccount(state) {
       String(account?.email || "").trim().toLowerCase() === demoAdminEmail &&
       String(account?.role || "").trim() === "admin"
   );
-}
-
-function assertProductionStorageIsConfigured() {
-  if (String(process.env.NODE_ENV || "").trim() !== "production") {
-    return;
-  }
-  if (String(process.env.DATABASE_URL || "").trim()) {
-    return;
-  }
-  if (String(process.env.IZ_DATA_DIR || "").trim()) {
-    return;
-  }
-
-  if (isTrue(process.env[allowEphemeralStorageInProductionFlag])) {
-    console.warn(
-      [
-        `${allowEphemeralStorageInProductionFlag}=true permite arrancar produccion sin DATABASE_URL ni IZ_DATA_DIR.`,
-        "El estado puede perderse al reiniciar si el filesystem no es persistente.",
-        "Usalo solo para emergencia y configura un volumen persistente o base de datos cuanto antes."
-      ].join(" ")
-    );
-    return;
-  }
-
-  console.error(
-    [
-      "Arranque bloqueado: produccion necesita persistencia real.",
-      "Configura DATABASE_URL o IZ_DATA_DIR apuntando a un volumen persistente antes de publicar.",
-      `Solo para emergencia puedes arrancar con ${allowEphemeralStorageInProductionFlag}=true.`
-    ].join(" ")
-  );
-  process.exit(1);
 }
 
 function assertNoDemoAdminInProduction() {

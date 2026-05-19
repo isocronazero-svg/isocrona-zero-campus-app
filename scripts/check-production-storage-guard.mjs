@@ -90,10 +90,10 @@ async function assertProductionRequiresStorage() {
 }
 
 function assertEmergencyBypassIsExplicitAndLoud() {
-  const dbContent = readFileSync(path.join(repoRoot, "db.js"), "utf8");
-  assert.match(dbContent, new RegExp(allowFlag));
-  assert.match(dbContent, /console\.warn\(/);
-  assert.match(dbContent, /El estado puede perderse al reiniciar/);
+  const storageContent = readFileSync(path.join(repoRoot, "storage.js"), "utf8");
+  assert.match(storageContent, new RegExp(allowFlag));
+  assert.match(storageContent, /console\.warn\(/);
+  assert.match(storageContent, /El estado puede perderse al reiniciar/);
 }
 
 async function main() {

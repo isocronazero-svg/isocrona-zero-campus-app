@@ -9,8 +9,7 @@ const syntaxFiles = [
   "server/auth.js",
   "server/router-utils.js",
   "server/state-transport.js",
-  "storage.js",
-  "db.js"
+  "storage.js"
 ];
 const conflictCheckedFiles = [
   "public/app.js",
@@ -20,7 +19,6 @@ const conflictCheckedFiles = [
   "server/router-utils.js",
   "server/state-transport.js",
   "storage.js",
-  "db.js",
   "package.json",
   "README.md"
 ];
