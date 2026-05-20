@@ -27,6 +27,7 @@ const extraCheckScripts = [
   "scripts/check-auth-utils.mjs",
   "scripts/check-production-demo-admin-guard.mjs",
   "scripts/check-production-storage-guard.mjs",
+  "scripts/check-railway-runtime.mjs",
   "scripts/check-router-utils.mjs",
   "scripts/check-state-transport.mjs",
   "scripts/check-security-hardening.mjs",
