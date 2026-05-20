@@ -990,7 +990,7 @@ function normalizeState(state) {
     id: account.id || `account-${Date.now()}`,
     name: account.name || "",
     email: account.email || "",
-    password: account.password || "cambiar123",
+    password: account.passwordHash ? "" : account.password || "cambiar123",
     role: account.role || "member",
     memberId: account.memberId || "",
     associateId: account.associateId || "",

@@ -1,13 +1,17 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
-const { getStorageMeta, readState } = require("./storage");
+const { getStorageMeta, readState, writeState } = require("./storage");
 
 let pool = null;
 let initPromise = null;
 const demoAdminEmail = "admin@isocronazero.org";
 const allowDemoAdminInProductionFlag = "IZ_ALLOW_DEMO_ADMIN_IN_PRODUCTION";
+const bootstrapAdminEmailFlag = "IZ_BOOTSTRAP_ADMIN_EMAIL";
+const bootstrapAdminPasswordFlag = "IZ_BOOTSTRAP_ADMIN_PASSWORD";
+const bootstrapAdminNameFlag = "IZ_BOOTSTRAP_ADMIN_NAME";
 
+bootstrapProductionAdminIfConfigured();
 assertNoDemoAdminInProduction();
 
 function isDatabaseEnabled() {
@@ -24,10 +28,83 @@ function isTrue(value) {
 
 function hasDemoAdminAccount(state) {
   return (Array.isArray(state?.accounts) ? state.accounts : []).some(
-    (account) =>
-      String(account?.email || "").trim().toLowerCase() === demoAdminEmail &&
-      String(account?.role || "").trim() === "admin"
+    isDemoAdminAccount
   );
+}
+
+function isDemoAdminAccount(account) {
+  return (
+    String(account?.email || "").trim().toLowerCase() === demoAdminEmail &&
+    String(account?.role || "").trim() === "admin"
+  );
+}
+
+function getBootstrapAdminConfig() {
+  const email = String(process.env[bootstrapAdminEmailFlag] || "").trim().toLowerCase();
+  const password = String(process.env[bootstrapAdminPasswordFlag] || "").trim();
+  if (!email || !password) {
+    return null;
+  }
+
+  if (email === demoAdminEmail) {
+    console.error(`${bootstrapAdminEmailFlag} no puede ser el email demo ${demoAdminEmail}.`);
+    return null;
+  }
+
+  return {
+    email,
+    password,
+    name: String(process.env[bootstrapAdminNameFlag] || "Administrador Campus").trim() || "Administrador Campus"
+  };
+}
+
+function hashLegacyBootstrapPassword(password) {
+  const rawPassword = String(password || "");
+  const salt = crypto.randomBytes(16);
+  const derivedKey = crypto.scryptSync(rawPassword, salt, 64);
+  return `scrypt:${salt.toString("hex")}:${derivedKey.toString("hex")}`;
+}
+
+function bootstrapProductionAdminIfConfigured() {
+  if (String(process.env.NODE_ENV || "").trim() !== "production") {
+    return false;
+  }
+
+  const config = getBootstrapAdminConfig();
+  if (!config) {
+    return false;
+  }
+
+  const state = readState();
+  state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
+
+  const demoAccounts = state.accounts.filter(isDemoAdminAccount);
+  let account =
+    state.accounts.find((item) => String(item?.email || "").trim().toLowerCase() === config.email) ||
+    demoAccounts[0] ||
+    null;
+
+  if (!account) {
+    account = {
+      id: generateId("account"),
+      memberId: "",
+      associateId: ""
+    };
+    state.accounts.unshift(account);
+  }
+
+  account.name = config.name;
+  account.email = config.email;
+  account.password = "";
+  account.passwordHash = hashLegacyBootstrapPassword(config.password);
+  account.role = "admin";
+  account.mustChangePassword = false;
+  account.updatedAt = nowIso();
+
+  state.accounts = state.accounts.filter((item) => item === account || !isDemoAdminAccount(item));
+  writeState(state);
+  console.warn("Admin bootstrap de produccion aplicado desde variables de entorno.");
+  return true;
 }
 
 function assertNoDemoAdminInProduction() {
@@ -259,6 +336,12 @@ async function initDatabase() {
 }
 
 async function seedAdminUser() {
+  const bootstrapConfig = getBootstrapAdminConfig();
+  if (bootstrapConfig) {
+    await upsertBootstrapAdminUser(bootstrapConfig);
+    return;
+  }
+
   const email = String(process.env.IZ_RECOVERY_ADMIN_EMAIL || process.env.ADMIN_EMAIL || "").trim().toLowerCase();
   const password = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || "").trim();
   const name = String(process.env.ADMIN_NAME || "Administrador Campus").trim();
@@ -276,6 +359,28 @@ async function seedAdminUser() {
     name,
     email,
     password,
+    role: "admin",
+    status: "active"
+  });
+}
+
+async function upsertBootstrapAdminUser(config) {
+  const existing = await findUserByEmail(config.email);
+  if (existing) {
+    await updateUser(existing.id, {
+      name: config.name,
+      email: config.email,
+      password: config.password,
+      role: "admin",
+      status: "active"
+    });
+    return;
+  }
+
+  await createUser({
+    name: config.name,
+    email: config.email,
+    password: config.password,
     role: "admin",
     status: "active"
   });
