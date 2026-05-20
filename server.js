@@ -76,6 +76,7 @@ loadDotEnv(path.join(__dirname, ".env"));
 
 const root = path.join(__dirname, "public");
 const port = process.env.PORT || 3210;
+const host = process.env.HOST || "0.0.0.0";
 const appRelease = "recovery-admin-2026-04-08-8";
 const automationIntervalMs = Number(process.env.AUTOMATION_INTERVAL_MS || 300000);
 const bundledDataDir = path.join(__dirname, "data");
@@ -8147,7 +8148,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
 applyRecoveryAdminAccessFromEnv();
 
-server.listen(port, () => {
+server.listen(port, host, () => {
   console.log(`Campus disponible en ${campusBaseUrl}`);
 });
 
