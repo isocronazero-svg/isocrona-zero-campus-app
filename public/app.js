@@ -219,6 +219,7 @@ let pendingCampusGroupFileTarget = null;
 let pendingCampusGroupDraftClearGroupId = "";
 let publicCampusCourses = [];
 let publicCampusStatus = "Cargando cursos abiertos...";
+let associateDeleteDialog = null;
 const ADMIN_ONLY_TOP_LEVEL_VIEWS = new Set(["associates", "validations", "members", "reports", "automation", "activity"]);
 
 const navElement = document.getElementById("nav");
@@ -2984,25 +2985,18 @@ document.addEventListener("click", async (event) => {
     if (!associateId) {
       return;
     }
-    const associate = findAssociate(associateId);
-    if (!associate) {
-      syncStatus = "No encuentro ese socio para eliminarlo";
-      render();
-      return;
-    }
-    const expectedText = "ELIMINAR SOCIO";
-    const confirmation = window.prompt(
-      `Vas a eliminar al socio #${associate.associateNumber} (${getAssociateFullName(associate)}). Escribe ${expectedText} para continuar.`
-    );
-    if (String(confirmation || "").trim().toUpperCase() !== expectedText) {
-      syncStatus = "Eliminacion de socio cancelada";
-      render();
-      return;
-    }
-    deleteAssociate(associateId);
-    addActivity("admin", session.name, `Ha eliminado el socio #${associate.associateNumber} ${getAssociateFullName(associate)}`);
-    associatesSectionMode = "directory";
-    shouldPersist = true;
+    openAssociateDeleteDialog(associateId);
+    return;
+  }
+
+  if (action === "cancel-delete-associate" && isAdminSession()) {
+    closeAssociateDeleteDialog();
+    return;
+  }
+
+  if (action === "confirm-delete-associate" && isAdminSession()) {
+    await submitAssociateDeletion();
+    return;
   }
 
   if (action === "delete-course" && isAdminSession() && courseId) {
@@ -5232,6 +5226,212 @@ async function invokeJsonAction(url, payload, successMessage) {
   }
 }
 
+function getAssociateDeletionImpactSummary(associate) {
+  if (!associate) {
+    return {
+      payments: 0,
+      courses: 0,
+      diplomas: 0,
+      requests: 0,
+      linkedAccounts: 0,
+      linkedMembers: 0
+    };
+  }
+  const linkedMemberId = associate.linkedMemberId || "";
+  const linkedAccountId = associate.linkedAccountId || "";
+  const linkedAccounts = (state.accounts || []).filter(
+    (account) =>
+      account.id === linkedAccountId ||
+      account.associateId === associate.id ||
+      (linkedMemberId && account.memberId === linkedMemberId)
+  );
+  const linkedCourses = (state.courses || []).filter(
+    (course) =>
+      linkedMemberId &&
+      ((course.enrolledIds || []).includes(linkedMemberId) ||
+        (course.waitingIds || []).includes(linkedMemberId) ||
+        (course.diplomaReady || []).includes(linkedMemberId) ||
+        (course.enrollmentSubmissions || []).some((submission) => submission.memberId === linkedMemberId))
+  );
+  const diplomas = linkedCourses.filter((course) => (course.diplomaReady || []).includes(linkedMemberId));
+  const requests =
+    (state.associateApplications || []).filter(
+      (application) => application.id === associate.applicationId || application.associateId === associate.id
+    ).length +
+    (state.associatePaymentSubmissions || []).filter(
+      (submission) => submission.associateId === associate.id || (linkedMemberId && submission.memberId === linkedMemberId)
+    ).length +
+    (state.associateProfileRequests || []).filter(
+      (request) => request.associateId === associate.id || request.socio_id === associate.id
+    ).length;
+
+  return {
+    payments: (associate.payments || []).length,
+    courses: linkedCourses.length,
+    diplomas: diplomas.length,
+    requests,
+    linkedAccounts: linkedAccounts.length,
+    linkedMembers: linkedMemberId ? 1 : 0
+  };
+}
+
+function openAssociateDeleteDialog(associateId) {
+  const associate = findAssociate(associateId);
+  if (!associate) {
+    syncStatus = "No encuentro ese socio para eliminarlo";
+    showToast(syncStatus, "error");
+    render();
+    return;
+  }
+
+  associateDeleteDialog = {
+    associateId,
+    forceRequired: false,
+    impacts: getAssociateDeletionImpactSummary(associate),
+    relatedCourses: [],
+    error: ""
+  };
+  render();
+}
+
+function closeAssociateDeleteDialog() {
+  associateDeleteDialog = null;
+  render();
+}
+
+function renderAssociateDeleteDialog() {
+  if (!associateDeleteDialog) {
+    return "";
+  }
+
+  const associate = findAssociate(associateDeleteDialog.associateId);
+  if (!associate) {
+    associateDeleteDialog = null;
+    return "";
+  }
+
+  const impacts = associateDeleteDialog.impacts || getAssociateDeletionImpactSummary(associate);
+  const expectedText = associateDeleteDialog.forceRequired ? "ELIMINAR DEFINITIVAMENTE" : "ELIMINAR";
+  const impactItems = [
+    `${Number(impacts.payments || 0)} pago(s)`,
+    `${Number(impacts.courses || 0)} curso(s)`,
+    `${Number(impacts.diplomas || 0)} diploma(s)`,
+    `${Number(impacts.requests || 0)} solicitud(es)`,
+    `${Number(impacts.linkedAccounts || 0)} cuenta(s)`,
+    `${Number(impacts.linkedMembers || 0)} ficha(s) de alumno`
+  ];
+
+  return `
+    <div class="danger-modal-overlay" role="presentation">
+      <section class="danger-modal" role="dialog" aria-modal="true" aria-labelledby="associateDeleteTitle">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Eliminar socio</p>
+            <h3 id="associateDeleteTitle">${escapeHtml(getAssociateFullName(associate) || associate.email || "Socio")}</h3>
+            <p class="muted">Socio #${escapeHtml(String(associate.associateNumber || "-"))} · ${escapeHtml(associate.email || "Sin email")}</p>
+          </div>
+        </div>
+        <div class="status-note danger">
+          Esta accion eliminara el socio y sus datos asociados. No se puede deshacer.
+        </div>
+        ${
+          associateDeleteDialog.forceRequired
+            ? `<div class="status-note warning">El backend ha detectado datos relacionados. Para continuar debes confirmar la eliminacion definitiva.</div>`
+            : ""
+        }
+        <div class="compact-list">
+          ${impactItems.map((item) => `<div class="timeline-item compact-card">${escapeHtml(item)}</div>`).join("")}
+        </div>
+        ${
+          associateDeleteDialog.relatedCourses?.length
+            ? `<p class="muted">Cursos relacionados: ${associateDeleteDialog.relatedCourses.map((course) => escapeHtml(course.title || course.id)).join(" | ")}</p>`
+            : ""
+        }
+        ${
+          associateDeleteDialog.error
+            ? `<div class="status-note danger">${escapeHtml(associateDeleteDialog.error)}</div>`
+            : ""
+        }
+        <label class="inline-field">
+          Escribe ${escapeHtml(expectedText)} para confirmar
+          <input id="associateDeleteConfirmationInput" autocomplete="off" />
+        </label>
+        <div class="chip-row">
+          <button class="ghost-button" type="button" data-action="cancel-delete-associate">Cancelar</button>
+          <button class="primary-button danger-button" type="button" data-action="confirm-delete-associate" data-associate-id="${escapeHtml(associate.id)}">
+            ${associateDeleteDialog.forceRequired ? "Eliminar definitivamente" : "Eliminar"}
+          </button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+async function submitAssociateDeletion() {
+  if (!associateDeleteDialog) {
+    return;
+  }
+  const associate = findAssociate(associateDeleteDialog.associateId);
+  if (!associate) {
+    closeAssociateDeleteDialog();
+    return;
+  }
+
+  const expectedText = associateDeleteDialog.forceRequired ? "ELIMINAR DEFINITIVAMENTE" : "ELIMINAR";
+  const confirmation = String(document.getElementById("associateDeleteConfirmationInput")?.value || "").trim();
+  if (confirmation !== expectedText) {
+    associateDeleteDialog.error = `Escribe literalmente ${expectedText} para continuar.`;
+    render();
+    return;
+  }
+
+  syncStatus = "Eliminando socio desde servidor...";
+  render();
+
+  try {
+    const forceQuery = associateDeleteDialog.forceRequired ? "?force=true" : "";
+    const response = await fetch(`/api/admin/associates/${encodeURIComponent(associate.id)}${forceQuery}`, {
+      method: "DELETE"
+    });
+    const payload = await response.json();
+
+    if (response.status === 409 && payload.requiresForce) {
+      associateDeleteDialog = {
+        associateId: associate.id,
+        forceRequired: true,
+        impacts: payload.impacts || getAssociateDeletionImpactSummary(associate),
+        relatedCourses: payload.relatedCourses || [],
+        error: payload.error || ""
+      };
+      syncStatus = payload.error || "El socio tiene datos asociados y requiere confirmacion definitiva.";
+      showToast(syncStatus, "warning");
+      render();
+      return;
+    }
+
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.error || "Eliminacion rechazada");
+    }
+
+    associateDeleteDialog = null;
+    await refreshState({ forceAdminState: true });
+    applySessionToState();
+    syncAssociateSelectionTargets();
+    associatesSectionMode = "directory";
+    syncStatus = payload.message || "Socio eliminado";
+    showToast(syncStatus, "success");
+    render();
+  } catch (error) {
+    associateDeleteDialog = {
+      ...associateDeleteDialog,
+      error: error.message || "No se pudo eliminar el socio"
+    };
+    syncStatus = associateDeleteDialog.error;
+    showToast(syncStatus, "error");
+    render();
+  }
+}
+
 function render() {
   const hasOwnMemberProfile = Boolean(session?.memberId);
   const currentAssociate = getCurrentAssociate();
@@ -5686,7 +5886,8 @@ function renderMainPanel() {
     activity: renderActivity,
     automation: renderAutomation
   };
-  mainPanel.innerHTML = views[state.activeView]() + renderCampusAttachmentPreviewModal();
+  mainPanel.innerHTML =
+    views[state.activeView]() + renderCampusAttachmentPreviewModal() + renderAssociateDeleteDialog();
 }
 
 function isNavGroupExpanded(viewId) {

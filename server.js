@@ -3505,6 +3505,165 @@ function isMemberLinkedToCourse(course, memberId) {
   );
 }
 
+function getAssociateDeletionContext(state, associateId) {
+  const normalizedAssociateId = String(associateId || "").trim();
+  const associate = (state.associates || []).find((item) => item.id === normalizedAssociateId);
+  if (!associate) {
+    return null;
+  }
+
+  const linkedMemberId = String(associate.linkedMemberId || "").trim();
+  const linkedAccountId = String(associate.linkedAccountId || "").trim();
+  const associateEmail = String(associate.email || "").trim().toLowerCase();
+  const linkedAccounts = (state.accounts || []).filter((account) => {
+    const accountEmail = String(account.email || "").trim().toLowerCase();
+    return (
+      (linkedAccountId && account.id === linkedAccountId) ||
+      account.associateId === normalizedAssociateId ||
+      (linkedMemberId && account.memberId === linkedMemberId) ||
+      (associateEmail && accountEmail === associateEmail && account.associateId === normalizedAssociateId)
+    );
+  });
+  const linkedAdminAccounts = linkedAccounts.filter((account) => account.role === "admin");
+  const adminAccounts = (state.accounts || []).filter((account) => account.role === "admin");
+  const courseLinks = (state.courses || [])
+    .filter((course) => linkedMemberId && isMemberLinkedToCourse(course, linkedMemberId))
+    .map((course) => ({
+      id: course.id,
+      title: course.title || course.id,
+      hasDiploma: (course.diplomaReady || []).includes(linkedMemberId)
+    }));
+  const profileRequests = (state.associateProfileRequests || []).filter(
+    (request) => request.associateId === normalizedAssociateId || request.socio_id === normalizedAssociateId
+  );
+  const paymentSubmissions = (state.associatePaymentSubmissions || []).filter(
+    (submission) => submission.associateId === normalizedAssociateId || (linkedMemberId && submission.memberId === linkedMemberId)
+  );
+  const applications = (state.associateApplications || []).filter((application) => {
+    const applicationEmail = String(application.email || application.submitterEmail || "").trim().toLowerCase();
+    return (
+      (associate.applicationId && application.id === associate.applicationId) ||
+      application.associateId === normalizedAssociateId ||
+      (associateEmail && applicationEmail === associateEmail)
+    );
+  });
+  const payments = Array.isArray(associate.payments) ? associate.payments : [];
+  const diplomas = courseLinks.filter((course) => course.hasDiploma);
+
+  return {
+    associate,
+    linkedMemberId,
+    linkedAccountId,
+    linkedAccounts,
+    linkedAdminAccounts,
+    adminAccounts,
+    courseLinks,
+    profileRequests,
+    paymentSubmissions,
+    applications,
+    payments,
+    diplomas,
+    impacts: {
+      payments: payments.length,
+      courses: courseLinks.length,
+      diplomas: diplomas.length,
+      requests: profileRequests.length + paymentSubmissions.length + applications.length,
+      linkedAccounts: linkedAccounts.length,
+      linkedMembers: linkedMemberId ? 1 : 0
+    }
+  };
+}
+
+function associateDeletionNeedsForce(context) {
+  if (!context) {
+    return false;
+  }
+  return (
+    context.impacts.payments > 0 ||
+    context.impacts.courses > 0 ||
+    context.impacts.diplomas > 0 ||
+    context.impacts.requests > 0
+  );
+}
+
+function removeMemberCourseFootprint(state, memberId) {
+  const normalizedMemberId = String(memberId || "").trim();
+  if (!normalizedMemberId) {
+    return;
+  }
+
+  (state.courses || []).forEach((course) => {
+    course.enrolledIds = (course.enrolledIds || []).filter((id) => id !== normalizedMemberId);
+    course.waitingIds = (course.waitingIds || []).filter((id) => id !== normalizedMemberId);
+    course.diplomaReady = (course.diplomaReady || []).filter((id) => id !== normalizedMemberId);
+    course.mailsSent = (course.mailsSent || []).filter((id) => id !== normalizedMemberId);
+    course.enrollmentSubmissions = (course.enrollmentSubmissions || []).filter(
+      (submission) => submission.memberId !== normalizedMemberId
+    );
+    if (course.attendance) {
+      delete course.attendance[normalizedMemberId];
+    }
+    if (course.evaluations) {
+      delete course.evaluations[normalizedMemberId];
+    }
+    if (course.contentProgress) {
+      delete course.contentProgress[normalizedMemberId];
+    }
+    if (course.feedbackResponses) {
+      delete course.feedbackResponses[normalizedMemberId];
+    }
+  });
+}
+
+function deleteAssociateFromState(state, context) {
+  const associateId = context.associate.id;
+  const linkedMemberId = context.linkedMemberId;
+  const linkedAccountIds = new Set(context.linkedAccounts.map((account) => account.id));
+  const applicationIds = new Set(context.applications.map((application) => application.id));
+
+  state.associates = (state.associates || []).filter((associate) => associate.id !== associateId);
+  state.associateProfileRequests = (state.associateProfileRequests || []).filter(
+    (request) => request.associateId !== associateId && request.socio_id !== associateId
+  );
+  state.associatePaymentSubmissions = (state.associatePaymentSubmissions || []).filter(
+    (submission) => submission.associateId !== associateId && (!linkedMemberId || submission.memberId !== linkedMemberId)
+  );
+  state.associateApplications = (state.associateApplications || []).filter(
+    (application) => !applicationIds.has(application.id)
+  );
+  state.memberNotifications = (state.memberNotifications || []).filter(
+    (notification) => !linkedMemberId || notification.memberId !== linkedMemberId
+  );
+  state.emailOutbox = (state.emailOutbox || []).filter(
+    (mail) =>
+      mail.associateId !== associateId &&
+      (!linkedMemberId || mail.memberId !== linkedMemberId) &&
+      !linkedAccountIds.has(mail.accountId)
+  );
+  state.automationInbox = (state.automationInbox || []).filter(
+    (item) =>
+      item.associateId !== associateId &&
+      (!linkedMemberId || item.memberId !== linkedMemberId) &&
+      !linkedAccountIds.has(item.accountId)
+  );
+
+  removeMemberCourseFootprint(state, linkedMemberId);
+
+  if (linkedMemberId) {
+    state.members = (state.members || []).filter((member) => member.id !== linkedMemberId);
+  }
+  state.accounts = (state.accounts || []).filter(
+    (account) => !linkedAccountIds.has(account.id) && account.associateId !== associateId
+  );
+
+  if (state.selectedAssociateId === associateId) {
+    state.selectedAssociateId = (state.associates || [])[0]?.id || "";
+  }
+  if (linkedMemberId && state.selectedMemberId === linkedMemberId) {
+    state.selectedMemberId = (state.members || [])[0]?.id || "";
+  }
+}
+
 function canAccessCampusGroup(state, account, group) {
   if (!account || !group) {
     return false;
@@ -6662,6 +6821,84 @@ const server = http.createServer(async (req, res) => {
         ok: false,
         error: error.message || "No se pudo cerrar la revision del socio"
       });
+    }
+  }
+
+  const deleteAdminAssociateMatch = requestUrl.pathname.match(/^\/api\/admin\/associates\/([^/]+)$/);
+  if (deleteAdminAssociateMatch && req.method === "DELETE") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+      const associateId = decodeURIComponent(deleteAdminAssociateMatch[1] || "");
+      const force = String(requestUrl.searchParams.get("force") || "").trim().toLowerCase() === "true";
+      const context = getAssociateDeletionContext(state, associateId);
+      if (!context) {
+        return sendJson(res, 404, { ok: false, error: "Socio no encontrado" });
+      }
+
+      if (context.linkedAccounts.some((linkedAccount) => linkedAccount.id === account.id)) {
+        return sendJson(res, 403, {
+          ok: false,
+          error: "No puedes borrar el socio vinculado a la cuenta admin autenticada."
+        });
+      }
+
+      if (context.linkedAdminAccounts.length && context.adminAccounts.length <= 1) {
+        return sendJson(res, 403, {
+          ok: false,
+          error: "No se puede borrar el socio vinculado al unico administrador."
+        });
+      }
+
+      if (context.linkedAdminAccounts.length) {
+        return sendJson(res, 403, {
+          ok: false,
+          error: "No se puede borrar un socio vinculado a una cuenta administradora."
+        });
+      }
+
+      if (associateDeletionNeedsForce(context) && !force) {
+        return sendJson(res, 409, {
+          ok: false,
+          requiresForce: true,
+          error:
+            "Este socio tiene pagos, cursos, diplomas o solicitudes relacionadas. Confirma la eliminacion definitiva para continuar.",
+          associate: {
+            id: context.associate.id,
+            associateNumber: context.associate.associateNumber,
+            name: getAssociateFullName(context.associate),
+            email: context.associate.email || ""
+          },
+          impacts: context.impacts,
+          relatedCourses: context.courseLinks,
+          relatedRequests: {
+            applications: context.applications.length,
+            payments: context.paymentSubmissions.length,
+            profiles: context.profileRequests.length
+          }
+        });
+      }
+
+      deleteAssociateFromState(state, context);
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha eliminado el socio #${context.associate.associateNumber} (${getAssociateFullName(context.associate) || context.associate.email || context.associate.id})${force ? " con confirmacion definitiva" : ""}`
+      );
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        message: `Socio #${context.associate.associateNumber || "-"} eliminado`,
+        deletedAssociateId: context.associate.id,
+        impacts: context.impacts
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo eliminar el socio");
     }
   }
 

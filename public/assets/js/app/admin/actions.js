@@ -15,6 +15,8 @@ export const ASSOCIATE_ADMIN_ONLY_ACTIONS = new Set([
   "confirm-profile-review",
   "create-associate-campus-access",
   "create-associate-campus-admin-access",
+  "cancel-delete-associate",
+  "confirm-delete-associate",
   "delete-associate",
   "delete-associate-payment",
   "mark-associate-paid",
