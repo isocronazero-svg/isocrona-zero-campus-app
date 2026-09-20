@@ -103,6 +103,17 @@ for (const file of conflictCheckedFiles) {
 }
 
 const publicAppContent = readFileSync("public/app.js", "utf8");
+const associateDirectoryStart = publicAppContent.indexOf('id="associateSectionAssociates"');
+const associateDirectoryEnd = publicAppContent.indexOf("function renderAssociatesSide()", associateDirectoryStart);
+const associateDirectoryContent =
+  associateDirectoryStart >= 0 && associateDirectoryEnd > associateDirectoryStart
+    ? publicAppContent.slice(associateDirectoryStart, associateDirectoryEnd)
+    : "";
+
+if (!associateDirectoryContent || associateDirectoryContent.includes('class="inline-table-actions"')) {
+  console.error("Associate directory must keep row actions in the Acciones column only");
+  failed = true;
+}
 
 for (const snippet of publicAppSnippets) {
   if (!publicAppContent.includes(snippet)) {
