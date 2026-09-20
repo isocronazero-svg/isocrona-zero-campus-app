@@ -4993,7 +4993,7 @@ async function persistAndRender(successMessage) {
   syncStatus = "Guardando cambios...";
   render();
 
-  saveSequence = saveSequence.then(async () => {
+  saveSequence = saveSequence.catch(() => undefined).then(async () => {
     let payloadState = {
       ...state,
       role: isAdminSession() ? "admin" : getEffectiveRole()
@@ -5015,7 +5015,7 @@ async function persistAndRender(successMessage) {
         body: JSON.stringify(payloadState)
       });
 
-      const payload = await response.json();
+      const payload = await readJsonResponse(response, "No se pudo leer la respuesta del guardado");
       if (!response.ok) {
         throw new Error(payload?.error || payload?.message || "No se pudieron guardar los cambios");
       }
