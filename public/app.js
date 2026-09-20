@@ -6145,6 +6145,22 @@ function focusLearnerWorkspaceSection(mode) {
   target.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+async function readJsonResponse(response, fallbackMessage = "No se pudo leer la respuesta del servidor") {
+  const rawBody = await response.text();
+  if (!rawBody.trim()) {
+    return response.ok ? {} : { ok: false, error: fallbackMessage };
+  }
+
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    return {
+      ok: false,
+      error: response.ok ? fallbackMessage : rawBody.trim().slice(0, 240) || fallbackMessage
+    };
+  }
+}
+
 function showToast(message, type = "success") {
   if (!message) {
     return;
