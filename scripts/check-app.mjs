@@ -79,7 +79,8 @@ const publicAppSnippets = [
   "Hoy en socios",
   "Pendiente de revisar",
   'data-section-id="associateSectionNotifications"',
-  "Crear aviso a socios"
+  "Crear aviso a socios",
+  'loginStatus = "Acceso correcto.";\n    syncStatus = "Datos cargados";'
 ];
 
 let failed = false;
