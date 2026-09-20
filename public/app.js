@@ -189,6 +189,7 @@ let associatePages = {
   legacy: 1,
   directory: 1
 };
+let legacyReviewFilter = "all";
 let expandedNavViews = new Set(["associates"]);
 let associatesSectionMode = "directory";
 let membersSectionMode = "directory";
@@ -903,6 +904,16 @@ document.addEventListener("click", async (event) => {
     }
     associatePages[pageKey] = Math.max(1, nextPage || 1);
     render();
+    return;
+  }
+
+  if (action === "filter-legacy-review") {
+    legacyReviewFilter = actionTarget.dataset.filter || "all";
+    associatePages.legacy = 1;
+    render();
+    requestAnimationFrame(() => {
+      document.getElementById("associateSectionLegacyReview")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     return;
   }
 
@@ -7651,7 +7662,25 @@ function renderAssociates() {
   const legacyWithoutCampusAccess = legacyReviewAssociates.filter((item) => !item.linkedAccountId).length;
   const legacyMissingPhone = legacyReviewAssociates.filter((item) => !item.phone).length;
   const legacyMissingDni = legacyReviewAssociates.filter((item) => !item.dni).length;
-  const orderedLegacyReviewAssociates = legacyReviewAssociates
+  const filteredLegacyReviewAssociates = legacyReviewAssociates.filter((associate) => {
+    if (legacyReviewFilter === "missing-phone") {
+      return !associate.phone;
+    }
+    if (legacyReviewFilter === "missing-dni") {
+      return !associate.dni;
+    }
+    if (legacyReviewFilter === "missing-service") {
+      return !associate.service;
+    }
+    if (legacyReviewFilter === "without-access") {
+      return !associate.linkedAccountId;
+    }
+    if (legacyReviewFilter === "ready") {
+      return canCloseAssociateLegacyReview(associate);
+    }
+    return true;
+  });
+  const orderedLegacyReviewAssociates = filteredLegacyReviewAssociates
     .slice()
     .sort((a, b) => Number(a.associateNumber || 0) - Number(b.associateNumber || 0));
   const pagedLegacyReviewAssociates = getAssociatePageMeta(orderedLegacyReviewAssociates, "legacy");
@@ -8223,6 +8252,15 @@ function renderAssociates() {
             <p>Fichas importadas donde falta DNI o necesita repaso.</p>
           </div>
         </div>
+        <div class="chip-row">
+          <button class="mini-button ${legacyReviewFilter === "all" ? "is-active" : ""}" data-action="filter-legacy-review" data-filter="all">Todas (${legacyReviewAssociates.length})</button>
+          <button class="mini-button ${legacyReviewFilter === "missing-phone" ? "is-active" : ""}" data-action="filter-legacy-review" data-filter="missing-phone">Sin telefono (${legacyMissingPhone})</button>
+          <button class="mini-button ${legacyReviewFilter === "missing-dni" ? "is-active" : ""}" data-action="filter-legacy-review" data-filter="missing-dni">Sin DNI (${legacyMissingDni})</button>
+          <button class="mini-button ${legacyReviewFilter === "missing-service" ? "is-active" : ""}" data-action="filter-legacy-review" data-filter="missing-service">Sin servicio (${legacyReviewAssociates.filter((item) => !item.service).length})</button>
+          <button class="mini-button ${legacyReviewFilter === "without-access" ? "is-active" : ""}" data-action="filter-legacy-review" data-filter="without-access">Sin acceso (${legacyWithoutCampusAccess})</button>
+          <button class="mini-button ${legacyReviewFilter === "ready" ? "is-active" : ""}" data-action="filter-legacy-review" data-filter="ready">Listas para cerrar (${legacyReadyToClose.length})</button>
+        </div>
+        <p class="muted">Mostrando ${filteredLegacyReviewAssociates.length} de ${legacyReviewAssociates.length} fichas en revision.</p>
         ${
           pagedLegacyReviewAssociates.items.length
             ? pagedLegacyReviewAssociates.items
