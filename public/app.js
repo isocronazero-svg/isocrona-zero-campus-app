@@ -635,6 +635,7 @@ loginForm.addEventListener("submit", async (event) => {
       : "";
     addActivity(session.role === "admin" ? "admin" : "member", session.name, "Ha iniciado sesion");
     loginStatus = "Acceso correcto.";
+    syncStatus = "Datos cargados";
     showToast("Acceso correcto", "success");
   } catch (error) {
     loginStatus = error.message || "No se pudo iniciar sesion.";
@@ -675,6 +676,7 @@ publicCampusRegisterForm?.addEventListener("submit", async (event) => {
     publicCampusRegisterForm.reset();
     publicCampusStatus = "Acceso solo campus creado correctamente.";
     loginStatus = payload.message || "Acceso correcto.";
+    syncStatus = "Datos cargados";
     showToast(payload.message || "Acceso solo campus creado correctamente", "success");
   } catch (error) {
     publicCampusStatus = error.message || "No se pudo crear el acceso solo campus";
