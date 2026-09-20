@@ -5888,8 +5888,12 @@ function renderMainPanel() {
     activity: renderActivity,
     automation: renderAutomation
   };
+  const renderActiveView = views[state.activeView] || views.overview;
+  if (typeof views[state.activeView] !== "function") {
+    state.activeView = "overview";
+  }
   mainPanel.innerHTML =
-    views[state.activeView]() + renderCampusAttachmentPreviewModal() + renderAssociateDeleteDialog();
+    renderActiveView() + renderCampusAttachmentPreviewModal() + renderAssociateDeleteDialog();
 }
 
 function isNavGroupExpanded(viewId) {
