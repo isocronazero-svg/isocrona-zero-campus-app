@@ -4401,8 +4401,18 @@ document.addEventListener("submit", async (event) => {
       }
     };
 
+    const submitButton = event.target.querySelector('button[type="submit"]');
+    const saveStatus = document.getElementById("associateEditSaveStatus");
     syncStatus = "Guardando ficha de socio...";
-    render();
+    event.target.setAttribute("aria-busy", "true");
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Guardando...";
+    }
+    if (saveStatus) {
+      saveStatus.className = "muted";
+      saveStatus.textContent = syncStatus;
+    }
     try {
       const response = await fetch(`/api/associates/${encodeURIComponent(associate.id)}`, {
         method: "PATCH",
@@ -4417,11 +4427,19 @@ document.addEventListener("submit", async (event) => {
       applySessionToState();
       syncStatus = result.message || "Ficha de socio actualizada";
       showToast(syncStatus, "success");
+      render();
     } catch (error) {
       syncStatus = error?.message || "No se pudo guardar la ficha del socio";
-      showToast(syncStatus, "error");
+      event.target.removeAttribute("aria-busy");
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = "Guardar ficha de socio";
+      }
+      if (saveStatus) {
+        saveStatus.className = "status-note warning";
+        saveStatus.textContent = `${syncStatus}. Los cambios siguen en el formulario; puedes corregirlos o reintentar.`;
+      }
     }
-    render();
   }
 
   if (event.target.id === "associatePaymentForm" && isAdminSession()) {
@@ -9202,6 +9220,7 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
               `
               : `<p class="status-note">El rol define si esta cuenta entra como socio/alumno o como administracion.</p>`
         }
+        <p id="associateEditSaveStatus" class="muted" aria-live="polite"></p>
         <button class="primary-button" type="submit">Guardar ficha de socio</button>
       </form>
 
