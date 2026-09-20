@@ -14,6 +14,10 @@ const defaultStatePath = process.env.IZ_DEFAULT_STATE_PATH
 const stateSnapshotPath = path.join(dataDir, "state.json");
 const stateBackupDir = path.join(dataDir, "backups");
 const maxAutomaticBackups = Number(process.env.IZ_MAX_AUTOMATIC_BACKUPS || 30);
+const automaticBackupIntervalMs = Math.max(
+  0,
+  Number(process.env.IZ_AUTOMATIC_BACKUP_INTERVAL_MS || 5 * 60 * 1000)
+);
 const allowEphemeralStorageInProductionFlag = "IZ_ALLOW_EPHEMERAL_STORAGE_IN_PRODUCTION";
 
 assertProductionStorageIsConfigured();
@@ -57,7 +61,7 @@ function writeState(state) {
   ).run("campus_state", serialized, now);
 
   // Keep a readable snapshot alongside the database for easy inspection and manual backups.
-  fs.writeFileSync(stateSnapshotPath, serialized);
+  writeFileAtomic(stateSnapshotPath, serialized);
   writeAutomaticBackup(serialized, now);
 }
 
@@ -129,14 +133,23 @@ function assertProductionStorageIsConfigured() {
 }
 
 function writeAutomaticBackup(serialized, timestamp) {
+  const newestBackup = getAutomaticBackupFiles()[0];
+  if (
+    automaticBackupIntervalMs > 0 &&
+    newestBackup &&
+    Date.now() - newestBackup.modifiedAt < automaticBackupIntervalMs
+  ) {
+    return;
+  }
+
   const safeTimestamp = String(timestamp || new Date().toISOString()).replace(/[:.]/g, "-");
   const backupPath = path.join(stateBackupDir, `campus-backup-${safeTimestamp}.json`);
-  fs.writeFileSync(backupPath, serialized);
+  writeFileAtomic(backupPath, serialized);
   pruneAutomaticBackups();
 }
 
-function pruneAutomaticBackups() {
-  const backupFiles = fs
+function getAutomaticBackupFiles() {
+  return fs
     .readdirSync(stateBackupDir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && /^campus-backup-.*\.json$/i.test(entry.name))
     .map((entry) => ({
@@ -145,10 +158,26 @@ function pruneAutomaticBackups() {
       modifiedAt: fs.statSync(path.join(stateBackupDir, entry.name)).mtimeMs
     }))
     .sort((a, b) => b.modifiedAt - a.modifiedAt);
+}
+
+function pruneAutomaticBackups() {
+  const backupFiles = getAutomaticBackupFiles();
 
   backupFiles.slice(maxAutomaticBackups).forEach((entry) => {
     fs.rmSync(entry.path, { force: true });
   });
+}
+
+function writeFileAtomic(targetPath, contents) {
+  const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, contents);
+    fs.renameSync(temporaryPath, targetPath);
+  } finally {
+    if (fs.existsSync(temporaryPath)) {
+      fs.rmSync(temporaryPath, { force: true });
+    }
+  }
 }
 
 function seedDatabaseIfNeeded() {
