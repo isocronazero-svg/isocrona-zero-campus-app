@@ -4369,45 +4369,48 @@ document.addEventListener("submit", async (event) => {
     if (!associate) {
       return;
     }
-
-    associate.associateNumber = Number(document.getElementById("editAssociateNumber").value || 0);
-    associate.status = document.getElementById("editAssociateStatus").value;
-    associate.firstName = document.getElementById("editAssociateFirstName").value.trim();
-    associate.lastName = document.getElementById("editAssociateLastName").value.trim();
-    associate.dni = document.getElementById("editAssociateDni").value.trim().toUpperCase();
-    associate.phone = document.getElementById("editAssociatePhone").value.trim();
-    associate.email = document.getElementById("editAssociateEmail").value.trim().toLowerCase();
-    associate.service = document.getElementById("editAssociateService").value.trim();
-    associate.lastQuotaMonth = document.getElementById("editAssociateLastQuotaMonth").value.trim();
-    associate.annualAmount = Number(document.getElementById("editAssociateAnnual").value || 0);
-    associate.observations = document.getElementById("editAssociateObservations").value.trim();
-    refreshAssociateLegacyObservationSummary(associate);
-    associate.manualYearlyFees = {
-      "2024": Number(document.getElementById("editAssociateFee2024").value || 0),
-      "2025": Number(document.getElementById("editAssociateFee2025").value || 0),
-      "2026": Number(document.getElementById("editAssociateFee2026").value || 0),
-      "2027": Number(document.getElementById("editAssociateFee2027").value || 0)
+    const payload = {
+      associateNumber: Number(document.getElementById("editAssociateNumber").value || 0),
+      status: document.getElementById("editAssociateStatus").value,
+      firstName: document.getElementById("editAssociateFirstName").value.trim(),
+      lastName: document.getElementById("editAssociateLastName").value.trim(),
+      dni: document.getElementById("editAssociateDni").value.trim().toUpperCase(),
+      phone: document.getElementById("editAssociatePhone").value.trim(),
+      email: document.getElementById("editAssociateEmail").value.trim().toLowerCase(),
+      service: document.getElementById("editAssociateService").value.trim(),
+      lastQuotaMonth: document.getElementById("editAssociateLastQuotaMonth").value.trim(),
+      annualAmount: Number(document.getElementById("editAssociateAnnual").value || 0),
+      observations: document.getElementById("editAssociateObservations").value.trim(),
+      accountRole: normalizeCampusAccountRole(document.getElementById("editAssociateAccountRole")?.value),
+      manualYearlyFees: {
+        "2024": Number(document.getElementById("editAssociateFee2024").value || 0),
+        "2025": Number(document.getElementById("editAssociateFee2025").value || 0),
+        "2026": Number(document.getElementById("editAssociateFee2026").value || 0),
+        "2027": Number(document.getElementById("editAssociateFee2027").value || 0)
+      }
     };
 
-    const linkedAccount = findAccountByAssociate(associate.id);
-    const nextAccountRole = normalizeCampusAccountRole(document.getElementById("editAssociateAccountRole")?.value);
-    if (linkedAccount && nextAccountRole && linkedAccount.id !== session?.accountId) {
-      linkedAccount.role = nextAccountRole;
+    syncStatus = "Guardando ficha de socio...";
+    render();
+    try {
+      const response = await fetch(`/api/associates/${encodeURIComponent(associate.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false) {
+        throw new Error(result.error || "No se pudo guardar la ficha del socio");
+      }
+      await refreshState({ forceAdminState: true });
+      applySessionToState();
+      syncStatus = result.message || "Ficha de socio actualizada";
+      showToast(syncStatus, "success");
+    } catch (error) {
+      syncStatus = error?.message || "No se pudo guardar la ficha del socio";
+      showToast(syncStatus, "error");
     }
-
-    state.settings.associates.nextAssociateNumber = Math.max(
-      Number(state.settings.associates.nextAssociateNumber || 1),
-      associate.associateNumber + 1
-    );
-    syncAssociatePaymentTotals(associate);
-    syncAssociateLinkedIdentityLocally(associate);
-
-    addActivity(
-      "admin",
-      session.name,
-      `Ha actualizado la ficha del socio #${associate.associateNumber} ${associate.firstName} ${associate.lastName}`.trim()
-    );
-    await persistAndRender("Ficha de socio actualizada");
+    render();
   }
 
   if (event.target.id === "associatePaymentForm" && isAdminSession()) {
