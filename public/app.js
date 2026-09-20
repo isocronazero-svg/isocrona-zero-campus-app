@@ -8707,7 +8707,7 @@ function renderAssociates() {
             <button class="ghost-button" data-action="set-associate-filter-preset" data-preset="incidents">Solo incidencias</button>
           </div>
         </div>
-        <table>
+        <table class="associate-directory-table">
           <thead>
             <tr>
               <th>N. socio</th>
