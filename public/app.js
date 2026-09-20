@@ -152,6 +152,7 @@ const ASSOCIATE_PAGE_SIZE = {
   applications: 8,
   payments: 8,
   profiles: 8,
+  legacy: 10,
   directory: 25
 };
 let associateFilters = {
@@ -185,6 +186,7 @@ let associatePages = {
   applications: 1,
   payments: 1,
   profiles: 1,
+  legacy: 1,
   directory: 1
 };
 let expandedNavViews = new Set(["associates"]);
@@ -7328,6 +7330,7 @@ function resetAssociatePages() {
     applications: 1,
     payments: 1,
     profiles: 1,
+    legacy: 1,
     directory: 1
   };
 }
@@ -7629,10 +7632,10 @@ function renderAssociates() {
   const legacyWithoutCampusAccess = legacyReviewAssociates.filter((item) => !item.linkedAccountId).length;
   const legacyMissingPhone = legacyReviewAssociates.filter((item) => !item.phone).length;
   const legacyMissingDni = legacyReviewAssociates.filter((item) => !item.dni).length;
-  const urgentLegacyReviewAssociates = legacyReviewAssociates
+  const orderedLegacyReviewAssociates = legacyReviewAssociates
     .slice()
-    .sort((a, b) => Number(a.associateNumber || 0) - Number(b.associateNumber || 0))
-    .slice(0, 6);
+    .sort((a, b) => Number(a.associateNumber || 0) - Number(b.associateNumber || 0));
+  const pagedLegacyReviewAssociates = getAssociatePageMeta(orderedLegacyReviewAssociates, "legacy");
   const workbookPreviewDuplicateRows = workbookPreviewRows.filter((item) =>
     (item.blockers || []).some((blocker) => String(blocker).includes("ya existe en socios"))
   ).length;
@@ -8202,8 +8205,8 @@ function renderAssociates() {
           </div>
         </div>
         ${
-          urgentLegacyReviewAssociates.length
-            ? urgentLegacyReviewAssociates
+          pagedLegacyReviewAssociates.items.length
+            ? pagedLegacyReviewAssociates.items
                 .map((associate) => {
                   const issues = getAssociateLegacyReviewIssues(associate);
                   const canClose = canCloseAssociateLegacyReview(associate);
@@ -8238,6 +8241,7 @@ function renderAssociates() {
                 .join("")
             : `<p class="status-note">No quedan socios legacy en revision documental.</p>`
         }
+        ${renderAssociatePagination(pagedLegacyReviewAssociates, "Socios en revision")}
       </div>
       `
           : ""
