@@ -6648,6 +6648,96 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  const updateAssociateMatch = requestUrl.pathname.match(/^\/api\/associates\/([^/]+)$/);
+  if (updateAssociateMatch && req.method === "PATCH") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
+      const associateId = decodeURIComponent(updateAssociateMatch[1] || "");
+      const associate = (state.associates || []).find((item) => item.id === associateId);
+      if (!associate) {
+        return sendJson(res, 404, { ok: false, error: "Socio no encontrado" });
+      }
+
+      const associateNumber = Number(payload.associateNumber || 0);
+      if (!Number.isInteger(associateNumber) || associateNumber < 1) {
+        throw new Error("El numero de socio debe ser un entero mayor que cero");
+      }
+      const duplicateNumber = (state.associates || []).find(
+        (item) => item.id !== associate.id && Number(item.associateNumber || 0) === associateNumber
+      );
+      if (duplicateNumber) {
+        throw new Error(`Ya existe el socio numero ${associateNumber}`);
+      }
+
+      const email = String(payload.email || "").trim().toLowerCase();
+      if (email && !isLikelyEmail(email)) {
+        throw new Error("El email no tiene un formato valido");
+      }
+      if (email) {
+        ensureUniqueAssociateIdentityEmail(state, associate, email);
+      }
+
+      associate.associateNumber = associateNumber;
+      associate.status = String(payload.status || associate.status || "Revisar documentacion").trim();
+      associate.firstName = String(payload.firstName || "").trim();
+      associate.lastName = String(payload.lastName || "").trim();
+      associate.dni = normalizeDniValue(payload.dni);
+      associate.phone = String(payload.phone || "").trim();
+      associate.email = email;
+      associate.service = String(payload.service || "").trim();
+      associate.lastQuotaMonth = String(payload.lastQuotaMonth || "").trim();
+      associate.annualAmount = Math.max(0, Number(payload.annualAmount || 0));
+      associate.observations = String(payload.observations || "").trim();
+      associate.manualYearlyFees = {
+        "2024": Math.max(0, Number(payload.manualYearlyFees?.["2024"] || 0)),
+        "2025": Math.max(0, Number(payload.manualYearlyFees?.["2025"] || 0)),
+        "2026": Math.max(0, Number(payload.manualYearlyFees?.["2026"] || 0)),
+        "2027": Math.max(0, Number(payload.manualYearlyFees?.["2027"] || 0))
+      };
+
+      refreshAssociateLegacyObservationSummary(associate);
+      recalculateAssociateFeeTotals(associate);
+      syncAssociateLinkedIdentity(state, associate);
+
+      const linkedAccount = associate.linkedAccountId
+        ? (state.accounts || []).find((item) => item.id === associate.linkedAccountId)
+        : null;
+      const nextAccountRole = payload.accountRole ? normalizeCampusAccountRole(payload.accountRole) : "";
+      if (linkedAccount && nextAccountRole && linkedAccount.id !== account.id) {
+        linkedAccount.role = nextAccountRole;
+      }
+
+      state.settings = state.settings || {};
+      state.settings.associates = state.settings.associates || {};
+      state.settings.associates.nextAssociateNumber = Math.max(
+        Number(state.settings.associates.nextAssociateNumber || 1),
+        associateNumber + 1
+      );
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha actualizado la ficha del socio #${associateNumber} ${getAssociateFullName(associate)}`.trim()
+      );
+      writeState(state);
+
+      return sendJson(res, 200, {
+        ok: true,
+        message: `Ficha del socio #${associateNumber} actualizada`,
+        associate
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo actualizar la ficha del socio");
+    }
+  }
+
   const sendAssociateWelcomeMatch = requestUrl.pathname.match(/^\/api\/associates\/([^/]+)\/send-welcome$/);
   if (sendAssociateWelcomeMatch && req.method === "POST") {
     let state = null;
