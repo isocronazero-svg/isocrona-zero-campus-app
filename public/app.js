@@ -8722,22 +8722,7 @@ function renderAssociates() {
                       (item) => `
                         <tr>
                           <td>${item.associateNumber}</td>
-                          <td>
-                            ${escapeHtml(getAssociateFullName(item))}
-                            <div class="inline-table-actions">
-                              <button class="mini-button" data-action="select-associate" data-associate-id="${item.id}">Abrir ficha</button>
-                              ${
-                                getAssociateQuotaGap(item) > 0
-                                  ? `<button class="mini-button" data-action="mark-associate-paid" data-associate-id="${item.id}" data-year="${new Date().getFullYear()}">Marcar pagado</button>`
-                                  : ""
-                              }
-                              ${
-                                !item.linkedAccountId && item.email
-                                  ? `<button class="mini-button" data-action="create-associate-campus-access" data-associate-id="${item.id}">Crear acceso</button>`
-                                  : ""
-                              }
-                            </div>
-                          </td>
+                          <td>${escapeHtml(getAssociateFullName(item))}</td>
                           <td>${escapeHtml(item.service || "-")}</td>
                           <td>${formatCurrency(getAssociateCurrentYearFee(item))} / ${formatCurrency(item.annualAmount || 0)}</td>
                           <td>${escapeHtml(item.campusAccessStatus || "pending")}</td>
@@ -21477,4 +21462,3 @@ function readFileAsBase64(file) {
     reader.readAsDataURL(file);
   });
 }
-
