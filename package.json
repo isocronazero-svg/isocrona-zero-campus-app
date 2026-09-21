@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "prestart": "npm run check:frontend-syntax",
     "start": "node server.js",
     "start:local": "node server.js",
     "check:app": "node scripts/check-app.mjs",
