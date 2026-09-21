@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
@@ -20,6 +21,25 @@ const tempDataDir = path.join(tempRoot, "data");
 const tempDefaultStatePath = path.join(tempRoot, "default-state.json");
 const serverOut = [];
 const serverErr = [];
+const testPasswords = {
+  admin: `Admin-${randomUUID()}`,
+  member: `Member-${randomUUID()}`,
+  replacement: `Replacement-${randomUUID()}`,
+  wrong: `Wrong-${randomUUID()}`
+};
+
+function buildSeedState() {
+  const seed = JSON.parse(readFileSync(bundledDefaultStatePath, "utf8"));
+  seed.accounts = (seed.accounts || []).map((account) => {
+    const password = account.id === "account-1"
+      ? testPasswords.admin
+      : account.id === "account-2"
+        ? testPasswords.member
+        : `Unused-${randomUUID()}`;
+    return { ...account, password, passwordHash: "" };
+  });
+  return seed;
+}
 
 async function getAvailablePort() {
   return await new Promise((resolve, reject) => {
@@ -36,7 +56,7 @@ async function getAvailablePort() {
 
 function startServer(port, baseUrl) {
   mkdirSync(tempDataDir, { recursive: true });
-  writeFileSync(tempDefaultStatePath, readFileSync(bundledDefaultStatePath));
+  writeFileSync(tempDefaultStatePath, JSON.stringify(buildSeedState(), null, 2));
   const child = spawn(process.execPath, ["server.js"], {
     cwd: repoRoot,
     env: {
@@ -144,11 +164,11 @@ async function main() {
     const anonymousUpdate = await anonymous.request("PATCH", "/api/associates/associate-1", updatePayload, true);
     assert.equal(anonymousUpdate.status, 401, "Un visitante no puede editar socios");
 
-    await login(member, "lucia@isocronazero.org", "bomberos123");
+    await login(member, "lucia@isocronazero.org", testPasswords.member);
     const memberUpdate = await member.request("PATCH", "/api/associates/associate-1", updatePayload, true);
     assert.equal(memberUpdate.status, 403, "Un socio no puede editar el censo");
 
-    await login(admin, "admin@isocronazero.org", "campus123");
+    await login(admin, "admin@isocronazero.org", testPasswords.admin);
     const update = await admin.request("PATCH", "/api/associates/associate-1", updatePayload);
     assert.equal(update.status, 200);
     assert.equal(update.body?.associate?.firstName, "Laura corregida");
@@ -174,6 +194,94 @@ async function main() {
 
     const missingAssociate = await admin.request("PATCH", "/api/associates/no-existe", updatePayload, true);
     assert.equal(missingAssociate.status, 404, "Debe distinguir una ficha inexistente");
+
+    const anonymousCreateAccess = await anonymous.request(
+      "POST",
+      "/api/associates/associate-1/create-access",
+      { role: "member" },
+      true
+    );
+    assert.equal(anonymousCreateAccess.status, 401, "Un visitante no puede crear accesos");
+
+    const memberCreateAccess = await member.request(
+      "POST",
+      "/api/associates/associate-1/create-access",
+      { role: "member" },
+      true
+    );
+    assert.equal(memberCreateAccess.status, 403, "Un socio no puede crear accesos para otros socios");
+
+    const createdAccess = await admin.request(
+      "POST",
+      "/api/associates/associate-1/create-access",
+      { role: "member" }
+    );
+    assert.equal(createdAccess.status, 200);
+    assert.ok(createdAccess.body?.associate?.linkedAccountId, "El acceso debe quedar vinculado a la ficha");
+    const temporaryPassword = createdAccess.body?.associate?.temporaryPassword;
+    assert.ok(temporaryPassword, "Administracion debe recibir la contrasena temporal");
+
+    const associateClient = createClient(baseUrl);
+    const firstLogin = await associateClient.request("POST", "/api/login", {
+      email: updatePayload.email,
+      password: temporaryPassword
+    });
+    assert.equal(firstLogin.body?.session?.mustChangePassword, true, "El primer acceso debe exigir cambio de clave");
+    assert.equal(firstLogin.body?.session?.role, "member");
+
+    const wrongCurrentPassword = await associateClient.request(
+      "POST",
+      "/api/account/change-password",
+      {
+        accountId: firstLogin.body.session.accountId,
+        currentPassword: testPasswords.wrong,
+        newPassword: testPasswords.replacement,
+        confirmPassword: testPasswords.replacement
+      },
+      true
+    );
+    assert.equal(wrongCurrentPassword.status, 400, "No debe cambiarse la clave sin conocer la actual");
+
+    const changedPassword = await associateClient.request("POST", "/api/account/change-password", {
+      accountId: firstLogin.body.session.accountId,
+      currentPassword: temporaryPassword,
+      newPassword: testPasswords.replacement,
+      confirmPassword: testPasswords.replacement
+    });
+    assert.equal(changedPassword.body?.session?.mustChangePassword, false);
+
+    await associateClient.request("POST", "/api/logout");
+    const staleTemporaryLogin = await associateClient.request(
+      "POST",
+      "/api/login",
+      { email: updatePayload.email, password: temporaryPassword },
+      true
+    );
+    assert.equal(staleTemporaryLogin.status, 401, "La contrasena temporal debe caducar tras cambiarla");
+    const regularLogin = await associateClient.request("POST", "/api/login", {
+      email: updatePayload.email,
+      password: testPasswords.replacement
+    });
+    assert.equal(regularLogin.body?.session?.mustChangePassword, false);
+
+    const resetPassword = await admin.request("POST", "/api/associates/associate-1/reset-password");
+    const resetTemporaryPassword = resetPassword.body?.associate?.temporaryPassword;
+    assert.ok(resetTemporaryPassword, "El restablecimiento debe entregar una nueva clave temporal a administracion");
+    assert.notEqual(resetTemporaryPassword, temporaryPassword, "La clave restablecida debe ser nueva");
+
+    await associateClient.request("POST", "/api/logout");
+    const staleRegularLogin = await associateClient.request(
+      "POST",
+      "/api/login",
+      { email: updatePayload.email, password: testPasswords.replacement },
+      true
+    );
+    assert.equal(staleRegularLogin.status, 401, "La clave anterior debe dejar de funcionar tras restablecerla");
+    const resetLogin = await associateClient.request("POST", "/api/login", {
+      email: updatePayload.email,
+      password: resetTemporaryPassword
+    });
+    assert.equal(resetLogin.body?.session?.mustChangePassword, true);
   } finally {
     await stopServer(server);
     rmSync(tempRoot, { recursive: true, force: true });
