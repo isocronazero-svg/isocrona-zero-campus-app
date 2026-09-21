@@ -1,5 +1,7 @@
 # Auditoría técnica del campus — 20 de septiembre de 2026
 
+_Actualizada el 21 de septiembre de 2026._
+
 ## Situación consolidada
 
 - Portal operativo: `https://portal.isocronazero.org`.
@@ -23,6 +25,10 @@
 | #173 | Filtros de revisión legacy | Separa incidencias por teléfono, DNI, servicio, acceso y cierre |
 | #174 | Conservación del formulario cuando falla el guardado | Los datos escritos no se pierden y se puede reintentar |
 | #175 | Recuperación de la cola de guardado | Un fallo anterior ya no bloquea los guardados posteriores |
+| #176 | Auditoría técnica consolidada | Deja inventario de estado, riesgos y próximos pasos |
+| #177 | Corrección de función JavaScript duplicada | Recupera la carga completa del portal y del menú lateral |
+| #178 | Validación de sintaxis antes del arranque | Bloquea un despliegue nuevo si el frontend contiene JavaScript inválido |
+| #179 | Prueba del guardado de fichas | Verifica permisos, persistencia, duplicados, email y fichas inexistentes |
 
 ## Protección de datos
 
@@ -44,6 +50,8 @@
 - Flujos de avisos y notificaciones.
 - Zona de tests y bancos IVASPE.
 - Confirmación de despliegue de Railway para el servicio utilizado por el portal.
+- Recarga del portal público después de los despliegues #178 y #179, sin errores propios de la aplicación.
+- Prueba aislada del endpoint `PATCH /api/associates/:id`, ejecutada con éxito sobre datos temporales.
 
 ## Uso recomendado tras la auditoría
 
@@ -60,7 +68,7 @@
 2. Las automatizaciones configuradas para ejecutarse al guardar pueden aumentar el tiempo de algunas operaciones generales.
 3. Debe comprobarse manualmente un guardado real de ficha con sesión administrativa después de cada cambio importante de infraestructura.
 4. El segundo proyecto de Railway (`outstanding-wholeness`) presenta despliegues fallidos o pendientes y no debe confundirse con el servicio productivo actual.
-5. Conviene incorporar pruebas automatizadas específicas para el endpoint `PATCH /api/associates/:id`.
+5. `public/app.js` sigue siendo un archivo muy grande; conviene dividirlo gradualmente por módulos para reducir el radio de impacto de cada cambio.
 
 ## Criterio para siguientes iteraciones
 
