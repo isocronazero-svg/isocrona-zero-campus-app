@@ -6648,6 +6648,54 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  const manualAssociatePaymentMatch = requestUrl.pathname.match(/^\/api\/associates\/([^/]+)\/payments$/);
+  if (manualAssociatePaymentMatch && req.method === "POST") {
+    try {
+      let state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
+      // Read again after awaiting the body so concurrent submissions use fresh data.
+      state = readState();
+      if (!requireAdminAccount(req, res, state)) return;
+      const associate = (state.associates || []).find(
+        (item) => item.id === decodeURIComponent(manualAssociatePaymentMatch[1])
+      );
+      if (!associate) return sendJson(res, 404, { ok: false, error: "Socio no encontrado" });
+      const id = String(payload.id || "");
+      const date = String(payload.date || "");
+      const year = String(payload.year || "");
+      const amount = Number(payload.amount);
+      const method = String(payload.method || "").trim();
+      const note = String(payload.note || "").trim();
+      if (!/^manual-[a-zA-Z0-9-]{16,80}$/.test(id)) throw new Error("Identificador de pago invalido");
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error("El importe debe ser mayor que cero");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+          !Number.isFinite(Date.parse(date)) ||
+          new Date(date).toISOString().slice(0, 10) !== date) throw new Error("La fecha no es valida");
+      if (!["2024", "2025", "2026", "2027"].includes(year)) throw new Error("Selecciona un anio entre 2024 y 2027");
+      if (!method) throw new Error("Indica el metodo de pago");
+      const existing = (associate.payments || []).find((item) => item.id === id);
+      if (existing) {
+        if (existing.date !== date || String(existing.year) !== year ||
+            Number(existing.amount) !== amount || existing.method !== method || existing.note !== note) {
+          return sendJson(res, 409, { ok: false, error: "Este pago ya se guardo con otros datos. Recarga la ficha antes de registrar otro pago." });
+        }
+        return sendJson(res, 200, { ok: true, associate, message: "Pago ya registrado" });
+      }
+      associate.payments = associate.payments || [];
+      associate.payments.unshift({ id, date, year, amount, method, note,
+        createdAt: new Date().toISOString(), createdBy: account.name });
+      recalculateAssociateFeeTotals(associate);
+      appendActivity(state, "admin", account.name,
+        `Ha registrado un pago de ${amount} EUR para el socio #${associate.associateNumber}`);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, associate, message: "Pago de socio registrado" });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo registrar el pago");
+    }
+  }
+
   const updateAssociateMatch = requestUrl.pathname.match(/^\/api\/associates\/([^/]+)$/);
   if (updateAssociateMatch && req.method === "PATCH") {
     let state = null;
@@ -14899,3 +14947,4 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
+
