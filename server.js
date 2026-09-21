@@ -10688,11 +10688,14 @@ function createAssociatePaymentSubmission(state, account, payload, resolvedAssoc
   const amount = Number(payload.amount || 0);
   const method = String(payload.method || "").trim();
   const note = String(payload.note || "").trim();
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("El importe del justificante debe ser un numero mayor que cero");
+  }
   const proofFile =
     storeAssociateAttachment(payload.proofFile, "quota-proof") ||
     String(payload.proofFileName || "").trim();
 
-  if (!year || !amount || !method || !proofFile) {
+  if (!year || !method || !proofFile) {
     throw new Error("Completa anio, importe, metodo y adjunta el justificante");
   }
 
@@ -10735,6 +10738,11 @@ function approveAssociatePaymentSubmission(state, submissionId, reviewerName) {
   const associate = (state.associates || []).find((item) => item.id === submission.associateId);
   if (!associate) {
     throw new Error("Socio no encontrado para este justificante");
+  }
+
+  const paymentAmount = Number(submission.amount);
+  if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+    throw new Error("El importe del justificante debe ser un numero mayor que cero");
   }
 
   associate.payments = associate.payments || [];
