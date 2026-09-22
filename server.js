@@ -5742,6 +5742,74 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (requestUrl.pathname === "/api/admin/settings" && req.method === "PATCH") {
+    const state = readState();
+    const account = requireAdminAccount(req, res, state);
+    if (!account) {
+      return;
+    }
+
+    try {
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
+      if (!payload.settings || typeof payload.settings !== "object" || Array.isArray(payload.settings)) {
+        throw new Error("La configuracion enviada no es valida");
+      }
+
+      const currentSettings = state.settings && typeof state.settings === "object" ? state.settings : {};
+      const incomingSettings = payload.settings;
+      const mergeSettingsGroup = (key) => ({
+        ...(currentSettings[key] && typeof currentSettings[key] === "object" && !Array.isArray(currentSettings[key])
+          ? currentSettings[key]
+          : {}),
+        ...(incomingSettings[key] && typeof incomingSettings[key] === "object" && !Array.isArray(incomingSettings[key])
+          ? incomingSettings[key]
+          : {})
+      });
+      const secretMergeState = {
+        accounts: state.accounts || [],
+        settings: {
+          ...currentSettings,
+          ...incomingSettings,
+          smtp: mergeSettingsGroup("smtp"),
+          automation: mergeSettingsGroup("automation"),
+          agent: mergeSettingsGroup("agent"),
+          associates: mergeSettingsGroup("associates")
+        }
+      };
+
+      restoreTransportSanitizedSecrets(state, secretMergeState);
+      state.settings = secretMergeState.settings;
+
+      const section = payload.section === "smtp" ? "smtp" : "general";
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        section === "smtp"
+          ? "Ha actualizado la configuracion SMTP del campus"
+          : "Ha actualizado la configuracion general del campus"
+      );
+
+      let summary = null;
+      if (state.settings?.automation?.autoRunOnSave !== false) {
+        summary = await runAutomationEngine(state);
+        recordAutomationRun(state, section === "smtp" ? "Guardado de SMTP" : "Guardado de configuracion", summary);
+      }
+
+      writeState(state);
+      const successMessage = section === "smtp" ? "SMTP guardado" : "Configuracion guardada";
+      return sendJson(res, 200, {
+        ok: true,
+        updatedAt: new Date().toISOString(),
+        state: prepareStateForTransport(state, account),
+        automation: summary,
+        message: summary ? buildAutomationMessage(successMessage, summary) : successMessage
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo guardar la configuracion");
+    }
+  }
+
   if (requestUrl.pathname === "/api/state" && req.method === "POST") {
     const currentState = readState();
     const account = requireAuthenticatedAccount(req, res, currentState);
