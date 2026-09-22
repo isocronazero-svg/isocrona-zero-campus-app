@@ -15,6 +15,7 @@
     "check:admin-settings": "node scripts/check-admin-settings.mjs",
     "check:associate-payments": "node scripts/check-associate-payments.mjs",
     "check:associate-update": "node scripts/check-associate-update.mjs",
+    "check:course-academic": "node scripts/check-course-academic.mjs",
     "check:frontend-syntax": "node scripts/check-frontend-syntax.mjs",
     "check:test-zone-csv": "node scripts/check-test-zone-csv-importer.mjs",
     "check:test-zone-ivaspe-csv": "node scripts/check-test-zone-ivaspe-csv-files.mjs",

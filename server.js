@@ -8042,6 +8042,125 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
+  const courseMemberAcademicMatch = requestUrl.pathname.match(
+    /^\/api\/courses\/([^/]+)\/members\/([^/]+)\/academic$/
+  );
+  if (courseMemberAcademicMatch && req.method === "PATCH") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
+      const courseId = decodeURIComponent(courseMemberAcademicMatch[1] || "");
+      const memberId = decodeURIComponent(courseMemberAcademicMatch[2] || "");
+      const course = (state.courses || []).find((item) => item.id === courseId);
+      const member = (state.members || []).find((item) => item.id === memberId);
+      if (!course || !member) {
+        return sendJson(res, 404, { ok: false, error: "Curso o alumno no encontrado" });
+      }
+      if (!(course.enrolledIds || []).includes(memberId)) {
+        return sendJson(res, 400, { ok: false, error: "El alumno no esta inscrito en este curso" });
+      }
+
+      const changes = normalizeCourseAcademicChanges(payload);
+      const issuedDiplomas = [...(course.diplomaReady || [])];
+      applyCourseAcademicChanges(course, memberId, changes);
+      state.selectedCourseId = course.id;
+      state.selectedMemberId = member.id;
+
+      const activityDetail = [];
+      if (Object.prototype.hasOwnProperty.call(changes, "attendance")) {
+        activityDetail.push(`asistencia al ${changes.attendance}%`);
+      }
+      if (Object.prototype.hasOwnProperty.call(changes, "evaluation")) {
+        activityDetail.push(`evaluacion como ${changes.evaluation}`);
+      }
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha actualizado ${activityDetail.join(" y ")} de ${member.name} en ${course.title}`
+      );
+
+      const summary = await runCourseAcademicAutomation(state, "Actualizacion academica individual");
+      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
+      writeState(state);
+      const successMessage = `Seguimiento academico actualizado para ${member.name}`;
+      return sendJson(res, 200, {
+        ok: true,
+        message: summary ? buildAutomationMessage(successMessage, summary) : successMessage,
+        course,
+        memberId,
+        changes,
+        summary
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo actualizar el seguimiento academico");
+    }
+  }
+
+  const courseAcademicMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/academic$/);
+  if (courseAcademicMatch && req.method === "PATCH") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
+      const courseId = decodeURIComponent(courseAcademicMatch[1] || "");
+      const course = (state.courses || []).find((item) => item.id === courseId);
+      if (!course) {
+        return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
+      }
+
+      const changes = normalizeCourseAcademicChanges(payload);
+      const existingMemberIds = new Set((state.members || []).map((member) => member.id));
+      const enrolledIds = [...new Set(course.enrolledIds || [])].filter((memberId) => existingMemberIds.has(memberId));
+      if (!enrolledIds.length) {
+        return sendJson(res, 400, { ok: false, error: "El curso no tiene alumnado inscrito" });
+      }
+
+      const issuedDiplomas = [...(course.diplomaReady || [])];
+      enrolledIds.forEach((memberId) => applyCourseAcademicChanges(course, memberId, changes));
+      state.selectedCourseId = course.id;
+      const activityDetail = [];
+      if (Object.prototype.hasOwnProperty.call(changes, "attendance")) {
+        activityDetail.push(`asistencia al ${changes.attendance}%`);
+      }
+      if (Object.prototype.hasOwnProperty.call(changes, "evaluation")) {
+        activityDetail.push(`evaluacion como ${changes.evaluation}`);
+      }
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha actualizado ${activityDetail.join(" y ")} de ${enrolledIds.length} alumno(s) en ${course.title}`
+      );
+
+      const summary = await runCourseAcademicAutomation(state, "Actualizacion academica masiva");
+      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
+      writeState(state);
+      const successMessage = `Seguimiento academico actualizado para ${enrolledIds.length} alumno(s)`;
+      return sendJson(res, 200, {
+        ok: true,
+        message: summary ? buildAutomationMessage(successMessage, summary) : successMessage,
+        course,
+        updatedMemberIds: enrolledIds,
+        changes,
+        summary
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo actualizar el seguimiento academico del curso");
+    }
+  }
+
   const deliverMemberMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/send-member\/([^/]+)$/);
   if (deliverMemberMatch && req.method === "POST") {
     const courseId = deliverMemberMatch[1];
@@ -12368,6 +12487,51 @@ function createAssociatePaymentRecord(associate, payload, createdBy) {
 }
 
 async function runAssociatePaymentAutomation(state, reason) {
+  if (state.settings?.automation?.autoRunOnSave === false) {
+    return null;
+  }
+  const summary = await runAutomationEngine(state);
+  recordAutomationRun(state, reason, summary);
+  return summary;
+}
+
+function normalizeCourseAcademicChanges(payload) {
+  const changes = {};
+  if (Object.prototype.hasOwnProperty.call(payload || {}, "attendance")) {
+    if (payload.attendance === "" || payload.attendance === null) {
+      throw new Error("La asistencia debe ser un porcentaje entre 0 y 100");
+    }
+    const attendance = Number(payload.attendance);
+    if (!Number.isFinite(attendance) || attendance < 0 || attendance > 100) {
+      throw new Error("La asistencia debe ser un porcentaje entre 0 y 100");
+    }
+    changes.attendance = attendance;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload || {}, "evaluation")) {
+    const evaluation = String(payload.evaluation || "").trim();
+    if (!["Pendiente", "Apto", "No apto"].includes(evaluation)) {
+      throw new Error("La evaluacion debe ser Pendiente, Apto o No apto");
+    }
+    changes.evaluation = evaluation;
+  }
+  if (!Object.keys(changes).length) {
+    throw new Error("Indica la asistencia o la evaluacion que quieres actualizar");
+  }
+  return changes;
+}
+
+function applyCourseAcademicChanges(course, memberId, changes) {
+  course.attendance = course.attendance || {};
+  course.evaluations = course.evaluations || {};
+  if (Object.prototype.hasOwnProperty.call(changes, "attendance")) {
+    course.attendance[memberId] = changes.attendance;
+  }
+  if (Object.prototype.hasOwnProperty.call(changes, "evaluation")) {
+    course.evaluations[memberId] = changes.evaluation;
+  }
+}
+
+async function runCourseAcademicAutomation(state, reason) {
   if (state.settings?.automation?.autoRunOnSave === false) {
     return null;
   }

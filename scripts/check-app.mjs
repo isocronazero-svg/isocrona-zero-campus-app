@@ -27,6 +27,7 @@ const extraCheckScripts = [
   "scripts/check-admin-settings.mjs",
   "scripts/check-associate-payments.mjs",
   "scripts/check-associate-update.mjs",
+  "scripts/check-course-academic.mjs",
   "scripts/check-auth-utils.mjs",
   "scripts/check-production-demo-admin-guard.mjs",
   "scripts/check-production-storage-guard.mjs",
