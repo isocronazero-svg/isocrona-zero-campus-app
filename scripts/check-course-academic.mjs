@@ -35,13 +35,50 @@ function buildSeedState() {
   }));
   seed.settings.automation.autoRunOnSave = false;
 
+  seed.members = (seed.members || []).map((member) =>
+    ["member-1", "member-2"].includes(member.id) ? { ...member, dni: member.dni || "12345678A" } : member
+  );
+
   const course = seed.courses.find((item) => item.id === "course-1");
   course.title = "Curso academico protegido";
-  course.enrolledIds = ["member-1", "member-2"];
+  course.enrolledIds = ["member-1", "member-2", "member-4"];
   course.waitingIds = ["member-3"];
-  course.attendance = { "member-1": 100, "member-2": 50 };
-  course.evaluations = { "member-1": "Apto", "member-2": "Pendiente" };
+  course.attendance = { "member-1": 100, "member-2": 50, "member-4": 0 };
+  course.evaluations = { "member-1": "Apto", "member-2": "Pendiente", "member-4": "Pendiente" };
   course.diplomaReady = ["member-1"];
+  course.feedbackEnabled = false;
+  course.feedbackRequiredForDiploma = false;
+  course.modules = [
+    {
+      id: "module-published",
+      title: "Modulo publicado",
+      lessons: [
+        {
+          id: "lesson-published",
+          title: "Leccion publicada",
+          publicationStatus: "published",
+          blocks: [
+            { id: "block-required", title: "Bloque obligatorio", required: true },
+            { id: "block-optional", title: "Bloque opcional", required: false }
+          ]
+        },
+        {
+          id: "lesson-draft",
+          title: "Leccion borrador",
+          publicationStatus: "draft",
+          blocks: [{ id: "block-draft", title: "Bloque borrador", required: true }]
+        }
+      ]
+    }
+  ];
+  course.contentProgress = {
+    "member-2": {
+      lessonIds: [],
+      blockIds: [],
+      quizAnswers: { "block-required": { 0: "Respuesta conservada" } },
+      updatedAt: ""
+    }
+  };
 
   const untouchedCourse = seed.courses.find((item) => item.id === "course-2");
   untouchedCourse.summary = "course-two-must-stay-untouched";
@@ -157,13 +194,18 @@ async function main() {
     const member = createClient(baseUrl);
     const admin = createClient(baseUrl);
     const memberEndpoint = "/api/courses/course-1/members/member-1/academic";
+    const closeMemberEndpoint = "/api/courses/course-1/members/member-2/close";
 
     const anonymousUpdate = await anonymous.request("PATCH", memberEndpoint, { attendance: 75 }, true);
     assert.equal(anonymousUpdate.status, 401, "Un visitante no puede modificar asistencia");
+    const anonymousClose = await anonymous.request("POST", closeMemberEndpoint, undefined, true);
+    assert.equal(anonymousClose.status, 401, "Un visitante no puede cerrar el expediente academico");
 
     await login(member, "lucia@isocronazero.org", passwords.member);
     const memberUpdate = await member.request("PATCH", memberEndpoint, { attendance: 75 }, true);
     assert.equal(memberUpdate.status, 403, "Un socio no puede modificar el seguimiento academico");
+    const memberClose = await member.request("POST", closeMemberEndpoint, undefined, true);
+    assert.equal(memberClose.status, 403, "Un socio no puede cerrar el expediente academico");
 
     await login(admin, "admin@isocronazero.org", passwords.admin);
     const invalidAttendance = await admin.request("PATCH", memberEndpoint, { attendance: 101 }, true);
@@ -228,12 +270,51 @@ async function main() {
       attendance: 100,
       evaluation: "Apto"
     });
-    assert.deepEqual(bulkUpdate.body?.updatedMemberIds, ["member-1", "member-2"]);
+    assert.deepEqual(bulkUpdate.body?.updatedMemberIds, ["member-1", "member-2", "member-4"]);
     assert.equal(bulkUpdate.body?.course?.attendance?.["member-1"], 100);
     assert.equal(bulkUpdate.body?.course?.attendance?.["member-2"], 100);
     assert.equal(bulkUpdate.body?.course?.attendance?.["member-3"], undefined);
     assert.equal(bulkUpdate.body?.course?.evaluations?.["member-3"], undefined);
     assert.ok(bulkUpdate.body?.course?.diplomaReady?.includes("member-1"));
+
+    const waitingMemberClose = await admin.request(
+      "POST",
+      "/api/courses/course-1/members/member-3/close",
+      undefined,
+      true
+    );
+    assert.equal(waitingMemberClose.status, 400, "No debe cerrar a quien solo esta en espera");
+
+    const closeMember = await admin.request("POST", closeMemberEndpoint);
+    assert.equal(closeMember.status, 200);
+    assert.deepEqual(closeMember.body?.blockers, []);
+    assert.equal(closeMember.body?.course?.attendance?.["member-2"], 100);
+    assert.equal(closeMember.body?.course?.evaluations?.["member-2"], "Apto");
+    assert.ok(closeMember.body?.course?.contentProgress?.["member-2"]?.lessonIds?.includes("lesson-published"));
+    assert.ok(!closeMember.body?.course?.contentProgress?.["member-2"]?.lessonIds?.includes("lesson-draft"));
+    assert.ok(closeMember.body?.course?.contentProgress?.["member-2"]?.blockIds?.includes("block-required"));
+    assert.ok(closeMember.body?.course?.contentProgress?.["member-2"]?.blockIds?.includes("block-optional"));
+    assert.ok(!closeMember.body?.course?.contentProgress?.["member-2"]?.blockIds?.includes("block-draft"));
+    assert.equal(
+      closeMember.body?.course?.contentProgress?.["member-2"]?.quizAnswers?.["block-required"]?.["0"],
+      "Respuesta conservada"
+    );
+    assert.ok(closeMember.body?.course?.diplomaReady?.includes("member-2"));
+
+    const closeCourse = await admin.request("POST", "/api/courses/course-1/close");
+    assert.equal(closeCourse.status, 200);
+    assert.deepEqual(closeCourse.body?.updatedMemberIds, ["member-1", "member-2", "member-4"]);
+    assert.equal(closeCourse.body?.course?.attendance?.["member-3"], undefined);
+    assert.equal(closeCourse.body?.course?.contentProgress?.["member-3"], undefined);
+    assert.ok(
+      closeCourse.body?.blocked?.some(
+        (entry) => entry.memberId === "member-4" && entry.blockers.includes("DNI/NIE")
+      ),
+      "El cierre no debe saltarse el requisito de DNI/NIE"
+    );
+    assert.ok(closeCourse.body?.course?.diplomaReady?.includes("member-1"));
+    assert.ok(closeCourse.body?.course?.diplomaReady?.includes("member-2"));
+    assert.ok(!closeCourse.body?.course?.diplomaReady?.includes("member-4"));
 
     let state = (await admin.request("GET", "/api/state")).body;
     assert.equal(findCourse(state, "course-1").title, "Curso academico protegido");
@@ -252,6 +333,8 @@ async function main() {
     assert.equal(persistedCourse.evaluations["member-1"], "Apto");
     assert.equal(persistedCourse.evaluations["member-2"], "Apto");
     assert.ok(persistedCourse.diplomaReady.includes("member-1"));
+    assert.ok(persistedCourse.diplomaReady.includes("member-2"));
+    assert.ok(persistedCourse.contentProgress["member-2"].blockIds.includes("block-required"));
     assert.equal(findCourse(state, "course-2").summary, "course-two-must-stay-untouched");
   } finally {
     await stopServer(server);

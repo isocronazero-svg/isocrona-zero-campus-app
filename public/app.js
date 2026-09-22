@@ -3098,29 +3098,25 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "close-member-course" && isAdminSession() && courseId && memberId) {
-    const { course, member, blockers } = prepareMemberForDiploma(courseId, memberId);
+    const course = state.courses.find((item) => item.id === courseId);
+    const member = findMember(memberId);
     if (!course || !member) {
       return;
     }
-    generateDiplomas(courseId);
-    const generated = (course.diplomaReady || []).includes(memberId);
-    const closureLabel = getCourseClosureLabel(course);
-    addActivity("admin", session.name, `Ha cerrado academicamente a ${member.name} en ${course.title}`);
-    syncStatus = blockers.length
-      ? `${member.name} queda cerrado en ${closureLabel}, asistencia, evaluacion y contenido. Aun falta: ${blockers.join(", ")}`
-      : generated
-        ? `${member.name} ya queda cerrado y con diploma generado en ${course.title}`
-        : `${member.name} ya queda listo para emitir diploma en ${course.title}`;
-    if (!blockers.length) {
-      state.selectedCourseId = courseId;
-      state.selectedMemberId = memberId;
-      state.activeView = "campus";
-      campusSectionMode = "diplomas";
-      expandedNavViews.add("campus");
-    }
-    await persistAndRender(syncStatus);
-    if (!blockers.length) {
-      requestAnimationFrame(() => focusElementById("diplomaPreviewPanel"));
+    const closed = await invokeServerAction(
+      `/api/courses/${encodeURIComponent(courseId)}/members/${encodeURIComponent(memberId)}/close`,
+      `Cierre academico actualizado para ${member.name}`
+    );
+    if (closed) {
+      const refreshedCourse = state.courses.find((item) => item.id === courseId);
+      const blockers = getMemberDiplomaBlockingLabels(refreshedCourse, memberId);
+      if (!blockers.length) {
+        state.activeView = "campus";
+        campusSectionMode = "diplomas";
+        expandedNavViews.add("campus");
+        render();
+        requestAnimationFrame(() => focusElementById("diplomaPreviewPanel"));
+      }
     }
     return;
   }
@@ -3212,28 +3208,22 @@ document.addEventListener("click", async (event) => {
     if (!course) {
       return;
     }
-    const closureLabel = getCourseClosureLabel(course);
-    const enrolledMembers = (course.enrolledIds || []).map(findMember).filter(Boolean);
-    const stillBlocked = [];
-    enrolledMembers.forEach((member) => {
-      const { blockers } = prepareMemberForDiploma(courseId, member.id);
-      if (blockers.length) {
-        stillBlocked.push(`${member.name}: ${blockers.join(", ")}`);
+    const closed = await invokeServerAction(
+      `/api/courses/${encodeURIComponent(courseId)}/close`,
+      `Cierre academico actualizado para ${course.title}`
+    );
+    if (closed) {
+      const refreshedCourse = state.courses.find((item) => item.id === courseId);
+      const stillBlocked = (refreshedCourse?.enrolledIds || []).filter(
+        (currentMemberId) => getMemberDiplomaBlockingLabels(refreshedCourse, currentMemberId).length
+      );
+      if ((refreshedCourse?.diplomaReady || []).length || !stillBlocked.length) {
+        state.activeView = "campus";
+        campusSectionMode = "diplomas";
+        expandedNavViews.add("campus");
+        render();
       }
-    });
-    generateDiplomas(courseId);
-    const generatedCount = (course.diplomaReady || []).length;
-    addActivity("admin", session.name, `Ha preparado el cierre academico del ${closureLabel} ${course.title}`);
-    syncStatus = stillBlocked.length
-      ? `Cierre aplicado. Aun faltan requisitos en ${stillBlocked.length} alumno(s): ${stillBlocked.slice(0, 2).join(" | ")}${stillBlocked.length > 2 ? "..." : ""}`
-      : `Cierre aplicado. ${generatedCount} diploma(s) ya quedan generados en ${course.title}`;
-    if (generatedCount || !stillBlocked.length) {
-      state.selectedCourseId = courseId;
-      state.activeView = "campus";
-      campusSectionMode = "diplomas";
-      expandedNavViews.add("campus");
     }
-    await persistAndRender(syncStatus);
     return;
   }
 
@@ -15657,57 +15647,6 @@ function moveWaitingToEnrolled(courseId, memberId) {
   if (!course.enrolledIds.includes(memberId)) {
     course.enrolledIds.push(memberId);
   }
-}
-
-function setAttendanceValue(courseId, memberId, value) {
-  const course = state.courses.find((item) => item.id === courseId);
-  if (!course) {
-    return;
-  }
-  course.attendance[memberId] = Number(value || 0);
-}
-
-function setEvaluationValue(courseId, memberId, value) {
-  const course = state.courses.find((item) => item.id === courseId);
-  if (!course) {
-    return;
-  }
-  course.evaluations[memberId] = value || "Pendiente";
-}
-
-function prepareMemberForDiploma(courseId, memberId) {
-  const course = state.courses.find((item) => item.id === courseId);
-  const member = findMember(memberId);
-  if (!course || !member) {
-    return { course, member, blockers: ["alumno no disponible"] };
-  }
-  setAttendanceValue(courseId, memberId, 100);
-  setEvaluationValue(courseId, memberId, "Apto");
-  setMemberContentReadyForDiploma(courseId, memberId);
-  return {
-    course,
-    member,
-    blockers: getMemberDiplomaBlockingLabels(course, memberId)
-  };
-}
-
-function getCourseClosureLabel(course) {
-  return normalizeCourseClass(course?.courseClass) === "practico" ? "practico" : "curso";
-}
-
-function setMemberContentReadyForDiploma(courseId, memberId) {
-  const course = state.courses.find((item) => item.id === courseId);
-  if (!course) {
-    return;
-  }
-  const visibleLessons = getLearnerCourseLessonList(course);
-  const visibleBlocks = getLearnerCourseBlockList(course).filter((block) => block.requiredForDiploma !== false);
-  const currentEntry = getCourseProgressEntry(course, memberId);
-  setCourseProgressEntry(course, memberId, {
-    ...currentEntry,
-    lessonIds: [...new Set([...(currentEntry.lessonIds || []), ...visibleLessons.map((lesson) => lesson.id)])],
-    blockIds: [...new Set([...(currentEntry.blockIds || []), ...visibleBlocks.map((block) => block.id)])]
-  });
 }
 
 function generateDiplomas(courseId) {
