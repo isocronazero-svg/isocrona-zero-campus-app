@@ -8286,6 +8286,101 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
+  const generateMemberDiplomaMatch = requestUrl.pathname.match(
+    /^\/api\/courses\/([^/]+)\/members\/([^/]+)\/diploma$/
+  );
+  if (generateMemberDiplomaMatch && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const courseId = decodeURIComponent(generateMemberDiplomaMatch[1] || "");
+      const memberId = decodeURIComponent(generateMemberDiplomaMatch[2] || "");
+      const course = (state.courses || []).find((item) => item.id === courseId);
+      const member = (state.members || []).find((item) => item.id === memberId);
+      if (!course || !member) {
+        return sendJson(res, 404, { ok: false, error: "Curso o alumno no encontrado" });
+      }
+      if (!(course.enrolledIds || []).includes(memberId)) {
+        return sendJson(res, 400, { ok: false, error: "El alumno no esta inscrito en este curso" });
+      }
+
+      const blockers = getCourseMemberDiplomaBlockers(state, course, memberId);
+      if (blockers.length) {
+        return sendJson(res, 400, {
+          ok: false,
+          error: `Todavia no puedes generar el diploma de ${member.name}. Falta: ${blockers.join(", ")}`,
+          blockers
+        });
+      }
+
+      const issuedDiplomas = [...(course.diplomaReady || [])];
+      course.diplomaReady = mergeDiplomaReadyIds(course.diplomaReady, [memberId]);
+      state.selectedCourseId = course.id;
+      state.selectedMemberId = member.id;
+      state.activeView = "campus";
+      appendActivity(state, "admin", account.name, `Ha generado el diploma de ${member.name} en ${course.title}`);
+
+      const summary = await runCourseAcademicAutomation(state, "Emision manual de diploma");
+      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        message: `Diploma generado para ${member.name} en ${course.title}`,
+        course,
+        memberId,
+        generated: true,
+        summary
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo generar el diploma");
+    }
+  }
+
+  const generateCourseDiplomasMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/diplomas\/generate$/);
+  if (generateCourseDiplomasMatch && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const courseId = decodeURIComponent(generateCourseDiplomasMatch[1] || "");
+      const course = (state.courses || []).find((item) => item.id === courseId);
+      if (!course) {
+        return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
+      }
+
+      const issuedDiplomas = [...(course.diplomaReady || [])];
+      generateEligibleCourseDiplomas(state, course);
+      state.selectedCourseId = course.id;
+      appendActivity(state, "admin", account.name, `Ha regenerado los diplomas del curso ${course.title}`);
+
+      const summary = await runCourseAcademicAutomation(state, "Actualizacion manual de diplomas");
+      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
+      writeState(state);
+
+      const generatedCount = (course.diplomaReady || []).length;
+      const sampleMemberId = (course.enrolledIds || [])[0];
+      const sampleMember = (state.members || []).find((member) => member.id === sampleMemberId);
+      const sampleBlockers = sampleMemberId ? getCourseMemberDiplomaBlockers(state, course, sampleMemberId) : [];
+      const message = generatedCount
+        ? `Diplomas actualizados: ${generatedCount} generado(s) en ${course.title}`
+        : sampleMember
+          ? `Todavia no hay diplomas listos en ${course.title}. Por ejemplo, ${sampleMember.name} tiene pendiente: ${sampleBlockers.join(", ")}`
+          : `Todavia no hay diplomas listos en ${course.title}. Revisa asistencia, evaluacion, contenido, valoracion y DNI/NIE.`;
+      return sendJson(res, 200, { ok: true, message, course, generatedCount, summary });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudieron actualizar los diplomas");
+    }
+  }
+
   const deliverMemberMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/send-member\/([^/]+)$/);
   if (deliverMemberMatch && req.method === "POST") {
     const courseId = deliverMemberMatch[1];

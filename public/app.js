@@ -3229,21 +3229,13 @@ document.addEventListener("click", async (event) => {
 
   if (action === "generate-diplomas" && isAdminSession() && courseId) {
     const course = state.courses.find((item) => item.id === courseId);
-    generateDiplomas(courseId);
-    if (course) {
-      addActivity("admin", session.name, `Ha regenerado los diplomas del curso ${course.title}`);
-      if ((course.diplomaReady || []).length) {
-        syncStatus = `Diplomas actualizados: ${(course.diplomaReady || []).length} generado(s) en ${course.title}`;
-      } else {
-        const sampleMemberId = (course.enrolledIds || [])[0];
-        const sampleMember = sampleMemberId ? findMember(sampleMemberId) : null;
-        const sampleBlockers = sampleMemberId ? getMemberDiplomaBlockingLabels(course, sampleMemberId) : [];
-        syncStatus = sampleMember
-          ? `Todavia no hay diplomas listos en ${course.title}. Por ejemplo, ${sampleMember.name} tiene pendiente: ${sampleBlockers.join(", ")}`
-          : `Todavia no hay diplomas listos en ${course.title}. Revisa asistencia, evaluacion, contenido, valoracion y DNI/NIE.`;
-      }
+    if (!course) {
+      return;
     }
-    await persistAndRender(syncStatus || "Diplomas actualizados");
+    await invokeServerAction(
+      `/api/courses/${encodeURIComponent(courseId)}/diplomas/generate`,
+      `Diplomas actualizados en ${course.title}`
+    );
     return;
   }
 
@@ -3253,22 +3245,17 @@ document.addEventListener("click", async (event) => {
     if (!course || !member) {
       return;
     }
-    const blockers = getMemberDiplomaBlockingLabels(course, memberId);
-    if (blockers.length) {
-      syncStatus = `Todavia no puedes generar el diploma de ${member.name}. Falta: ${blockers.join(", ")}`;
+    const generated = await invokeServerAction(
+      `/api/courses/${encodeURIComponent(courseId)}/members/${encodeURIComponent(memberId)}/diploma`,
+      `Diploma generado para ${member.name} en ${course.title}`
+    );
+    if (generated) {
+      state.activeView = "campus";
+      campusSectionMode = "diplomas";
+      expandedNavViews.add("campus");
       render();
-      return;
+      requestAnimationFrame(() => focusElementById("diplomaPreviewPanel"));
     }
-    generateDiplomas(courseId);
-    state.selectedCourseId = courseId;
-    state.selectedMemberId = memberId;
-    state.activeView = "campus";
-    campusSectionMode = "diplomas";
-    expandedNavViews.add("campus");
-    addActivity("admin", session.name, `Ha generado el diploma de ${member.name} en ${course.title}`);
-    syncStatus = `Diploma generado para ${member.name} en ${course.title}`;
-    await persistAndRender(syncStatus);
-    requestAnimationFrame(() => focusElementById("diplomaPreviewPanel"));
     return;
   }
 
@@ -3278,7 +3265,6 @@ document.addEventListener("click", async (event) => {
     if (!course || !member) {
       return;
     }
-    generateDiplomas(courseId);
     state.selectedCourseId = courseId;
     state.selectedMemberId = memberId;
     state.activeView = "campus";
@@ -3291,7 +3277,7 @@ document.addEventListener("click", async (event) => {
         ? `El diploma de ${member.name} ya esta generado y listo para revisar`
         : `El diploma de ${member.name} esta listo para emitir`
       : `Aun faltan requisitos para emitir el diploma de ${member.name}`;
-    await persistAndRender(syncStatus);
+    render();
     requestAnimationFrame(() => focusElementById("diplomaPreviewPanel"));
     return;
   }
