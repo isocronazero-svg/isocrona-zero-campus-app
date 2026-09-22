@@ -7960,6 +7960,67 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
+  if (requestUrl.pathname === "/api/courses" && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
+      const course = normalizeCourseMutationPayload(payload, null);
+      if ((state.courses || []).some((item) => item.id === course.id)) {
+        return sendJson(res, 409, { ok: false, error: "Ya existe un curso con ese identificador" });
+      }
+
+      state.courses = state.courses || [];
+      state.courses.unshift(course);
+      state.selectedCourseId = course.id;
+      state.activeView = "campus";
+      appendActivity(state, "admin", account.name, `Ha creado el curso ${course.title}`);
+      const summary = await runCourseAcademicAutomation(state, "Creacion de curso");
+      writeState(state);
+      return sendJson(res, 201, { ok: true, message: "Curso creado y guardado", course, summary });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo crear el curso");
+    }
+  }
+
+  const updateCourseMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)$/);
+  if (updateCourseMatch && req.method === "PATCH") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
+      const courseId = decodeURIComponent(updateCourseMatch[1] || "");
+      const courseIndex = (state.courses || []).findIndex((item) => item.id === courseId);
+      if (courseIndex === -1) {
+        return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
+      }
+
+      const previousCourse = state.courses[courseIndex];
+      const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
+      const course = normalizeCourseMutationPayload(payload, previousCourse);
+      state.courses[courseIndex] = course;
+      state.selectedCourseId = course.id;
+      state.activeView = "campus";
+      appendActivity(state, "admin", account.name, `Ha actualizado el curso ${course.title}`);
+      const summary = await runCourseAcademicAutomation(state, "Actualizacion de curso");
+      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, message: "Curso actualizado", course, summary });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo actualizar el curso");
+    }
+  }
+
   const reviewEnrollmentMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/enrollment-submissions\/([^/]+)\/status$/);
   if (reviewEnrollmentMatch && req.method === "POST") {
     let state = null;
@@ -12758,6 +12819,100 @@ async function runCourseAcademicAutomation(state, reason) {
   const summary = await runAutomationEngine(state);
   recordAutomationRun(state, reason, summary);
   return summary;
+}
+
+function normalizeCourseMutationPayload(payload, existingCourse = null) {
+  const source = payload?.course && typeof payload.course === "object" ? payload.course : payload || {};
+  const fallback = existingCourse || {};
+  const readString = (field, defaultValue = "") =>
+    Object.prototype.hasOwnProperty.call(source, field)
+      ? String(source[field] ?? "").trim()
+      : String(fallback[field] ?? defaultValue).trim();
+  const readArray = (field) =>
+    Object.prototype.hasOwnProperty.call(source, field)
+      ? Array.isArray(source[field])
+        ? source[field]
+        : []
+      : Array.isArray(fallback[field])
+        ? fallback[field]
+        : [];
+
+  const title = readString("title");
+  const type = readString("type");
+  const startDate = readString("startDate");
+  const endDate = readString("endDate");
+  const hours = Object.prototype.hasOwnProperty.call(source, "hours") ? Number(source.hours) : Number(fallback.hours || 0);
+  const capacity = Object.prototype.hasOwnProperty.call(source, "capacity")
+    ? Number(source.capacity)
+    : Number(fallback.capacity || 0);
+  if (!title || !type || !startDate || !endDate || !Number.isFinite(hours) || hours <= 0) {
+    throw new Error("Indica titulo, tipo, fechas y horas validas para el curso");
+  }
+  if (!Number.isFinite(capacity) || capacity <= 0) {
+    throw new Error("La capacidad del curso debe ser mayor que cero");
+  }
+
+  const requestedId = readString("id");
+  const generatedId = `course-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const courseId = existingCourse?.id || (/^course-[A-Za-z0-9_-]{1,100}$/.test(requestedId) ? requestedId : generatedId);
+  const audience = readString("audience", "Socios y voluntariado operativo");
+  const nextCourse = {
+    ...(existingCourse || {}),
+    id: courseId,
+    title,
+    courseClass: normalizeCourseClass(readString("courseClass", "teorico-practico")),
+    type,
+    status: readString("status", "Planificacion") || "Planificacion",
+    summary: readString("summary"),
+    startDate,
+    endDate,
+    hours,
+    capacity,
+    modality: readString("modality", "Presencial") || "Presencial",
+    audience: audience || "Socios y voluntariado operativo",
+    accessScope: normalizeCourseAccessScope(readString("accessScope", "members"), audience),
+    enrollmentOpensAt: readString("enrollmentOpensAt"),
+    coordinator: readString("coordinator"),
+    contentTemplate: readString("contentTemplate", "operativo") || "operativo",
+    objectives: readArray("objectives"),
+    sessions: readArray("sessions"),
+    modules: readArray("modules"),
+    resources: readArray("resources"),
+    questionBank: readArray("questionBank"),
+    materials: readArray("materials"),
+    evaluationCriteria: readArray("evaluationCriteria"),
+    contentStatus: readString("contentStatus", "draft") || "draft",
+    certificateCity: readString("certificateCity"),
+    certificateContents: readArray("certificateContents"),
+    enrollmentFee: Object.prototype.hasOwnProperty.call(source, "enrollmentFee")
+      ? Math.max(0, Number(source.enrollmentFee) || 0)
+      : Math.max(0, Number(fallback.enrollmentFee) || 0),
+    enrollmentPaymentInstructions: readString("enrollmentPaymentInstructions"),
+    feedbackEnabled: Object.prototype.hasOwnProperty.call(source, "feedbackEnabled")
+      ? source.feedbackEnabled !== false
+      : fallback.feedbackEnabled !== false,
+    feedbackRequiredForDiploma: Object.prototype.hasOwnProperty.call(source, "feedbackRequiredForDiploma")
+      ? Boolean(source.feedbackRequiredForDiploma)
+      : Boolean(fallback.feedbackRequiredForDiploma),
+    feedbackTeachers: readArray("feedbackTeachers"),
+    diplomaTemplate: readString("diplomaTemplate", "Aprovechamiento") || "Aprovechamiento"
+  };
+
+  if (!existingCourse) {
+    Object.assign(nextCourse, {
+      enrollmentSubmissions: [],
+      feedbackResponses: [],
+      feedbackReminderLog: {},
+      contentProgress: {},
+      enrolledIds: [],
+      waitingIds: [],
+      attendance: {},
+      evaluations: {},
+      diplomaReady: [],
+      mailsSent: []
+    });
+  }
+  return nextCourse;
 }
 
 function getPublishedCourseLessons(course) {

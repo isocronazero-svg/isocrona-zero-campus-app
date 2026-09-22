@@ -208,6 +208,8 @@ async function main() {
     const closeMemberEndpoint = "/api/courses/course-1/members/member-2/close";
     const generateMemberDiplomaEndpoint = "/api/courses/course-2/members/member-3/diploma";
     const generateCourseDiplomasEndpoint = "/api/courses/course-1/diplomas/generate";
+    const createCourseEndpoint = "/api/courses";
+    const updateCourseEndpoint = "/api/courses/course-2";
 
     const anonymousUpdate = await anonymous.request("PATCH", memberEndpoint, { attendance: 75 }, true);
     assert.equal(anonymousUpdate.status, 401, "Un visitante no puede modificar asistencia");
@@ -217,6 +219,10 @@ async function main() {
     assert.equal(anonymousDiploma.status, 401, "Un visitante no puede emitir diplomas");
     const anonymousCourseDiplomas = await anonymous.request("POST", generateCourseDiplomasEndpoint, undefined, true);
     assert.equal(anonymousCourseDiplomas.status, 401, "Un visitante no puede recalcular diplomas");
+    const anonymousCourseCreate = await anonymous.request("POST", createCourseEndpoint, { title: "No" }, true);
+    assert.equal(anonymousCourseCreate.status, 401, "Un visitante no puede crear cursos");
+    const anonymousCourseUpdate = await anonymous.request("PATCH", updateCourseEndpoint, { title: "No" }, true);
+    assert.equal(anonymousCourseUpdate.status, 401, "Un visitante no puede editar cursos");
 
     await login(member, "lucia@isocronazero.org", passwords.member);
     const memberUpdate = await member.request("PATCH", memberEndpoint, { attendance: 75 }, true);
@@ -227,8 +233,56 @@ async function main() {
     assert.equal(memberDiploma.status, 403, "Un socio no puede emitir diplomas");
     const memberCourseDiplomas = await member.request("POST", generateCourseDiplomasEndpoint, undefined, true);
     assert.equal(memberCourseDiplomas.status, 403, "Un socio no puede recalcular diplomas");
+    const memberCourseCreate = await member.request("POST", createCourseEndpoint, { title: "No" }, true);
+    assert.equal(memberCourseCreate.status, 403, "Un socio no puede crear cursos");
+    const memberCourseUpdate = await member.request("PATCH", updateCourseEndpoint, { title: "No" }, true);
+    assert.equal(memberCourseUpdate.status, 403, "Un socio no puede editar cursos");
 
     await login(admin, "admin@isocronazero.org", passwords.admin);
+    const invalidCourse = await admin.request("POST", createCourseEndpoint, { title: "Curso incompleto" }, true);
+    assert.equal(invalidCourse.status, 400, "No debe crear cursos sin los campos obligatorios");
+
+    const createdCourse = await admin.request("POST", createCourseEndpoint, {
+      course: {
+        id: "course-managed",
+        title: "Curso creado por endpoint",
+        courseClass: "practico",
+        type: "Practica operativa",
+        status: "Planificacion",
+        startDate: "2026-10-01",
+        endDate: "2026-10-02",
+        hours: 8,
+        capacity: 12,
+        modules: [{ id: "managed-module", title: "Modulo inicial", lessons: [] }],
+        enrolledIds: ["member-4"],
+        diplomaReady: ["member-4"],
+        attendance: { "member-4": 100 }
+      }
+    });
+    assert.equal(createdCourse.status, 201);
+    assert.equal(createdCourse.body?.course?.id, "course-managed");
+    assert.equal(createdCourse.body?.course?.courseClass, "practico");
+    assert.deepEqual(createdCourse.body?.course?.enrolledIds, []);
+    assert.deepEqual(createdCourse.body?.course?.diplomaReady, []);
+    assert.deepEqual(createdCourse.body?.course?.attendance, {});
+
+    const updatedCourse = await admin.request("PATCH", updateCourseEndpoint, {
+      id: "course-hijack",
+      title: "Curso editado por endpoint",
+      capacity: 9,
+      enrolledIds: ["member-4"],
+      diplomaReady: ["member-4"],
+      attendance: { "member-4": 100 }
+    });
+    assert.equal(updatedCourse.status, 200);
+    assert.equal(updatedCourse.body?.course?.id, "course-2");
+    assert.equal(updatedCourse.body?.course?.title, "Curso editado por endpoint");
+    assert.equal(updatedCourse.body?.course?.capacity, 9);
+    assert.deepEqual(updatedCourse.body?.course?.enrolledIds, ["member-3"]);
+    assert.deepEqual(updatedCourse.body?.course?.diplomaReady, []);
+    assert.equal(updatedCourse.body?.course?.attendance?.["member-3"], 100);
+    assert.equal(updatedCourse.body?.course?.summary, "course-two-must-stay-untouched");
+
     const blockedDiploma = await admin.request(
       "POST",
       "/api/courses/course-1/members/member-4/diploma",
@@ -360,7 +414,9 @@ async function main() {
     let state = (await admin.request("GET", "/api/state")).body;
     assert.equal(findCourse(state, "course-1").title, "Curso academico protegido");
     assert.equal(findCourse(state, "course-2").summary, "course-two-must-stay-untouched");
+    assert.equal(findCourse(state, "course-2").title, "Curso editado por endpoint");
     assert.ok(findCourse(state, "course-2").diplomaReady.includes("member-3"));
+    assert.equal(findCourse(state, "course-managed").title, "Curso creado por endpoint");
 
     await stopServer(server);
     server = startServer(port, baseUrl);
@@ -378,7 +434,9 @@ async function main() {
     assert.ok(persistedCourse.diplomaReady.includes("member-2"));
     assert.ok(persistedCourse.contentProgress["member-2"].blockIds.includes("block-required"));
     assert.equal(findCourse(state, "course-2").summary, "course-two-must-stay-untouched");
+    assert.equal(findCourse(state, "course-2").title, "Curso editado por endpoint");
     assert.ok(findCourse(state, "course-2").diplomaReady.includes("member-3"));
+    assert.equal(findCourse(state, "course-managed").title, "Curso creado por endpoint");
   } finally {
     await stopServer(server);
     rmSync(tempRoot, { recursive: true, force: true });
