@@ -6716,6 +6716,236 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (requestUrl.pathname === "/api/associates/payments/settle" && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
+      const associateIds = [
+        ...new Set(
+          (Array.isArray(payload.associateIds) ? payload.associateIds : [])
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+        )
+      ];
+      if (!associateIds.length) {
+        throw new Error("Selecciona al menos un socio para regularizar cuotas");
+      }
+      if (associateIds.length > 500) {
+        throw new Error("No se pueden regularizar mas de 500 socios en una sola operacion");
+      }
+
+      const year = normalizeAssociatePaymentYear(payload.year);
+      const associatesById = new Map((state.associates || []).map((associate) => [associate.id, associate]));
+      const associates = associateIds.map((associateId) => associatesById.get(associateId));
+      if (associates.some((associate) => !associate)) {
+        return sendJson(res, 404, { ok: false, error: "Uno de los socios seleccionados no existe" });
+      }
+
+      const date = new Date().toISOString().slice(0, 10);
+      const payments = [];
+      associates.forEach((associate) => {
+        const pendingAmount = getAssociateYearFeeGap(associate, year);
+        if (!pendingAmount) {
+          return;
+        }
+        payments.push({
+          associateId: associate.id,
+          payment: createAssociatePaymentRecord(
+            associate,
+            {
+              date,
+              year,
+              amount: pendingAmount,
+              method: "Ajuste manual",
+              note: `Regularizacion masiva de cuota ${year}`
+            },
+            account.name
+          )
+        });
+      });
+
+      if (!payments.length) {
+        return sendJson(res, 200, {
+          ok: true,
+          message: `Los socios seleccionados ya estan al corriente en ${year}`,
+          payments: [],
+          summary: null
+        });
+      }
+
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha regularizado en lote ${payments.length} cuota(s) visibles del ${year}`
+      );
+      const summary = await runAssociatePaymentAutomation(state, "Regularizacion masiva de cuotas");
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        message: `Cuotas visibles marcadas como pagadas (${payments.length})`,
+        payments,
+        summary
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudieron regularizar las cuotas");
+    }
+  }
+
+  const settleAssociatePaymentMatch = requestUrl.pathname.match(
+    /^\/api\/associates\/([^/]+)\/payments\/settle$/
+  );
+  if (settleAssociatePaymentMatch && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
+      const associateId = decodeURIComponent(settleAssociatePaymentMatch[1] || "");
+      const associate = (state.associates || []).find((item) => item.id === associateId);
+      if (!associate) {
+        return sendJson(res, 404, { ok: false, error: "Socio no encontrado" });
+      }
+
+      const year = normalizeAssociatePaymentYear(payload.year);
+      const pendingAmount = getAssociateYearFeeGap(associate, year);
+      if (!pendingAmount) {
+        return sendJson(res, 200, {
+          ok: true,
+          message: `El socio #${associate.associateNumber} ya esta al corriente en ${year}`,
+          associate,
+          payment: null,
+          summary: null
+        });
+      }
+
+      const payment = createAssociatePaymentRecord(
+        associate,
+        {
+          date: new Date().toISOString().slice(0, 10),
+          year,
+          amount: pendingAmount,
+          method: "Ajuste manual",
+          note: `Regularizacion rapida de cuota ${year}`
+        },
+        account.name
+      );
+      state.selectedAssociateId = associate.id;
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha marcado como pagada la cuota ${year} del socio #${associate.associateNumber} ${getAssociateFullName(associate)}`
+      );
+      const summary = await runAssociatePaymentAutomation(state, `Regularizacion de cuota ${year}`);
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        message: `Cuota ${year} marcada como pagada`,
+        associate,
+        payment,
+        summary
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo regularizar la cuota");
+    }
+  }
+
+  const associatePaymentCollectionMatch = requestUrl.pathname.match(/^\/api\/associates\/([^/]+)\/payments$/);
+  if (associatePaymentCollectionMatch && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
+      const associateId = decodeURIComponent(associatePaymentCollectionMatch[1] || "");
+      const associate = (state.associates || []).find((item) => item.id === associateId);
+      if (!associate) {
+        return sendJson(res, 404, { ok: false, error: "Socio no encontrado" });
+      }
+
+      const payment = createAssociatePaymentRecord(associate, payload, account.name);
+      state.selectedAssociateId = associate.id;
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha registrado un pago de ${payment.amount} EUR para el socio #${associate.associateNumber} ${getAssociateFullName(associate)}`
+      );
+      const summary = await runAssociatePaymentAutomation(state, "Registro manual de cuota");
+      writeState(state);
+      return sendJson(res, 201, {
+        ok: true,
+        message: "Pago de socio registrado",
+        associate,
+        payment,
+        summary
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo registrar el pago");
+    }
+  }
+
+  const associatePaymentItemMatch = requestUrl.pathname.match(
+    /^\/api\/associates\/([^/]+)\/payments\/([^/]+)$/
+  );
+  if (associatePaymentItemMatch && req.method === "DELETE") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const associateId = decodeURIComponent(associatePaymentItemMatch[1] || "");
+      const paymentId = decodeURIComponent(associatePaymentItemMatch[2] || "");
+      const associate = (state.associates || []).find((item) => item.id === associateId);
+      if (!associate) {
+        return sendJson(res, 404, { ok: false, error: "Socio no encontrado" });
+      }
+      const paymentIndex = (associate.payments || []).findIndex((payment) => payment.id === paymentId);
+      if (paymentIndex < 0) {
+        return sendJson(res, 404, { ok: false, error: "Movimiento de cuota no encontrado para este socio" });
+      }
+
+      const [payment] = associate.payments.splice(paymentIndex, 1);
+      recalculateAssociateFeeTotals(associate);
+      state.selectedAssociateId = associate.id;
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha eliminado un movimiento de cuota del socio #${associate.associateNumber} ${getAssociateFullName(associate)}`
+      );
+      const summary = await runAssociatePaymentAutomation(state, "Eliminacion de movimiento de cuota");
+      writeState(state);
+      return sendJson(res, 200, {
+        ok: true,
+        message: "Movimiento de cuota eliminado",
+        associate,
+        payment,
+        summary
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo eliminar el movimiento de cuota");
+    }
+  }
+
   const updateAssociateMatch = requestUrl.pathname.match(/^\/api\/associates\/([^/]+)$/);
   if (updateAssociateMatch && req.method === "PATCH") {
     let state = null;
@@ -12084,17 +12314,82 @@ function getAssociateYearFeeGap(associate, year) {
   return Math.max(0, Number(associate.annualAmount || 0) - paid);
 }
 
+function normalizeAssociatePaymentYear(value) {
+  const year = String(value || "").trim();
+  const numericYear = Number(year);
+  if (!/^\d{4}$/.test(year) || !Number.isInteger(numericYear) || numericYear < 2024 || numericYear > 2100) {
+    throw new Error("El anio del pago debe ser valido");
+  }
+  return year;
+}
+
+function normalizeAssociatePaymentDate(value) {
+  const date = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error("La fecha del pago debe ser valida");
+  }
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw new Error("La fecha del pago debe ser valida");
+  }
+  return date;
+}
+
+function createAssociatePaymentRecord(associate, payload, createdBy) {
+  const date = normalizeAssociatePaymentDate(payload.date);
+  const year = normalizeAssociatePaymentYear(payload.year);
+  const amount = Number(payload.amount);
+  const method = String(payload.method || "").trim();
+  const note = String(payload.note || "").trim();
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("El importe del pago debe ser un numero mayor que cero");
+  }
+  if (!method || method.length > 80) {
+    throw new Error("El metodo de pago no es valido");
+  }
+  if (note.length > 500) {
+    throw new Error("La nota del pago no puede superar 500 caracteres");
+  }
+
+  const payment = {
+    id: `associate-payment-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    date,
+    year,
+    amount,
+    method,
+    note,
+    createdAt: new Date().toISOString(),
+    createdBy: String(createdBy || "Administracion").trim() || "Administracion"
+  };
+  associate.payments = associate.payments || [];
+  associate.payments.unshift(payment);
+  recalculateAssociateFeeTotals(associate);
+  return payment;
+}
+
+async function runAssociatePaymentAutomation(state, reason) {
+  if (state.settings?.automation?.autoRunOnSave === false) {
+    return null;
+  }
+  const summary = await runAutomationEngine(state);
+  recordAutomationRun(state, reason, summary);
+  return summary;
+}
+
 function recalculateAssociateFeeTotals(associate) {
   if (!associate) {
     return;
   }
 
-  const manualYearlyFees = {
-    "2024": Number(associate.manualYearlyFees?.["2024"] || 0),
-    "2025": Number(associate.manualYearlyFees?.["2025"] || 0),
-    "2026": Number(associate.manualYearlyFees?.["2026"] || 0),
-    "2027": Number(associate.manualYearlyFees?.["2027"] || 0)
-  };
+  const manualYearlyFees = Object.fromEntries(
+    Object.entries({
+      "2024": 0,
+      "2025": 0,
+      "2026": 0,
+      "2027": 0,
+      ...(associate.manualYearlyFees || {})
+    }).map(([year, amount]) => [year, Number(amount || 0)])
+  );
 
   const paymentTotals = (associate.payments || []).reduce((acc, payment) => {
     const year = String(payment.year || new Date(payment.date || Date.now()).getFullYear());
@@ -12102,12 +12397,13 @@ function recalculateAssociateFeeTotals(associate) {
     return acc;
   }, {});
 
-  associate.yearlyFees = {
-    "2024": manualYearlyFees["2024"] + Number(paymentTotals["2024"] || 0),
-    "2025": manualYearlyFees["2025"] + Number(paymentTotals["2025"] || 0),
-    "2026": manualYearlyFees["2026"] + Number(paymentTotals["2026"] || 0),
-    "2027": manualYearlyFees["2027"] + Number(paymentTotals["2027"] || 0)
-  };
+  const feeYears = new Set([...Object.keys(manualYearlyFees), ...Object.keys(paymentTotals)]);
+  associate.yearlyFees = Object.fromEntries(
+    [...feeYears].map((year) => [
+      year,
+      Number(manualYearlyFees[year] || 0) + Number(paymentTotals[year] || 0)
+    ])
+  );
 
   const latestPayment = [...(associate.payments || [])].sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
   if (latestPayment) {

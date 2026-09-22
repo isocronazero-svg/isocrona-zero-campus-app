@@ -2690,14 +2690,11 @@ document.addEventListener("click", async (event) => {
     if (!associate || !paymentId) {
       return;
     }
-    associate.payments = (associate.payments || []).filter((payment) => payment.id !== paymentId);
-    syncAssociatePaymentTotals(associate);
-    addActivity(
-      "admin",
-      session.name,
-      `Ha eliminado un movimiento de cuota del socio #${associate.associateNumber} ${getAssociateFullName(associate)}`
+    await invokeServerAction(
+      `/api/associates/${encodeURIComponent(associate.id)}/payments/${encodeURIComponent(paymentId)}`,
+      "Movimiento de cuota eliminado",
+      "DELETE"
     );
-    await persistAndRender("Movimiento de cuota eliminado");
     return;
   }
 
@@ -2916,24 +2913,11 @@ document.addEventListener("click", async (event) => {
 
     state.selectedAssociateId = associate.id;
     associatesSectionMode = "workbench";
-    associate.payments = associate.payments || [];
-    associate.payments.unshift({
-      id: `associate-payment-${Date.now()}`,
-      date: getTodayDateInput(),
-      year,
-      amount: pendingAmount,
-      method: "Ajuste manual",
-      note: `Regularizacion rapida de cuota ${year}`,
-      createdAt: new Date().toISOString(),
-      createdBy: session.name
-    });
-    syncAssociatePaymentTotals(associate);
-    addActivity(
-      "admin",
-      session.name,
-      `Ha marcado como pagada la cuota ${year} del socio #${associate.associateNumber} ${getAssociateFullName(associate)}`
+    await invokeJsonAction(
+      `/api/associates/${encodeURIComponent(associate.id)}/payments/settle`,
+      { year },
+      `Cuota ${year} marcada como pagada`
     );
-    await persistAndRender(`Cuota ${year} marcada como pagada`);
     requestAnimationFrame(() => focusAssociatesWorkbench());
     return;
   }
@@ -2950,34 +2934,14 @@ document.addEventListener("click", async (event) => {
     }
 
     const year = String(new Date().getFullYear());
-    visiblePendingAssociates.forEach((associate) => {
-      const pendingAmount = Math.max(
-        0,
-        Number(associate.annualAmount || 0) - getAssociateFeeForYear(associate, year)
-      );
-      if (!pendingAmount) {
-        return;
-      }
-      associate.payments = associate.payments || [];
-      associate.payments.unshift({
-        id: `associate-payment-${Date.now()}-${associate.id}`,
-        date: getTodayDateInput(),
+    await invokeJsonAction(
+      "/api/associates/payments/settle",
+      {
         year,
-        amount: pendingAmount,
-        method: "Ajuste manual",
-        note: `Regularizacion masiva de cuota ${year}`,
-        createdAt: new Date().toISOString(),
-        createdBy: session.name
-      });
-      syncAssociatePaymentTotals(associate);
-    });
-
-    addActivity(
-      "admin",
-      session.name,
-      `Ha regularizado en lote ${visiblePendingAssociates.length} cuota(s) visibles del ${year}`
+        associateIds: visiblePendingAssociates.map((associate) => associate.id)
+      },
+      `Cuotas visibles marcadas como pagadas (${visiblePendingAssociates.length})`
     );
-    await persistAndRender(`Cuotas visibles marcadas como pagadas (${visiblePendingAssociates.length})`);
     requestAnimationFrame(() => focusAssociatesWorkbench());
     return;
   }
@@ -4457,28 +4421,16 @@ document.addEventListener("submit", async (event) => {
       return;
     }
 
-    associate.payments = associate.payments || [];
-    associate.payments.unshift({
-      id: `associate-payment-${Date.now()}`,
-      date,
-      year,
-      amount,
-      method,
-      note,
-      createdAt: new Date().toISOString(),
-      createdBy: session.name
-    });
-    syncAssociatePaymentTotals(associate);
-
-    addActivity(
-      "admin",
-      session.name,
-      `Ha registrado un pago de ${formatCurrency(amount)} para el socio #${associate.associateNumber} ${getAssociateFullName(associate)}`
+    const saved = await invokeJsonAction(
+      `/api/associates/${encodeURIComponent(associate.id)}/payments`,
+      { date, year, amount, method, note },
+      "Pago de socio registrado"
     );
-    event.target.reset();
-    document.getElementById("associatePaymentDate").value = getTodayDateInput();
-    document.getElementById("associatePaymentYear").value = String(new Date().getFullYear());
-    await persistAndRender("Pago de socio registrado");
+    if (saved) {
+      event.target.reset();
+      document.getElementById("associatePaymentDate").value = getTodayDateInput();
+      document.getElementById("associatePaymentYear").value = String(new Date().getFullYear());
+    }
   }
 
   if (event.target.id === "courseImportForm" && isAdminSession()) {
@@ -5245,12 +5197,12 @@ function getNextPendingAssociateApplication(currentId) {
   return pendingApplications[currentIndex + 1] || null;
 }
 
-async function invokeServerAction(url, successMessage) {
+async function invokeServerAction(url, successMessage, method = "POST") {
   syncStatus = "Procesando accion en servidor...";
   render();
 
   try {
-    const response = await fetch(url, { method: "POST" });
+    const response = await fetch(url, { method });
     const payload = await response.json();
     if (!response.ok || payload.ok === false) {
       throw new Error(payload.error || "Accion rechazada");
@@ -5261,12 +5213,14 @@ async function invokeServerAction(url, successMessage) {
     syncAssociateSelectionTargets();
     syncStatus = payload.message || successMessage;
     showToast(payload.message || successMessage, "success");
+    render();
+    return true;
   } catch (error) {
     syncStatus = error.message || "Error en accion de servidor";
     showToast(syncStatus, "error");
+    render();
+    return false;
   }
-
-  render();
 }
 
 async function invokeJsonAction(url, payload, successMessage) {
@@ -16352,44 +16306,6 @@ function getAssociateProfileRequestsForCurrentAssociate() {
   return [...(state.associateProfileRequests || [])]
     .filter((request) => request.associateId === associate?.id || request.memberId === member?.id)
     .sort((a, b) => String(b.submittedAt || "").localeCompare(String(a.submittedAt || "")));
-}
-
-function syncAssociatePaymentTotals(associate) {
-  if (!associate) {
-    return;
-  }
-
-  const paymentsByYear = (associate.payments || []).reduce((acc, payment) => {
-    const year = String(payment.year || new Date(payment.date || Date.now()).getFullYear());
-    acc[year] = Number(acc[year] || 0) + Number(payment.amount || 0);
-    return acc;
-  }, {});
-
-  const manualYearlyFees = {
-    "2024": Number(associate.manualYearlyFees?.["2024"] || 0),
-    "2025": Number(associate.manualYearlyFees?.["2025"] || 0),
-    "2026": Number(associate.manualYearlyFees?.["2026"] || 0),
-    "2027": Number(associate.manualYearlyFees?.["2027"] || 0)
-  };
-
-  associate.yearlyFees = {
-    "2024": manualYearlyFees["2024"] + Number(paymentsByYear["2024"] || 0),
-    "2025": manualYearlyFees["2025"] + Number(paymentsByYear["2025"] || 0),
-    "2026": manualYearlyFees["2026"] + Number(paymentsByYear["2026"] || 0),
-    "2027": manualYearlyFees["2027"] + Number(paymentsByYear["2027"] || 0)
-  };
-
-  const latestPayment = getAssociatePayments(associate)[0];
-  associate.lastQuotaMonth = latestPayment
-    ? new Date(latestPayment.date).toLocaleDateString("es-ES", {
-        month: "short",
-        year: "numeric"
-      })
-    : associate.lastQuotaMonth || "";
-
-  if (!["Baja", "Revisar documentacion", "Solicitud recibida", "En revision"].includes(associate.status)) {
-    associate.status = getAssociateQuotaGap(associate) > 0 ? "Pendiente cuota" : "Activa";
-  }
 }
 
 function syncAssociateLinkedIdentityLocally(associate) {

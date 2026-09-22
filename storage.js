@@ -1239,12 +1239,13 @@ function normalizeState(state) {
       acc[year] = Number(acc[year] || 0) + Number(payment.amount || 0);
       return acc;
     }, {});
-    const yearlyFees = {
-      "2024": Number(manualYearlyFees["2024"] || 0) + Number(paymentTotals["2024"] || 0),
-      "2025": Number(manualYearlyFees["2025"] || 0) + Number(paymentTotals["2025"] || 0),
-      "2026": Number(manualYearlyFees["2026"] || 0) + Number(paymentTotals["2026"] || 0),
-      "2027": Number(manualYearlyFees["2027"] || 0) + Number(paymentTotals["2027"] || 0)
-    };
+    const feeYears = new Set([...Object.keys(manualYearlyFees), ...Object.keys(paymentTotals)]);
+    const yearlyFees = Object.fromEntries(
+      [...feeYears].map((year) => [
+        year,
+        Number(manualYearlyFees[year] || 0) + Number(paymentTotals[year] || 0)
+      ])
+    );
 
     return {
       id: item.id || `associate-${Date.now()}`,

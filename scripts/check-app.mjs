@@ -25,6 +25,7 @@ const conflictCheckedFiles = [
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
   "scripts/check-admin-settings.mjs",
+  "scripts/check-associate-payments.mjs",
   "scripts/check-associate-update.mjs",
   "scripts/check-auth-utils.mjs",
   "scripts/check-production-demo-admin-guard.mjs",
