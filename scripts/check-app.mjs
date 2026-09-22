@@ -24,6 +24,7 @@ const conflictCheckedFiles = [
 ];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
+  "scripts/check-admin-settings.mjs",
   "scripts/check-associate-update.mjs",
   "scripts/check-auth-utils.mjs",
   "scripts/check-production-demo-admin-guard.mjs",
@@ -104,7 +105,7 @@ for (const file of conflictCheckedFiles) {
   }
 }
 
-const publicAppContent = readFileSync("public/app.js", "utf8");
+const publicAppContent = readFileSync("public/app.js", "utf8").replace(/\r\n/g, "\n");
 const associateDirectoryStart = publicAppContent.indexOf('id="associateSectionAssociates"');
 const associateDirectoryEnd = publicAppContent.indexOf("function renderAssociatesSide()", associateDirectoryStart);
 const associateDirectoryContent =

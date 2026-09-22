@@ -12,6 +12,7 @@
     "start": "node server.js",
     "start:local": "node server.js",
     "check:app": "node scripts/check-app.mjs",
+    "check:admin-settings": "node scripts/check-admin-settings.mjs",
     "check:associate-update": "node scripts/check-associate-update.mjs",
     "check:frontend-syntax": "node scripts/check-frontend-syntax.mjs",
     "check:test-zone-csv": "node scripts/check-test-zone-csv-importer.mjs",

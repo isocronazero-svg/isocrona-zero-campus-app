@@ -4015,8 +4015,7 @@ document.addEventListener("submit", async (event) => {
       fromName: document.getElementById("smtpConfigFromName").value.trim(),
       testTo: document.getElementById("smtpConfigTestTo").value.trim()
     };
-    addActivity("admin", session.name, "Ha actualizado la configuracion SMTP del campus");
-    await persistAndRender("SMTP guardado");
+    await persistAdminSettingsAndRender("SMTP guardado", "smtp");
     return;
   }
 
@@ -4069,8 +4068,7 @@ document.addEventListener("submit", async (event) => {
       defaultMemberRole: document.getElementById("settingAssociateDefaultRole").value.trim(),
       applicationFormNotice: document.getElementById("settingAssociateNotice").value.trim()
     };
-    addActivity("admin", session.name, "Ha actualizado la configuracion general del campus");
-    await persistAndRender("Configuracion guardada");
+    await persistAdminSettingsAndRender("Configuracion guardada", "general");
   }
 
   if (event.target.id === "courseForm" && isAdminSession()) {
@@ -5047,6 +5045,45 @@ async function persistAndRender(successMessage) {
       syncStatus = error?.message || "Error al guardar";
       showToast(error?.message || "Error al guardar", "error");
     }
+
+  render();
+}
+
+async function persistAdminSettingsAndRender(successMessage, section) {
+  syncStatus = "Guardando configuracion...";
+  render();
+
+  saveSequence = saveSequence.catch(() => undefined).then(async () => {
+    const response = await fetch("/api/admin/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        section,
+        settings: state.settings
+      })
+    });
+
+    const payload = await readJsonResponse(response, "No se pudo leer la respuesta del guardado");
+    if (!response.ok) {
+      throw new Error(payload?.error || payload?.message || "No se pudo guardar la configuracion");
+    }
+
+    if (payload.state) {
+      state = normalizeState(payload.state);
+      applySessionToState();
+    }
+
+    storageMeta = await loadStorageMeta();
+    syncStatus = payload.message || successMessage;
+    showToast(payload.message || successMessage, "success");
+  });
+
+  try {
+    await saveSequence;
+  } catch (error) {
+    syncStatus = error?.message || "Error al guardar la configuracion";
+    showToast(error?.message || "Error al guardar la configuracion", "error");
+  }
 
   render();
 }
