@@ -8161,6 +8161,131 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
+  const closeCourseMemberMatch = requestUrl.pathname.match(
+    /^\/api\/courses\/([^/]+)\/members\/([^/]+)\/close$/
+  );
+  if (closeCourseMemberMatch && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const courseId = decodeURIComponent(closeCourseMemberMatch[1] || "");
+      const memberId = decodeURIComponent(closeCourseMemberMatch[2] || "");
+      const course = (state.courses || []).find((item) => item.id === courseId);
+      const member = (state.members || []).find((item) => item.id === memberId);
+      if (!course || !member) {
+        return sendJson(res, 404, { ok: false, error: "Curso o alumno no encontrado" });
+      }
+      if (!(course.enrolledIds || []).includes(memberId)) {
+        return sendJson(res, 400, { ok: false, error: "El alumno no esta inscrito en este curso" });
+      }
+
+      const issuedDiplomas = [...(course.diplomaReady || [])];
+      closeCourseMemberAcademicRecord(course, memberId);
+      const blockers = getCourseMemberDiplomaBlockers(state, course, memberId);
+      generateEligibleCourseDiplomas(state, course);
+      state.selectedCourseId = course.id;
+      state.selectedMemberId = member.id;
+      if (!blockers.length) {
+        state.activeView = "campus";
+      }
+
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha cerrado academicamente a ${member.name} en ${course.title}`
+      );
+      const summary = await runCourseAcademicAutomation(state, "Cierre academico individual");
+      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
+      writeState(state);
+
+      const generated = (course.diplomaReady || []).includes(memberId);
+      const closureLabel = normalizeCourseClass(course.courseClass) === "practico" ? "practico" : "curso";
+      const message = blockers.length
+        ? `${member.name} queda cerrado en ${closureLabel}, asistencia, evaluacion y contenido. Aun falta: ${blockers.join(", ")}`
+        : generated
+          ? `${member.name} ya queda cerrado y con diploma generado en ${course.title}`
+          : `${member.name} ya queda listo para emitir diploma en ${course.title}`;
+      return sendJson(res, 200, { ok: true, message, course, memberId, blockers, generated, summary });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo cerrar academicamente al alumno");
+    }
+  }
+
+  const closeCourseMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/close$/);
+  if (closeCourseMatch && req.method === "POST") {
+    let state = null;
+    try {
+      state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) {
+        return;
+      }
+
+      const courseId = decodeURIComponent(closeCourseMatch[1] || "");
+      const course = (state.courses || []).find((item) => item.id === courseId);
+      if (!course) {
+        return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
+      }
+
+      const membersById = new Map((state.members || []).map((member) => [member.id, member]));
+      const enrolledIds = [...new Set(course.enrolledIds || [])].filter((memberId) => membersById.has(memberId));
+      if (!enrolledIds.length) {
+        return sendJson(res, 400, { ok: false, error: "El curso no tiene alumnado inscrito" });
+      }
+
+      const issuedDiplomas = [...(course.diplomaReady || [])];
+      const blocked = [];
+      enrolledIds.forEach((memberId) => {
+        closeCourseMemberAcademicRecord(course, memberId);
+        const blockers = getCourseMemberDiplomaBlockers(state, course, memberId);
+        if (blockers.length) {
+          blocked.push({ memberId, memberName: membersById.get(memberId).name, blockers });
+        }
+      });
+      generateEligibleCourseDiplomas(state, course);
+      state.selectedCourseId = course.id;
+      if ((course.diplomaReady || []).length || !blocked.length) {
+        state.activeView = "campus";
+      }
+
+      appendActivity(
+        state,
+        "admin",
+        account.name,
+        `Ha preparado el cierre academico del ${normalizeCourseClass(course.courseClass) === "practico" ? "practico" : "curso"} ${course.title}`
+      );
+      const summary = await runCourseAcademicAutomation(state, "Cierre academico masivo");
+      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
+      writeState(state);
+
+      const generatedCount = (course.diplomaReady || []).length;
+      const blockedPreview = blocked
+        .slice(0, 2)
+        .map((entry) => `${entry.memberName}: ${entry.blockers.join(", ")}`)
+        .join(" | ");
+      const message = blocked.length
+        ? `Cierre aplicado. Aun faltan requisitos en ${blocked.length} alumno(s): ${blockedPreview}${blocked.length > 2 ? "..." : ""}`
+        : `Cierre aplicado. ${generatedCount} diploma(s) ya quedan generados en ${course.title}`;
+      return sendJson(res, 200, {
+        ok: true,
+        message,
+        course,
+        updatedMemberIds: enrolledIds,
+        blocked,
+        generatedCount,
+        summary
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo cerrar academicamente el curso");
+    }
+  }
+
   const deliverMemberMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/send-member\/([^/]+)$/);
   if (deliverMemberMatch && req.method === "POST") {
     const courseId = deliverMemberMatch[1];
@@ -12538,6 +12663,75 @@ async function runCourseAcademicAutomation(state, reason) {
   const summary = await runAutomationEngine(state);
   recordAutomationRun(state, reason, summary);
   return summary;
+}
+
+function getPublishedCourseLessons(course) {
+  return (course.modules || []).flatMap((moduleItem) =>
+    (moduleItem.lessons || []).filter(
+      (lesson) => String(lesson.publicationStatus || "draft").toLowerCase() === "published"
+    )
+  );
+}
+
+function closeCourseMemberAcademicRecord(course, memberId) {
+  applyCourseAcademicChanges(course, memberId, { attendance: 100, evaluation: "Apto" });
+  const lessons = getPublishedCourseLessons(course);
+  const blocks = lessons.flatMap((lesson) => lesson.blocks || []);
+  course.contentProgress = course.contentProgress || {};
+  const currentEntry = course.contentProgress[memberId] || {};
+  course.contentProgress[memberId] = {
+    lessonIds: [...new Set([...(currentEntry.lessonIds || []), ...lessons.map((lesson) => lesson.id)])],
+    blockIds: [
+      ...new Set([
+        ...(currentEntry.blockIds || []),
+        ...blocks.filter((block) => block.requiredForDiploma !== false).map((block) => block.id)
+      ])
+    ],
+    quizAnswers:
+      currentEntry.quizAnswers && typeof currentEntry.quizAnswers === "object" && !Array.isArray(currentEntry.quizAnswers)
+        ? currentEntry.quizAnswers
+        : {},
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function isCourseMemberContentReadyForClosure(course, memberId) {
+  const completedBlockIds = new Set(course.contentProgress?.[memberId]?.blockIds || []);
+  const blocks = getPublishedCourseLessons(course).flatMap((lesson) => lesson.blocks || []);
+  if (!blocks.length) {
+    return true;
+  }
+  const requiredBlocks = blocks.filter((block) => block.required);
+  const targetBlocks = requiredBlocks.length ? requiredBlocks : blocks;
+  return targetBlocks.every((block) => completedBlockIds.has(block.id));
+}
+
+function getCourseMemberDiplomaBlockers(state, course, memberId) {
+  const member = (state.members || []).find((item) => item.id === memberId);
+  if (!course || !member) {
+    return ["Alumno no disponible"];
+  }
+
+  const blockers = [];
+  if (Number(course.attendance?.[memberId] || 0) < 75) blockers.push("asistencia");
+  if (String(course.evaluations?.[memberId] || "").trim() !== "Apto") blockers.push("evaluacion");
+  if (!isCourseMemberContentReadyForClosure(course, memberId)) blockers.push("contenido");
+  if (
+    course.feedbackEnabled &&
+    course.feedbackRequiredForDiploma &&
+    !(course.feedbackResponses || []).some((response) => response.memberId === memberId)
+  ) {
+    blockers.push("valoracion final");
+  }
+  if (!hasMemberDocumentId(state, member)) blockers.push("DNI/NIE");
+  return blockers;
+}
+
+function generateEligibleCourseDiplomas(state, course) {
+  const eligibleIds = (course.enrolledIds || []).filter(
+    (memberId) => !getCourseMemberDiplomaBlockers(state, course, memberId).length
+  );
+  course.diplomaReady = mergeDiplomaReadyIds(course.diplomaReady, eligibleIds);
 }
 
 function recalculateAssociateFeeTotals(associate) {
