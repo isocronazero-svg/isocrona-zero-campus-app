@@ -36,7 +36,9 @@ function buildSeedState() {
   seed.settings.automation.autoRunOnSave = false;
 
   seed.members = (seed.members || []).map((member) =>
-    ["member-1", "member-2"].includes(member.id) ? { ...member, dni: member.dni || "12345678A" } : member
+    ["member-1", "member-2", "member-3"].includes(member.id)
+      ? { ...member, dni: member.dni || "12345678A" }
+      : member
   );
 
   const course = seed.courses.find((item) => item.id === "course-1");
@@ -82,6 +84,15 @@ function buildSeedState() {
 
   const untouchedCourse = seed.courses.find((item) => item.id === "course-2");
   untouchedCourse.summary = "course-two-must-stay-untouched";
+  untouchedCourse.enrolledIds = ["member-3"];
+  untouchedCourse.waitingIds = [];
+  untouchedCourse.attendance = { "member-3": 100 };
+  untouchedCourse.evaluations = { "member-3": "Apto" };
+  untouchedCourse.modules = [];
+  untouchedCourse.contentProgress = {};
+  untouchedCourse.feedbackEnabled = false;
+  untouchedCourse.feedbackRequiredForDiploma = false;
+  untouchedCourse.diplomaReady = [];
   return seed;
 }
 
@@ -195,19 +206,43 @@ async function main() {
     const admin = createClient(baseUrl);
     const memberEndpoint = "/api/courses/course-1/members/member-1/academic";
     const closeMemberEndpoint = "/api/courses/course-1/members/member-2/close";
+    const generateMemberDiplomaEndpoint = "/api/courses/course-2/members/member-3/diploma";
+    const generateCourseDiplomasEndpoint = "/api/courses/course-1/diplomas/generate";
 
     const anonymousUpdate = await anonymous.request("PATCH", memberEndpoint, { attendance: 75 }, true);
     assert.equal(anonymousUpdate.status, 401, "Un visitante no puede modificar asistencia");
     const anonymousClose = await anonymous.request("POST", closeMemberEndpoint, undefined, true);
     assert.equal(anonymousClose.status, 401, "Un visitante no puede cerrar el expediente academico");
+    const anonymousDiploma = await anonymous.request("POST", generateMemberDiplomaEndpoint, undefined, true);
+    assert.equal(anonymousDiploma.status, 401, "Un visitante no puede emitir diplomas");
+    const anonymousCourseDiplomas = await anonymous.request("POST", generateCourseDiplomasEndpoint, undefined, true);
+    assert.equal(anonymousCourseDiplomas.status, 401, "Un visitante no puede recalcular diplomas");
 
     await login(member, "lucia@isocronazero.org", passwords.member);
     const memberUpdate = await member.request("PATCH", memberEndpoint, { attendance: 75 }, true);
     assert.equal(memberUpdate.status, 403, "Un socio no puede modificar el seguimiento academico");
     const memberClose = await member.request("POST", closeMemberEndpoint, undefined, true);
     assert.equal(memberClose.status, 403, "Un socio no puede cerrar el expediente academico");
+    const memberDiploma = await member.request("POST", generateMemberDiplomaEndpoint, undefined, true);
+    assert.equal(memberDiploma.status, 403, "Un socio no puede emitir diplomas");
+    const memberCourseDiplomas = await member.request("POST", generateCourseDiplomasEndpoint, undefined, true);
+    assert.equal(memberCourseDiplomas.status, 403, "Un socio no puede recalcular diplomas");
 
     await login(admin, "admin@isocronazero.org", passwords.admin);
+    const blockedDiploma = await admin.request(
+      "POST",
+      "/api/courses/course-1/members/member-4/diploma",
+      undefined,
+      true
+    );
+    assert.equal(blockedDiploma.status, 400);
+    assert.ok(blockedDiploma.body?.blockers?.includes("DNI/NIE"), "No debe emitir un diploma sin DNI/NIE");
+
+    const generatedMemberDiploma = await admin.request("POST", generateMemberDiplomaEndpoint);
+    assert.equal(generatedMemberDiploma.status, 200);
+    assert.equal(generatedMemberDiploma.body?.generated, true);
+    assert.ok(generatedMemberDiploma.body?.course?.diplomaReady?.includes("member-3"));
+
     const invalidAttendance = await admin.request("PATCH", memberEndpoint, { attendance: 101 }, true);
     assert.equal(invalidAttendance.status, 400, "No debe aceptar asistencia superior al 100%");
 
@@ -316,9 +351,16 @@ async function main() {
     assert.ok(closeCourse.body?.course?.diplomaReady?.includes("member-2"));
     assert.ok(!closeCourse.body?.course?.diplomaReady?.includes("member-4"));
 
+    const generatedCourseDiplomas = await admin.request("POST", generateCourseDiplomasEndpoint);
+    assert.equal(generatedCourseDiplomas.status, 200);
+    assert.ok(generatedCourseDiplomas.body?.course?.diplomaReady?.includes("member-1"));
+    assert.ok(generatedCourseDiplomas.body?.course?.diplomaReady?.includes("member-2"));
+    assert.ok(!generatedCourseDiplomas.body?.course?.diplomaReady?.includes("member-4"));
+
     let state = (await admin.request("GET", "/api/state")).body;
     assert.equal(findCourse(state, "course-1").title, "Curso academico protegido");
     assert.equal(findCourse(state, "course-2").summary, "course-two-must-stay-untouched");
+    assert.ok(findCourse(state, "course-2").diplomaReady.includes("member-3"));
 
     await stopServer(server);
     server = startServer(port, baseUrl);
@@ -336,6 +378,7 @@ async function main() {
     assert.ok(persistedCourse.diplomaReady.includes("member-2"));
     assert.ok(persistedCourse.contentProgress["member-2"].blockIds.includes("block-required"));
     assert.equal(findCourse(state, "course-2").summary, "course-two-must-stay-untouched");
+    assert.ok(findCourse(state, "course-2").diplomaReady.includes("member-3"));
   } finally {
     await stopServer(server);
     rmSync(tempRoot, { recursive: true, force: true });
