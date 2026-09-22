@@ -4067,7 +4067,7 @@ document.addEventListener("submit", async (event) => {
       diplomaTemplate: "Aprovechamiento"
     });
     const blueprint = buildCourseBlueprint(draftCourse, contentTemplate);
-    state.courses.unshift({
+    const coursePayload = {
       ...draftCourse,
       summary: blueprint.summary,
       modality: blueprint.modality,
@@ -4080,15 +4080,16 @@ document.addEventListener("submit", async (event) => {
       evaluationCriteria: blueprint.evaluationCriteria,
       contentTemplate: blueprint.contentTemplate,
       contentStatus: blueprint.contentStatus
-    });
-    state.activeView = "campus";
+    };
+    const saved = await invokeJsonAction("/api/courses", { course: coursePayload }, "Curso creado y guardado");
+    if (!saved) {
+      return;
+    }
     campusSectionMode = "courses";
-    state.selectedCourseId = id;
     coursesSectionMode = "workbench";
     courseWorkbenchMode = "ficha";
-    addActivity("admin", session.name, `Ha creado el curso ${title}`);
     event.target.reset();
-    await persistAndRender("Curso creado y guardado");
+    render();
     requestAnimationFrame(() => focusCoursesWorkbench());
   }
 
@@ -4290,43 +4291,50 @@ document.addEventListener("submit", async (event) => {
       return;
     }
 
-    course.title = title;
-    course.courseClass = courseClass;
-    course.type = type;
-    course.status = status;
-    course.startDate = startDate;
-    course.endDate = endDate;
-    course.hours = hours;
-    course.capacity = capacity;
-    course.diplomaTemplate = diplomaTemplate || "Aprovechamiento";
-    course.summary = summary;
-    course.modality = modality || "Presencial";
-    course.enrollmentFee = enrollmentFee;
-    course.enrollmentPaymentInstructions = enrollmentPaymentInstructions;
-    course.audience = audience || "Socios y voluntariado operativo";
-    course.accessScope = accessScope;
-    course.enrollmentOpensAt = enrollmentOpensAt;
-    course.coordinator = coordinator;
-    course.contentTemplate = contentTemplate || inferCourseTemplate(course);
-    course.contentStatus = contentStatus || "draft";
-    course.objectives = objectives;
-    course.sessions = sessions;
-    course.modules = modules.length ? modules : course.modules?.length ? course.modules : buildModulesFromSessions(sessions);
-    course.resources = resources.length ? resources : course.resources || [];
-    course.materials = materials;
-    course.evaluationCriteria = evaluationCriteria;
-    course.certificateCity = certificateCity;
-    course.certificateContents = certificateContents;
-    course.feedbackEnabled = feedbackEnabled;
-    course.feedbackRequiredForDiploma = feedbackRequiredForDiploma;
-    course.feedbackTeachers = feedbackTeachers;
-
-    addActivity("admin", session.name, `Ha actualizado el curso ${title}`);
-    await persistAndRender("Curso actualizado");
-    state.activeView = "campus";
+    const saved = await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(course.id)}`,
+      {
+        title,
+        courseClass,
+        type,
+        status,
+        startDate,
+        endDate,
+        hours,
+        capacity,
+        diplomaTemplate: diplomaTemplate || "Aprovechamiento",
+        summary,
+        modality: modality || "Presencial",
+        enrollmentFee,
+        enrollmentPaymentInstructions,
+        audience: audience || "Socios y voluntariado operativo",
+        accessScope,
+        enrollmentOpensAt,
+        coordinator,
+        contentTemplate: contentTemplate || inferCourseTemplate(course),
+        contentStatus: contentStatus || "draft",
+        objectives,
+        sessions,
+        modules: modules.length ? modules : course.modules?.length ? course.modules : buildModulesFromSessions(sessions),
+        resources: resources.length ? resources : course.resources || [],
+        materials,
+        evaluationCriteria,
+        certificateCity,
+        certificateContents,
+        feedbackEnabled,
+        feedbackRequiredForDiploma,
+        feedbackTeachers
+      },
+      "Curso actualizado",
+      "PATCH"
+    );
+    if (!saved) {
+      return;
+    }
     campusSectionMode = "courses";
     coursesSectionMode = "workbench";
     courseWorkbenchMode = "ficha";
+    render();
     requestAnimationFrame(() => focusCoursesWorkbench());
   }
 
