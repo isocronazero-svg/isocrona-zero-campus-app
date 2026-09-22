@@ -3038,46 +3038,62 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "mark-attendance" && isAdminSession() && courseId && memberId) {
-    cycleAttendance(courseId, memberId);
     const course = state.courses.find((item) => item.id === courseId);
     const member = findMember(memberId);
-    if (course && member) {
-      addActivity("admin", session.name, `Ha actualizado la asistencia de ${member.name} en ${course.title}`);
+    if (!course || !member) {
+      return;
     }
-    shouldPersist = true;
+    const sequence = [0, 50, 75, 100];
+    const current = Number(course.attendance?.[memberId] || 0);
+    const nextValue = sequence[(sequence.indexOf(current) + 1) % sequence.length];
+    await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(courseId)}/members/${encodeURIComponent(memberId)}/academic`,
+      { attendance: nextValue },
+      `Asistencia actualizada para ${member.name}`,
+      "PATCH"
+    );
+    return;
   }
 
   if (action === "set-member-attendance" && isAdminSession() && courseId && memberId) {
-    const course = state.courses.find((item) => item.id === courseId);
     const member = findMember(memberId);
     const nextValue = Number(actionTarget.dataset.value || 0);
-    setAttendanceValue(courseId, memberId, nextValue);
-    if (course && member) {
-      addActivity("admin", session.name, `Ha fijado la asistencia de ${member.name} en ${course.title} al ${nextValue}%`);
-    }
-    await persistAndRender(member ? `Asistencia actualizada para ${member.name}` : "Asistencia actualizada");
+    await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(courseId)}/members/${encodeURIComponent(memberId)}/academic`,
+      { attendance: nextValue },
+      member ? `Asistencia actualizada para ${member.name}` : "Asistencia actualizada",
+      "PATCH"
+    );
     return;
   }
 
   if (action === "cycle-eval" && isAdminSession() && courseId && memberId) {
-    cycleEvaluation(courseId, memberId);
     const course = state.courses.find((item) => item.id === courseId);
     const member = findMember(memberId);
-    if (course && member) {
-      addActivity("admin", session.name, `Ha actualizado la evaluacion de ${member.name} en ${course.title}`);
+    if (!course || !member) {
+      return;
     }
-    shouldPersist = true;
+    const sequence = ["Pendiente", "Apto", "No apto"];
+    const current = course.evaluations?.[memberId] || "Pendiente";
+    const nextValue = sequence[(sequence.indexOf(current) + 1) % sequence.length];
+    await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(courseId)}/members/${encodeURIComponent(memberId)}/academic`,
+      { evaluation: nextValue },
+      `Evaluacion actualizada para ${member.name}`,
+      "PATCH"
+    );
+    return;
   }
 
   if (action === "set-member-evaluation" && isAdminSession() && courseId && memberId) {
-    const course = state.courses.find((item) => item.id === courseId);
     const member = findMember(memberId);
     const nextValue = actionTarget.dataset.value || "Pendiente";
-    setEvaluationValue(courseId, memberId, nextValue);
-    if (course && member) {
-      addActivity("admin", session.name, `Ha fijado la evaluacion de ${member.name} en ${course.title} como ${nextValue}`);
-    }
-    await persistAndRender(member ? `Evaluacion actualizada para ${member.name}` : "Evaluacion actualizada");
+    await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(courseId)}/members/${encodeURIComponent(memberId)}/academic`,
+      { evaluation: nextValue },
+      member ? `Evaluacion actualizada para ${member.name}` : "Evaluacion actualizada",
+      "PATCH"
+    );
     return;
   }
 
@@ -3168,11 +3184,12 @@ document.addEventListener("click", async (event) => {
     if (!course) {
       return;
     }
-    (course.enrolledIds || []).forEach((currentMemberId) => {
-      setAttendanceValue(courseId, currentMemberId, 100);
-    });
-    addActivity("admin", session.name, `Ha marcado al 100% la asistencia del curso ${course.title}`);
-    await persistAndRender("Asistencia de todo el curso actualizada");
+    await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(courseId)}/academic`,
+      { attendance: 100 },
+      "Asistencia de todo el curso actualizada",
+      "PATCH"
+    );
     return;
   }
 
@@ -3181,11 +3198,12 @@ document.addEventListener("click", async (event) => {
     if (!course) {
       return;
     }
-    (course.enrolledIds || []).forEach((currentMemberId) => {
-      setEvaluationValue(courseId, currentMemberId, "Apto");
-    });
-    addActivity("admin", session.name, `Ha marcado como apto al alumnado del curso ${course.title}`);
-    await persistAndRender("Evaluaciones del curso actualizadas");
+    await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(courseId)}/academic`,
+      { evaluation: "Apto" },
+      "Evaluaciones del curso actualizadas",
+      "PATCH"
+    );
     return;
   }
 
@@ -5223,13 +5241,13 @@ async function invokeServerAction(url, successMessage, method = "POST") {
   }
 }
 
-async function invokeJsonAction(url, payload, successMessage) {
+async function invokeJsonAction(url, payload, successMessage, method = "POST") {
   syncStatus = "Procesando lote en servidor...";
   render();
 
   try {
     const response = await fetch(url, {
-      method: "POST",
+      method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
@@ -15639,26 +15657,6 @@ function moveWaitingToEnrolled(courseId, memberId) {
   if (!course.enrolledIds.includes(memberId)) {
     course.enrolledIds.push(memberId);
   }
-}
-
-function cycleAttendance(courseId, memberId) {
-  const course = state.courses.find((item) => item.id === courseId);
-  if (!course) {
-    return;
-  }
-  const sequence = [0, 50, 75, 100];
-  const current = course.attendance[memberId] ?? 0;
-  course.attendance[memberId] = sequence[(sequence.indexOf(current) + 1) % sequence.length];
-}
-
-function cycleEvaluation(courseId, memberId) {
-  const course = state.courses.find((item) => item.id === courseId);
-  if (!course) {
-    return;
-  }
-  const sequence = ["Pendiente", "Apto", "No apto"];
-  const current = course.evaluations[memberId] ?? "Pendiente";
-  course.evaluations[memberId] = sequence[(sequence.indexOf(current) + 1) % sequence.length];
 }
 
 function setAttendanceValue(courseId, memberId, value) {
