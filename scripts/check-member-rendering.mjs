@@ -63,3 +63,14 @@ for (const previewOnly of [true, false]) {
   assert.equal(html.includes('data-action="toggle-block-complete"'), !previewOnly);
 }
 console.log("Member profile and course rendering check passed.");
+
+// Scoped student payloads hide classmates' IDs but retain the total occupancy.
+for (const course of [
+  { capacity: 12, enrolledCount: 10, enrolledIds: [] },
+  { capacity: 12, enrolledCount: 12, enrolledIds: ["self"] },
+  { capacity: 2, enrolledIds: ["a", "b", "c"] }
+]) {
+  const available = vm.runInNewContext(`${source("getCourseEnrolledCount")}\n${source("getCourseSeatsLeft")}\ngetCourseSeatsLeft(course);`, { course });
+  assert.equal(available, Math.max(0, course.capacity - (course.enrolledCount ?? course.enrolledIds.length)));
+}
+console.log("Student seat counts check passed.");

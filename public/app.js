@@ -18236,7 +18236,7 @@ function getEnrollmentSubmissionTone(status) {
 }
 
 function getCourseSeatsLeft(course) {
-  return Math.max(0, Number(course?.capacity || 0) - Number((course?.enrolledIds || []).length));
+  return Math.max(0, Number(course?.capacity || 0) - getCourseEnrolledCount(course));
 }
 
 function getCourseEnrollmentOpensAtTimestamp(course) {
