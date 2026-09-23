@@ -93,6 +93,15 @@ function buildSeedState() {
   untouchedCourse.feedbackEnabled = false;
   untouchedCourse.feedbackRequiredForDiploma = false;
   untouchedCourse.diplomaReady = [];
+  seed.testZoneQuestions = [
+    { id: "shared-q1", prompt: "Pregunta común uno", options: ["A", "B", "C", "D"], correctIndex: 1, explanation: "Explicación uno", category: "Incendios", difficulty: "facil" },
+    { id: "shared-q2", prompt: "Pregunta común dos", options: ["A", "B", "C", "D"], correctIndex: 2, explanation: "Explicación dos", category: "Rescate", difficulty: "media" },
+    { id: "shared-inactive", prompt: "Retirada", options: ["A", "B"], correctIndex: 0, active: false }
+  ];
+  seed.testZoneResults = [];
+  const associate = seed.associates[0];
+  associate.annualAmount = 0;
+  seed.members.find((item) => item.id === "member-1").associateId = associate.id;
   return seed;
 }
 
@@ -239,6 +248,51 @@ async function main() {
     assert.equal(memberCourseUpdate.status, 403, "Un socio no puede editar cursos");
 
     await login(admin, "admin@isocronazero.org", passwords.admin);
+    const sharedEndpoint = "/api/courses/course-1/shared-test";
+    assert.equal((await anonymous.request("GET", sharedEndpoint, undefined, true)).status, 401);
+    assert.equal((await member.request("GET", sharedEndpoint, undefined, true)).status, 403);
+    const linked = await admin.request("PATCH", "/api/courses/course-1", {
+      sharedTestQuestionIds: ["shared-q1", "shared-q2", "shared-q1"], sharedTestPublished: false
+    });
+    assert.deepEqual(linked.body.course.sharedTestQuestionIds, ["shared-q1", "shared-q2"]);
+    for (const ids of [["missing"], ["shared-inactive"], "bad", Array(201).fill("shared-q1")]) {
+      assert.equal((await admin.request("PATCH", "/api/courses/course-1", { sharedTestQuestionIds: ids }, true)).status, 400);
+    }
+    const previewTest = (await admin.request("GET", sharedEndpoint)).body;
+    const previewResult = await admin.request("POST", sharedEndpoint + "/results", {
+      attemptId: randomUUID(), version: previewTest.version, questionIds: ["shared-q1", "shared-q2"], answers: [1, 2]
+    });
+    assert.equal(previewResult.body.preview, true);
+    assert.equal((await admin.request("GET", "/api/state")).body.testZoneResults.length, 0);
+    await admin.request("PATCH", "/api/courses/course-1", { sharedTestPublished: true });
+    assert.equal((await member.request("GET", "/api/courses/course-2/shared-test", undefined, true)).status, 403);
+    const sharedTest = (await member.request("GET", sharedEndpoint)).body;
+    assert.equal(sharedTest.preview, false);
+    assert.deepEqual(sharedTest.questions.map((q) => q.id), ["shared-q1", "shared-q2"]);
+    assert.equal(JSON.stringify(sharedTest).includes("correctIndex"), false);
+    assert.equal(JSON.stringify(sharedTest).includes("Explicación uno"), false);
+    const attempt = { attemptId: randomUUID(), version: sharedTest.version, questionIds: ["shared-q1", "shared-q2"], answers: [1, 0], score: 999 };
+    assert.equal((await member.request("POST", sharedEndpoint + "/results", { ...attempt, questionIds: ["shared-q1"], answers: [1] }, true)).status, 400);
+    const result = await member.request("POST", sharedEndpoint + "/results", attempt);
+    assert.equal(result.body.result.percentage, 50);
+    assert.equal(result.body.result.courseId, "course-1");
+    const retry = await member.request("POST", sharedEndpoint + "/results", attempt);
+    assert.equal(retry.body.result.id, result.body.result.id);
+    assert.equal((await member.request("POST", sharedEndpoint + "/results", { ...attempt, answers: [1, 2] }, true)).status, 409);
+    let sharedState = (await admin.request("GET", "/api/state")).body;
+    assert.equal(sharedState.testZoneResults.length, 1);
+    assert.equal(sharedState.testZoneQuestions.length, 3, "Enlazar preguntas no duplica el banco");
+    assert.equal(findCourse(sharedState, "course-1").evaluations["member-1"], "Apto", "La práctica no sustituye la evaluación académica");
+    const live = await admin.request("POST", "/api/test-zone/live-sessions", { courseId: "course-1" });
+    assert.equal(live.body.session.questionCount, 2);
+    const liveJoin = await anonymous.request("POST", "/api/test-zone/live/join", { code: live.body.session.code, guestName: "Participante temporal" });
+    assert.deepEqual(liveJoin.body.liveSession.questions.map((q) => q.id), ["shared-q1", "shared-q2"]);
+    assert.equal(JSON.stringify(liveJoin.body).includes("correctIndex"), false);
+    await admin.request("POST", `/api/test-zone/live-sessions/${live.body.session.id}/close`, {});
+    await admin.request("PATCH", "/api/courses/course-1", { sharedTestQuestionIds: ["shared-q2"] });
+    assert.equal((await member.request("POST", sharedEndpoint + "/results", { ...attempt, attemptId: randomUUID() }, true)).status, 409);
+    await admin.request("PATCH", "/api/courses/course-1", { sharedTestQuestionIds: ["shared-q1", "shared-q2"] });
+
     const invalidCourse = await admin.request("POST", createCourseEndpoint, { title: "Curso incompleto" }, true);
     assert.equal(invalidCourse.status, 400, "No debe crear cursos sin los campos obligatorios");
 
@@ -426,6 +480,10 @@ async function main() {
     await login(restartedAdmin, "admin@isocronazero.org", passwords.admin);
     state = (await restartedAdmin.request("GET", "/api/state")).body;
     const persistedCourse = findCourse(state, "course-1");
+    assert.deepEqual(persistedCourse.sharedTestQuestionIds, ["shared-q1", "shared-q2"]);
+    assert.equal(persistedCourse.sharedTestPublished, true);
+    assert.equal(state.testZoneQuestions.length, 3);
+    assert.equal(state.testZoneResults.filter((item) => item.courseId === "course-1").length, 1);
     assert.equal(persistedCourse.attendance["member-1"], 100);
     assert.equal(persistedCourse.attendance["member-2"], 100);
     assert.equal(persistedCourse.evaluations["member-1"], "Apto");
