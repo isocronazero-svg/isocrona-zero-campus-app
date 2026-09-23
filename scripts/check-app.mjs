@@ -24,6 +24,7 @@ const conflictCheckedFiles = [
 ];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
+  "scripts/check-form-save-recovery.mjs",
   "scripts/check-admin-settings.mjs",
   "scripts/check-associate-payments.mjs",
   "scripts/check-associate-update.mjs",
