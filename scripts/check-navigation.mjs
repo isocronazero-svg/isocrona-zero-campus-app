@@ -95,6 +95,7 @@ for (const helper of ["invokeServerAction", "invokeJsonAction"]) {
       window: { location: { origin: "http://localhost" } },
       render: () => {},
       fetch: async () => ({ ok: true, status: 200, json: async () => ({ ok: true, activeView: "campus", updated: true }) }),
+      readJsonResponse: async (response) => response.json(),
       normalizeState: (value) => value,
       loadStorageMeta: async () => null,
       applySessionToState: () => { if (!allowed) context.state.activeView = "overview"; },
