@@ -23,6 +23,19 @@ Los avances de Work del 22 de septiembre ya están incorporados:
 
 La rama antigua `codex/manual-payments-safe-save` quedó superada por #184; no se ha fusionado.
 
+## Corrección de navegación preparada en Work
+
+Durante la revisión se encontró la PR #189 abierta, con sus comprobaciones de GitHub superadas.
+Se revisó el cambio y se incorporó a la validación conjunta con los formularios:
+
+- Destinos correctos en los botones del menú administrativo.
+- Recarga del socio sin solicitar información de almacenamiento reservada a administración.
+- Corrección de referencias indefinidas que bloqueaban la ficha y «Mis diplomas».
+- Conservación de la pantalla activa tras guardar y del curso elegido por el administrador.
+
+La prueba visual anterior está descrita en la PR #189. Esta sesión repite sus pruebas automáticas
+junto con las nuevas pruebas de formularios; no afirma haber repetido aquella sesión de navegador.
+
 ## Corrección de formularios
 
 Problema encontrado: `invokeJsonAction` reconstruía la pantalla al iniciar la petición y al fallar.

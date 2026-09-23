@@ -24,7 +24,6 @@ const conflictCheckedFiles = [
 ];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
-  "scripts/check-form-save-recovery.mjs",
   "scripts/check-admin-settings.mjs",
   "scripts/check-associate-payments.mjs",
   "scripts/check-associate-update.mjs",
@@ -46,7 +45,8 @@ const extraCheckScripts = [
   "scripts/check-test-zone.mjs",
   "scripts/check-test-zone-ivaspe-csv-files.mjs",
   "scripts/check-test-zone-ivaspe-dry-run.mjs",
-  "scripts/check-test-zone-normalizer.mjs"
+  "scripts/check-test-zone-normalizer.mjs",
+  "scripts/check-form-save-recovery.mjs"
 ];
 const associateActionContracts = [
   "approve-associate",
