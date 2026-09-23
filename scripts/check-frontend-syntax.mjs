@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 
-const files = ["public/app.js"];
+const files = ["public/app.js", "public/course-test.js", "public/assets/js/app/campus/sharedTests.js"];
 
 let failed = false;
 

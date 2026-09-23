@@ -18,6 +18,8 @@ import {
 import { buildDefaultCampusGroups } from "./assets/js/app/campus/defaultGroups.js";
 import { clearCampusDraft, getCampusDraftStorageKey } from "./assets/js/app/storage/localStorage.js";
 
+import { renderCourseSharedTestEditor, readCourseSharedTestSelection } from "./assets/js/app/campus/sharedTests.js";
+
 const SESSION_KEY = "iz-campus-session";
 const VIEW_ROLE_KEY = "iz-campus-view-role";
 const SESSION_BACKUP_KEY = "iz-campus-session-backup";
@@ -1107,6 +1109,8 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "set-course-workbench-mode") {
+    const draftCourse = getSelectedCourse();
+    if (isAdminSession() && draftCourse) Object.assign(draftCourse, readCourseEditorDraft(draftCourse));
     courseWorkbenchMode = actionTarget.dataset.mode || "overview";
     if (courseWorkbenchMode === "curriculum") {
       courseCurriculumMode = "modules";
@@ -4329,7 +4333,8 @@ document.addEventListener("submit", async (event) => {
         certificateContents,
         feedbackEnabled,
         feedbackRequiredForDiploma,
-        feedbackTeachers
+        feedbackTeachers,
+        ...readCourseSharedTestSelection(course)
       },
       "Curso actualizado",
       "PATCH",
@@ -14001,6 +14006,7 @@ function renderCourseWorkbench(course) {
       ${isPracticalCourse ? "" : navigator}
 
       <form id="courseEditForm" class="stack">
+        ${renderCourseSharedTestEditor(course, state.testZoneQuestions || [])}
         ${
           showWorkbenchSection("ficha")
             ? `
@@ -15105,6 +15111,8 @@ function renderMemberCourseWorkspace(course, options = {}) {
             </div>
         </div>
         ${renderLearnerProgressGuard(course, memberId, { previewOnly })}
+        ${course.sharedTestPublished && course.sharedTestQuestionIds?.length
+          ? `<p><a class="button-link" href="/course-test.html?courseId=${encodeURIComponent(course.id)}" target="_blank" rel="noopener">Hacer el test de práctica del curso</a></p>` : ""}
       </div>
 
       ${
@@ -19838,6 +19846,7 @@ function readCourseEditorDraft(course) {
 
   return normalizeCourse({
     ...course,
+    ...readCourseSharedTestSelection(course),
     title: readCourseTrimmedValue("editCourseTitle", course.title),
     courseClass: readCourseFieldValue("editCourseClass", course.courseClass),
     type: readCourseTrimmedValue("editCourseType", course.type),

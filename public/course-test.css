@@ -1,0 +1,8 @@
+.shared-test-shell { max-width: 900px; margin: 2rem auto; padding: 1.5rem; }
+.shared-test-shell fieldset { border: 1px solid #ddd4c8; border-radius: 1rem; padding: 1rem; min-width: 0; }
+.shared-test-shell legend { font-weight: 700; max-width: 100%; overflow-wrap: anywhere; }
+.shared-test-option { display: flex; gap: .75rem; align-items: start; padding: .75rem; cursor: pointer; }
+.shared-test-option input { width: auto; margin-top: .25rem; }
+.shared-test-shell button { margin-block: 1rem; }
+.shared-test-review { padding: 1rem; border-bottom: 1px solid #ddd4c8; }
+@media (max-width: 600px) { .shared-test-shell { margin: .5rem; padding: 1rem; } }

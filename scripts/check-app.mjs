@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
+  "server/course-shared-tests.js",
+  "public/course-test.js",
+  "public/assets/js/app/campus/sharedTests.js",
   "public/app.js",
   "public/public-live-test.js",
   "server.js",

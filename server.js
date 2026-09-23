@@ -65,6 +65,7 @@ const {
   verifyLegacyAccountPassword
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
+const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
 const {
   handleRoute,
   withAdmin,
@@ -749,6 +750,7 @@ function buildTestZoneResultAudiencePayload(result, options = {}) {
     mode: String(result?.mode || "general").trim(),
     source: String(result?.source || result?.filters?.source || "").trim(),
     liveCode: String(result?.liveCode || "").trim(),
+    courseId: String(result?.courseId || "").trim(),
     correctCount: Number(result?.correctCount || 0),
     wrongCount: Number(result?.wrongCount || 0),
     blankCount: Number(result?.blankCount || 0),
@@ -1059,8 +1061,14 @@ function closeTestZoneLiveSession(session) {
 
 function createTestZoneLiveSession(state, account, payload = {}) {
   ensureTestZoneState(state);
-  const filteredQuestions = shuffleTestZoneQuestions(filterTestZoneQuestionsForRequest(state, payload.filters || {}));
-  const requestedQuestionCount = Math.max(Number(payload.questionCount || 10), 1);
+  const sourceCourse = payload.courseId
+    ? (state.courses || []).find((course) => course.id === String(payload.courseId))
+    : null;
+  if (payload.courseId && !sourceCourse) throw new Error("Curso no encontrado");
+  const filteredQuestions = sourceCourse
+    ? sharedQuestions(state, sourceCourse.sharedTestQuestionIds || []).map(normalizeTestZoneQuestionRecord)
+    : shuffleTestZoneQuestions(filterTestZoneQuestionsForRequest(state, payload.filters || {}));
+  const requestedQuestionCount = sourceCourse ? filteredQuestions.length : Math.max(Number(payload.questionCount || 10), 1);
   const selectedQuestions = filteredQuestions.slice(0, requestedQuestionCount);
   if (!selectedQuestions.length) {
     throw new Error("No hay preguntas disponibles para abrir el test en vivo");
@@ -1069,7 +1077,8 @@ function createTestZoneLiveSession(state, account, payload = {}) {
   const session = {
     id: generateLegacyId("test-zone-live"),
     code: generateLiveTestCode(state),
-    title: String(payload.title || "").trim() || "Test en vivo",
+    title: String(payload.title || sourceCourse?.title || "").trim() || "Test en vivo",
+    courseId: sourceCourse?.id || "",
     questionIds: selectedQuestions.map((question) => question.id),
     questionCount: selectedQuestions.length,
     status: "active",
@@ -4127,8 +4136,20 @@ const {
   normalizeCourseAccessScope
 });
 
+const handleCourseSharedTest = createCourseSharedTestHandler({
+  readState, writeState, requireAuthenticatedAccount, readJsonBody, sendJson, sendJsonError,
+  payloadLimit: payloadLimitBytes.testAttempt,
+  normalizeQuestion: normalizeTestZoneQuestionRecord,
+  audienceQuestion: buildTestZoneQuestionAudiencePayload,
+  audienceResult: buildTestZoneResultAudiencePayload,
+  createResult: createTestZoneResultRecord,
+  canAccessCourse: (state, account, course) => buildMemberScopedState(state, account).courses.some((item) =>
+    item.id === course.id && (item.enrolledIds || []).includes(account.memberId))
+});
+
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  if (await handleCourseSharedTest(req, res, requestUrl)) return;
 
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
     return sendJson(res, 200, {
@@ -7970,7 +7991,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
-      const course = normalizeCourseMutationPayload(payload, null);
+      const course = { ...normalizeCourseMutationPayload(payload, null), ...courseTestConfig(state, payload) };
       if ((state.courses || []).some((item) => item.id === course.id)) {
         return sendJson(res, 409, { ok: false, error: "Ya existe un curso con ese identificador" });
       }
@@ -8007,7 +8028,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
       const previousCourse = state.courses[courseIndex];
       const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
-      const course = normalizeCourseMutationPayload(payload, previousCourse);
+      const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
       state.courses[courseIndex] = course;
       state.selectedCourseId = course.id;
       state.activeView = "campus";

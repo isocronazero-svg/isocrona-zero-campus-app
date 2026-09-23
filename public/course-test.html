@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Test del curso | Isócrona Zero</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/course-test.css" />
+</head>
+<body>
+  <main class="shared-test-shell panel">
+    <p class="eyebrow">Isócrona Zero · Banco común de preguntas</p>
+    <h1 id="title">Test del curso</h1>
+    <a class="button-link" href="/index.html">Volver al portal</a>
+    <p id="status" role="status" aria-live="polite">Cargando preguntas…</p>
+    <section id="live" hidden></section>
+    <form id="quiz" hidden><div id="questions" class="panel-stack"></div><button id="submit" class="primary-button" type="submit">Corregir y guardar resultado</button></form>
+    <section id="result" hidden></section>
+    <section id="history" hidden></section>
+  </main>
+  <script type="module" src="/course-test.js"></script>
+</body>
+</html>
