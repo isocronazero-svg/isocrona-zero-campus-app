@@ -4081,7 +4081,7 @@ document.addEventListener("submit", async (event) => {
       contentTemplate: blueprint.contentTemplate,
       contentStatus: blueprint.contentStatus
     };
-    const saved = await invokeJsonAction("/api/courses", { course: coursePayload }, "Curso creado y guardado");
+    const saved = await invokeJsonAction("/api/courses", { course: coursePayload }, "Curso creado y guardado", "POST", event.target);
     if (!saved) {
       return;
     }
@@ -4148,13 +4148,19 @@ document.addEventListener("submit", async (event) => {
       return;
     }
 
-    await invokeJsonAction(
+    const saved = await invokeJsonAction(
       "/api/import/csv",
       { kind: "members", csv },
-      "Importacion de personas completada"
+      "Importacion de personas completada",
+      "POST",
+      event.target
     );
+    if (!saved) {
+      return;
+    }
     membersSectionMode = "directory";
     event.target.reset();
+    render();
   }
 
   if (event.target.id === "memberEditForm" && isAdminSession()) {
@@ -4326,7 +4332,8 @@ document.addEventListener("submit", async (event) => {
         feedbackTeachers
       },
       "Curso actualizado",
-      "PATCH"
+      "PATCH",
+      event.target
     );
     if (!saved) {
       return;
@@ -4426,12 +4433,16 @@ document.addEventListener("submit", async (event) => {
     const saved = await invokeJsonAction(
       `/api/associates/${encodeURIComponent(associate.id)}/payments`,
       { date, year, amount, method, note },
-      "Pago de socio registrado"
+      "Pago de socio registrado",
+      "POST",
+      event.target
     );
     if (saved) {
       event.target.reset();
-      document.getElementById("associatePaymentDate").value = getTodayDateInput();
-      document.getElementById("associatePaymentYear").value = String(new Date().getFullYear());
+      const dateInput = document.getElementById("associatePaymentDate");
+      const yearInput = document.getElementById("associatePaymentYear");
+      if (dateInput) dateInput.value = getTodayDateInput();
+      if (yearInput) yearInput.value = String(new Date().getFullYear());
     }
   }
 
@@ -4442,14 +4453,20 @@ document.addEventListener("submit", async (event) => {
       return;
     }
 
-    await invokeJsonAction(
+    const saved = await invokeJsonAction(
       "/api/import/csv",
       { kind: "courses", csv },
-      "Importacion de cursos completada"
+      "Importacion de cursos completada",
+      "POST",
+      event.target
     );
+    if (!saved) {
+      return;
+    }
     coursesSectionMode = "catalog";
     courseWorkbenchMode = "overview";
     event.target.reset();
+    render();
   }
 });
 
@@ -5230,9 +5247,37 @@ async function invokeServerAction(url, successMessage, method = "POST") {
   }
 }
 
-async function invokeJsonAction(url, payload, successMessage, method = "POST") {
-  syncStatus = "Procesando lote en servidor...";
-  render();
+function setFormSaveStatus(form, message, warning = false) {
+  let status = form.querySelector('[data-form-save-status]');
+  if (!status) {
+    status = document.createElement("p");
+    status.dataset.formSaveStatus = "true";
+    status.setAttribute("role", "status");
+    form.append(status);
+  }
+  status.className = warning ? "status-note warning" : "status-note";
+  status.textContent = message;
+}
+
+async function invokeJsonAction(url, payload, successMessage, method = "POST", form = null) {
+  if (form?.dataset.saving === "true" || form?.dataset.saveConfirmed === "true") {
+    return false;
+  }
+  const controls = form
+    ? Array.from(form.elements).map((control) => ({ control, disabled: control.disabled }))
+    : [];
+  const previousBusy = form?.getAttribute("aria-busy");
+  if (form) {
+    form.dataset.saving = "true";
+    form.setAttribute("aria-busy", "true");
+    controls.forEach(({ control }) => { control.disabled = true; });
+    setFormSaveStatus(form, "Guardando cambios...");
+  } else {
+    syncStatus = "Procesando accion en servidor...";
+    render();
+  }
+  let saveConfirmed = false;
+  let refreshed = false;
 
   try {
     const response = await fetch(url, {
@@ -5240,23 +5285,46 @@ async function invokeJsonAction(url, payload, successMessage, method = "POST") {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    const result = await response.json();
-    if (!response.ok || result.ok === false) {
-      throw new Error(result.error || "Accion rechazada");
+    const result = await readJsonResponse(response, "No se pudo confirmar el guardado. Comprueba la conexion y revisa si el cambio aparece antes de repetirlo.");
+    if (!response.ok || result?.ok === false) {
+      throw new Error(result?.error || "Accion rechazada");
     }
+    if (!result || typeof result !== "object" || (form && result.ok !== true)) {
+      throw new Error("No se pudo confirmar el guardado. Revisa si el cambio aparece antes de repetirlo.");
+    }
+    saveConfirmed = true;
 
     await refreshState();
     applySessionToState();
     syncAssociateSelectionTargets();
+    refreshed = true;
     syncStatus = result.message || successMessage;
     showToast(result.message || successMessage, "success");
     render();
     return true;
   } catch (error) {
-    syncStatus = error.message || "Error en proceso por lotes";
+    syncStatus = saveConfirmed
+      ? "Guardado confirmado. No se pudo actualizar la pantalla; recarga la pagina antes de continuar."
+      : error.name === "TypeError"
+        ? "No se pudo confirmar el guardado. Comprueba la conexion y revisa si el cambio aparece antes de repetirlo."
+        : error.message || "No se pudo confirmar el guardado. Revisa si el cambio aparece antes de repetirlo.";
     showToast(syncStatus, "error");
-    render();
+    if (form) {
+      if (saveConfirmed) form.dataset.saveConfirmed = "true";
+      setFormSaveStatus(form, `${syncStatus} Los datos se conservan en el formulario.`, true);
+    } else {
+      render();
+    }
     return false;
+  } finally {
+    if (form) {
+      delete form.dataset.saving;
+      if (previousBusy === null) form.removeAttribute("aria-busy");
+      else form.setAttribute("aria-busy", previousBusy);
+      controls.forEach(({ control, disabled }) => {
+        control.disabled = disabled || (saveConfirmed && !refreshed && control.type === "submit");
+      });
+    }
   }
 }
 

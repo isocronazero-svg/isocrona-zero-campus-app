@@ -47,7 +47,8 @@ const extraCheckScripts = [
   "scripts/check-test-zone.mjs",
   "scripts/check-test-zone-ivaspe-csv-files.mjs",
   "scripts/check-test-zone-ivaspe-dry-run.mjs",
-  "scripts/check-test-zone-normalizer.mjs"
+  "scripts/check-test-zone-normalizer.mjs",
+  "scripts/check-form-save-recovery.mjs"
 ];
 const associateActionContracts = [
   "approve-associate",

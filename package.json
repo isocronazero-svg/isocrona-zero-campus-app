@@ -17,6 +17,7 @@
     "check:associate-update": "node scripts/check-associate-update.mjs",
     "check:course-academic": "node scripts/check-course-academic.mjs",
     "check:frontend-syntax": "node scripts/check-frontend-syntax.mjs",
+    "check:form-save-recovery": "node scripts/check-form-save-recovery.mjs",
     "check:test-zone-csv": "node scripts/check-test-zone-csv-importer.mjs",
     "check:test-zone-ivaspe-csv": "node scripts/check-test-zone-ivaspe-csv-files.mjs",
     "check:test-zone-normalizer": "node scripts/check-test-zone-normalizer.mjs",
