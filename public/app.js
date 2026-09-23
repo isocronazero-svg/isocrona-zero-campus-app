@@ -4717,7 +4717,7 @@ function applySessionToState() {
       state.selectedAssociateId = currentAssociate.id;
     }
   }
-  if (session.memberId && !isMemberPreviewSession()) {
+  if (session.memberId && isSelfMemberSession()) {
     const selectedCourse = state.courses.find((course) => course.id === state.selectedCourseId);
     const hasSelectedOwnCourse =
       selectedCourse &&
@@ -4785,6 +4785,7 @@ function syncMemberContextSelection(mode = "courses") {
 }
 
 function activateMemberCampusMode(mode = "courses", options = {}) {
+  const campusOnlySession = isCampusOnlySession();
   const normalizedMode =
     campusOnlySession && mode === "groups"
       ? "courses"
@@ -5114,7 +5115,11 @@ async function refreshState(options = {}) {
   if (!stateResponse.ok || (payload && payload.ok === false)) {
     throw new Error(payload?.error || "No se pudo cargar el estado del campus");
   }
+  const activeView = hasLoaded ? state.activeView : null;
   state = normalizeState(payload);
+  if (activeView) {
+    state.activeView = activeView;
+  }
   storageMeta = await loadStorageMeta();
 }
 
@@ -5763,7 +5768,7 @@ function renderNav() {
         return `
         <div class="nav-item-group ${isNavItemActive(item) ? "active" : ""}">
           <div class="nav-item-row">
-            <button class="nav-main-button ${isNavItemActive(item) ? "active" : ""}" type="button" data-action="${item.action || "nav"}"${item.view ? ` data-view="${item.view}"` : ""}${item.mode ? ` data-mode="${item.mode}"` : ""}>
+            <button class="nav-main-button ${isNavItemActive(item) ? "active" : ""}" type="button" data-action="${item.action || "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}>
               ${escapeHtml(navLabel)}
             </button>
             ${
@@ -6707,120 +6712,6 @@ function renderJoinView() {
     const currentYear = String(new Date().getFullYear());
     const quotaGap = associate ? getAssociateQuotaGap(associate) : 0;
     const previewOnly = isMemberPreviewSession();
-    const activeModuleLessons = activeModule?.lessons || [];
-    const activeLessonIndex = Math.max(0, activeModuleLessons.findIndex((lesson) => lesson.id === activeLessonId));
-    const activeLesson = activeModuleLessons[activeLessonIndex] || activeModuleLessons[0] || null;
-    const nextLesson = activeModuleLessons[activeLessonIndex + 1] || null;
-    const activeLessonMarkup = activeLesson
-      ? (() => {
-          const lessonBlocks = activeLesson.blocks || [];
-          const firstPendingBlock = lessonBlocks.find((block) => !entry.blockIds.includes(block.id)) || null;
-          return `
-            <div class="lesson-roadmap-item lesson-roadmap-item-active">
-              <div class="row-between">
-                <strong>${escapeHtml(activeLesson.title || "Leccion")}</strong>
-                <div class="chip-row">
-                  <span class="small-chip">${escapeHtml(activeLesson.type || "Practica")}</span>
-                  <span class="small-chip">ahora</span>
-                  ${entry.lessonIds.includes(activeLesson.id) ? `<span class="small-chip">completada</span>` : ""}
-                </div>
-              </div>
-              <p class="muted">${escapeHtml(activeLesson.duration ? `${activeLesson.duration} h` : "Duracion pendiente")} | ${escapeHtml(activeLesson.resource || "Recurso pendiente")}</p>
-              <p class="muted">${escapeHtml(activeLesson.body || "Contenido pendiente de desarrollar")}</p>
-              <p class="muted"><strong>Actividad:</strong> ${escapeHtml(activeLesson.activity || "Pendiente")}</p>
-              <p class="muted"><strong>Aprendizaje:</strong> ${escapeHtml(activeLesson.takeaway || "Pendiente")}</p>
-              <p class="muted"><strong>Indicaciones:</strong> ${escapeHtml(activeLesson.instructions || "Indicaciones pendientes")}</p>
-              ${
-                interactive
-                  ? `
-                    <div class="chip-row">
-                      <button class="${entry.lessonIds.includes(activeLesson.id) ? "ghost-button" : "mini-button"}" data-action="toggle-lesson-complete" data-course-id="${course.id}" data-member-id="${memberId}" data-lesson-id="${activeLesson.id}">
-                        ${entry.lessonIds.includes(activeLesson.id) ? "Marcar pendiente" : "Marcar completa"}
-                      </button>
-                    </div>
-                  `
-                  : previewOnly
-                    ? `<p class="muted">Vista previa de progreso: sin cambios reales.</p>`
-                    : ""
-              }
-              ${
-                lessonBlocks.length
-                  ? `
-                    <div class="block-preview-list">
-                      ${lessonBlocks
-                        .map((block) => {
-                          const blockDone = entry.blockIds.includes(block.id);
-                          const isLockedBlock = firstPendingBlock && !blockDone && block.id !== firstPendingBlock.id;
-                          const blockFlowMeta = getCourseBlockFlowMeta(course, activeLesson.id, block, {
-                            course,
-                            memberId,
-                            interactive,
-                            previewOnly
-                          });
-                          return `
-                            <div class="block-preview-item">
-                              <div class="row-between">
-                                <strong>${escapeHtml(block.title || "Bloque")}</strong>
-                                <div class="chip-row">
-                                  <span class="small-chip">${escapeHtml(blockFlowMeta.chipLabel)}</span>
-                                  ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
-                                  ${blockDone ? `<span class="small-chip">hecho</span>` : ""}
-                                  ${isLockedBlock ? `<span class="small-chip">despues</span>` : ""}
-                                </div>
-                              </div>
-                              <div class="chip-row">
-                                ${
-                                  interactive && !isLockedBlock
-                                    ? `<button class="${blockDone ? "ghost-button" : "mini-button"}" data-action="toggle-block-complete" data-course-id="${course.id}" data-member-id="${memberId}" data-lesson-id="${activeLesson.id}" data-block-id="${block.id}">
-                                        ${blockDone ? "Pendiente" : "Completar bloque"}
-                                      </button>`
-                                    : ""
-                                }
-                              </div>
-                              ${
-                                isLockedBlock
-                                  ? `<p class="muted learner-lock-copy">Completa antes ${escapeHtml(firstPendingBlock?.title || "el bloque actual")} para abrir este contenido.</p>`
-                                  : `
-                                      <p class="muted">${escapeHtml(blockFlowMeta.description)}</p>
-                                      ${block.url ? `<p class="muted">${escapeHtml(block.url)}</p>` : ""}
-                                      ${renderLessonBlockPreview(block, {
-                                        course,
-                                        memberId,
-                                        lessonId: activeLesson.id,
-                                        interactive,
-                                        previewOnly
-                                      })}
-                                    `
-                              }
-                            </div>
-                          `;
-                        })
-                        .join("")}
-                    </div>
-                  `
-                  : ""
-              }
-              ${
-                activeLesson.assetLabel || activeLesson.assetUrl
-                  ? `<p class="muted"><strong>Recurso:</strong> ${escapeHtml(activeLesson.assetLabel || "Archivo")}${activeLesson.assetUrl ? ` - ${escapeHtml(activeLesson.assetUrl)}` : ""}</p>`
-                  : ""
-              }
-            </div>
-          `;
-        })()
-      : `<p class="muted">Modulo sin lecciones todavia.</p>`;
-    const nextLessonMarkup = nextLesson
-      ? `
-          <div class="lesson-roadmap-item lesson-roadmap-upnext">
-            <div class="row-between">
-              <strong>Despues vendra</strong>
-              <span class="small-chip">${escapeHtml(nextLesson.type || "Leccion")}</span>
-            </div>
-            <p class="muted"><strong>${escapeHtml(nextLesson.title || "Siguiente leccion")}</strong></p>
-            <p class="muted">Se abrira cuando marques como completa la leccion actual.</p>
-          </div>
-        `
-      : "";
 
     return `
       <div class="panel-stack">
@@ -13024,6 +12915,121 @@ function renderCourseRoadmap(course, options = {}) {
   const activeModule = modules[activeModuleIndex];
 
   if (role === "member") {
+    const activeModuleLessons = activeModule?.lessons || [];
+    const activeLessonIndex = Math.max(0, activeModuleLessons.findIndex((lesson) => lesson.id === activeLessonId));
+    const activeLesson = activeModuleLessons[activeLessonIndex] || activeModuleLessons[0] || null;
+    const nextLesson = activeModuleLessons[activeLessonIndex + 1] || null;
+    const activeLessonMarkup = activeLesson
+      ? (() => {
+          const lessonBlocks = activeLesson.blocks || [];
+          const firstPendingBlock = lessonBlocks.find((block) => !entry.blockIds.includes(block.id)) || null;
+          return `
+            <div class="lesson-roadmap-item lesson-roadmap-item-active">
+              <div class="row-between">
+                <strong>${escapeHtml(activeLesson.title || "Leccion")}</strong>
+                <div class="chip-row">
+                  <span class="small-chip">${escapeHtml(activeLesson.type || "Practica")}</span>
+                  <span class="small-chip">ahora</span>
+                  ${entry.lessonIds.includes(activeLesson.id) ? `<span class="small-chip">completada</span>` : ""}
+                </div>
+              </div>
+              <p class="muted">${escapeHtml(activeLesson.duration ? `${activeLesson.duration} h` : "Duracion pendiente")} | ${escapeHtml(activeLesson.resource || "Recurso pendiente")}</p>
+              <p class="muted">${escapeHtml(activeLesson.body || "Contenido pendiente de desarrollar")}</p>
+              <p class="muted"><strong>Actividad:</strong> ${escapeHtml(activeLesson.activity || "Pendiente")}</p>
+              <p class="muted"><strong>Aprendizaje:</strong> ${escapeHtml(activeLesson.takeaway || "Pendiente")}</p>
+              <p class="muted"><strong>Indicaciones:</strong> ${escapeHtml(activeLesson.instructions || "Indicaciones pendientes")}</p>
+              ${
+                interactive
+                  ? `
+                    <div class="chip-row">
+                      <button class="${entry.lessonIds.includes(activeLesson.id) ? "ghost-button" : "mini-button"}" data-action="toggle-lesson-complete" data-course-id="${course.id}" data-member-id="${memberId}" data-lesson-id="${activeLesson.id}">
+                        ${entry.lessonIds.includes(activeLesson.id) ? "Marcar pendiente" : "Marcar completa"}
+                      </button>
+                    </div>
+                  `
+                  : previewOnly
+                    ? `<p class="muted">Vista previa de progreso: sin cambios reales.</p>`
+                    : ""
+              }
+              ${
+                lessonBlocks.length
+                  ? `
+                    <div class="block-preview-list">
+                      ${lessonBlocks
+                        .map((block) => {
+                          const blockDone = entry.blockIds.includes(block.id);
+                          const isLockedBlock = firstPendingBlock && !blockDone && block.id !== firstPendingBlock.id;
+                          const blockFlowMeta = getCourseBlockFlowMeta(course, activeLesson.id, block, {
+                            course,
+                            memberId,
+                            interactive,
+                            previewOnly
+                          });
+                          return `
+                            <div class="block-preview-item">
+                              <div class="row-between">
+                                <strong>${escapeHtml(block.title || "Bloque")}</strong>
+                                <div class="chip-row">
+                                  <span class="small-chip">${escapeHtml(blockFlowMeta.chipLabel)}</span>
+                                  ${block.required ? `<span class="small-chip">obligatorio</span>` : ""}
+                                  ${blockDone ? `<span class="small-chip">hecho</span>` : ""}
+                                  ${isLockedBlock ? `<span class="small-chip">despues</span>` : ""}
+                                </div>
+                              </div>
+                              <div class="chip-row">
+                                ${
+                                  interactive && !isLockedBlock
+                                    ? `<button class="${blockDone ? "ghost-button" : "mini-button"}" data-action="toggle-block-complete" data-course-id="${course.id}" data-member-id="${memberId}" data-lesson-id="${activeLesson.id}" data-block-id="${block.id}">
+                                        ${blockDone ? "Pendiente" : "Completar bloque"}
+                                      </button>`
+                                    : ""
+                                }
+                              </div>
+                              ${
+                                isLockedBlock
+                                  ? `<p class="muted learner-lock-copy">Completa antes ${escapeHtml(firstPendingBlock?.title || "el bloque actual")} para abrir este contenido.</p>`
+                                  : `
+                                      <p class="muted">${escapeHtml(blockFlowMeta.description)}</p>
+                                      ${block.url ? `<p class="muted">${escapeHtml(block.url)}</p>` : ""}
+                                      ${renderLessonBlockPreview(block, {
+                                        course,
+                                        memberId,
+                                        lessonId: activeLesson.id,
+                                        interactive,
+                                        previewOnly
+                                      })}
+                                    `
+                              }
+                            </div>
+                          `;
+                        })
+                        .join("")}
+                    </div>
+                  `
+                  : ""
+              }
+              ${
+                activeLesson.assetLabel || activeLesson.assetUrl
+                  ? `<p class="muted"><strong>Recurso:</strong> ${escapeHtml(activeLesson.assetLabel || "Archivo")}${activeLesson.assetUrl ? ` - ${escapeHtml(activeLesson.assetUrl)}` : ""}</p>`
+                  : ""
+              }
+            </div>
+          `;
+        })()
+      : `<p class="muted">Modulo sin lecciones todavia.</p>`;
+    const nextLessonMarkup = nextLesson
+      ? `
+          <div class="lesson-roadmap-item lesson-roadmap-upnext">
+            <div class="row-between">
+              <strong>Despues vendra</strong>
+              <span class="small-chip">${escapeHtml(nextLesson.type || "Leccion")}</span>
+            </div>
+            <p class="muted"><strong>${escapeHtml(nextLesson.title || "Siguiente leccion")}</strong></p>
+            <p class="muted">Se abrira cuando marques como completa la leccion actual.</p>
+          </div>
+        `
+      : "";
+
     const visibleModuleIndices = Array.from(
       new Set([activeModuleIndex, Math.min(activeModuleIndex + 1, Math.max(modules.length - 1, 0))].filter((index) => index >= 0))
     );
@@ -21365,6 +21371,9 @@ async function readJsonResponse(response, fallbackMessage) {
 }
 
 async function loadStorageMeta() {
+  if (!isAdminSession()) {
+    return null;
+  }
   const response = await fetch("/api/storage");
   if (!response.ok) {
     throw new Error("storage unavailable");
