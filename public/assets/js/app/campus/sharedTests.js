@@ -25,7 +25,7 @@ export function renderCourseSharedTestEditor(course, bank = []) {
       ${questions.map((question) => `<label class="timeline-item" data-shared-row>
         <input type="checkbox" data-shared-question value="${escapeHtml(question.id)}" ${selected.has(question.id) ? "checked" : ""} />
         <span>${escapeHtml(question.prompt)}</span>
-        <small class="muted">${escapeHtml([question.category, question.difficulty].filter(Boolean).join(" · "))}</small>
+        <small class="muted">${escapeHtml([question.part, question.category, question.difficulty].filter(Boolean).join(" · "))}</small>
       </label>`).join("") || '<p class="muted">Añade o importa preguntas en Zona Test para seleccionarlas aquí.</p>'}
     </div>
     <label><input type="checkbox" data-shared-published ${course.sharedTestPublished ? "checked" : ""} /> Publicar el test de práctica para el alumnado inscrito</label>
