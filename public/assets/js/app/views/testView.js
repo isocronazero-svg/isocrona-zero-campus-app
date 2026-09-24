@@ -1,3 +1,4 @@
+import { renderTopicPicker, readTopics, syncTopicPicker, changeTopicPicker } from "../modules/tests/topicPicker.js";
 import {
   createLiveSession,
   createQuestion,
@@ -18,6 +19,7 @@ import { getTestState } from "../modules/tests/testStore.js";
 const testSession = {
   role: "member",
   loading: false,
+  error: "",
   activeRun: null,
   latestResult: null,
   loadedRole: "",
@@ -25,7 +27,8 @@ const testSession = {
     part: "all",
     category: "all",
     difficulty: "all",
-    questionCount: 20
+    topics: null,
+    questionCount: 25
   }
 };
 
@@ -268,7 +271,7 @@ function buildProgressStatsPanel() {
 function buildFilterSelect(name, value, options) {
   return `
     <label class="test-zone-field">
-      <span>${escapeHtml(name === "part" ? "Parte" : name === "category" ? "Bloque" : "Dificultad")}</span>
+      <span>${escapeHtml(name === "part" ? "Bloque principal" : name === "category" ? "Tema" : "Dificultad")}</span>
       <select name="${escapeHtml(name)}">
         <option value="all">Todas</option>
         ${options
@@ -284,7 +287,8 @@ function buildFilterSelect(name, value, options) {
 }
 
 function buildControlsMarkup() {
-  const { parts, categories, difficulties } = getQuestionFilters(getStoredQuestions());
+  const { parts, difficulties } = getQuestionFilters(getStoredQuestions());
+  const { categories } = getQuestionFilters(getStoredQuestions().filter(q => testSession.filters.part === "all" || q.part === testSession.filters.part));
   return `
     <section class="test-zone-card">
       <div class="test-zone-card-head">
@@ -297,9 +301,9 @@ function buildControlsMarkup() {
           <span>${escapeHtml(`${getStoredQuestions().length} preguntas disponibles`)}</span>
         </div>
       </div>
+      ${testSession.error ? `<p class="test-zone-inline-error" role="alert">${escapeHtml(testSession.error)}</p>` : ""}
       <form class="test-zone-controls" data-test-zone-controls>
-        ${buildFilterSelect("part", testSession.filters.part, parts)}
-        ${buildFilterSelect("category", testSession.filters.category, categories)}
+        ${renderTopicPicker(getStoredQuestions(), testSession.filters.topics)}
         ${buildFilterSelect("difficulty", testSession.filters.difficulty, difficulties)}
         <label class="test-zone-field">
           <span>Numero de preguntas</span>
@@ -718,25 +722,21 @@ function buildAdminQuestionForm() {
           </select>
         </label>
         <label class="test-zone-field">
-          <span>Parte</span>
+          <span>Bloque principal</span>
           <select name="part">
-            <option value="Parte común">Parte común</option>
-            <option value="Parte específica">Parte específica</option>
+            ${getQuestionFilters(getStoredQuestions()).parts.map(part => `<option value="${escapeHtml(part)}">${escapeHtml(part)}</option>`).join("")}
           </select>
         </label>
         <label class="test-zone-field">
-          <span>Bloque</span>
-          <select name="category">
-            <option value="Legislación">Legislación</option>
-            <option value="Bomberos">Bomberos</option>
-          </select>
+          <span>Tema</span>
+          <input name="category" required placeholder="Ej.: Incendios forestales" />
         </label>
         <label class="test-zone-field">
           <span>Dificultad</span>
           <select name="difficulty">
-            <option value="baja">baja</option>
+            <option value="facil">Fácil</option>
             <option value="media" selected>media</option>
-            <option value="alta">alta</option>
+            <option value="dificil">Difícil</option>
           </select>
         </label>
         <div class="test-zone-actions test-zone-field-full">
@@ -749,28 +749,26 @@ function buildAdminQuestionForm() {
           <input type="text" name="title" placeholder="Ej. Simulacro abierto de legislación" />
         </label>
         <label class="test-zone-field">
-          <span>Parte</span>
+          <span>Bloque principal</span>
           <select name="part">
             <option value="all">Todas</option>
-            <option value="Parte común">Parte común</option>
-            <option value="Parte específica">Parte específica</option>
+            ${getQuestionFilters(getStoredQuestions()).parts.map(part => `<option value="${escapeHtml(part)}">${escapeHtml(part)}</option>`).join("")}
           </select>
         </label>
         <label class="test-zone-field">
-          <span>Bloque</span>
+          <span>Tema</span>
           <select name="category">
             <option value="all">Todos</option>
-            <option value="Legislación">Legislación</option>
-            <option value="Bomberos">Bomberos</option>
+            ${getQuestionFilters(getStoredQuestions()).categories.map(topic => `<option value="${escapeHtml(topic)}">${escapeHtml(topic)}</option>`).join("")}
           </select>
         </label>
         <label class="test-zone-field">
           <span>Dificultad</span>
           <select name="difficulty">
             <option value="all">Todas</option>
-            <option value="baja">baja</option>
+            <option value="facil">Fácil</option>
             <option value="media">media</option>
-            <option value="alta">alta</option>
+            <option value="dificil">Difícil</option>
           </select>
         </label>
         <label class="test-zone-field">
@@ -813,6 +811,7 @@ function buildLayout() {
           <p class="muted">Crea un test, revisa fallos y guarda preguntas para repasar.</p>
         </div>
       </header>
+      ${testSession.role === "admin" ? '<section class="test-zone-card"><h3>Cargar preguntas por bloques y temas</h3><p>IVASPE · TEMARIO COMÚN · GUADALAJARA</p><a class="test-zone-primary-button" href="/question-bank.html">Importar documentos de preguntas</a></section>' : ""}
       ${buildProgressStatsPanel()}
       ${buildControlsMarkup()}
       ${buildQuestionAttemptMarkup()}
@@ -850,6 +849,7 @@ async function startGeneratedTest(failedOnly = false) {
         filters: {
           part: testSession.filters.part,
           category: testSession.filters.category,
+          topics: testSession.filters.topics,
           difficulty: testSession.filters.difficulty
         },
         onlyQuestionIds,
@@ -1023,6 +1023,7 @@ function bindActions(container) {
             filters: {
               part: testSession.filters.part,
               category: testSession.filters.category,
+          topics: testSession.filters.topics,
               difficulty: testSession.filters.difficulty
             },
             onlyQuestionIds: result.incorrectQuestionIds,
@@ -1039,6 +1040,15 @@ function bindActions(container) {
 
   container.onchange = (event) => {
     const target = event.target;
+    if (changeTopicPicker(target)) { testSession.filters.topics = readTopics(target.form); return; }
+    if (target instanceof HTMLSelectElement && target.name === "part") {
+      const category = target.form?.querySelector('select[name="category"]');
+      if (category) {
+        const topics = getQuestionFilters(getStoredQuestions().filter(q => target.value === "all" || q.part === target.value)).categories;
+        category.innerHTML = '<option value="all">Todos</option>' + topics.map(topic => `<option value="${escapeHtml(topic)}">${escapeHtml(topic)}</option>`).join("");
+      }
+      return;
+    }
     if (!(target instanceof HTMLInputElement) || !target.matches("[data-test-zone-answer]")) {
       return;
     }
@@ -1061,25 +1071,19 @@ function bindActions(container) {
     if (target.hasAttribute("data-test-zone-controls")) {
       const formData = new FormData(target);
       testSession.filters = {
-        part: String(formData.get("part") || "all").trim() || "all",
-        category: String(formData.get("category") || "all").trim() || "all",
+        part: "all",
+        category: "all",
+        topics: readTopics(target),
         difficulty: String(formData.get("difficulty") || "all").trim() || "all",
         questionCount: Math.max(Number(formData.get("questionCount") || 20), 1)
       };
       try {
+        testSession.error = "";
         await startGeneratedTest(false);
       } catch (error) {
         setActiveRun(null);
-        testSession.latestResult = {
-          title: "No se pudo iniciar el test",
-          correctCount: 0,
-          wrongCount: 0,
-          blankCount: 0,
-          score: 0,
-          total: 0,
-          percentage: 0,
-          createdAt: new Date().toISOString()
-        };
+        testSession.latestResult = null;
+        testSession.error = error.message || "No se pudo iniciar el test";
       }
       renderTestView(container, testSession.role);
       return;
@@ -1128,6 +1132,7 @@ export async function renderTestView(container, role = "member") {
 
   container.innerHTML = buildLayout();
   bindActions(container);
+  syncTopicPicker(container);
 }
 
 export default renderTestView;

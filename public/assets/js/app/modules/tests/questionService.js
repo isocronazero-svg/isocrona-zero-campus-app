@@ -144,7 +144,7 @@ export function getStoredQuestions() {
 export function getQuestionFilters(questions = []) {
   const safeQuestions = Array.isArray(questions) ? questions : [];
   return {
-    parts: [...new Set(safeQuestions.map((question) => String(question.part || "").trim()).filter(Boolean))],
+    parts: [...new Set(["IVASPE", "TEMARIO COMÚN", "GUADALAJARA", ...safeQuestions.map((question) => String(question.part || "").trim()).filter(Boolean)])],
     categories: [...new Set(safeQuestions.map((question) => String(question.category || "").trim()).filter(Boolean))],
     difficulties: [...new Set(safeQuestions.map((question) => String(question.difficulty || "").trim()).filter(Boolean))]
   };

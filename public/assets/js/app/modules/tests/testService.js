@@ -1,3 +1,4 @@
+import { matchesTopics } from "./topicPicker.js";
 function randomize(items = []) {
   const next = [...(Array.isArray(items) ? items : [])];
   for (let index = next.length - 1; index > 0; index -= 1) {
@@ -8,6 +9,7 @@ function randomize(items = []) {
 }
 
 function matchesFilter(question, filters = {}) {
+  if (!matchesTopics(question, filters.topics)) return false;
   const normalizedPart = String(filters.part || "").trim();
   const normalizedCategory = String(filters.category || "").trim();
   const normalizedDifficulty = String(filters.difficulty || "").trim();
@@ -69,7 +71,8 @@ export function generateTest(
       part: String(filters.part || "").trim(),
       category: String(filters.category || "").trim(),
       difficulty: String(filters.difficulty || "").trim(),
-      source: normalizedSource
+      source: normalizedSource,
+      ...(Array.isArray(filters.topics) ? { topics: filters.topics.map(({part, category}) => ({part, category})) } : {})
     },
     source: normalizedSource,
     questions: selectedQuestions

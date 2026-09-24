@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
-  "server/course-shared-tests.js",
-  "public/course-test.js",
+  "server/course-shared-tests.js", "server/question-bank-import.js",
+  "public/course-test.js", "public/question-bank.js", "public/assets/js/app/modules/tests/topicPicker.js",
   "public/assets/js/app/campus/sharedTests.js",
   "public/app.js",
   "public/public-live-test.js",
@@ -34,6 +34,7 @@ const extraCheckScripts = [
   "scripts/check-associate-update.mjs",
   "scripts/check-course-academic.mjs",
   "scripts/check-course-journey.mjs",
+  "scripts/check-topic-picker.mjs",
   "scripts/check-auth-utils.mjs",
   "scripts/check-production-demo-admin-guard.mjs",
   "scripts/check-production-storage-guard.mjs",

@@ -66,6 +66,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
+const { createQuestionBankImportHandler } = require("./server/question-bank-import");
 const {
   handleRoute,
   withAdmin,
@@ -303,6 +304,7 @@ function normalizeTestZonePart(value) {
   if (!rawValue) {
     return "";
   }
+  if (normalized === "guadalajara") return "GUADALAJARA";
   if (normalized === "ivaspe") {
     return "IVASPE";
   }
@@ -310,7 +312,7 @@ function normalizeTestZonePart(value) {
     return "Parte específica";
   }
   if (normalized.includes("comun")) {
-    return "Parte común";
+    return "TEMARIO COMÚN";
   }
   return rawValue;
 }
@@ -439,6 +441,7 @@ function buildTestZoneQuestionAdminPayload(question) {
 
 function matchesTestZoneFilter(question, filters = {}) {
   const normalized = normalizeTestZoneQuestionRecord(question);
+  if (Array.isArray(filters.topics) && !filters.topics.some(topic => normalized.part === normalizeTestZonePart(topic?.part) && normalized.category === normalizeTestZoneCategory(topic?.category))) return false;
   const part = String(filters.part || "").trim();
   const category = String(filters.category || "").trim();
   const difficulty = String(filters.difficulty || "").trim();
@@ -4147,9 +4150,12 @@ const handleCourseSharedTest = createCourseSharedTestHandler({
     item.id === course.id && (item.enrolledIds || []).includes(account.memberId))
 });
 
+const handleQuestionBankImport = createQuestionBankImportHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError });
+
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
   if (await handleCourseSharedTest(req, res, requestUrl)) return;
+  if (await handleQuestionBankImport(req, res, requestUrl)) return;
 
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
     return sendJson(res, 200, {
