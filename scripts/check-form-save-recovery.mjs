@@ -53,7 +53,8 @@ function fixture(id = "courseEditForm") {
     },
     hasLoaded: true,
     session: { role: "admin" },
-    state: { selectedAssociateId: "associate-test" },
+    state: { selectedAssociateId: "associate-test", settings: {} },
+    normalizeCampusAccountRole: (value) => value,
     ASSOCIATE_ADMIN_ONLY_FORM_IDS: new Set(),
     isAdminView: () => true,
     isAdminSession: () => true,
@@ -93,7 +94,7 @@ function fixture(id = "courseEditForm") {
     syncAssociateSelectionTargets: () => {},
     showToast: (message, kind) => toasts.push({ message, kind })
   });
-  vm.runInContext(jsonReader + helpers + submit, context);
+  vm.runInContext(jsonReader + helpers + between("async function persistAdminSettingsAndRender(", "function mergeScopedMemberChangesIntoFullState(") + submit, context);
   return { context, form, field, title, submitButton, originallyDisabled, requests, toasts };
 }
 
@@ -170,9 +171,15 @@ for (const [body, status, expected] of [
   assert.equal(f.requests.length, 1);
 }
 
-// Exercise the real submit wiring for all five protected forms.
-for (const id of ["memberImportForm", "courseImportForm", "associatePaymentForm", "courseEditForm", "courseForm"]) {
+// Exercise the real submit wiring for all protected forms.
+for (const id of ["memberImportForm", "courseImportForm", "associatePaymentForm", "courseEditForm", "courseForm", "associateEditForm", "settingsForm", "smtpSettingsForm"]) {
   const f = fixture(id);
+  if (["associateEditForm", "settingsForm", "smtpSettingsForm"].includes(id)) {
+    const block = between(`if (event.target.id === "${id}"`, '\n  if (event.target.id ===');
+    for (const match of block.matchAll(/document\.getElementById\("([^"]+)"\)/g)) {
+      f.field(match[1], "Dato que debe conservarse");
+    }
+  }
   f.field("memberImportCsv", "nombre,email\nPrueba,prueba@example.test");
   f.field("courseImportCsv", "titulo\nCurso de prueba");
   for (const [name, value] of Object.entries({
@@ -192,7 +199,7 @@ for (const id of ["memberImportForm", "courseImportForm", "associatePaymentForm"
   assert.match(f.form.status.textContent, /Error simulado/);
   f.context.fetch = async () => new Response('{"ok":true,"message":"Guardado"}');
   await f.context.submit({ target: f.form, preventDefault() {} });
-  assert.equal(f.form.resets, id === "courseEditForm" ? 0 : 1, `${id}: successful submit completes`);
+  assert.equal(f.form.resets, ["courseEditForm", "associateEditForm", "settingsForm", "smtpSettingsForm"].includes(id) ? 0 : 1, `${id}: successful submit completes`);
   assert.ok(f.context.renderCount > 0);
   if (id === "memberImportForm") assert.equal(f.context.membersSectionMode, "directory");
   if (id === "courseImportForm") assert.equal(f.context.coursesSectionMode, "catalog");

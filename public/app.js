@@ -3984,7 +3984,7 @@ document.addEventListener("submit", async (event) => {
       fromName: document.getElementById("smtpConfigFromName").value.trim(),
       testTo: document.getElementById("smtpConfigTestTo").value.trim()
     };
-    await persistAdminSettingsAndRender("SMTP guardado", "smtp");
+    await persistAdminSettingsAndRender("SMTP guardado", "smtp", event.target);
     return;
   }
 
@@ -4037,7 +4037,7 @@ document.addEventListener("submit", async (event) => {
       defaultMemberRole: document.getElementById("settingAssociateDefaultRole").value.trim(),
       applicationFormNotice: document.getElementById("settingAssociateNotice").value.trim()
     };
-    await persistAdminSettingsAndRender("Configuracion guardada", "general");
+    await persistAdminSettingsAndRender("Configuracion guardada", "general", event.target);
   }
 
   if (event.target.id === "courseForm" && isAdminSession()) {
@@ -4384,45 +4384,13 @@ document.addEventListener("submit", async (event) => {
       }
     };
 
-    const submitButton = event.target.querySelector('button[type="submit"]');
-    const saveStatus = document.getElementById("associateEditSaveStatus");
-    syncStatus = "Guardando ficha de socio...";
-    event.target.setAttribute("aria-busy", "true");
-    if (submitButton) {
-      submitButton.disabled = true;
-      submitButton.textContent = "Guardando...";
-    }
-    if (saveStatus) {
-      saveStatus.className = "muted";
-      saveStatus.textContent = syncStatus;
-    }
-    try {
-      const response = await fetch(`/api/associates/${encodeURIComponent(associate.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || result.ok === false) {
-        throw new Error(result.error || "No se pudo guardar la ficha del socio");
-      }
-      await refreshState({ forceAdminState: true });
-      applySessionToState();
-      syncStatus = result.message || "Ficha de socio actualizada";
-      showToast(syncStatus, "success");
-      render();
-    } catch (error) {
-      syncStatus = error?.message || "No se pudo guardar la ficha del socio";
-      event.target.removeAttribute("aria-busy");
-      if (submitButton) {
-        submitButton.disabled = false;
-        submitButton.textContent = "Guardar ficha de socio";
-      }
-      if (saveStatus) {
-        saveStatus.className = "status-note warning";
-        saveStatus.textContent = `${syncStatus}. Los cambios siguen en el formulario; puedes corregirlos o reintentar.`;
-      }
-    }
+    await invokeJsonAction(
+      `/api/associates/${encodeURIComponent(associate.id)}`,
+      payload,
+      "Ficha de socio actualizada",
+      "PATCH",
+      event.target
+    );
   }
 
   if (event.target.id === "associatePaymentForm" && isAdminSession()) {
@@ -5033,43 +5001,14 @@ async function persistAndRender(successMessage) {
   render();
 }
 
-async function persistAdminSettingsAndRender(successMessage, section) {
-  syncStatus = "Guardando configuracion...";
-  render();
-
-  saveSequence = saveSequence.catch(() => undefined).then(async () => {
-    const response = await fetch("/api/admin/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        section,
-        settings: state.settings
-      })
-    });
-
-    const payload = await readJsonResponse(response, "No se pudo leer la respuesta del guardado");
-    if (!response.ok) {
-      throw new Error(payload?.error || payload?.message || "No se pudo guardar la configuracion");
-    }
-
-    if (payload.state) {
-      state = normalizeState(payload.state);
-      applySessionToState();
-    }
-
-    storageMeta = await loadStorageMeta();
-    syncStatus = payload.message || successMessage;
-    showToast(payload.message || successMessage, "success");
-  });
-
-  try {
-    await saveSequence;
-  } catch (error) {
-    syncStatus = error?.message || "Error al guardar la configuracion";
-    showToast(error?.message || "Error al guardar la configuracion", "error");
-  }
-
-  render();
+async function persistAdminSettingsAndRender(successMessage, section, form) {
+  return invokeJsonAction(
+    "/api/admin/settings",
+    { section, settings: structuredClone(state.settings) },
+    successMessage,
+    "PATCH",
+    form
+  );
 }
 
 function mergeScopedMemberChangesIntoFullState(fullState, scopedState, memberId) {
@@ -9168,7 +9107,7 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
               `
               : `<p class="status-note">El rol define si esta cuenta entra como socio/alumno o como administracion.</p>`
         }
-        <p id="associateEditSaveStatus" class="muted" aria-live="polite"></p>
+        <p id="associateEditSaveStatus" data-form-save-status="true" class="muted" aria-live="polite"></p>
         <button class="primary-button" type="submit">Guardar ficha de socio</button>
       </form>
 
