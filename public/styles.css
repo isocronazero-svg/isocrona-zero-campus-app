@@ -3364,7 +3364,7 @@ tr:last-child td {
   .campus-overview-grid,
   .group-selector-grid,
   .campus-member-hub,
-  .campus-group-editor-row .lesson-grid {
+  .campus-group-editor-row .lesson-grid,
   .associate-search-grid,
   .associate-search-results {
     grid-template-columns: 1fr;
@@ -3396,7 +3396,7 @@ tr:last-child td {
   .campus-library-card,
   .campus-group-editor-row,
   .campus-overview-card,
-  .group-selector-card {
+  .group-selector-card,
   .associate-search-panel {
     align-self: stretch;
     gap: 12px;
@@ -3420,6 +3420,8 @@ tr:last-child td {
   .campus-module-strip > *,
   .campus-group-entry-tools > * {
     width: 100%;
+  }
+
   .associate-search-result span {
     line-height: 1.35;
   }
@@ -3430,7 +3432,7 @@ tr:last-child td {
 
   .chip-row,
   .compact-person-actions,
-  .inline-table-actions {
+  .inline-table-actions,
   .panel-header,
   .chip-row,
   .compact-chip-row,
@@ -3460,7 +3462,7 @@ tr:last-child td {
   .inline-table-actions > .ghost-button,
   .inline-table-actions > .mini-button,
   .inline-table-actions > .button-link,
-  .inline-table-actions > button {
+  .inline-table-actions > button,
   .compact-chip-row > .primary-button,
   .compact-chip-row > .ghost-button,
   .compact-chip-row > .mini-button,
@@ -4700,21 +4702,48 @@ tr:last-child td {
 
 .test-zone-option-row {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: 20px 34px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   padding: 12px 14px;
   border-radius: 18px;
-  border: 1px solid rgba(180, 111, 43, 0.14);
+  border: 2px solid rgba(180, 111, 43, 0.24);
   background: rgba(255, 255, 255, 0.96);
+  min-height: 64px;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
 }
 
-.test-zone-option-row input {
+.test-zone-option-row input[type="radio"] {
+  width: 20px;
+  height: 20px;
+  padding: 0;
   margin: 0;
+  accent-color: #a74b25;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.test-zone-option-row:hover {
+  border-color: #b76a38;
+  background: #fff7ed;
+}
+
+.test-zone-option-row:has(input:checked) {
+  border-color: #a74b25;
+  background: #fcebdc;
+  box-shadow: inset 4px 0 0 #a74b25;
+}
+
+.test-zone-option-row:has(input:focus-visible) {
+  outline: 3px solid #774020;
+  outline-offset: 3px;
 }
 
 .test-zone-option-copy {
   line-height: 1.4;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .test-zone-result-line {
@@ -4911,7 +4940,9 @@ tr:last-child td {
   }
 
   .test-zone-option-row {
-    grid-template-columns: auto auto 1fr;
+    grid-template-columns: 20px 28px minmax(0, 1fr);
+    gap: 8px;
+    padding: 12px 10px;
   }
 
   .test-zone-review-answer-grid {
