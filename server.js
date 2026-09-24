@@ -6113,7 +6113,8 @@ const server = http.createServer(async (req, res) => {
         writeState(state);
       }
 
-        const token = createSessionToken(account);
+        clearRequestSession(req);
+        const token = createSessionToken(account, payload.rememberMe === true);
         setSessionCookie(res, token);
 
         return sendJson(res, 200, {
@@ -6183,6 +6184,10 @@ const server = http.createServer(async (req, res) => {
         `La cuenta ${account.email} ha actualizado su contrasena de primer acceso`
       );
       writeState(state);
+      const rememberMe = getSessionTokenFromRequest(req).startsWith("izr_");
+      clearRequestSession(req);
+      const token = createSessionToken(account, rememberMe);
+      setSessionCookie(res, token);
 
       return sendJson(res, 200, {
         ok: true,

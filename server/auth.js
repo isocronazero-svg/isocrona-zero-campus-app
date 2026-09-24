@@ -8,6 +8,15 @@ const {
 const { sendJson } = require("./http");
 
 const activeSessions = new Map();
+const rememberedSessionSeconds = 30 * 24 * 60 * 60;
+
+function hashSessionValue(value) {
+  return crypto.createHash("sha256").update(String(value)).digest("hex");
+}
+
+function accountCredentialHash(account) {
+  return hashSessionValue(account.passwordHash || account.password || "");
+}
 
 function parseCookies(req) {
   const header = String(req.headers.cookie || "");
@@ -121,19 +130,27 @@ function setLegacyAccountPassword(account, password) {
   return account;
 }
 
-function createSessionToken(account) {
-  const token = `izs_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
-  activeSessions.set(token, {
-    accountId: account.id,
-    createdAt: new Date().toISOString()
-  });
+function createSessionToken(account, rememberMe = false) {
+  const token = `${rememberMe === true ? "izr" : "izs"}_${crypto.randomBytes(32).toString("hex")}`;
+  if (rememberMe === true) {
+    require("../storage").saveRememberedSession(
+      hashSessionValue(token), account.id, accountCredentialHash(account),
+      Date.now() + rememberedSessionSeconds * 1000
+    );
+  } else {
+    activeSessions.set(token, {
+      accountId: account.id,
+      createdAt: new Date().toISOString()
+    });
+  }
   return token;
 }
 
 function setSessionCookie(res, token) {
+  const lifetime = token.startsWith("izr_") ? `; Max-Age=${rememberedSessionSeconds}` : "";
   res.setHeader(
     "Set-Cookie",
-    `iz_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${shouldUseSecureSessionCookie() ? "; Secure" : ""}`
+    `iz_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax${lifetime}${shouldUseSecureSessionCookie() ? "; Secure" : ""}`
   );
 }
 
@@ -148,6 +165,9 @@ function clearRequestSession(req) {
   const token = parseCookies(req).iz_session;
   if (token) {
     activeSessions.delete(token);
+    if (token.startsWith("izr_")) {
+      require("../storage").deleteRememberedSession(hashSessionValue(token));
+    }
   }
 }
 
@@ -157,14 +177,19 @@ function getAuthenticatedAccount(req, state) {
     return null;
   }
 
-  const session = activeSessions.get(token);
+  const remembered = /^izr_[0-9a-f]{64}$/.test(token);
+  const session = remembered
+    ? require("../storage").readRememberedSession(hashSessionValue(token))
+    : activeSessions.get(token);
   if (!session) {
     return null;
   }
 
   const account = (state.accounts || []).find((item) => item.id === session.accountId);
-  if (!account) {
-    activeSessions.delete(token);
+  if (!account || (remembered && (
+    session.expiresAt <= Date.now() || session.credentialHash !== accountCredentialHash(account)
+  ))) {
+    clearRequestSession(req);
     return null;
   }
 
@@ -172,6 +197,7 @@ function getAuthenticatedAccount(req, state) {
     ? (state.associates || []).find((item) => item.id === account.associateId)
     : null;
   if (associate && associate.status === "Baja") {
+    clearRequestSession(req);
     return null;
   }
 

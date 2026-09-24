@@ -583,8 +583,11 @@ resetButton?.addEventListener("click", async () => {
 
 logoutButton.addEventListener("click", async () => {
   try {
-    await fetch("/api/logout", { method: "POST" });
+    const response = await fetch("/api/logout", { method: "POST" });
+    if (!response.ok) throw new Error("No se pudo cerrar la sesión");
   } catch (error) {
+    showToast("No se ha podido cerrar la sesión. Comprueba la conexión y vuelve a intentarlo.", "error");
+    return;
   }
   clearSession();
   loginStatus = "Sesion cerrada. Introduce tus credenciales.";
@@ -593,8 +596,11 @@ logoutButton.addEventListener("click", async () => {
 
 passwordLogoutButton.addEventListener("click", async () => {
   try {
-    await fetch("/api/logout", { method: "POST" });
+    const response = await fetch("/api/logout", { method: "POST" });
+    if (!response.ok) throw new Error("No se pudo cerrar la sesión");
   } catch (error) {
+    showToast("No se ha podido cerrar la sesión. Comprueba la conexión y vuelve a intentarlo.", "error");
+    return;
   }
   clearSession();
   loginStatus = "Sesion cerrada. Introduce tus credenciales.";
@@ -614,7 +620,8 @@ loginForm.addEventListener("submit", async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email: loginEmail.value.trim(),
-        password: loginPassword.value
+        password: loginPassword.value,
+        rememberMe: document.getElementById("loginRememberMe").checked
       })
     });
 
@@ -4487,7 +4494,7 @@ async function bootstrap() {
   restoreViewRole();
   await syncSessionWithServer({
     clearInvalid: true,
-    force: recoveredFromRecoveryPage || Boolean(session)
+    force: true
   });
 
   try {
