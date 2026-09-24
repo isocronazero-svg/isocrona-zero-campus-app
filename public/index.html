@@ -41,13 +41,18 @@
           </div>
           <label class="inline-field">
             Email
-            <input id="loginEmail" type="email" placeholder="tu@email.com" required />
+            <input id="loginEmail" name="email" autocomplete="username" type="email" placeholder="tu@email.com" required />
           </label>
           <label class="inline-field">
             Contrasena
-            <input id="loginPassword" type="password" placeholder="********" required />
+            <input id="loginPassword" name="password" autocomplete="current-password" type="password" placeholder="********" required />
           </label>
-          <p class="status-note" id="loginStatus">Introduce tus datos para entrar.</p>
+          <label class="checkbox-field">
+            <input id="loginRememberMe" name="rememberMe" type="checkbox" aria-describedby="rememberMeHelp" />
+            <span>Recordarme durante 30 días</span>
+          </label>
+          <p class="field-help" id="rememberMeHelp">Márcalo solo en tu dispositivo personal.</p>
+          <p class="status-note" id="loginStatus" role="status" aria-live="polite">Introduce tus datos para entrar.</p>
           <div class="chip-row">
             <button class="primary-button" type="submit">Entrar</button>
           </div>

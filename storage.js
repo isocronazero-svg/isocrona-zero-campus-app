@@ -33,6 +33,31 @@ db.exec(`
   );
 `);
 
+// Kept outside app_state so client state saves cannot overwrite remembered sessions.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS remembered_sessions (
+    token_hash TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    credential_hash TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+`);
+
+function saveRememberedSession(tokenHash, accountId, credentialHash, expiresAt) {
+  db.prepare("DELETE FROM remembered_sessions WHERE expires_at <= ?").run(Date.now());
+  db.prepare("INSERT INTO remembered_sessions (token_hash, account_id, credential_hash, expires_at) VALUES (?, ?, ?, ?)")
+    .run(tokenHash, accountId, credentialHash, expiresAt);
+}
+
+function readRememberedSession(tokenHash) {
+  return db.prepare("SELECT account_id AS accountId, credential_hash AS credentialHash, expires_at AS expiresAt FROM remembered_sessions WHERE token_hash = ?")
+    .get(tokenHash);
+}
+
+function deleteRememberedSession(tokenHash) {
+  db.prepare("DELETE FROM remembered_sessions WHERE token_hash = ?").run(tokenHash);
+}
+
 seedDatabaseIfNeeded();
 
 function readState() {
@@ -1374,6 +1399,9 @@ function getStorageDebugInfo() {
 }
 
 module.exports = {
+  saveRememberedSession,
+  readRememberedSession,
+  deleteRememberedSession,
   associateUploadsDir,
   dataDir,
   dbPath,

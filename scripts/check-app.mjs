@@ -36,6 +36,7 @@ const extraCheckScripts = [
   "scripts/check-course-journey.mjs",
   "scripts/check-topic-picker.mjs",
   "scripts/check-auth-utils.mjs",
+  "scripts/check-remember-me.mjs",
   "scripts/check-production-demo-admin-guard.mjs",
   "scripts/check-production-storage-guard.mjs",
   "scripts/check-railway-runtime.mjs",
