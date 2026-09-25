@@ -161,14 +161,30 @@ async function main() {
       courses: [{ id: "course-1", summary: "must-not-be-accepted" }]
     };
 
+    assert.deepEqual((await anonymous.request("GET", "/api/public/banners")).body.banners, []);
+    assert.equal((await anonymous.request("PUT", "/api/admin/banners", { banners: [] }, true)).status, 401);
+
     const anonymousUpdate = await anonymous.request("PATCH", "/api/admin/settings", settingsPayload, true);
     assert.equal(anonymousUpdate.status, 401, "Un visitante no puede cambiar la configuracion");
 
     await login(member, "lucia@isocronazero.org", passwords.member);
+    assert.equal((await member.request("PUT", "/api/admin/banners", { banners: [] }, true)).status, 403);
     const memberUpdate = await member.request("PATCH", "/api/admin/settings", settingsPayload, true);
     assert.equal(memberUpdate.status, 403, "Un socio no puede cambiar la configuracion");
 
     await login(admin, "admin@isocronazero.org", passwords.admin);
+    const banners = [
+      { enabled: true, title: "Campana QA", imageUrl: "/assets/isocrona-brand.png", targetUrl: "/join.html" },
+      { enabled: false, title: "Borrador privado", imageUrl: "" }
+    ];
+    const bannerSave = await admin.request("PUT", "/api/admin/banners", { banners });
+    assert.equal(bannerSave.status, 200);
+    const publicPayload = (await anonymous.request("GET", "/api/public/banners")).body;
+    assert.equal(publicPayload.banners.length, 1);
+    assert.deepEqual((await member.request("GET", "/api/state")).body.settings.banners, [], "Los socios no reciben borradores de banners");
+    assert.deepEqual(Object.keys(publicPayload).sort(), ["banners", "ok"]);
+    assert.equal((await admin.request("PUT", "/api/admin/banners", { banners: [{ ...banners[0], imageUrl: "javascript:alert(1)" }] }, true)).status, 400);
+    assert.equal((await admin.request("PUT", "/api/admin/banners", { banners: [], padding: "x".repeat(17000) }, true)).status, 413);
     const update = await admin.request("PATCH", "/api/admin/settings", settingsPayload);
     assert.equal(update.status, 200);
     assert.equal(update.body?.state?.settings?.certificateCity, "Valencia");
@@ -187,6 +203,10 @@ async function main() {
     const restartedAdmin = createClient(baseUrl);
     await login(restartedAdmin, "admin@isocronazero.org", passwords.admin);
     const persistedState = (await restartedAdmin.request("GET", "/api/state")).body;
+    assert.equal(persistedState.settings.banners[0].title, "Campana QA", "Banner persiste tras reiniciar");
+    assert.equal((await anonymous.request("GET", "/api/public/banners")).body.banners.length, 1);
+    await restartedAdmin.request("PUT", "/api/admin/banners", { banners: [] });
+    assert.deepEqual((await anonymous.request("GET", "/api/public/banners")).body.banners, []);
     assert.equal(persistedState.settings.certificateCity, "Valencia", "La configuracion debe persistir tras reiniciar");
     assert.equal(persistedState.settings.smtp.host, "smtp.example.test");
 

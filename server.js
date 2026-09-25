@@ -67,6 +67,7 @@ const {
 const { createStateTransport } = require("./server/state-transport");
 const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
 const { createQuestionBankImportHandler } = require("./server/question-bank-import");
+const { createBannerHandler } = require("./server/banners");
 const {
   handleRoute,
   withAdmin,
@@ -4151,11 +4152,13 @@ const handleCourseSharedTest = createCourseSharedTestHandler({
 });
 
 const handleQuestionBankImport = createQuestionBankImportHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError });
+const handleBanners = createBannerHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError, prepareStateForTransport });
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
   if (await handleCourseSharedTest(req, res, requestUrl)) return;
   if (await handleQuestionBankImport(req, res, requestUrl)) return;
+  if (await handleBanners(req, res, requestUrl)) return;
 
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
     return sendJson(res, 200, {
