@@ -66,6 +66,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
+const { createLiveQuizHandler } = require("./server/live-quiz");
 const { createQuestionBankImportHandler } = require("./server/question-bank-import");
 const {
   handleRoute,
@@ -4152,8 +4153,18 @@ const handleCourseSharedTest = createCourseSharedTestHandler({
 
 const handleQuestionBankImport = createQuestionBankImportHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError });
 
+const handleLiveQuiz = createLiveQuizHandler({
+  readState, requireAdminAccount, readJsonBody, sendJson, enforceRateLimit, getClientIp,
+  selectQuestions: (state, payload) => {
+    const session = createTestZoneLiveSession(state, null, payload);
+    const byId = new Map(getTestZoneLiveSessionQuestions(state, session).map(question => [question.id, question]));
+    return session.questionIds.map(id => byId.get(id)).filter(Boolean);
+  }
+});
+
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  if (await handleLiveQuiz(req, res, requestUrl)) return;
   if (await handleCourseSharedTest(req, res, requestUrl)) return;
   if (await handleQuestionBankImport(req, res, requestUrl)) return;
 
