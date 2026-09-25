@@ -1,3 +1,4 @@
+import { questionTools, questionManagementPanel, bindQuestionMaintenance } from "../modules/tests/questionMaintenance.js";
 import { renderTopicPicker, readTopics, syncTopicPicker, changeTopicPicker } from "../modules/tests/topicPicker.js";
 import {
   createLiveSession,
@@ -356,7 +357,7 @@ function buildControlsMarkup() {
           <input type="number" name="questionCount" min="1" max="100" value="${escapeHtml(testSession.filters.questionCount)}" />
         </label>
         <label class="test-zone-field">
-          <span>Tiempo</span>
+          <span>Contrarreloj</span>
           <select name="timeLimitMinutes">
             ${[0, 1, 5, 10, 15, 30, 45, 60, 90, 120, 180].map(minutes => `<option value="${minutes}" ${minutes === testSession.filters.timeLimitMinutes ? "selected" : ""}>${minutes ? `${minutes} min` : "Sin limite"}</option>`).join("")}
           </select>
@@ -433,6 +434,7 @@ function buildQuestionAttemptMarkup() {
                       ${marked ? "Marcada para repasar" : "Marcar para repasar"}
                     </button>
                   </div>
+                  ${questionTools(questionId)}
                   <div class="test-zone-option-list">
                     ${(Array.isArray(question.options) ? question.options : [])
                       .map(
@@ -472,9 +474,9 @@ function getReviewStatus(response = {}) {
     return { className: "is-blank", label: "En blanco" };
   }
   if (response.isCorrect) {
-    return { className: "is-correct", label: "Correcta" };
+    return { className: "is-correct", label: "✓ Correcta" };
   }
-  return { className: "is-wrong", label: "Incorrecta" };
+  return { className: "is-wrong", label: "✕ Incorrecta" };
 }
 
 function formatAnswerOption(index, text) {
@@ -581,6 +583,7 @@ function buildResultReviewMarkup(result = {}) {
                     ? `<div class="test-zone-review-explanation"><strong>Explicacion</strong><p>${escapeHtml(response.explanation)}</p></div>`
                     : ""
                 }
+                ${questionTools(questionId, testSession.role === "admin")}
                 <div class="test-zone-actions">
                   <button
                     type="button"
@@ -617,7 +620,9 @@ function buildLatestResultMarkup() {
       </p>
       <p class="muted">${escapeHtml(formatDate(result.createdAt))}</p>
       <p class="muted">${correctionLabel(result.penaltyDivisor)} · Penalizacion: ${escapeHtml(result.penalty || 0)} · Tiempo: ${formatDuration(result.elapsedSeconds || 0)}${result.timedOut ? " · Tiempo agotado" : ""}</p>
+      <div class="test-zone-actions"><button type="button" class="test-zone-primary-button" data-action="another-test">Realizar otro test</button></div>
       ${buildResultReviewMarkup(result)}
+      <div class="test-zone-footer-actions"><button type="button" class="test-zone-primary-button" data-action="another-test">Realizar otro test</button></div>
     </section>
   `;
 }
@@ -884,6 +889,7 @@ function buildLayout() {
       ${buildFailedQuestionsMarkup()}
       ${buildReviewMarkedQuestionsMarkup()}
       ${buildHistoryMarkup()}
+      ${testSession.role === "admin" && !testSession.activeRun ? questionManagementPanel() : ""}
       ${buildAdminQuestionForm()}
     </section>
   `;
@@ -990,7 +996,9 @@ async function handleAttemptSubmit(container, form) {
   } finally {
     run.submitting = false;
     if (testSession.accountId === run.accountId && container.querySelector("[data-test-zone-attempt]")) {
-      void renderTestView(container, testSession.role);
+      void renderTestView(container, testSession.role).then(() => {
+        if (testSession.latestResult) container.querySelector(".test-zone-card-highlight")?.scrollIntoView({ block: "start" });
+      });
     }
   }
 }
@@ -1040,6 +1048,16 @@ function bindActions(container) {
     }
 
     const action = String(actionTarget.dataset.action || "").trim();
+    if (action === "another-test") {
+      setActiveRun(null);
+      testSession.latestResult = null;
+      testSession.error = "";
+      await renderTestView(container, testSession.role);
+      const controls = container.querySelector("[data-test-zone-controls]");
+      controls?.closest("section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      controls?.querySelector("input, select, button")?.focus({ preventScroll: true });
+      return;
+    }
     if (action === "cancel-active-test") {
       setActiveRun(null);
       renderTestView(container, testSession.role);
@@ -1230,6 +1248,7 @@ export async function renderTestView(container, role = "member", accountId = tes
 
   container.innerHTML = buildLayout();
   bindActions(container);
+  bindQuestionMaintenance(container, { admin: testSession.role === "admin" });
   startPracticeTimer(container);
   if (testSession.activeRun?.needsFocus) {
     container.querySelector("[data-test-zone-attempt]")?.closest("section")?.scrollIntoView({ block: "start" });

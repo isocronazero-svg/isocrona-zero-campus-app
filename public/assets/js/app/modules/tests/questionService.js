@@ -149,3 +149,19 @@ export function getQuestionFilters(questions = []) {
     difficulties: [...new Set(safeQuestions.map((question) => String(question.difficulty || "").trim()).filter(Boolean))]
   };
 }
+
+export async function loadQuestionReports() {
+  return (await fetchJson("/api/test-zone/question-reports")).reports || [];
+}
+export async function reportQuestion(questionId, reason) {
+  return fetchJson("/api/test-zone/question-reports", { method: "POST", body: JSON.stringify({ questionId, reason }) });
+}
+export async function resolveQuestionReport(reportId) {
+  return fetchJson(`/api/test-zone/question-reports/${encodeURIComponent(reportId)}/resolve`, { method: "POST", body: "{}" });
+}
+export async function updateQuestion(questionId, changes) {
+  return fetchJson(`/api/test-zone/questions/${encodeURIComponent(questionId)}`, { method: "PUT", body: JSON.stringify(changes) });
+}
+export async function deleteQuestion(questionId, expectedUpdatedAt) {
+  return fetchJson(`/api/test-zone/questions/${encodeURIComponent(questionId)}`, { method: "DELETE", body: JSON.stringify({ expectedUpdatedAt }) });
+}

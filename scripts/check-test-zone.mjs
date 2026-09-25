@@ -157,7 +157,7 @@ function assertResultHasNoSensitiveReviewDetails(result, context) {
 async function main() {
   const port = await getAvailablePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const server = startServer(port, baseUrl);
+  let server = startServer(port, baseUrl);
   try {
     await waitForServer(baseUrl);
 
@@ -698,7 +698,74 @@ async function main() {
     const persistedZero = persistedHistory.body.results.find(result => result.id === zero.body.result.id);
     assert.equal(persistedZero.score, 0, "Una nota cero no debe convertirse en aciertos al normalizar");
     assert.equal(persistedZero.penaltyDivisor, 2);
-    console.log("Test zone checks passed (including practice scoring and idempotency).");
+    const anonymousClient = createJsonClient("anonymous", baseUrl);
+    const reportPath = "/api/test-zone/question-reports";
+    const questionPath = `/api/test-zone/questions/${questionIds[0]}`;
+    const stateWithCourse = (await adminClient.request("GET", "/api/state")).body;
+    const testCourse = stateWithCourse.courses[0];
+    testCourse.sharedTestQuestionIds = [questionIds[0]];
+    testCourse.sharedTestPublished = true;
+    await adminClient.request("POST", "/api/state", stateWithCourse);
+    const staleState = (await adminClient.request("GET", "/api/state")).body;
+    for (const client of [anonymousClient, memberClient]) {
+      const expected = client === anonymousClient ? 401 : 403;
+      for (const method of ["PUT", "DELETE"]) {
+        assert.equal((await client.request(method, questionPath, {}, { allowFailure: true })).status, expected);
+      }
+    }
+    assert.equal((await anonymousClient.request("POST", reportPath, {}, { allowFailure: true })).status, 401);
+    const report = (await memberClient.request("POST", reportPath, { questionId: questionIds[0], reason: "La respuesta necesita una fuente actualizada <script>alert(1)</script>" })).body.report;
+    assert.equal(report.status, "pending");
+    const duplicate = (await memberClient.request("POST", reportPath, { questionId: questionIds[0], reason: "La misma incidencia" })).body.report;
+    assert.equal(duplicate.id, report.id, "Reintentar no duplica el aviso");
+    assert.equal((await secondMemberClient.request("GET", reportPath)).body.reports.length, 0);
+    assert.equal((await memberClient.request("GET", "/api/state")).body.testZoneQuestionReports, undefined);
+    assert.equal((await memberClient.request("POST", `${reportPath}/${report.id}/resolve`, {}, { allowFailure: true })).status, 403);
+    assert.equal((await memberClient.request("POST", reportPath, { questionId: questionIds[0], reason: "x" }, { allowFailure: true })).status, 400);
+    assert.equal((await memberClient.request("POST", reportPath, { questionId: "missing", reason: "No existe esta pregunta" }, { allowFailure: true })).status, 404);
+    assert.equal((await adminClient.request("PUT", questionPath, { prompt: "x".repeat(40000) }, { allowFailure: true })).status, 413);
+    const original = createdQuestions[0];
+    const update = { ...original, expectedUpdatedAt: original.updatedAt, prompt: "Pregunta corregida", correctIndex: 1, explanation: "Explicación corregida" };
+    assert.equal((await adminClient.request("PUT", questionPath, { ...update, correctIndex: 100 }, { allowFailure: true })).status, 400);
+    const edited = (await adminClient.request("PUT", questionPath, update)).body.question;
+    assert.equal(edited.prompt, "Pregunta corregida");
+    assert.equal(edited.correctIndex, 1);
+    assert.equal(edited.id, original.id);
+    const inFlight = await memberClient.request("POST", "/api/test-zone/results", {
+      questionIds: [original.id], questionVersions: [original.revision], answers: [0], attemptId: "practice-original-version-check"
+    });
+    assert.equal(inFlight.body.result.score, 1, "Una edición no cambia la solución de un intento ya iniciado");
+    const fresh = await memberClient.request("POST", "/api/test-zone/results", {
+      questionIds: [original.id], questionVersions: [edited.revision], answers: [0]
+    });
+    assert.equal(fresh.body.result.score, 0, "Los intentos nuevos usan la pregunta corregida");
+    assert.equal((await adminClient.request("PUT", questionPath, update, { allowFailure: true })).status, 409, "Edición obsoleta rechazada");
+    await adminClient.request("DELETE", questionPath, { expectedUpdatedAt: edited.updatedAt });
+    const afterRetirement = await memberClient.request("POST", "/api/test-zone/results", {
+      questionIds: [original.id], questionVersions: [edited.revision], answers: [1]
+    });
+    assert.equal(afterRetirement.body.result.score, 1, "Eliminar no impide finalizar un intento iniciado con esa versión");
+    assert.equal((await memberClient.request("GET", "/api/test-zone/questions")).body.questions.some(q => q.id === original.id), false);
+    const oldHistory = (await memberClient.request("GET", "/api/test-zone/results/me")).body.results;
+    const oldResult = oldHistory.find(r => r.id === zero.body.result.id);
+    assert.equal(oldResult.responses[0].prompt, original.prompt, "El historial conserva el enunciado original");
+    assert.equal(oldResult.responses[0].correctIndex, original.correctIndex);
+    await adminClient.request("POST", "/api/state", staleState);
+    assert.equal((await memberClient.request("GET", "/api/test-zone/questions")).body.questions.some(q => q.id === original.id), false, "Un guardado antiguo no recupera una pregunta eliminada");
+    assert.equal((await adminClient.request("GET", reportPath)).body.reports.length, 1, "Un guardado antiguo no borra avisos");
+    const courseAfterDelete = (await adminClient.request("GET", "/api/state")).body.courses.find(c => c.id === testCourse.id);
+    assert.deepEqual(courseAfterDelete.sharedTestQuestionIds, [], "Eliminar limpia la selección de cursos incluso tras un guardado antiguo");
+    assert.equal(courseAfterDelete.sharedTestPublished, false);
+    await adminClient.request("POST", `${reportPath}/${report.id}/resolve`, {});
+    assert.equal((await memberClient.request("GET", reportPath)).body.reports[0].status, "resolved");
+    server.kill("SIGTERM");
+    await new Promise(resolve => server.once("exit", resolve));
+    server = startServer(port, baseUrl);
+    await waitForServer(baseUrl);
+    await login(adminClient, "admin@isocronazero.org", "campus123");
+    assert.equal((await adminClient.request("GET", reportPath)).body.reports[0].status, "resolved", "Avisos persistidos tras reinicio");
+    assert.equal((await adminClient.request("GET", "/api/test-zone/questions")).body.questions.some(q => q.id === original.id), false);
+    console.log("Test zone checks passed (timer, scoring, reports, moderation permissions, history and persistence).");
   } finally {
     server.kill("SIGTERM");
     await delay(250);

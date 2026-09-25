@@ -127,6 +127,7 @@ export function evaluateTest(testRun, answers = [], role = "member") {
     elapsedSeconds: Math.min(604800, Math.max(0, Math.floor(((testRun?.finishedAt || Date.now()) - (testRun?.startedAt || Date.now())) / 1000))),
     timedOut: Boolean(testRun?.timedOut),
     questionIds: questions.map((question) => question.id),
+    questionVersions: questions.map((question) => question.revision || null),
     responses,
     correctCount,
     wrongCount,
@@ -169,6 +170,7 @@ export async function saveTestResult(result) {
       elapsedSeconds: result?.elapsedSeconds || 0,
       timedOut: Boolean(result?.timedOut),
       questionIds: result?.questionIds || [],
+      questionVersions: result?.questionVersions,
       answers: (Array.isArray(result?.responses) ? result.responses : []).map((response) =>
         response.isBlank ? null : response.selectedIndex ?? null
       )

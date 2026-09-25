@@ -1,4 +1,5 @@
 const http = require("http");
+const handleQuestionMaintenance = require("./server/question-maintenance");
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
@@ -420,6 +421,7 @@ function buildTestZoneQuestionAudiencePayload(question) {
   const normalized = normalizeTestZoneQuestionRecord(question);
   return {
     id: normalized.id,
+    revision: normalized.updatedAt || normalized.createdAt,
     prompt: normalized.prompt,
     options: normalized.options,
     part: normalized.part,
@@ -435,7 +437,8 @@ function buildTestZoneQuestionAdminPayload(question) {
     correctIndex: normalized.correctIndex,
     explanation: normalized.explanation,
     createdBy: normalized.createdBy,
-    createdAt: normalized.createdAt
+    createdAt: normalized.createdAt,
+    updatedAt: normalized.updatedAt || normalized.createdAt
   };
 }
 
@@ -470,7 +473,7 @@ function filterTestZoneQuestionsForRequest(state, filters = {}) {
   ensureTestZoneState(state);
   return (state.testZoneQuestions || [])
     .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
-    .filter((question) => matchesTestZoneFilter(question, filters));
+    .filter((question) => !question.deletedAt && matchesTestZoneFilter(question, filters));
 }
 
 function listTestZoneResultsForOwner(state, account) {
@@ -846,10 +849,20 @@ function createTestZoneResultRecord(state, payload = {}, context = {}) {
       throw new Error("El intento contiene preguntas que no pertenecen a la sesion");
     }
   }
-  const questions = questionIds.map((questionId) => {
+  if (context.practiceOptions && payload.questionVersions !== undefined &&
+      (!Array.isArray(payload.questionVersions) || payload.questionVersions.length !== questionIds.length)) {
+    throw new Error("Las versiones de las preguntas no coinciden con el intento");
+  }
+  const questions = questionIds.map((questionId, index) => {
     const question = questionsById.get(questionId);
     if (!question) {
       throw new Error("Una o varias preguntas del intento no existen");
+    }
+    const revision = context.practiceOptions && payload.questionVersions?.[index];
+    if (revision && revision !== (question.updatedAt || question.createdAt)) {
+      const previous = (question.previousVersions || []).find(q => (q.updatedAt || q.createdAt) === revision);
+      if (!previous) throw new Error("La versión de una pregunta ya no está disponible. Crea un nuevo test.");
+      return normalizeTestZoneQuestionRecord(previous);
     }
     return question;
   });
@@ -4594,7 +4607,7 @@ const server = http.createServer(async (req, res) => {
       },
       withAuth({ readState, requireAuthenticatedAccount }, async ({ state, account }) => {
       ensureTestZoneState(state);
-      const questions = (state.testZoneQuestions || []).map((question) =>
+      const questions = (state.testZoneQuestions || []).filter(question => !question.deletedAt).map((question) =>
         account.role === "admin"
           ? buildTestZoneQuestionAdminPayload(question)
           : buildTestZoneQuestionAudiencePayload(question)
@@ -4605,6 +4618,11 @@ const server = http.createServer(async (req, res) => {
   ) {
     return;
   }
+
+  if (await handleQuestionMaintenance(req, res, requestUrl, {
+    readState, writeState, requireAuthenticatedAccount, requireAdminAccount, readJsonBody, sendJson, sendJsonError,
+    buildQuestion: buildTestZoneQuestion, adminPayload: buildTestZoneQuestionAdminPayload, generateId: generateLegacyId
+  })) return;
 
   if (requestUrl.pathname === "/api/test-zone/questions" && req.method === "POST") {
     try {
@@ -4742,7 +4760,7 @@ const server = http.createServer(async (req, res) => {
       }
       const attemptId = String(payload.attemptId || "");
       if (attemptId && !/^[a-zA-Z0-9-]{16,100}$/.test(attemptId)) throw new Error("Intento no valido");
-      const fingerprint = JSON.stringify([payload.questionIds, payload.answers, penaltyDivisor, timeLimitSeconds]);
+      const fingerprint = JSON.stringify([payload.questionIds, payload.answers, penaltyDivisor, timeLimitSeconds, ...(payload.questionVersions ? [payload.questionVersions] : [])]);
       const previous = attemptId && state.testZoneResults.find(item => item.accountId === account.id && item.attemptId === attemptId && !item.courseId);
       if (previous) {
         if (previous.submissionFingerprint !== fingerprint) return sendJson(res, 409, { ok: false, error: "Este intento ya esta guardado con otras respuestas." });
@@ -5890,6 +5908,26 @@ const server = http.createServer(async (req, res) => {
               )
             }
           : mergeMemberScopedStateIntoFullState(currentState, payload, account);
+      // Reports are written only through the scoped moderation API.
+      const latestQuestionState = readState();
+      state.testZoneQuestionReports = latestQuestionState.testZoneQuestionReports || [];
+      if (account.role === "admin") {
+        // A stale whole-state save must not resurrect removed questions or undo a correction.
+        const incomingQuestions = new Map((state.testZoneQuestions || []).map(q => [q.id, q]));
+        for (const current of latestQuestionState.testZoneQuestions || []) {
+          const incoming = incomingQuestions.get(current.id);
+          if (current.deletedAt || (current.updatedAt && (!incoming || current.updatedAt > (incoming.updatedAt || "")))) {
+            incomingQuestions.set(current.id, current);
+          }
+        }
+        state.testZoneQuestions = [...incomingQuestions.values()];
+        const retiredIds = new Set(state.testZoneQuestions.filter(q => q.deletedAt).map(q => q.id));
+        for (const course of state.courses || []) {
+          if (!Array.isArray(course.sharedTestQuestionIds)) continue;
+          course.sharedTestQuestionIds = course.sharedTestQuestionIds.filter(id => !retiredIds.has(id));
+          if (!course.sharedTestQuestionIds.length) course.sharedTestPublished = false;
+        }
+      }
       restoreTransportSanitizedSecrets(currentState, state);
       preserveIssuedDiplomasByCourse(currentState, state);
       let summary = null;

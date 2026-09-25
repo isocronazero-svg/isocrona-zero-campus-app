@@ -4991,3 +4991,26 @@ tr:last-child td {
     border-radius: 12px;
   }
 }
+
+/* Strong, readable test feedback: color plus explicit text for every outcome. */
+.test-zone-review-card.is-correct { border: 2px solid #15803d; border-left-width: 8px; background: #dcfce7; }
+.test-zone-review-card.is-wrong { border: 2px solid #dc2626; border-left-width: 8px; background: #fee2e2; }
+.test-zone-review-card.is-correct .test-zone-review-status,
+.test-zone-review-map-button.is-correct { background: #15803d; border-color: #166534; color: #fff; }
+.test-zone-review-card.is-wrong .test-zone-review-status,
+.test-zone-review-map-button.is-wrong { background: #dc2626; border-color: #991b1b; color: #fff; }
+.test-zone-review-answer.is-correct { background: #15803d; border: 2px solid #166534; color: #fff; }
+.test-zone-review-answer.is-wrong { background: #dc2626; border: 2px solid #991b1b; color: #fff; }
+.test-zone-review-answer.is-correct span,
+.test-zone-review-answer.is-wrong span { color: #fff; }
+.test-zone-review-map-button.is-blank { background: #e5e7eb; color: #374151; border-color: #6b7280; }
+.test-zone-dialog { box-sizing: border-box; width: min(640px, calc(100vw - 28px)); max-height: 90dvh; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 20px; padding: 24px; color: #172033; background: #fff; box-shadow: 0 24px 80px #0f172a55; }
+.test-zone-dialog::backdrop { background: #0f172a99; }
+.test-zone-dialog-form { display: grid; gap: 16px; }
+.test-zone-dialog .test-zone-field { min-width: 0; }
+.test-zone-dialog input, .test-zone-dialog textarea, .test-zone-dialog select { box-sizing: border-box; max-width: 100%; width: 100%; padding: 10px; border: 1px solid #94a3b8; border-radius: 8px; font: inherit; }
+.test-zone-delete-button { color: #b91c1c; border-color: #dc2626; }
+[data-question-bank], [data-question-reports] { display: grid; gap: 12px; margin-block: 16px; }
+.test-zone-report-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
+.test-zone-dialog p, [data-question-management] strong { overflow-wrap: anywhere; }
+.test-zone-dialog button { min-height: 44px; }

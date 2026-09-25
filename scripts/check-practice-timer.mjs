@@ -24,7 +24,7 @@ const context = vm.createContext({
   saveTestResult: async () => { saves++; if (failSave) throw new Error("Sin conexion"); return { id: "saved" }; },
   setActiveRun: value => { session.activeRun = value; },
   loadTestHistory: async () => { throw new Error("Historial no disponible"); },
-  renderTestView: () => { renders++; }
+  renderTestView: async () => { renders++; }
 });
 vm.runInContext(extract("function startPracticeTimer(", "function captureActiveAnswers("), context);
 vm.runInContext(extract("async function handleAttemptSubmit(", "async function handleQuestionFormSubmit("), context);
