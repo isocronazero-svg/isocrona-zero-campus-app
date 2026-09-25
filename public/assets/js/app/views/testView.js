@@ -14,7 +14,8 @@ import {
   unmarkQuestionForReview
 } from "../modules/tests/questionService.js";
 import { evaluateTest, generateTest, saveTestResult } from "../modules/tests/testService.js";
-import { getTestState } from "../modules/tests/testStore.js";
+import { getTestState, resetTestState } from "../modules/tests/testStore.js";
+import { remainingSeconds, formatDuration, correctionLabel } from "../modules/tests/practiceTiming.js";
 
 const testSession = {
   role: "member",
@@ -23,12 +24,16 @@ const testSession = {
   activeRun: null,
   latestResult: null,
   loadedRole: "",
+  accountId: "",
+  timerId: null,
   filters: {
     part: "all",
     category: "all",
     difficulty: "all",
     topics: null,
-    questionCount: 25
+    questionCount: 25,
+    timeLimitMinutes: 0,
+    penaltyDivisor: 0
   }
 };
 
@@ -109,17 +114,58 @@ function getReviewMarkedQuestions() {
 }
 
 function setActiveRun(run) {
+  clearInterval(testSession.timerId);
+  testSession.timerId = null;
+  const startedAt = Date.now();
+  const timeLimitSeconds = testSession.filters.timeLimitMinutes * 60;
   testSession.activeRun = run
     ? {
         ...run,
+        attemptId: crypto.randomUUID(),
+        accountId: testSession.accountId,
+        startedAt,
+        deadline: timeLimitSeconds ? startedAt + timeLimitSeconds * 1000 : null,
+        timeLimitSeconds,
+        penaltyDivisor: testSession.filters.penaltyDivisor,
+        needsFocus: true,
         answers: Array.isArray(run.answers) ? [...run.answers] : Array.from({ length: run.questions.length }, () => null)
       }
     : null;
 }
 
+export function resetTestView() {
+  setActiveRun(null);
+  testSession.latestResult = null;
+  testSession.loadedRole = "";
+  testSession.accountId = "";
+  testSession.error = "";
+  resetTestState();
+}
+
+function startPracticeTimer(container) {
+  clearInterval(testSession.timerId);
+  const run = testSession.activeRun;
+  if (!run || run.finishedAt || !run.deadline) return;
+  const tick = () => {
+    if (testSession.activeRun !== run) return;
+    const seconds = remainingSeconds(run);
+    const output = container.querySelector("[data-practice-timer]");
+    if (output) {
+      output.textContent = formatDuration(seconds);
+      output.classList.toggle("is-urgent", seconds <= 60);
+    }
+    if (seconds === 0) {
+      run.timedOut = true;
+      void handleAttemptSubmit(container, container.querySelector("[data-test-zone-attempt]"));
+    }
+  };
+  testSession.timerId = setInterval(tick, 250);
+  tick();
+}
+
 function captureActiveAnswers(form) {
   const run = testSession.activeRun;
-  if (!run || !(form instanceof HTMLFormElement)) {
+  if (!run || run.finishedAt || !(form instanceof HTMLFormElement)) {
     return;
   }
   const formData = new FormData(form);
@@ -213,7 +259,7 @@ function buildProgressStatsPanel() {
   const sourceBreakdown = buildSourceBreakdown(ownResults);
   const metrics = [
     { label: "Tests realizados", value: totalTests, hint: "Tests guardados" },
-    { label: "% medio acierto", value: `${Number(averagePercentage || 0).toFixed(1)}%`, hint: "Media de tus tests" },
+    { label: "Nota media", value: `${Number(averagePercentage || 0).toFixed(1)}%`, hint: "Con la correccion elegida" },
     { label: "Preguntas respondidas", value: answeredQuestions, hint: "Sin contar blancas" },
     { label: "Preguntas falladas", value: (failedQuestionIds || []).length, hint: "Pendientes" },
     { label: "Marcadas para repasar", value: reviewMarkedQuestions.length, hint: "Guardadas por ti" },
@@ -309,8 +355,20 @@ function buildControlsMarkup() {
           <span>Numero de preguntas</span>
           <input type="number" name="questionCount" min="1" max="100" value="${escapeHtml(testSession.filters.questionCount)}" />
         </label>
+        <label class="test-zone-field">
+          <span>Tiempo</span>
+          <select name="timeLimitMinutes">
+            ${[0, 1, 5, 10, 15, 30, 45, 60, 90, 120, 180].map(minutes => `<option value="${minutes}" ${minutes === testSession.filters.timeLimitMinutes ? "selected" : ""}>${minutes ? `${minutes} min` : "Sin limite"}</option>`).join("")}
+          </select>
+        </label>
+        <label class="test-zone-field">
+          <span>Correccion</span>
+          <select name="penaltyDivisor">
+            ${[0, 2, 3, 4].map(divisor => `<option value="${divisor}" ${divisor === testSession.filters.penaltyDivisor ? "selected" : ""}>${correctionLabel(divisor)}</option>`).join("")}
+          </select>
+        </label>
         <div class="test-zone-actions">
-          <button type="submit" class="test-zone-primary-button">Crear test normal</button>
+          <button type="submit" class="test-zone-primary-button" ${testSession.activeRun ? "disabled" : ""}>Crear test normal</button>
         </div>
       </form>
     </section>
@@ -339,6 +397,12 @@ function buildQuestionAttemptMarkup() {
         </div>
       </div>
       ${buildQuestionMapMarkup(run, markedQuestionIds)}
+      <div class="test-zone-attempt-status">
+        <span>Tiempo restante <strong data-practice-timer role="timer">${formatDuration(remainingSeconds(run))}</strong></span>
+        <span>${correctionLabel(run.penaltyDivisor)}</span>
+        <span data-practice-save-status role="status">${run.submitting ? "Guardando..." : run.timedOut ? "Tiempo agotado" : run.finishedAt ? "Pendiente de guardar" : "En curso"}</span>
+      </div>
+      ${run.error ? `<p class="test-zone-inline-error" role="alert">${escapeHtml(run.error)}</p>` : ""}
       <form data-test-zone-attempt>
         <div class="test-zone-question-list">
           ${run.questions
@@ -380,6 +444,7 @@ function buildQuestionAttemptMarkup() {
                               value="${optionIndex}"
                               data-test-zone-answer
                               data-question-index="${index}"
+                              ${run.finishedAt ? "disabled" : ""}
                               ${run.answers?.[index] !== null && run.answers?.[index] !== undefined && Number(run.answers?.[index]) === optionIndex ? "checked" : ""}
                             />
                             <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
@@ -395,7 +460,7 @@ function buildQuestionAttemptMarkup() {
             .join("")}
         </div>
         <div class="test-zone-footer-actions">
-          <button type="submit" class="test-zone-primary-button">Finalizar test</button>
+          <button type="submit" class="test-zone-primary-button" ${run.submitting ? "disabled" : ""}>${run.submitting ? "Guardando..." : run.finishedAt ? "Reintentar guardado" : "Finalizar test"}</button>
         </div>
       </form>
     </section>
@@ -551,6 +616,7 @@ function buildLatestResultMarkup() {
         Aciertos: ${escapeHtml(result.correctCount)} · Fallos: ${escapeHtml(result.wrongCount)} · Blancas: ${escapeHtml(result.blankCount)} · Nota: ${escapeHtml(result.score)}/${escapeHtml(result.total)} · ${escapeHtml(Number(result.percentage || 0).toFixed(1))}%
       </p>
       <p class="muted">${escapeHtml(formatDate(result.createdAt))}</p>
+      <p class="muted">${correctionLabel(result.penaltyDivisor)} · Penalizacion: ${escapeHtml(result.penalty || 0)} · Tiempo: ${formatDuration(result.elapsedSeconds || 0)}${result.timedOut ? " · Tiempo agotado" : ""}</p>
       ${buildResultReviewMarkup(result)}
     </section>
   `;
@@ -567,7 +633,7 @@ function buildFailedQuestionsMarkup() {
           <p class="muted">Practica solo las preguntas que has fallado.</p>
         </div>
         <div class="test-zone-actions">
-          <button type="button" class="test-zone-secondary-button" data-action="start-failed-test" ${failedQuestions.length ? "" : "disabled"}>Hacer test con falladas</button>
+          <button type="button" class="test-zone-secondary-button" data-action="start-failed-test" ${failedQuestions.length && !testSession.activeRun ? "" : "disabled"}>Hacer test con falladas</button>
         </div>
       </div>
       ${
@@ -605,7 +671,7 @@ function buildReviewMarkedQuestionsMarkup() {
           <p class="muted">Agrupa las preguntas que quieres volver a mirar.</p>
         </div>
         <div class="test-zone-actions">
-          <button type="button" class="test-zone-secondary-button" data-action="start-review-marked-test" ${reviewMarkedQuestions.length ? "" : "disabled"}>
+          <button type="button" class="test-zone-secondary-button" data-action="start-review-marked-test" ${reviewMarkedQuestions.length && !testSession.activeRun ? "" : "disabled"}>
             Hacer test con marcadas (${escapeHtml(reviewMarkedQuestions.length)})
           </button>
         </div>
@@ -674,7 +740,7 @@ function buildHistoryMarkup() {
                       <div class="test-zone-history-side">
                         <strong>${escapeHtml(`${result.score}/${result.total}`)}</strong>
                         <span>${escapeHtml(`${Number(result.percentage || 0).toFixed(1)}%`)}</span>
-                        <button type="button" class="test-zone-secondary-button" data-action="repeat-result-failed" data-result-id="${escapeHtml(result.id)}" ${result.incorrectQuestionIds?.length ? "" : "disabled"}>
+                        <button type="button" class="test-zone-secondary-button" data-action="repeat-result-failed" data-result-id="${escapeHtml(result.id)}" ${result.incorrectQuestionIds?.length && !testSession.activeRun ? "" : "disabled"}>
                           Repetir falladas
                         </button>
                       </div>
@@ -812,8 +878,7 @@ function buildLayout() {
         </div>
       </header>
       ${testSession.role === "admin" ? '<section class="test-zone-card"><h3>Cargar preguntas por bloques y temas</h3><p>IVASPE · TEMARIO COMÚN · GUADALAJARA</p><a class="test-zone-primary-button" href="/question-bank.html">Importar documentos de preguntas</a></section>' : ""}
-      ${buildProgressStatsPanel()}
-      ${buildControlsMarkup()}
+      ${testSession.activeRun ? "" : buildProgressStatsPanel() + buildControlsMarkup()}
       ${buildQuestionAttemptMarkup()}
       ${buildLatestResultMarkup()}
       ${buildFailedQuestionsMarkup()}
@@ -839,6 +904,7 @@ async function refreshData(role) {
 }
 
 async function startGeneratedTest(failedOnly = false) {
+  if (testSession.activeRun) throw new Error("Finaliza o cancela el test activo primero.");
   const store = getTestState();
   const onlyQuestionIds = failedOnly ? store.failedQuestionIds || [] : [];
   setActiveRun(
@@ -863,6 +929,7 @@ async function startGeneratedTest(failedOnly = false) {
 }
 
 async function startReviewMarkedTest() {
+  if (testSession.activeRun) throw new Error("Finaliza o cancela el test activo primero.");
   const store = getTestState();
   const markedQuestions = getReviewMarkedQuestions();
   if (!markedQuestions.length) {
@@ -891,20 +958,41 @@ async function startReviewMarkedTest() {
 
 async function handleAttemptSubmit(container, form) {
   const run = testSession.activeRun;
-  if (!run) {
+  if (!run || run.submitting) {
     return;
   }
   captureActiveAnswers(form);
+  run.finishedAt ||= Date.now();
+  run.timedOut ||= remainingSeconds(run) === 0;
+  run.submitting = true;
+  run.error = "";
+  clearInterval(testSession.timerId);
+  if (form) {
+    form.querySelectorAll("input, button[type=submit]").forEach(input => { input.disabled = true; });
+    const status = container.querySelector("[data-practice-save-status]");
+    if (status) status.textContent = "Guardando...";
+  }
   const answers = Array.isArray(run.answers) ? run.answers : [];
-  const evaluated = evaluateTest(run, answers, testSession.role);
-  const savedResult = await saveTestResult(evaluated);
-  setActiveRun(null);
-  const historyPayload = await loadTestHistory();
-  const detailedResult = (historyPayload.results || []).find(
-    (result) => String(result.id || "") === String(savedResult?.id || "")
-  );
-  testSession.latestResult = detailedResult || savedResult;
-  renderTestView(container, testSession.role);
+  try {
+    const savedResult = await saveTestResult(evaluateTest(run, answers, testSession.role));
+    if (testSession.activeRun !== run) return;
+    setActiveRun(null);
+    testSession.latestResult = savedResult;
+    try {
+      const historyPayload = await loadTestHistory();
+      if (testSession.accountId !== run.accountId) return;
+      testSession.latestResult = (historyPayload.results || []).find(result => result.id === savedResult?.id) || savedResult;
+    } catch {
+      testSession.error = "Resultado guardado. No se pudo actualizar el historial; vuelve a entrar para consultarlo.";
+    }
+  } catch (error) {
+    run.error = error.message || "No se pudo guardar. Tus respuestas siguen disponibles para reintentar.";
+  } finally {
+    run.submitting = false;
+    if (testSession.accountId === run.accountId && container.querySelector("[data-test-zone-attempt]")) {
+      void renderTestView(container, testSession.role);
+    }
+  }
 }
 
 async function handleQuestionFormSubmit(container, form) {
@@ -958,6 +1046,7 @@ function bindActions(container) {
       return;
     }
     if (action === "start-failed-test") {
+      if (testSession.activeRun) return;
       try {
         await startGeneratedTest(true);
       } catch (error) {
@@ -971,6 +1060,7 @@ function bindActions(container) {
       return;
     }
     if (action === "start-review-marked-test") {
+      if (testSession.activeRun) return;
       try {
         await startReviewMarkedTest();
       } catch (error) {
@@ -1014,9 +1104,10 @@ function bindActions(container) {
       return;
     }
     if (action === "repeat-result-failed") {
+      if (testSession.activeRun) return;
       const result = (getTestState().results || []).find((entry) => String(entry.id || "") === String(actionTarget.dataset.resultId || ""));
       if (result?.incorrectQuestionIds?.length) {
-        testSession.activeRun = generateTest(
+        setActiveRun(generateTest(
           {
             questions: getTestState().questions || [],
             numQuestions: result.incorrectQuestionIds.length,
@@ -1031,7 +1122,7 @@ function bindActions(container) {
             mode: "failed"
           },
           testSession.role
-        );
+        ));
         testSession.latestResult = null;
         renderTestView(container, testSession.role);
       }
@@ -1054,7 +1145,7 @@ function bindActions(container) {
     }
     const run = testSession.activeRun;
     const index = Number(target.dataset.questionIndex || -1);
-    if (!run || !Number.isInteger(index) || index < 0) {
+    if (!run || run.finishedAt || remainingSeconds(run) === 0 || !Number.isInteger(index) || index < 0) {
       return;
     }
     run.answers = Array.isArray(run.answers) ? run.answers : Array.from({ length: run.questions.length }, () => null);
@@ -1069,13 +1160,16 @@ function bindActions(container) {
     event.preventDefault();
 
     if (target.hasAttribute("data-test-zone-controls")) {
+      if (testSession.activeRun) return;
       const formData = new FormData(target);
       testSession.filters = {
         part: "all",
         category: "all",
         topics: readTopics(target),
         difficulty: String(formData.get("difficulty") || "all").trim() || "all",
-        questionCount: Math.max(Number(formData.get("questionCount") || 20), 1)
+        questionCount: Math.max(1, Math.min(Number(formData.get("questionCount") || 20), 100)),
+        timeLimitMinutes: Number(formData.get("timeLimitMinutes") || 0),
+        penaltyDivisor: Number(formData.get("penaltyDivisor") || 0)
       };
       try {
         testSession.error = "";
@@ -1105,7 +1199,11 @@ function bindActions(container) {
   };
 }
 
-export async function renderTestView(container, role = "member") {
+export async function renderTestView(container, role = "member", accountId = testSession.accountId) {
+  if (testSession.accountId !== accountId) {
+    resetTestView();
+    testSession.accountId = accountId;
+  }
   testSession.role = String(role || "member").trim() || "member";
 
   if (testSession.loading) {
@@ -1132,6 +1230,11 @@ export async function renderTestView(container, role = "member") {
 
   container.innerHTML = buildLayout();
   bindActions(container);
+  startPracticeTimer(container);
+  if (testSession.activeRun?.needsFocus) {
+    container.querySelector("[data-test-zone-attempt]")?.closest("section")?.scrollIntoView({ block: "start" });
+    testSession.activeRun.needsFocus = false;
+  }
   syncTopicPicker(container);
 }
 

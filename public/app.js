@@ -476,7 +476,7 @@ function renderFrontendTestView() {
 
   syncFrontendStore({ activeView: "test" });
   mainPanel.innerHTML = "";
-  renderTest(mainPanel, getFrontendRole());
+  renderTest(mainPanel, getFrontendRole(), session?.accountId || "");
 }
 
 function renderFrontendTestsView() {
@@ -4671,6 +4671,7 @@ function persistViewRole() {
 }
 
 function clearSession() {
+  getFrontendBridge()?.resetTestView?.();
   session = null;
   viewRole = "admin";
   persistSession();

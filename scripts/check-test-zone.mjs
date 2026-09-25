@@ -671,7 +671,34 @@ async function main() {
     const publicPageResponse = await fetch(new URL("/public-live-test.html", baseUrl));
     assert.equal(publicPageResponse.ok, true);
 
-    console.log("Test zone checks passed.");
+    for (const [penaltyDivisor, expected] of [[0, 1], [2, 0.5], [3, 0.667], [4, 0.75]]) {
+      const body = { questionIds, answers: [0, 1, null], penaltyDivisor, timeLimitSeconds: 60,
+        elapsedSeconds: 60, timedOut: true, attemptId: `practice-check-attempt-${penaltyDivisor}` };
+      const saved = await memberClient.request("POST", "/api/test-zone/results", body);
+      assert.equal(saved.body.result.score, expected);
+      assert.equal(saved.body.result.blankCount, 1, "Las blancas no penalizan");
+      assert.equal(saved.body.result.penaltyDivisor, penaltyDivisor);
+      assert.equal(saved.body.result.timedOut, true);
+      const retry = await memberClient.request("POST", "/api/test-zone/results", body);
+      assert.equal(retry.status, 200);
+      assert.equal(retry.body.result.id, saved.body.result.id, "Reintento idempotente");
+      const changed = await memberClient.request("POST", "/api/test-zone/results", { ...body, answers: [1, 1, null] }, { allowFailure: true });
+      assert.equal(changed.status, 409);
+      assertResultHasNoSensitiveReviewDetails(saved.body.result, "Resultado practica");
+    }
+    const invalidRule = await memberClient.request("POST", "/api/test-zone/results", { questionIds, answers: [], penaltyDivisor: -1 }, { allowFailure: true });
+    assert.equal(invalidRule.status, 400);
+    const switched = await memberClient.request("POST", "/api/test-zone/results", { questionIds, answers: [], expectedAccountId: "another-account" }, { allowFailure: true });
+    assert.equal(switched.status, 409);
+    const zero = await memberClient.request("POST", "/api/test-zone/results", {
+      questionIds, answers: [0, 1, 0], penaltyDivisor: 2, attemptId: "practice-zero-score-check"
+    });
+    assert.equal(zero.body.result.score, 0);
+    const persistedHistory = await memberClient.request("GET", "/api/test-zone/results/me");
+    const persistedZero = persistedHistory.body.results.find(result => result.id === zero.body.result.id);
+    assert.equal(persistedZero.score, 0, "Una nota cero no debe convertirse en aciertos al normalizar");
+    assert.equal(persistedZero.penaltyDivisor, 2);
+    console.log("Test zone checks passed (including practice scoring and idempotency).");
   } finally {
     server.kill("SIGTERM");
     await delay(250);

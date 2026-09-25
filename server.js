@@ -761,6 +761,11 @@ function buildTestZoneResultAudiencePayload(result, options = {}) {
     score: Number(result?.score || 0),
     total: Number(result?.total || 0),
     percentage: Number(result?.percentage || 0),
+    penaltyDivisor: Number(result?.penaltyDivisor || 0),
+    penalty: Number(result?.penalty || 0),
+    timeLimitSeconds: Number(result?.timeLimitSeconds || 0),
+    elapsedSeconds: Number(result?.elapsedSeconds || 0),
+    timedOut: Boolean(result?.timedOut),
     incorrectQuestionIds: Array.isArray(result?.incorrectQuestionIds)
       ? result.incorrectQuestionIds.map((item) => String(item || "").trim()).filter(Boolean)
       : [],
@@ -885,7 +890,9 @@ function createTestZoneResultRecord(state, payload = {}, context = {}) {
   const wrongCount = Math.max(responses.length - correctCount - blankCount, 0);
   const answeredCount = responses.length - blankCount;
   const total = responses.length;
-  const score = correctCount;
+  const penaltyDivisor = context.practiceOptions?.penaltyDivisor || 0;
+  const penalty = penaltyDivisor ? wrongCount / penaltyDivisor : 0;
+  const score = Math.round(Math.max(0, correctCount - penalty) * 1000) / 1000;
   const percentage = total ? Math.round((score / total) * 1000) / 10 : 0;
   const result = {
     id: generateLegacyId("test-zone-result"),
@@ -904,6 +911,9 @@ function createTestZoneResultRecord(state, payload = {}, context = {}) {
     blankCount,
     answeredCount,
     score,
+    penaltyDivisor,
+    penalty: Math.round(penalty * 1000) / 1000,
+    ...(context.practiceOptions || {}),
     total,
     percentage,
     incorrectQuestionIds: responses.filter((response) => !response.isCorrect && !response.isBlank).map((response) => response.questionId),
@@ -4713,8 +4723,31 @@ const server = http.createServer(async (req, res) => {
       },
       withAuth(
         { readState, requireAuthenticatedAccount },
-        withJsonBodyLimit(payloadLimitBytes.testAttempt, async ({ state, account, body: payload }) => {
+        withJsonBodyLimit(payloadLimitBytes.testAttempt, async ({ body: payload }) => {
+      // Read after the body: simultaneous completed attempts must not overwrite each other.
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) return;
       ensureTestZoneState(state);
+      if (payload.expectedAccountId && payload.expectedAccountId !== account.id) {
+        return sendJson(res, 409, { ok: false, error: "La cuenta ha cambiado. Vuelve a entrar en Zona Test." });
+      }
+      const penaltyDivisor = Number(payload.penaltyDivisor ?? 0);
+      const timeLimitSeconds = Number(payload.timeLimitSeconds ?? 0);
+      const elapsedSeconds = Number(payload.elapsedSeconds ?? 0);
+      if (![0, 2, 3, 4].includes(penaltyDivisor) || !Number.isInteger(timeLimitSeconds) ||
+          timeLimitSeconds < 0 || timeLimitSeconds > 10800 || !Number.isInteger(elapsedSeconds) ||
+          elapsedSeconds < 0 || elapsedSeconds > 604800) {
+        throw new Error("Criterio de correccion o tiempo no valido");
+      }
+      const attemptId = String(payload.attemptId || "");
+      if (attemptId && !/^[a-zA-Z0-9-]{16,100}$/.test(attemptId)) throw new Error("Intento no valido");
+      const fingerprint = JSON.stringify([payload.questionIds, payload.answers, penaltyDivisor, timeLimitSeconds]);
+      const previous = attemptId && state.testZoneResults.find(item => item.accountId === account.id && item.attemptId === attemptId && !item.courseId);
+      if (previous) {
+        if (previous.submissionFingerprint !== fingerprint) return sendJson(res, 409, { ok: false, error: "Este intento ya esta guardado con otras respuestas." });
+        return sendJson(res, 200, { ok: true, result: buildTestZoneResultAudiencePayload(previous) });
+      }
       if (isLiveResultPayload(payload)) {
         const sessionKey = String(payload.sessionId || payload.liveSessionId || "").trim();
         const session =
@@ -4735,8 +4768,10 @@ const server = http.createServer(async (req, res) => {
         accountId: account.id,
         memberId: account.memberId || "",
         mode: payload.mode || "general",
-        title: payload.title || "Zona Test"
+        title: payload.title || "Zona Test",
+        practiceOptions: { penaltyDivisor, timeLimitSeconds, elapsedSeconds, timedOut: Boolean(timeLimitSeconds && payload.timedOut) }
       });
+      if (attemptId) Object.assign(result, { attemptId, submissionFingerprint: fingerprint });
       writeState(state);
       return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
         })
