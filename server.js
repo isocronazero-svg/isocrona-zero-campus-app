@@ -1,4 +1,5 @@
 const http = require("http");
+const handleQuestionMaintenance = require("./server/question-maintenance");
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
@@ -420,6 +421,7 @@ function buildTestZoneQuestionAudiencePayload(question) {
   const normalized = normalizeTestZoneQuestionRecord(question);
   return {
     id: normalized.id,
+    revision: normalized.updatedAt || normalized.createdAt,
     prompt: normalized.prompt,
     options: normalized.options,
     part: normalized.part,
@@ -435,7 +437,8 @@ function buildTestZoneQuestionAdminPayload(question) {
     correctIndex: normalized.correctIndex,
     explanation: normalized.explanation,
     createdBy: normalized.createdBy,
-    createdAt: normalized.createdAt
+    createdAt: normalized.createdAt,
+    updatedAt: normalized.updatedAt || normalized.createdAt
   };
 }
 
@@ -470,7 +473,7 @@ function filterTestZoneQuestionsForRequest(state, filters = {}) {
   ensureTestZoneState(state);
   return (state.testZoneQuestions || [])
     .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
-    .filter((question) => matchesTestZoneFilter(question, filters));
+    .filter((question) => !question.deletedAt && matchesTestZoneFilter(question, filters));
 }
 
 function listTestZoneResultsForOwner(state, account) {
@@ -761,6 +764,11 @@ function buildTestZoneResultAudiencePayload(result, options = {}) {
     score: Number(result?.score || 0),
     total: Number(result?.total || 0),
     percentage: Number(result?.percentage || 0),
+    penaltyDivisor: Number(result?.penaltyDivisor || 0),
+    penalty: Number(result?.penalty || 0),
+    timeLimitSeconds: Number(result?.timeLimitSeconds || 0),
+    elapsedSeconds: Number(result?.elapsedSeconds || 0),
+    timedOut: Boolean(result?.timedOut),
     incorrectQuestionIds: Array.isArray(result?.incorrectQuestionIds)
       ? result.incorrectQuestionIds.map((item) => String(item || "").trim()).filter(Boolean)
       : [],
@@ -841,10 +849,20 @@ function createTestZoneResultRecord(state, payload = {}, context = {}) {
       throw new Error("El intento contiene preguntas que no pertenecen a la sesion");
     }
   }
-  const questions = questionIds.map((questionId) => {
+  if (context.practiceOptions && payload.questionVersions !== undefined &&
+      (!Array.isArray(payload.questionVersions) || payload.questionVersions.length !== questionIds.length)) {
+    throw new Error("Las versiones de las preguntas no coinciden con el intento");
+  }
+  const questions = questionIds.map((questionId, index) => {
     const question = questionsById.get(questionId);
     if (!question) {
       throw new Error("Una o varias preguntas del intento no existen");
+    }
+    const revision = context.practiceOptions && payload.questionVersions?.[index];
+    if (revision && revision !== (question.updatedAt || question.createdAt)) {
+      const previous = (question.previousVersions || []).find(q => (q.updatedAt || q.createdAt) === revision);
+      if (!previous) throw new Error("La versión de una pregunta ya no está disponible. Crea un nuevo test.");
+      return normalizeTestZoneQuestionRecord(previous);
     }
     return question;
   });
@@ -885,7 +903,9 @@ function createTestZoneResultRecord(state, payload = {}, context = {}) {
   const wrongCount = Math.max(responses.length - correctCount - blankCount, 0);
   const answeredCount = responses.length - blankCount;
   const total = responses.length;
-  const score = correctCount;
+  const penaltyDivisor = context.practiceOptions?.penaltyDivisor || 0;
+  const penalty = penaltyDivisor ? wrongCount / penaltyDivisor : 0;
+  const score = Math.round(Math.max(0, correctCount - penalty) * 1000) / 1000;
   const percentage = total ? Math.round((score / total) * 1000) / 10 : 0;
   const result = {
     id: generateLegacyId("test-zone-result"),
@@ -904,6 +924,9 @@ function createTestZoneResultRecord(state, payload = {}, context = {}) {
     blankCount,
     answeredCount,
     score,
+    penaltyDivisor,
+    penalty: Math.round(penalty * 1000) / 1000,
+    ...(context.practiceOptions || {}),
     total,
     percentage,
     incorrectQuestionIds: responses.filter((response) => !response.isCorrect && !response.isBlank).map((response) => response.questionId),
@@ -4584,7 +4607,7 @@ const server = http.createServer(async (req, res) => {
       },
       withAuth({ readState, requireAuthenticatedAccount }, async ({ state, account }) => {
       ensureTestZoneState(state);
-      const questions = (state.testZoneQuestions || []).map((question) =>
+      const questions = (state.testZoneQuestions || []).filter(question => !question.deletedAt).map((question) =>
         account.role === "admin"
           ? buildTestZoneQuestionAdminPayload(question)
           : buildTestZoneQuestionAudiencePayload(question)
@@ -4595,6 +4618,11 @@ const server = http.createServer(async (req, res) => {
   ) {
     return;
   }
+
+  if (await handleQuestionMaintenance(req, res, requestUrl, {
+    readState, writeState, requireAuthenticatedAccount, requireAdminAccount, readJsonBody, sendJson, sendJsonError,
+    buildQuestion: buildTestZoneQuestion, adminPayload: buildTestZoneQuestionAdminPayload, generateId: generateLegacyId
+  })) return;
 
   if (requestUrl.pathname === "/api/test-zone/questions" && req.method === "POST") {
     try {
@@ -4713,8 +4741,31 @@ const server = http.createServer(async (req, res) => {
       },
       withAuth(
         { readState, requireAuthenticatedAccount },
-        withJsonBodyLimit(payloadLimitBytes.testAttempt, async ({ state, account, body: payload }) => {
+        withJsonBodyLimit(payloadLimitBytes.testAttempt, async ({ body: payload }) => {
+      // Read after the body: simultaneous completed attempts must not overwrite each other.
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) return;
       ensureTestZoneState(state);
+      if (payload.expectedAccountId && payload.expectedAccountId !== account.id) {
+        return sendJson(res, 409, { ok: false, error: "La cuenta ha cambiado. Vuelve a entrar en Zona Test." });
+      }
+      const penaltyDivisor = Number(payload.penaltyDivisor ?? 0);
+      const timeLimitSeconds = Number(payload.timeLimitSeconds ?? 0);
+      const elapsedSeconds = Number(payload.elapsedSeconds ?? 0);
+      if (![0, 2, 3, 4].includes(penaltyDivisor) || !Number.isInteger(timeLimitSeconds) ||
+          timeLimitSeconds < 0 || timeLimitSeconds > 10800 || !Number.isInteger(elapsedSeconds) ||
+          elapsedSeconds < 0 || elapsedSeconds > 604800) {
+        throw new Error("Criterio de correccion o tiempo no valido");
+      }
+      const attemptId = String(payload.attemptId || "");
+      if (attemptId && !/^[a-zA-Z0-9-]{16,100}$/.test(attemptId)) throw new Error("Intento no valido");
+      const fingerprint = JSON.stringify([payload.questionIds, payload.answers, penaltyDivisor, timeLimitSeconds, ...(payload.questionVersions ? [payload.questionVersions] : [])]);
+      const previous = attemptId && state.testZoneResults.find(item => item.accountId === account.id && item.attemptId === attemptId && !item.courseId);
+      if (previous) {
+        if (previous.submissionFingerprint !== fingerprint) return sendJson(res, 409, { ok: false, error: "Este intento ya esta guardado con otras respuestas." });
+        return sendJson(res, 200, { ok: true, result: buildTestZoneResultAudiencePayload(previous) });
+      }
       if (isLiveResultPayload(payload)) {
         const sessionKey = String(payload.sessionId || payload.liveSessionId || "").trim();
         const session =
@@ -4735,8 +4786,10 @@ const server = http.createServer(async (req, res) => {
         accountId: account.id,
         memberId: account.memberId || "",
         mode: payload.mode || "general",
-        title: payload.title || "Zona Test"
+        title: payload.title || "Zona Test",
+        practiceOptions: { penaltyDivisor, timeLimitSeconds, elapsedSeconds, timedOut: Boolean(timeLimitSeconds && payload.timedOut) }
       });
+      if (attemptId) Object.assign(result, { attemptId, submissionFingerprint: fingerprint });
       writeState(state);
       return sendJson(res, 201, { ok: true, result: buildTestZoneResultAudiencePayload(result) });
         })
@@ -5855,6 +5908,26 @@ const server = http.createServer(async (req, res) => {
               )
             }
           : mergeMemberScopedStateIntoFullState(currentState, payload, account);
+      // Reports are written only through the scoped moderation API.
+      const latestQuestionState = readState();
+      state.testZoneQuestionReports = latestQuestionState.testZoneQuestionReports || [];
+      if (account.role === "admin") {
+        // A stale whole-state save must not resurrect removed questions or undo a correction.
+        const incomingQuestions = new Map((state.testZoneQuestions || []).map(q => [q.id, q]));
+        for (const current of latestQuestionState.testZoneQuestions || []) {
+          const incoming = incomingQuestions.get(current.id);
+          if (current.deletedAt || (current.updatedAt && (!incoming || current.updatedAt > (incoming.updatedAt || "")))) {
+            incomingQuestions.set(current.id, current);
+          }
+        }
+        state.testZoneQuestions = [...incomingQuestions.values()];
+        const retiredIds = new Set(state.testZoneQuestions.filter(q => q.deletedAt).map(q => q.id));
+        for (const course of state.courses || []) {
+          if (!Array.isArray(course.sharedTestQuestionIds)) continue;
+          course.sharedTestQuestionIds = course.sharedTestQuestionIds.filter(id => !retiredIds.has(id));
+          if (!course.sharedTestQuestionIds.length) course.sharedTestPublished = false;
+        }
+      }
       restoreTransportSanitizedSecrets(currentState, state);
       preserveIssuedDiplomasByCourse(currentState, state);
       let summary = null;
