@@ -222,6 +222,7 @@ let toastTimer = null;
 let campusGroupAttachmentDrafts = {};
 let pendingCampusGroupFileTarget = null;
 let pendingCampusGroupDraftClearGroupId = "";
+let campusGroupSaving = false;
 let publicCampusCourses = [];
 let publicCampusStatus = "Cargando cursos abiertos...";
 let associateDeleteDialog = null;
@@ -1377,6 +1378,18 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+    if (action === "refresh-campus-groups") {
+      try {
+        await refreshState();
+        syncStatus = "Biblioteca actualizada";
+      } catch (error) {
+        syncStatus = error.message || "No se pudo actualizar la biblioteca";
+        showToast(syncStatus, "error");
+      }
+      render();
+      return;
+    }
+
     if (action === "select-campus-group") {
       const groupId = actionTarget.dataset.groupId;
       if (!groupId) {
@@ -1423,7 +1436,11 @@ document.addEventListener("click", async (event) => {
       state.campusGroups = state.campusGroups.map((item) => (item.id === group.id ? nextGroup : item));
       state.selectedCampusGroupId = nextGroup.id;
       selectedCampusGroupModuleId = nextModules[nextModules.length - 1]?.id || "";
+      campusGroupSearchQuery = "";
+      campusGroupResourceFilter = "all";
       saveCampusDraft(nextGroup.id, nextGroup);
+      syncStatus = "Subgrupo creado. Pendiente de guardar.";
+      showToast(syncStatus, "info");
       render();
       return;
     }
@@ -1466,6 +1483,8 @@ document.addEventListener("click", async (event) => {
     state.campusGroups = state.campusGroups.map((item) => (item.id === group.id ? nextGroup : item));
     state.selectedCampusGroupId = nextGroup.id;
     selectedCampusGroupModuleId = selectedModule.id;
+    campusGroupSearchQuery = "";
+    campusGroupResourceFilter = "all";
     saveCampusDraft(nextGroup.id, nextGroup);
     render();
     return;
@@ -1518,10 +1537,8 @@ document.addEventListener("click", async (event) => {
     if (!draft) {
       return;
     }
-    state.campusGroups = state.campusGroups.map((item) => (item.id === group.id ? draft : item));
-    pendingCampusGroupDraftClearGroupId = group.id;
-    shouldPersist = true;
-    syncStatus = "Guardando grupo interno...";
+    await saveCampusGroupAndRender(draft);
+    return;
   }
 
   if (action === "select-course") {
@@ -3475,6 +3492,8 @@ document.addEventListener("input", (event) => {
     const draft = readCampusGroupEditorDraft(group);
     if (draft?.id) {
       saveCampusDraft(draft.id, draft);
+      const status = document.getElementById("campusGroupSaveStatus");
+      if (status) status.textContent = "Cambios pendientes de guardar";
     }
   }
 });
@@ -3513,6 +3532,7 @@ document.addEventListener("change", (event) => {
           entryId
         };
 
+        const fileTarget = pendingCampusGroupFileTarget;
         const file = await readFileInput(event.target, {
           maxBytes: getCampusGroupFileMaxBytes(category),
           label: category === "practiceSheets" ? "La ficha de practica" : "El documento interno"
@@ -3522,7 +3542,7 @@ document.addEventListener("change", (event) => {
           return;
         }
 
-        await applyCampusGroupFileSelection(file);
+        await applyCampusGroupFileSelection(file, fileTarget);
       } catch (error) {
         syncStatus = error.message || "No se pudo cargar el archivo";
         showToast(syncStatus, "error");
@@ -3537,12 +3557,13 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "globalFilePicker") {
     (async () => {
       try {
+        const fileTarget = pendingCampusGroupFileTarget;
         const file = await readFileInput(event.target);
         if (!file) {
           pendingCampusGroupFileTarget = null;
           return;
         }
-        await applyCampusGroupFileSelection(file);
+        await applyCampusGroupFileSelection(file, fileTarget);
       } catch (error) {
         syncStatus = error.message || "No se pudo cargar el archivo";
         showToast(syncStatus, "error");
@@ -4858,11 +4879,12 @@ function normalizeState(data) {
     nextState.selectedCourseId = nextState.courses[0].id;
   }
 
-  nextState.campusGroups = (
-    Array.isArray(nextState.campusGroups) && nextState.campusGroups.length
-      ? nextState.campusGroups
-      : buildDefaultCampusGroups()
-  ).map((group, index) =>
+  const savedGroups = Array.isArray(nextState.campusGroups) ? nextState.campusGroups : [];
+  const defaultGroups = isAdminSession() ? buildDefaultCampusGroups() : [];
+  nextState.campusGroups = [
+    ...savedGroups,
+    ...defaultGroups.filter((group) => !savedGroups.some((saved) => saved.id === group.id))
+  ].map((group, index) =>
     normalizeCampusGroup(group, index)
   );
   if (!nextState.selectedCampusGroupId && nextState.campusGroups[0]) {
@@ -9489,7 +9511,7 @@ function renderCampusGroupEntryList(entries, emptyMessage, options = {}) {
           options.groupId && options.moduleId
             ? campusGroupAttachmentDrafts[getCampusGroupAttachmentDraftKey(options.groupId, options.moduleId, category, entry.id)] || null
             : null;
-        const visibleAttachment = entry.attachment || attachmentDraft;
+        const visibleAttachment = (editable && attachmentDraft) || entry.attachment;
         const resourceLabel = getCampusGroupCategoryLabel(category);
         const resourceIcon = getCampusGroupCategoryIcon(category);
         const resourceMeta = getCampusGroupResourceMeta(entry, category, visibleAttachment);
@@ -9516,7 +9538,6 @@ function renderCampusGroupEntryList(entries, emptyMessage, options = {}) {
                     <textarea data-campus-group-field="note">${escapeHtml(entry.note || "")}</textarea>
                   </label>
                 </div>
-                <input type="hidden" data-campus-group-field="attachment" value="${visibleAttachment ? escapeHtml(JSON.stringify(visibleAttachment)) : ""}" />
                 <div class="chip-row campus-group-entry-tools">
                   ${
                     ["documents", "practiceSheets"].includes(category)
@@ -9531,6 +9552,7 @@ function renderCampusGroupEntryList(entries, emptyMessage, options = {}) {
                             data-entry-id="${escapeHtml(entry.id)}"
                             accept="${escapeHtml(getCampusGroupFileAccept(category))}"
                           />
+                          <span class="muted">Maximo ${formatFileSize(getCampusGroupFileMaxBytes(category))} por archivo</span>
                         </label>
                       `
                       : `<span class="small-chip">En esta categoria los recursos se guardan por enlace, no por archivo local</span>`
@@ -9635,14 +9657,17 @@ function renderCampusGroupsSection() {
   `;
 
   return `
-    <section class="panel-stack associate-anchor" id="campusSectionGroups">
+    <section class="panel-stack associate-anchor" id="campusSectionGroups" ${campusGroupSaving ? 'inert aria-busy="true"' : ""}>
       <div class="panel-header">
         <div>
           <p class="eyebrow">Grupos internos</p>
           <h3>Bibliotecas internas por especialidad</h3>
           <p class="muted">Entra en un grupo y trabaja su contenido sin mezclarlo con el resto del campus.</p>
         </div>
+        <button class="ghost-button" type="button" data-action="refresh-campus-groups">Actualizar biblioteca</button>
       </div>
+
+      ${!state.campusGroups.length ? '<div class="empty-state">No tienes grupos internos disponibles.</div>' : ""}
 
       <div class="group-selector-grid">
         ${state.campusGroups
@@ -9709,7 +9734,7 @@ function renderCampusGroupsSection() {
                     .join("")}
                   ${
                     editable
-                      ? `<button class="ghost-button" type="button" data-action="add-campus-group-module">Anadir modulo</button>`
+                      ? `<button class="ghost-button" type="button" data-action="add-campus-group-module">Anadir subgrupo</button>`
                       : ""
                   }
                 </div>
@@ -9718,11 +9743,11 @@ function renderCampusGroupsSection() {
                     ? `
                       <div class="studio-grid">
                         <label class="inline-field">
-                          Nombre del modulo
+                          Nombre del subgrupo
                           <input id="campusGroupModuleTitle" value="${escapeHtml(selectedModule.title)}" />
                         </label>
                         <label class="inline-field studio-full">
-                          Resumen del modulo
+                          Resumen del subgrupo
                           <textarea id="campusGroupModuleSummary">${escapeHtml(selectedModule.summary || "")}</textarea>
                         </label>
                       </div>
@@ -9769,8 +9794,8 @@ function renderCampusGroupsSection() {
                   editable
                     ? `
                       <div class="chip-row compact-chip-row">
-                        <button class="primary-button" type="button" data-action="save-campus-group">Guardar grupo interno</button>
-                        <span class="small-chip">Los cambios del grupo activo se guardan aqui</span>
+                        <button class="primary-button" type="button" data-action="save-campus-group" ${campusGroupSaving ? "disabled" : ""}>${campusGroupSaving ? "Guardando..." : "Guardar grupo interno"}</button>
+                        <span id="campusGroupSaveStatus" role="status">${campusGroupSaving ? "Subiendo y guardando recursos..." : loadCampusDraft(selectedGroup.id) ? "Cambios pendientes de guardar" : "Grupo guardado"}</span>
                       </div>
                     `
                     : ""
@@ -20602,17 +20627,17 @@ function getCampusGroupFileAccept(category) {
 
 function getCampusGroupFileMaxBytes(category) {
   if (category === "documents" || category === "practiceSheets") {
-    return 150_000_000;
+    return 20_000_000;
   }
   return 0;
 }
 
-async function applyCampusGroupFileSelection(file) {
-  if (!file || !pendingCampusGroupFileTarget) {
+async function applyCampusGroupFileSelection(file, target = pendingCampusGroupFileTarget) {
+  if (!file || !target) {
     return;
   }
 
-  const { groupId, moduleId, category, entryId } = pendingCampusGroupFileTarget;
+  const { groupId, moduleId, category, entryId } = target;
   const maxBytes = getCampusGroupFileMaxBytes(category);
   if (maxBytes && Number(file.size || 0) > maxBytes) {
     pendingCampusGroupFileTarget = null;
@@ -20620,7 +20645,7 @@ async function applyCampusGroupFileSelection(file) {
       `El archivo supera el limite de ${formatFileSize(maxBytes)}. Para videos muy pesados conviene usar un enlace externo, pero los documentos y practicas ya admiten bastante mas tamano.`
     );
   }
-  const group = state.campusGroups.find((item) => item.id === groupId) || null;
+  const group = loadCampusDraft(groupId) || state.campusGroups.find((item) => item.id === groupId) || null;
   if (!group || !moduleId || !category || !entryId) {
     pendingCampusGroupFileTarget = null;
     return;
@@ -20632,7 +20657,7 @@ async function applyCampusGroupFileSelection(file) {
     return;
   }
 
-  const draft = readCampusGroupEditorDraft(group) || group;
+  const draft = group;
   const nextModules = (draft.modules || []).map((module, moduleIndex) =>
     module.id === selectedModule.id
       ? normalizeCampusGroupModule(
@@ -20666,6 +20691,7 @@ async function applyCampusGroupFileSelection(file) {
   state.campusGroups = state.campusGroups.map((item) => (item.id === group.id ? nextGroup : item));
   state.selectedCampusGroupId = nextGroup.id;
   selectedCampusGroupModuleId = moduleId;
+  saveCampusDraft(nextGroup.id, nextGroup);
   syncStatus = `Archivo cargado para ${file.name}. Guarda el grupo interno para dejarlo persistido.`;
   pendingCampusGroupFileTarget = null;
   showToast("Archivo preparado en el grupo interno", "success");
@@ -20767,6 +20793,8 @@ function sanitizeCampusDraftEntry(entry, category, index) {
 function buildCampusDraftData(data) {
   const normalizedGroup = normalizeCampusGroup(data, 0);
   return {
+    ...normalizedGroup,
+    documents: [], practiceSheets: [], videos: [], links: [],
     id: normalizedGroup.id,
     title: normalizedGroup.title,
     summary: normalizedGroup.summary,
@@ -20792,22 +20820,56 @@ function buildCampusDraftData(data) {
 
 function saveCampusDraft(groupId, data) {
   const normalizedGroupId = String(groupId || "").trim();
-  if (!normalizedGroupId || !data) {
+  if (!normalizedGroupId || !data || !isAdminView()) {
     return;
   }
 
+  const draft = normalizeCampusGroup({ ...data, id: normalizedGroupId });
+  state.campusGroups = state.campusGroups.map((group) => group.id === normalizedGroupId ? draft : group);
   try {
     sessionStorage.setItem(
       getCampusDraftStorageKey(normalizedGroupId),
-      JSON.stringify(buildCampusDraftData({ ...data, id: normalizedGroupId }))
+      JSON.stringify(buildCampusDraftData(draft))
     );
   } catch (error) {
   }
 }
 
+async function saveCampusGroupAndRender(draft) {
+  if (!isAdminView() || campusGroupSaving) return false;
+  saveCampusDraft(draft.id, draft);
+  campusGroupSaving = true;
+  syncStatus = "Guardando grupo interno...";
+  render();
+  try {
+    const response = await fetch(`/api/campus-groups/${encodeURIComponent(draft.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ group: { title: draft.title, summary: draft.summary, modules: draft.modules } })
+    });
+    const payload = await readJsonResponse(response, "No se pudo leer la respuesta del grupo");
+    if (!response.ok || !payload.group) throw new Error(payload.error || "No se pudo guardar el grupo interno");
+    state.campusGroups = state.campusGroups.map((group) => group.id === draft.id ? normalizeCampusGroup(payload.group) : group);
+    clearCampusDraft(draft.id);
+    for (const key of Object.keys(campusGroupAttachmentDrafts)) {
+      if (key.startsWith(`${draft.id}::`)) delete campusGroupAttachmentDrafts[key];
+    }
+    syncStatus = "Grupo interno guardado";
+    showToast(syncStatus, "success");
+    return true;
+  } catch (error) {
+    syncStatus = error.message || "No se pudo guardar el grupo interno";
+    showToast(syncStatus, "error");
+    return false;
+  } finally {
+    campusGroupSaving = false;
+    render();
+  }
+}
+
 function loadCampusDraft(groupId) {
   const normalizedGroupId = String(groupId || "").trim();
-  if (!normalizedGroupId) {
+  if (!normalizedGroupId || !isAdminView()) {
     return null;
   }
 
@@ -20817,8 +20879,23 @@ function loadCampusDraft(groupId) {
       return null;
     }
 
+    const base = state.campusGroups.find((group) => group.id === normalizedGroupId);
+    if (!base) return null;
     const parsed = JSON.parse(raw);
-    return buildCampusDraftData({ ...parsed, id: normalizedGroupId });
+    const draft = normalizeCampusGroup({ ...base, ...parsed, id: normalizedGroupId });
+    draft.modules = draft.modules.map((module) => {
+      const original = (base.modules || []).find((item) => item.id === module.id);
+      const next = { ...module };
+      for (const category of ["documents", "practiceSheets", "videos", "links"]) {
+        next[category] = module[category].map((entry) => {
+          const key = getCampusGroupAttachmentDraftKey(draft.id, module.id, category, entry.id);
+          const saved = (original?.[category] || []).find((item) => item.id === entry.id);
+          return { ...entry, attachment: campusGroupAttachmentDrafts[key] || saved?.attachment || entry.attachment };
+        });
+      }
+      return next;
+    });
+    return normalizeCampusGroup(draft);
   } catch (error) {
     return null;
   }
@@ -20831,6 +20908,7 @@ function normalizeCampusGroup(group, index = 0) {
     : buildFallbackCampusGroupModules(group, groupId);
 
   return {
+    ...group,
     id: groupId,
     title: String(group?.title || `Grupo interno ${index + 1}`).trim(),
     summary: String(group?.summary || "").trim(),
@@ -20881,21 +20959,12 @@ function readCampusGroupEditorDraft(group) {
       return Array.isArray(selectedModule[category]) ? selectedModule[category] : [];
     }
 
-    return rows.map((row, index) => {
-      const attachmentRaw = row.querySelector(`[data-campus-group-field="attachment"]`)?.value || "";
-      let attachment = null;
-      if (attachmentRaw) {
-        try {
-          attachment = JSON.parse(attachmentRaw);
-        } catch (error) {
-          attachment = null;
-        }
-      }
-      if (!attachment) {
-        const draftKey = getCampusGroupAttachmentDraftKey(group.id, selectedModule.id, category, row.dataset.entryId || "");
-        attachment = campusGroupAttachmentDrafts[draftKey] || null;
-      }
-      return normalizeCampusGroupEntry(
+    const entries = selectedModule[category] || [];
+    const edited = new Map(rows.map((row, index) => {
+      const existing = entries.find((entry) => entry.id === row.dataset.entryId);
+      const draftKey = getCampusGroupAttachmentDraftKey(group.id, selectedModule.id, category, row.dataset.entryId || "");
+      const attachment = campusGroupAttachmentDrafts[draftKey] || existing?.attachment || null;
+      const entry = normalizeCampusGroupEntry(
         {
           id: row.dataset.entryId || `${group.id}-${category}-${index}`,
           title: row.querySelector(`[data-campus-group-field="title"]`)?.value || "",
@@ -20906,7 +20975,10 @@ function readCampusGroupEditorDraft(group) {
         category,
         index
       );
-    });
+      return [entry.id, entry];
+    }));
+    // The editor may show only a filtered subset; hidden resources are not deletions.
+    return entries.map((entry) => edited.get(entry.id) || entry);
   };
 
   const nextModules = (group.modules || []).map((module, moduleIndex) =>
@@ -20914,8 +20986,8 @@ function readCampusGroupEditorDraft(group) {
       ? normalizeCampusGroupModule(
           {
             ...module,
-            title: document.getElementById("campusGroupModuleTitle")?.value || module.title,
-            summary: document.getElementById("campusGroupModuleSummary")?.value || module.summary,
+            title: document.getElementById("campusGroupModuleTitle")?.value ?? module.title,
+            summary: document.getElementById("campusGroupModuleSummary")?.value ?? module.summary,
             documents: readCategory("documents"),
             practiceSheets: readCategory("practiceSheets"),
             videos: readCategory("videos"),
@@ -20930,8 +21002,8 @@ function readCampusGroupEditorDraft(group) {
   return normalizeCampusGroup(
     {
       ...group,
-      title: document.getElementById("campusGroupTitle")?.value || group.title,
-      summary: document.getElementById("campusGroupSummary")?.value || group.summary,
+      title: document.getElementById("campusGroupTitle")?.value ?? group.title,
+      summary: document.getElementById("campusGroupSummary")?.value ?? group.summary,
       modules: nextModules
     },
     0
