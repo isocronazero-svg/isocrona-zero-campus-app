@@ -4,12 +4,13 @@ import { once } from 'node:events';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import net from 'node:net';
 import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 
-const root = path.resolve(new URL('..', import.meta.url).pathname);
+const root = fileURLToPath(new URL('..', import.meta.url));
 const dir = mkdtempSync(path.join(tmpdir(), 'iz-live-quiz-'));
 const seed = JSON.parse(readFileSync(path.join(root, 'data/default-state.json'), 'utf8'));
 seed.accounts = [
@@ -87,7 +88,8 @@ try{
   assert.equal((await req(`/api/live-quiz/${id}`,undefined,{token:one})).body.session.player.id,p1.body.session.player.id);
   s=(await action(id,'next',s.revision)).body.session;assert.equal(s.index,1);
   assert.equal((await action(id,'next',s.revision-1)).status,409,'Double next must not skip a question');
-  changeStored(id,x=>{x.deadline=Date.now()-1;});
+  // A fixed past deadline avoids millisecond clock skew between test/server processes.
+  changeStored(id,x=>{x.deadline=1;});
   s=await view(id);assert.equal(s.phase,'reveal','Timer closes the question on the server');
   assert.equal((await req(`/api/live-quiz/${id}/answer`,{questionId:s.question.id,selectedIndex:0},{token:one})).status,409);
   s=(await action(id,'next',s.revision)).body.session;assert.equal(s.index,2);
