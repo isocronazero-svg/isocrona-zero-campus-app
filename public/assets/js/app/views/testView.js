@@ -699,8 +699,8 @@ function buildAdminQuestionForm() {
       <div class="test-zone-card-head">
         <div>
           <p class="test-zone-kicker">Administración</p>
-          <h3>Banco y test en vivo</h3>
-          <p class="muted">Mantén el banco compartido y abre sesiones de test en vivo con código para externos.</p>
+          <h3>Banco y tests a tu ritmo</h3>
+          <p class="muted">Mantén el banco compartido y crea tests con código para responder sin temporizador.</p>
         </div>
       </div>
       <form class="test-zone-admin-form" data-test-zone-question-form>
@@ -745,7 +745,7 @@ function buildAdminQuestionForm() {
       </form>
       <form class="test-zone-live-form" data-test-zone-live-form>
         <label class="test-zone-field test-zone-field-full">
-          <span>Título del test en vivo</span>
+          <span>Título del test con código</span>
           <input type="text" name="title" placeholder="Ej. Simulacro abierto de legislación" />
         </label>
         <label class="test-zone-field">
@@ -776,7 +776,7 @@ function buildAdminQuestionForm() {
           <input type="number" name="questionCount" min="1" max="100" value="20" />
         </label>
         <div class="test-zone-actions test-zone-field-full">
-          <button type="submit" class="test-zone-secondary-button">Abrir test en vivo</button>
+          <button type="submit" class="test-zone-secondary-button">Crear test a tu ritmo</button>
         </div>
       </form>
       <div class="test-zone-live-list">
@@ -812,6 +812,7 @@ function buildLayout() {
         </div>
       </header>
       ${testSession.role === "admin" ? '<section class="test-zone-card"><h3>Cargar preguntas por bloques y temas</h3><p>IVASPE · TEMARIO COMÚN · GUADALAJARA</p><a class="test-zone-primary-button" href="/question-bank.html">Importar documentos de preguntas</a></section>' : ""}
+      ${testSession.role === "admin" ? '<section class="test-zone-card"><h3>Test en vivo · Todos a la vez</h3><p>Sala de espera, preguntas con tiempo y clasificación. El profesor marca el ritmo.</p><a class="test-zone-primary-button" href="/live-host.html">Dirigir test en vivo</a></section>' : '<section class="test-zone-card"><a class="test-zone-primary-button" href="/play-live.html">Entrar al test en vivo con código</a></section>'}
       ${buildProgressStatsPanel()}
       ${buildControlsMarkup()}
       ${buildQuestionAttemptMarkup()}

@@ -101,7 +101,10 @@ form.addEventListener("submit", async (event) => {
 
 function showLiveControls() {
   const panel = document.getElementById("live"); panel.hidden = false;
-  const button = element("button", "Crear sesión en vivo con estas preguntas", "ghost-button");
+  const pacedLink = element("a", "Dirigir test en vivo con estas preguntas", "button-link");
+  pacedLink.href = `/live-host.html?courseId=${encodeURIComponent(courseId)}`;
+  panel.append(pacedLink);
+  const button = element("button", "Crear test a tu ritmo con código", "ghost-button");
   button.type = "button";
   const message = element("p"); message.setAttribute("role", "status");
   button.addEventListener("click", async () => {
