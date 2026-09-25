@@ -4459,6 +4459,22 @@ tr:last-child td {
   }
 }
 
+.own-banner-slot {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 20px;
+  width: 100%;
+  margin: 24px auto;
+}
+.own-banner-slot[hidden] { display: none; }
+.login-layout > .own-banner-slot { grid-column: 1 / -1; }
+.own-banner { min-width: 0; }
+.own-banner p { margin: 0 0 6px; font-size: 12px; color: #52616c; }
+.own-banner img { display: block; width: 100%; aspect-ratio: 4 / 1; object-fit: contain; background: #fff; }
+.own-banner a:focus-visible { outline: 3px solid #126647; outline-offset: 4px; }
+.own-banner-editor { min-width: 0; padding: 16px 0; border: 0; border-bottom: 1px solid #d6dce2; }
+.own-banner-editor input:not([type=checkbox]) { width: 100%; min-width: 0; }
+
 /* Test zone training workspace */
 .test-zone-view {
   display: grid;

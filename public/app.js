@@ -10,6 +10,7 @@ import {
   MANUAL_NOTICE_TONE_LABELS
 } from "./assets/js/app/ui/labels.js";
 import { escapeHtml, formatDate } from "./assets/js/app/ui/formatters.js";
+import { renderBanners, renderBannerSettings, readBannerSettings, invalidateBanners } from "./assets/js/app/ui/banners.js";
 import {
   ADMIN_ONLY_VIEWS,
   ASSOCIATE_ADMIN_ONLY_ACTIONS,
@@ -3988,6 +3989,15 @@ document.addEventListener("submit", async (event) => {
     return;
   }
 
+  if (event.target.id === "bannersForm" && isAdminSession()) {
+    event.preventDefault();
+    const banners = readBannerSettings(event.target);
+    invalidateBanners();
+    await invokeJsonAction("/api/admin/banners", { banners }, "Banners guardados", "PUT", event.target);
+    invalidateBanners();
+    return;
+  }
+
   if (event.target.id === "settingsForm" && isAdminSession()) {
     event.preventDefault();
     state.settings.certificateCity = document.getElementById("settingCertificateCity").value.trim();
@@ -5534,6 +5544,16 @@ function render() {
   renderMetrics();
   syncFrontendStore();
   renderMainPanel();
+  if (!session) {
+    void renderBanners(document.getElementById("publicBanners"));
+  } else if (["overview", "join"].includes(state.activeView) && !session.mustChangePassword) {
+    const slot = document.createElement("section");
+    slot.className = "own-banner-slot";
+    slot.setAttribute("aria-label", "Publicidad propia");
+    slot.hidden = true;
+    mainPanel.append(slot);
+    void renderBanners(slot);
+  }
   if (pendingViewAnchorId) {
     const anchorId = pendingViewAnchorId;
     pendingViewAnchorId = "";
@@ -11160,6 +11180,11 @@ function renderReports() {
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
+
+      <details class="own-banner-settings">
+        <summary>Banners propios</summary>
+        ${renderBannerSettings(state.settings.banners)}
+      </details>
 
       ${
         showReportsSection("exports")
