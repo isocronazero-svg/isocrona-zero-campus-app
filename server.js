@@ -1064,7 +1064,7 @@ function expireStaleTestZoneLiveSessions(state, now = Date.now()) {
   ensureTestZoneState(state);
   let changed = false;
   for (const session of state.testZoneLiveSessions || []) {
-    if (String(session?.status || "").trim() !== "active") {
+    if (!["lobby", "active"].includes(String(session?.status || "").trim())) {
       continue;
     }
     if (!isTestZoneLiveSessionActive(session, now)) {
@@ -1077,7 +1077,7 @@ function expireStaleTestZoneLiveSessions(state, now = Date.now()) {
 }
 
 function closeTestZoneLiveSession(session) {
-  if (!session || String(session.status || "").trim() !== "active") {
+  if (!session || !["lobby", "active"].includes(String(session.status || "").trim())) {
     return session;
   }
   session.status = "closed";
@@ -1151,9 +1151,14 @@ function buildTestZoneLiveSessionAdminPayload(session) {
 function getTestZoneLiveSessionByCode(state, code) {
   ensureTestZoneState(state);
   const normalizedCode = String(code || "").trim();
-  return (state.testZoneLiveSessions || []).find(
-    (session) => String(session.code || "").trim() === normalizedCode && isTestZoneLiveSessionActive(session)
-  ) || null;
+  const now = Date.now();
+  return (state.testZoneLiveSessions || []).find((session) => {
+    const status = String(session?.status || "").trim();
+    const expiresAtMs = Date.parse(String(session?.expiresAt || ""));
+    const available = status === "lobby" || status === "active";
+    const unexpired = !Number.isFinite(expiresAtMs) || expiresAtMs > now;
+    return String(session.code || "").trim() === normalizedCode && available && unexpired;
+  }) || null;
 }
 
 function getTestZoneLiveSessionById(state, sessionId) {
