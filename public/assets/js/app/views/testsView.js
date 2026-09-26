@@ -468,7 +468,7 @@ async function ensureStudentActiveLiveSession() {
     return;
   }
 
-  const response = await client.get(`/api/live-tests/${encodeURIComponent(testsViewState.activeLiveSessionId)}`);
+  const response = await client.get(`/api/live-tests/${encodeURIComponent(testsViewState.activeLiveSessionId)}?scope=participant`);
   testsViewState.liveSessionState = response.session || null;
   syncLiveQuestionShownAt(testsViewState.liveSessionState);
 }

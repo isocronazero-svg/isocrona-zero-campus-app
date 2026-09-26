@@ -895,6 +895,32 @@ async function main() {
     assert.equal(incorrectAnswerResponse.body?.pointsAwarded, 0, "Una respuesta incorrecta no debe conceder puntos");
     assertForbiddenKeysAbsent(incorrectAnswerResponse.body, "incorrect answer response");
 
+    const ownRoom = (await adminClient.request("POST", "/api/live-tests", {
+      testId: "test-live-smoke", questionTimeLimitSeconds: 120
+    })).body.session;
+    const participantUrl = `/api/live-tests/${ownRoom.id}?scope=participant`;
+    assert.equal((await adminClient.request("GET", participantUrl, undefined, { allowFailure: true })).status, 403);
+    const joinedAdmin = (await adminClient.request("POST", "/api/live-tests/join", {
+      pin: ownRoom.pin, displayName: "Admin alumno"
+    })).body.session;
+    await adminClient.request("POST", `/api/live-tests/${ownRoom.id}/start`, {});
+    const initialPlayer = (await adminClient.request("GET", participantUrl)).body.session;
+    assert.equal(initialPlayer.player.id, joinedAdmin.player.id);
+    assert.equal(initialPlayer.hasAnsweredCurrentQuestion, false);
+    assertForbiddenKeysAbsent(initialPlayer, "admin participant before answer");
+    const ownAnswer = (await adminClient.request("POST", `/api/live-tests/${ownRoom.id}/answer`, {
+      questionId: "question-live-smoke-1", selectedIndex: 0
+    })).body;
+    const polledPlayer = (await adminClient.request("GET", participantUrl)).body.session;
+    assert.equal(polledPlayer.hasAnsweredCurrentQuestion, true);
+    assert.equal(polledPlayer.player.id, joinedAdmin.player.id);
+    assert.equal(polledPlayer.player.score, ownAnswer.score);
+    assertForbiddenKeysAbsent(polledPlayer, "admin participant poll");
+    const host = (await adminClient.request("GET", `/api/live-tests/${ownRoom.id}`)).body.session;
+    assert.equal(host.player, undefined, "Default admin polling still returns host state");
+    assert.equal((await memberClient.request("GET", `/api/live-tests/${ownRoom.id}?scope=host`, undefined, { allowFailure: true })).status, 403);
+    const frontend = readFileSync(path.join(repoRoot, "public/assets/js/app/views/testsView.js"), "utf8");
+    assert.match(frontend, /activeLiveSessionId\)\}\?scope=participant/, "Student polling must request its own participant state");
     console.log("Live smoke checks passed.");
   } finally {
     child.kill();

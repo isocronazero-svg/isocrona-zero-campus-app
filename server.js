@@ -5567,7 +5567,7 @@ const server = http.createServer(async (req, res) => {
         }
         return sendJson(res, 404, { ok: false, error: "Sesion live no encontrada" });
       }
-      if (account.role === "admin") {
+      if (account.role === "admin" && requestUrl.searchParams.get("scope") !== "participant") {
         if (expired) {
           writeState(state);
         }
