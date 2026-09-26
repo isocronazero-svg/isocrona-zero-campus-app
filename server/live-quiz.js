@@ -12,12 +12,45 @@ function createLiveQuizHandler(deps) {
   db.exec(`PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS live_quizzes (
     id TEXT PRIMARY KEY, code TEXT UNIQUE NOT NULL, owner_id TEXT NOT NULL,
     request_id TEXT NOT NULL, value TEXT NOT NULL, UNIQUE(owner_id, request_id)
-  );`);
+  );
+  CREATE TABLE IF NOT EXISTS live_quiz_answers (
+    session_id TEXT NOT NULL, player_id TEXT NOT NULL, question_id TEXT NOT NULL,
+    selected_index INTEGER NOT NULL, correct INTEGER NOT NULL, points INTEGER NOT NULL,
+    submitted_at INTEGER NOT NULL, PRIMARY KEY(session_id, player_id, question_id)
+  );
+  CREATE INDEX IF NOT EXISTS live_quiz_answers_question ON live_quiz_answers(session_id, question_id);`);
+  const insertAnswer = db.prepare(`INSERT INTO live_quiz_answers
+    (session_id,player_id,question_id,selected_index,correct,points,submitted_at) VALUES(?,?,?,?,?,?,?)
+    ON CONFLICT(session_id,player_id,question_id) DO NOTHING`);
+  const findAnswer = db.prepare(`SELECT selected_index AS selectedIndex FROM live_quiz_answers
+    WHERE session_id=? AND player_id=? AND question_id=?`);
+  const questionAnswers = db.prepare(`SELECT player_id AS playerId, selected_index AS selectedIndex, correct, points
+    FROM live_quiz_answers WHERE session_id=? AND question_id=?`);
+  const playerScores = db.prepare(`SELECT player_id AS playerId, SUM(points) AS score, SUM(correct) AS correct,
+    COUNT(*) AS answered FROM live_quiz_answers WHERE session_id=? GROUP BY player_id`);
   const save = session => db.prepare('UPDATE live_quizzes SET value=? WHERE id=?').run(JSON.stringify(session), session.id);
+  const recordAnswer = (sessionId, playerId, questionId, answer) => insertAnswer.run(
+    sessionId, playerId, questionId, answer.selectedIndex, Number(answer.correct), answer.points, answer.submittedAt
+  );
+  function readRow(row) {
+    const session = JSON.parse(row.value);
+    // Migrate old rooms atomically once; subsequent answers never rewrite the room snapshot.
+    if (session.answerStorageVersion !== 1) {
+      for (const player of session.players) {
+        for (const [questionId, answer] of Object.entries(player.answers || {})) {
+          recordAnswer(session.id, player.id, questionId, answer);
+        }
+        delete player.answers;
+      }
+      session.answerStorageVersion = 1;
+      save(session);
+    }
+    return session;
+  }
   const read = (key, byCode = false) => {
     const row = db.prepare(`SELECT value FROM live_quizzes WHERE ${byCode ? 'code' : 'id'}=?`).get(key);
     if (!row) throw fail('No existe una sesión en vivo con ese código.', 404);
-    return JSON.parse(row.value);
+    return readRow(row);
   };
   const transaction = fn => {
     db.exec('BEGIN IMMEDIATE');
@@ -32,19 +65,22 @@ function createLiveQuizHandler(deps) {
     }
   }
   function rankings(session) {
+    const scores = new Map(playerScores.all(session.id).map(row => [row.playerId, row]));
     return session.players.map(player => {
-      const answers = Object.values(player.answers);
-      return { id: player.id, name: player.name, score: answers.reduce((sum, answer) => sum + answer.points, 0),
-        correct: answers.filter(answer => answer.correct).length, answered: answers.length, joinedAt: player.joinedAt };
+      const score = scores.get(player.id);
+      return { id: player.id, name: player.name, score: score?.score || 0,
+        correct: score?.correct || 0, answered: score?.answered || 0, joinedAt: player.joinedAt };
     }).sort((a, b) => b.score - a.score || b.correct - a.correct || a.joinedAt - b.joinedAt)
       .map((player, index) => ({ ...player, rank: index + 1 }));
   }
   function audience(session, player = null, host = false) {
     const question = session.questions[session.index];
     const revealed = ['reveal', 'finished'].includes(session.phase);
-    const answer = question && player?.answers[question.id];
-    const leaderboard = rankings(session);
-    const counts = question ? question.options.map((_, optionIndex) => session.players.filter(p => p.answers[question.id]?.selectedIndex === optionIndex).length) : [];
+    const answers = new Map((question ? questionAnswers.all(session.id, question.id) : []).map(row => [row.playerId, row]));
+    const answer = player && answers.get(player.id);
+    const leaderboard = revealed || session.phase === 'lobby' ? rankings(session) : [];
+    const counts = question ? question.options.map(() => 0) : [];
+    for (const entry of answers.values()) counts[entry.selectedIndex]++;
     return {
       id: session.id, code: session.code, title: session.title, courseId: session.courseId,
       phase: session.phase, revision: session.revision, index: session.index, total: session.questions.length,
@@ -58,9 +94,9 @@ function createLiveQuizHandler(deps) {
       // No correctness, points or rankings while answers are still being collected.
       leaderboard: revealed || session.phase === 'lobby' ? leaderboard : [],
       player: player ? { id: player.id, name: player.name, answered: Boolean(answer), selectedIndex: answer?.selectedIndex ?? null,
-        ...(revealed ? { answer: answer ? { correct: answer.correct, points: answer.points } : null,
+        ...(revealed ? { answer: answer ? { correct: Boolean(answer.correct), points: answer.points } : null,
           score: leaderboard.find(item => item.id === player.id)?.score || 0 } : {}) } : null,
-      ...(host ? { players: session.players.map(p => ({ id: p.id, name: p.name, answered: Boolean(question && p.answers[question.id]) })) } : {})
+      ...(host ? { players: session.players.map(p => ({ id: p.id, name: p.name, answered: answers.has(p.id) })) } : {})
     };
   }
   function identify(session, req, body) {
@@ -76,7 +112,7 @@ function createLiveQuizHandler(deps) {
     if (!Number.isInteger(count) || count < 1 || count > 100) throw fail('Elige entre 1 y 100 preguntas.');
     if (!Number.isInteger(seconds) || seconds < 5 || seconds > 120) throw fail('El tiempo debe estar entre 5 y 120 segundos.');
     const existing = db.prepare('SELECT value FROM live_quizzes WHERE owner_id=? AND request_id=?').get(account.id, body.requestId);
-    if (existing) return JSON.parse(existing.value);
+    if (existing) return readRow(existing);
     const selected = deps.selectQuestions(state, body);
     const questions = selected.map(q => ({ id: q.id, prompt: q.prompt, options: q.options, correctIndex: q.correctIndex, explanation: q.explanation || '' }));
     if (!questions.length) throw fail('No hay preguntas para esta selección.');
@@ -86,7 +122,7 @@ function createLiveQuizHandler(deps) {
     while (db.prepare('SELECT id FROM live_quizzes WHERE code=?').get(code) || (state.testZoneLiveSessions || []).some(item => item.code === code));
     const session = { id: randomUUID(), code, title: String(body.title || 'Test en vivo').trim().slice(0, 150) || 'Test en vivo',
       courseId: String(body.courseId || ''), ownerId: account.id, requestId: body.requestId,
-      questions, players: [], phase: 'lobby', revision: 0, index: -1, seconds, deadline: null,
+      questions, players: [], answerStorageVersion: 1, phase: 'lobby', revision: 0, index: -1, seconds, deadline: null,
       createdAt: Date.now(), expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
     db.prepare('INSERT INTO live_quizzes(id,code,owner_id,request_id,value) VALUES(?,?,?,?,?)')
       .run(session.id, session.code, account.id, body.requestId, JSON.stringify(session));
@@ -139,7 +175,7 @@ function createLiveQuizHandler(deps) {
       if (join && deps.enforceRateLimit(res, `live-quiz-join:${deps.getClientIp(req)}`, 300, 60000)) return true;
       if (!id && req.method === 'GET') {
         const sessions = transaction(() => db.prepare('SELECT value FROM live_quizzes ORDER BY rowid DESC LIMIT 50').all().map(row => {
-          const session = JSON.parse(row.value); reconcile(session);
+          const session = readRow(row); reconcile(session);
           return { id: session.id, code: session.code, title: session.title, phase: session.phase, total: session.questions.length, playersCount: session.players.length };
         }));
         return send(200, { ok: true, sessions });
@@ -160,7 +196,7 @@ function createLiveQuizHandler(deps) {
             if (session.phase === 'finished') throw fail('La sesión ya ha finalizado.', 410);
             if (session.players.length >= 200) throw fail('La sala está completa (200 participantes).', 409);
             if (session.players.some(p => p.name.toLocaleLowerCase('es') === name.toLocaleLowerCase('es'))) throw fail('Ese nombre ya está en la sala. Añade tu apellido.', 409);
-            player = { id: randomUUID(), name, tokenHash: hash(token), joinedAt: Date.now(), answers: {} };
+            player = { id: randomUUID(), name, tokenHash: hash(token), joinedAt: Date.now() };
             session.players.push(player); save(session);
           }
           return { session: audience(session, player) };
@@ -168,7 +204,7 @@ function createLiveQuizHandler(deps) {
         const player = identify(session, req, body);
         if (operation === 'answer') {
           const question = session.questions[session.index];
-          const existing = player.answers[String(body.questionId || '')];
+          const existing = findAnswer.get(session.id, player.id, String(body.questionId || ''));
           if (existing) {
             if (existing.selectedIndex !== body.selectedIndex) throw fail('Tu respuesta ya está guardada y no se puede cambiar.', 409);
             return { session: audience(session, player), accepted: true };
@@ -177,8 +213,7 @@ function createLiveQuizHandler(deps) {
           if (!Number.isInteger(body.selectedIndex) || body.selectedIndex < 0 || body.selectedIndex >= question.options.length) throw fail('Selecciona una respuesta válida.');
           const correct = body.selectedIndex === question.correctIndex;
           const points = correct ? 500 + Math.round(500 * Math.min(1, Math.max(0, (session.deadline - Date.now()) / (session.seconds * 1000)))) : 0;
-          player.answers[question.id] = { selectedIndex: body.selectedIndex, correct, points, submittedAt: Date.now() };
-          save(session);
+          recordAnswer(session.id, player.id, question.id, { selectedIndex: body.selectedIndex, correct, points, submittedAt: Date.now() });
           return { session: audience(session, player), accepted: true };
         }
         return { session: audience(session, player) };

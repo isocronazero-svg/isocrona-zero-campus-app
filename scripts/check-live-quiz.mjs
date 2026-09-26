@@ -105,6 +105,84 @@ try{
   assert.equal(s.phase,'finished');assert.equal(s.leaderboard.length,2);assert.equal(s.leaderboard[0].score,firstScore);
   assert.equal((await join('Nuevo',intruder)).status,410);assert.equal((await join('Ana',one)).body.session.phase,'finished');
   assert.equal((await req('/api/live-quiz',{...creation,requestId:randomUUID()},{cookie:adminCookie,headers:{Origin:'https://attacker.example'}})).status,403);
-  console.log('Live quiz checks passed: permissions, room identity, concurrent answers, retries, timer, scoreboard, restart, course snapshots and final results.');
+
+  // Rooms saved before answers were separated must migrate once without losing scores or tokens.
+  const legacy = (await admin('/api/live-quiz',{...creation,requestId:randomUUID()})).body.session;
+  const legacyToken = randomUUID(), wrongToken = randomUUID();
+  changeStored(legacy.id, room => {
+    delete room.answerStorageVersion;
+    room.phase = 'reveal'; room.index = 0;
+    const question = room.questions[0];
+    room.players = [
+      {id:'legacy-one',name:'Anterior',tokenHash:hashToken(legacyToken),joinedAt:1,answers:{
+        [question.id]:{selectedIndex:question.correctIndex,correct:true,points:731,submittedAt:1}
+      }},
+      {id:'legacy-two',name:'Sin puntos',tokenHash:hashToken(wrongToken),joinedAt:2,answers:{
+        [question.id]:{selectedIndex:(question.correctIndex+1)%4,correct:false,points:0,submittedAt:2}
+      }}
+    ];
+  });
+  const migrated = await view(legacy.id);
+  assert.equal(migrated.leaderboard[0].score,731);
+  assert.equal(migrated.leaderboard[1].score,0);
+  const migratedPlayer = (await req(`/api/live-quiz/${legacy.id}`,undefined,{token:legacyToken})).body.session.player;
+  assert.equal(migratedPlayer.answer.correct,true);
+  assert.equal((await req(`/api/live-quiz/${legacy.id}`,undefined,{token:wrongToken})).body.session.player.answer.correct,false);
+  const migratedRow = JSON.parse(db.prepare('SELECT value FROM live_quizzes WHERE id=?').get(legacy.id).value);
+  assert.equal(migratedRow.answerStorageVersion,1);
+  assert.equal(migratedRow.players.some(p => Object.hasOwn(p,'answers')),false);
+  assert.equal((await admin('/api/live-quiz',{...creation,requestId:migratedRow.requestId})).body.session.leaderboard[0].score,731);
+  assert.equal((await req(`/api/live-quiz/${legacy.id}/answer`,{
+    questionId:migrated.question.id,selectedIndex:migratedPlayer.selectedIndex
+  },{token:legacyToken})).body.accepted,true);
+
+  // Exercise a full classroom at the last question without a timing-dependent CI threshold.
+  const loadRoom = (await admin('/api/live-quiz',{...creation,requestId:randomUUID(),seconds:120})).body.session;
+  const tokens = Array.from({length:200},()=>randomUUID());
+  changeStored(loadRoom.id, room => {
+    room.questions = Array.from({length:100},(_,i)=>({id:`load-q${i}`,prompt:`Pregunta ${i}`,options:['A','B'],correctIndex:0}));
+    room.players = tokens.map((token,i)=>({id:`load-p${i}`,name:`Alumno ${i}`,tokenHash:hashToken(token),joinedAt:i}));
+    room.phase = 'question'; room.index = 99; room.deadline = Date.now()+120000;
+  });
+  const insert = db.prepare('INSERT INTO live_quiz_answers VALUES(?,?,?,?,?,?,?)');
+  db.exec('BEGIN');
+  for(let player=0;player<200;player++) {
+    for(let question=0;question<99;question++) insert.run(loadRoom.id,`load-p${player}`,`load-q${question}`,0,1,500,1);
+  }
+  db.exec('COMMIT');
+  db.exec(`CREATE TABLE check_live_snapshot_updates(session_id TEXT);
+    CREATE TRIGGER check_live_snapshot_write AFTER UPDATE ON live_quizzes
+    BEGIN INSERT INTO check_live_snapshot_updates VALUES(NEW.id); END;`);
+  const beforeBurst = db.prepare('SELECT value FROM live_quizzes WHERE id=?').get(loadRoom.id).value;
+  const started = Date.now();
+  const burst = await Promise.all(tokens.map((token,i)=>req(`/api/live-quiz/${loadRoom.id}/answer`,{
+    questionId:'load-q99',selectedIndex:i === 199 ? 1 : 0
+  },{token})));
+  const burstMs = Date.now()-started;
+  burst.forEach(result=>{
+    assert.equal(result.status,200,JSON.stringify(result.body));
+    assert.equal(result.body.accepted,true);
+    assert.equal(result.body.session.player.answer,undefined);
+    assert.deepEqual(result.body.session.leaderboard,[]);
+  });
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM live_quiz_answers WHERE session_id=?').get(loadRoom.id).n,20000);
+  const sameAnswer = {questionId:'load-q99',selectedIndex:0};
+  const retries = await Promise.all([0,1].map(()=>req(`/api/live-quiz/${loadRoom.id}/answer`,sameAnswer,{token:tokens[0]})));
+  retries.forEach(result=>assert.equal(result.body.accepted,true));
+  assert.equal((await req(`/api/live-quiz/${loadRoom.id}/answer`,{...sameAnswer,selectedIndex:1},{token:tokens[0]})).status,409);
+  assert.equal((await view(loadRoom.id)).answersCount,200);
+  assert.equal(db.prepare('SELECT value FROM live_quizzes WHERE id=?').get(loadRoom.id).value,beforeBurst);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM check_live_snapshot_updates WHERE session_id=?').get(loadRoom.id).n,0,'Answers and polling must not rewrite the session blob');
+  const finalLoad = (await action(loadRoom.id,'reveal',0)).body.session;
+  assert.equal(finalLoad.leaderboard.length,200);
+  assert.equal(finalLoad.leaderboard[0].answered,100);
+  assert.equal(finalLoad.leaderboard[0].correct,100);
+  assert.equal(finalLoad.leaderboard.at(-1).score,49500);
+  assert.equal(finalLoad.leaderboard.at(-1).correct,99);
+  await stop(); await start();
+  assert.deepEqual((await view(loadRoom.id)).leaderboard,finalLoad.leaderboard,'Every score survives restart');
+  assert.equal((await view(legacy.id)).leaderboard[0].score,731);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM live_quiz_answers WHERE session_id=?').get(legacy.id).n,2,'Reading migrated rooms must not duplicate answers');
+  console.log(`Live quiz checks passed: permissions, retries, timer, ranking, legacy migration, restart and 200-answer burst (${burstMs}ms, zero session rewrites).`);
 }finally{await stop();db?.close();rmSync(dir,{recursive:true,force:true});}
 function hashToken(token){return createHash("sha256").update(token).digest("hex");}
