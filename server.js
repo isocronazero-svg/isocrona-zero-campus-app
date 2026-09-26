@@ -4887,6 +4887,9 @@ const server = http.createServer(async (req, res) => {
       const account = requireAdminAccount(req, res, state);
       if (!account) return;
       ensureTestZoneState(state);
+      if (expireStaleTestZoneLiveSessions(state)) {
+        writeState(state);
+      }
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
       const session = getTestZoneLiveSessionById(state, sessionId);
       if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
@@ -4912,7 +4915,7 @@ const server = http.createServer(async (req, res) => {
       const state = readState();
       ensureTestZoneState(state);
       const expired = expireStaleTestZoneLiveSessions(state);
-      const guestName = String(payload.guestName || "").trim();
+      const guestName = String(payload.guestName || "").trim().slice(0, 60).trim();
       const code = String(payload.code || "").trim();
       if (!guestName) {
         throw new Error("Necesitas indicar tu nombre para entrar");
@@ -4942,22 +4945,18 @@ const server = http.createServer(async (req, res) => {
       let participant = session.participants.find(
         (item) => String(item?.name || "").trim().toLocaleLowerCase("es") === guestName.toLocaleLowerCase("es")
       );
+      const isNewParticipant = !participant;
       if (!participant) {
         participant = {
           id: generateLegacyId("live-participant"),
-          name: guestName.slice(0, 60),
+          name: guestName,
           joinedAt: new Date().toISOString()
         };
         session.participants.push(participant);
-        writeState(state);
       }
       const questions = getTestZoneLiveSessionQuestions(state, session);
-      const sessionStatus = session.startedAt ? "active" : "lobby";
-      if (session.status !== sessionStatus) {
-        session.status = sessionStatus;
-        writeState(state);
-      }
-      if (expired) {
+      const sessionStatus = session.status;
+      if (expired || isNewParticipant) {
         writeState(state);
       }
       return sendJson(res, 200, {

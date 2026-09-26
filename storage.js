@@ -639,7 +639,7 @@ function normalizeTestZoneLiveSession(session, sessionIndex) {
     questionIds: Array.isArray(session?.questionIds)
       ? session.questionIds.map((item) => String(item || "").trim()).filter(Boolean)
       : [],
-    status: ["active", "closed", "expired"].includes(String(session?.status || "").trim())
+    status: ["lobby", "active", "closed", "expired"].includes(String(session?.status || "").trim())
       ? String(session.status).trim()
       : "active",
     questionCount: Number(session?.questionCount || 0),

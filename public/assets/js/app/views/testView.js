@@ -23,6 +23,7 @@ const testSession = {
   role: "member",
   loading: false,
   error: "",
+  liveError: "",
   activeRun: null,
   latestResult: null,
   loadedRole: "",
@@ -141,6 +142,7 @@ export function resetTestView() {
   testSession.loadedRole = "";
   testSession.accountId = "";
   testSession.error = "";
+  testSession.liveError = "";
   resetTestState();
 }
 
@@ -851,6 +853,7 @@ function buildAdminQuestionForm() {
           <button type="submit" class="test-zone-secondary-button">Abrir test en vivo</button>
         </div>
       </form>
+      ${testSession.liveError ? `<p class="test-zone-inline-error" role="alert">${escapeHtml(testSession.liveError)}</p>` : ""}
       <div class="test-zone-live-list">
         ${
           liveSessions.length
@@ -1052,17 +1055,23 @@ function bindActions(container) {
     }
 
     const action = String(actionTarget.dataset.action || "").trim();
-    if (action === "refresh-live-lobby") {
-      await loadLiveSessions();
-      renderTestView(container, testSession.role);
-      return;
-    }
-    if (action === "start-live-session") {
+    if (action === "refresh-live-lobby" || action === "start-live-session") {
+      if (actionTarget.disabled) return;
       const sessionId = String(actionTarget.dataset.sessionId || "").trim();
-      if (!sessionId) return;
-      await startLiveSession(sessionId);
-      await loadLiveSessions();
-      renderTestView(container, testSession.role);
+      if (action === "start-live-session" && !sessionId) return;
+      actionTarget.disabled = true;
+      testSession.liveError = "";
+      try {
+        if (action === "start-live-session") {
+          await startLiveSession(sessionId);
+        }
+        await loadLiveSessions();
+      } catch (error) {
+        testSession.liveError = error.message || "No se pudo actualizar el test en vivo. Vuelve a intentarlo.";
+      } finally {
+        actionTarget.disabled = false;
+      }
+      await renderTestView(container, testSession.role);
       return;
     }
     if (action === "another-test") {

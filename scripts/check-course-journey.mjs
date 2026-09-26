@@ -294,6 +294,7 @@ async function main() {
     const verified = await guest.request("GET", "/api/verify?code=IZ-2099-journey-1");
     assert.equal(verified.body.diploma.courseTitle, "Recorrido completo temporal");
     const live = (await admin.request("POST", "/api/test-zone/live-sessions", { courseId })).body.session;
+    await admin.request("POST", `/api/test-zone/live-sessions/${live.id}/start`, {});
     const joined = (await guest.request("POST", "/api/test-zone/live/join", { code: live.code, guestName: "Alumno temporal" })).body.liveSession;
     assert.deepEqual(joined.questions.map(q => q.id), attempt.questionIds);
     const livePath = `/api/test-zone/live-sessions/${live.id}`;
