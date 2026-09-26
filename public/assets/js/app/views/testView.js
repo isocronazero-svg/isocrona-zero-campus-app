@@ -12,6 +12,7 @@ import {
   markQuestionForReview,
   markQuestionReviewed,
   saveQuestion,
+  startLiveSession,
   unmarkQuestionForReview
 } from "../modules/tests/questionService.js";
 import { evaluateTest, generateTest, saveTestResult } from "../modules/tests/testService.js";
@@ -861,6 +862,8 @@ function buildAdminQuestionForm() {
                       <strong>${escapeHtml(session.title || "Test en vivo")}</strong>
                       <p class="muted">Código ${escapeHtml(session.code)} · ${escapeHtml(`${session.questionCount} preguntas`)}</p>
                       <p class="muted">${escapeHtml(formatDate(session.createdAt))}</p>
+                      <p class="muted">${escapeHtml(`${Array.isArray(session.participants) ? session.participants.length : 0} participantes`)} · ${escapeHtml(session.status === "lobby" ? "Sala de espera" : session.status === "active" ? "En curso" : session.status)}</p>
+                      ${session.status === "lobby" ? `<button type="button" class="test-zone-primary-button" data-action="start-live-session" data-session-id="${escapeHtml(session.id)}">Iniciar test</button>` : ""}
                     </article>
                   `
                 )
