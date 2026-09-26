@@ -4952,6 +4952,7 @@ const server = http.createServer(async (req, res) => {
         writeState(state);
       }
       const questions = getTestZoneLiveSessionQuestions(state, session);
+      const sessionStatus = String(session.status || "lobby").trim();
       if (expired) {
         writeState(state);
       }
@@ -4962,9 +4963,9 @@ const server = http.createServer(async (req, res) => {
           code: session.code,
           title: session.title,
           questionCount: session.questionCount,
-          status: String(session.status || "lobby").trim(),
+          status: sessionStatus,
           participantId: participant.id,
-          questions: String(session.status || "").trim() === "active" ? questions.map(buildTestZoneQuestionAudiencePayload) : []
+          questions: sessionStatus === "active" ? questions.map(buildTestZoneQuestionAudiencePayload) : []
         }
       });
     } catch (error) {
