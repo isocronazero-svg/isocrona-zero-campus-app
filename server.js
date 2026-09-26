@@ -1107,7 +1107,9 @@ function createTestZoneLiveSession(state, account, payload = {}) {
     courseId: sourceCourse?.id || "",
     questionIds: selectedQuestions.map((question) => question.id),
     questionCount: selectedQuestions.length,
-    status: "active",
+    status: "lobby",
+    participants: [],
+    startedAt: "",
     createdByAccountId: String(account?.id || "").trim(),
     createdByMemberId: String(account?.memberId || "").trim(),
     filters: {
@@ -1129,7 +1131,9 @@ function buildTestZoneLiveSessionAdminPayload(session) {
     code: String(session?.code || "").trim(),
     title: String(session?.title || "").trim(),
     questionCount: Number(session?.questionCount || 0),
-    status: String(session?.status || "active").trim(),
+    status: String(session?.status || "lobby").trim(),
+    participants: Array.isArray(session?.participants) ? session.participants.map((participant) => ({ id: String(participant?.id || "").trim(), name: String(participant?.name || "").trim(), joinedAt: String(participant?.joinedAt || "").trim() })) : [],
+    startedAt: String(session?.startedAt || "").trim(),
     filters:
       session?.filters && typeof session.filters === "object"
         ? {
@@ -4870,6 +4874,27 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (/^\/api\/test-zone\/live-sessions\/[^/]+\/start$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      ensureTestZoneState(state);
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const session = getTestZoneLiveSessionById(state, sessionId);
+      if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
+      if (String(session.status || "").trim() !== "lobby") {
+        return sendJson(res, 409, { ok: false, error: "La sesion ya no esta en la sala de espera" });
+      }
+      session.status = "active";
+      session.startedAt = new Date().toISOString();
+      writeState(state);
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo iniciar el test en vivo" });
+    }
+  }
+
   if (requestUrl.pathname === "/api/test-zone/live/join" && req.method === "POST") {
     try {
       const clientIp = getClientIp(req);
@@ -4906,6 +4931,19 @@ const server = http.createServer(async (req, res) => {
         }
         return sendJson(res, 404, { ok: false, error: "El test en vivo no existe o ya no esta activo" });
       }
+      session.participants = Array.isArray(session.participants) ? session.participants : [];
+      let participant = session.participants.find(
+        (item) => String(item?.name || "").trim().toLocaleLowerCase("es") === guestName.toLocaleLowerCase("es")
+      );
+      if (!participant) {
+        participant = {
+          id: generateLegacyId("live-participant"),
+          name: guestName.slice(0, 60),
+          joinedAt: new Date().toISOString()
+        };
+        session.participants.push(participant);
+        writeState(state);
+      }
       const questions = getTestZoneLiveSessionQuestions(state, session);
       if (expired) {
         writeState(state);
@@ -4917,7 +4955,9 @@ const server = http.createServer(async (req, res) => {
           code: session.code,
           title: session.title,
           questionCount: session.questionCount,
-          questions: questions.map(buildTestZoneQuestionAudiencePayload)
+          status: String(session.status || "lobby").trim(),
+          participantId: participant.id,
+          questions: String(session.status || "").trim() === "active" ? questions.map(buildTestZoneQuestionAudiencePayload) : []
         }
       });
     } catch (error) {
