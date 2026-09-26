@@ -12,6 +12,7 @@ import {
   markQuestionForReview,
   markQuestionReviewed,
   saveQuestion,
+  startLiveSession,
   unmarkQuestionForReview
 } from "../modules/tests/questionService.js";
 import { evaluateTest, generateTest, saveTestResult } from "../modules/tests/testService.js";
@@ -861,6 +862,9 @@ function buildAdminQuestionForm() {
                       <strong>${escapeHtml(session.title || "Test en vivo")}</strong>
                       <p class="muted">Código ${escapeHtml(session.code)} · ${escapeHtml(`${session.questionCount} preguntas`)}</p>
                       <p class="muted">${escapeHtml(formatDate(session.createdAt))}</p>
+                      <p class="muted">${escapeHtml(`${Array.isArray(session.participants) ? session.participants.length : 0} participantes`)} · ${escapeHtml(session.status === "lobby" ? "Sala de espera" : session.status === "active" ? "En curso" : session.status)}</p>
+                      ${Array.isArray(session.participants) && session.participants.length ? `<p class="muted">${session.participants.map((participant) => escapeHtml(participant.name)).join(" · ")}</p>` : ""}
+                      ${session.status === "lobby" ? `<div class="test-zone-actions"><button type="button" class="test-zone-secondary-button" data-action="refresh-live-lobby">Actualizar participantes</button><button type="button" class="test-zone-primary-button" data-action="start-live-session" data-session-id="${escapeHtml(session.id)}">Iniciar test</button></div>` : ""}
                     </article>
                   `
                 )
@@ -1048,6 +1052,19 @@ function bindActions(container) {
     }
 
     const action = String(actionTarget.dataset.action || "").trim();
+    if (action === "refresh-live-lobby") {
+      await loadLiveSessions();
+      renderTestView(container, testSession.role);
+      return;
+    }
+    if (action === "start-live-session") {
+      const sessionId = String(actionTarget.dataset.sessionId || "").trim();
+      if (!sessionId) return;
+      await startLiveSession(sessionId);
+      await loadLiveSessions();
+      renderTestView(container, testSession.role);
+      return;
+    }
     if (action === "another-test") {
       setActiveRun(null);
       testSession.latestResult = null;
