@@ -62,6 +62,18 @@
     if (!state.liveSession) {
       return "";
     }
+    if (String(state.liveSession.status || "") === "lobby") {
+      return `
+        <section class="test-zone-card test-zone-card-highlight">
+          <p class="test-zone-kicker">Sala de espera</p>
+          <h3>${escapeHtml(state.liveSession.title || "Test en vivo")}</h3>
+          <p class="muted">Código ${escapeHtml(state.liveSession.code)} · ${escapeHtml(state.liveSession.questionCount)} preguntas</p>
+          <p><strong>${escapeHtml(state.guestName)}</strong>, ya estás dentro.</p>
+          <p class="status-note">Espera a que el administrador inicie el test.</p>
+          <button type="button" id="publicLiveRefreshButton" class="test-zone-secondary-button">Comprobar si ha comenzado</button>
+        </section>
+      `;
+    }
     return `
       <section class="test-zone-card">
         <div class="test-zone-card-head">
@@ -137,6 +149,25 @@
 
     const joinForm = document.getElementById("publicLiveJoinForm");
     const attemptForm = document.getElementById("publicLiveAttemptForm");
+    const refreshButton = document.getElementById("publicLiveRefreshButton");
+
+    refreshButton?.addEventListener("click", async () => {
+      try {
+        const payload = await fetchJson("/api/test-zone/live/join", {
+          method: "POST",
+          body: JSON.stringify({ guestName: state.guestName, code: state.code })
+        });
+        state.liveSession = payload.liveSession;
+        state.status = String(state.liveSession?.status || "") === "active"
+          ? "El administrador ha iniciado el test."
+          : "Sigues en la sala de espera.";
+        state.tone = "success";
+      } catch (error) {
+        state.status = error.message || "No se pudo actualizar la sala.";
+        state.tone = "error";
+      }
+      render();
+    });
 
     joinForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -153,7 +184,7 @@
         });
         state.liveSession = payload.liveSession;
         state.result = null;
-        state.status = "Acceso concedido. Completa el test y finaliza para guardar tu resultado.";
+        state.status = String(state.liveSession?.status || "") === "lobby" ? "Has entrado. Espera a que el administrador inicie el test." : "Acceso concedido. Completa el test y finaliza para guardar tu resultado.";
         state.tone = "success";
       } catch (error) {
         state.status = error.message || "No se pudo entrar al test en vivo.";
