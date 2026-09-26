@@ -113,12 +113,12 @@ Puntos sensibles:
 
 ## 9. Flujo de test live
 
-Hay dos sistemas que conviven y no deben confundirse:
+La entrada publica de Test en Vivo esta unificada en `public-live-test.html`. El antiguo `live-test.html` se conserva solo como redireccion compatible para enlaces existentes. Los endpoints legacy permanecen temporalmente para compatibilidad con vistas privadas/historicas:
 
 | Sistema | Frontend | Endpoints | Uso |
 | --- | --- | --- | --- |
-| Test Zone live publico | `public-live-test.html` | `/api/test-zone/live/join`, `/api/test-zone/live-sessions/:id/attempt` | Sesiones publicas vinculadas a Zona Test. |
-| Live test legacy/independiente | `live-test.html` y vistas privadas de tests | `/api/live-test-sessions/:code`, `/api/live-test-sessions/:code/submit`, `/api/live-tests*` | Tests live independientes o historicos. |
+| Test Zone live publico (canonico) | `public-live-test.html` (`live-test.html` redirige aqui) | `/api/test-zone/live/join`, `/api/test-zone/live-sessions/:id/attempt` | Entrada publica unica vinculada a Zona Test. |
+| Live test legacy/independiente | vistas privadas/historicas | `/api/live-test-sessions/:code`, `/api/live-test-sessions/:code/submit`, `/api/live-tests*` | Compatibilidad temporal; no usar para nuevas entradas publicas. |
 
 Reglas importantes:
 
