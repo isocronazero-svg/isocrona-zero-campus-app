@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -20,6 +21,7 @@ const tempDataDir = path.join(tempRoot, "data");
 const tempDefaultStatePath = path.join(tempRoot, "default-state.json");
 const serverOut = [];
 const serverErr = [];
+const selfAdminPassword = randomUUID();
 
 async function getAvailablePort() {
   return await new Promise((resolve, reject) => {
@@ -46,6 +48,10 @@ function buildSeedState() {
   seed.testZoneResults = [];
   seed.testZoneReviewMarks = [];
   seed.testZoneLiveSessions = [];
+  seed.accounts.push({
+    id: "admin-self-qa", role: "admin", name: "Admin aprendiz",
+    email: "self-admin@example.test", password: selfAdminPassword, memberId: ""
+  });
   return seed;
 }
 
@@ -168,6 +174,26 @@ async function main() {
     await login(adminClient, "admin@isocronazero.org", "campus123");
     await login(memberClient, "lucia@isocronazero.org", "bomberos123");
     await login(secondMemberClient, "javier@isocronazero.org", "bomberos123");
+
+    const anonymous = createJsonClient("anonymous", baseUrl);
+    assert.equal((await anonymous.request("POST", "/api/account/member-profile", undefined, { allowFailure: true })).status, 401);
+    assert.equal((await memberClient.request("POST", "/api/account/member-profile", undefined, { allowFailure: true })).status, 403);
+    const selfAdmin = createJsonClient("self-admin", baseUrl);
+    await login(selfAdmin, "self-admin@example.test", selfAdminPassword);
+    const ownProfile = await selfAdmin.request("POST", "/api/account/member-profile", { memberId: "member-2" });
+    assert.equal(ownProfile.status, 200);
+    assert.ok(ownProfile.body.memberId);
+    assert.notEqual(ownProfile.body.memberId, "member-2", "Cannot choose somebody else's profile");
+    const repeatedProfile = await selfAdmin.request("POST", "/api/account/member-profile");
+    assert.equal(repeatedProfile.body.memberId, ownProfile.body.memberId, "Provisioning must be idempotent");
+    const ownSession = await selfAdmin.request("GET", "/api/session");
+    assert.equal(ownSession.body.session.role, "admin");
+    assert.equal(ownSession.body.session.accountId, "admin-self-qa");
+    assert.equal(ownSession.body.session.memberId, ownProfile.body.memberId);
+    const ownState = await selfAdmin.request("GET", "/api/state?mode=self");
+    assert.equal(ownState.body.members.length, 1);
+    assert.equal(ownState.body.members[0].id, ownProfile.body.memberId);
+    assert.equal((await selfAdmin.request("GET", "/api/state")).body.members.length > 1, true, "Admin view remains available");
 
     const testViewSource = readFileSync(path.join(repoRoot, "public", "assets", "js", "app", "views", "testView.js"), "utf8");
     assert.match(

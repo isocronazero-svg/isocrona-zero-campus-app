@@ -4234,6 +4234,33 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, prepareStateForTransport(state, account));
   }
 
+  if (requestUrl.pathname === "/api/account/member-profile" && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      // Only provision the authenticated admin's own learner identity, never a selected person.
+      let member = state.members.find((item) => item.id === account.memberId);
+      if (!member) {
+        member = {
+          id: `member-${crypto.randomUUID()}`,
+          name: account.name,
+          email: account.email,
+          role: "Alumno",
+          certifications: [],
+          renewalsDue: 0,
+          associateId: account.associateId || ""
+        };
+        state.members.push(member);
+        account.memberId = member.id;
+        writeState(state);
+      }
+      return sendJson(res, 200, { ok: true, memberId: member.id });
+    } catch {
+      return sendJson(res, 500, { ok: false, error: "No se pudo guardar tu perfil de aprendizaje. Vuelve a intentarlo." });
+    }
+  }
+
   if (requestUrl.pathname === "/api/session" && req.method === "GET") {
     const state = readState();
     const account = getAuthenticatedAccount(req, state);

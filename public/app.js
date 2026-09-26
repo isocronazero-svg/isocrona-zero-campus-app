@@ -1,6 +1,7 @@
 ﻿import {
   ASSOCIATE_SECTION_LINKS,
   CAMPUS_SECTION_LINKS,
+  TEST_SECTION_LINKS,
   navItems,
   VIEW_SECTION_MODES
 } from "./assets/js/app/navigation/config.js";
@@ -118,6 +119,7 @@ const fallbackState = {
 let state = structuredClone(fallbackState);
 let session = null;
 let viewRole = "admin";
+let testsViewMode = "live";
 let campusAttachmentPreview = null;
 let campusPdfJsPromise = null;
 let campusPreviewRenderToken = 0;
@@ -490,7 +492,7 @@ function renderFrontendTestsView() {
 
   syncFrontendStore({ activeView: "tests" });
   mainPanel.innerHTML = "";
-  renderTests(mainPanel, getFrontendRole());
+  renderTests(mainPanel, getFrontendRole(), testsViewMode);
 }
 
 document.querySelectorAll(".local-only").forEach((element) => {
@@ -515,49 +517,63 @@ function updateRoleSwitcherOptions() {
     adminOption.textContent = "Administracion";
   }
   if (selfOption) {
-    selfOption.textContent = "Mi perfil socio y alumno";
+    selfOption.textContent = "Modo Socio (mi aprendizaje)";
   }
   if (previewOption) {
     previewOption.textContent = "Previsualizar otra persona";
   }
 }
 
-roleSwitcher.addEventListener("change", async (event) => {
+async function changeViewRole(requestedRole) {
   if (!isAdminSession()) {
     return;
   }
-
+  const previousRole = viewRole;
+  const previousState = state;
   const wasMemberView = !isAdminView();
-  const requestedRole = event.target.value;
-  if (requestedRole === "member-self" && !session?.memberId) {
-    viewRole = "admin";
-    syncStatus = "Tu cuenta admin no esta vinculada a una ficha de socio real";
-    showToast("Primero vincula tu cuenta admin a una ficha de socio para usar Mi perfil socio", "warning");
-  } else if (requestedRole === "member-preview") {
-    viewRole = "member-preview";
-  } else if (requestedRole === "member-self") {
-    viewRole = "member-self";
-    state.activeView = session?.associateId ? "join" : "overview";
-  } else {
-    viewRole = "admin";
-  }
-  persistViewRole();
-  if (requestedRole === "admin" && wasMemberView) {
-    await refreshState({ forceAdminState: true });
-  } else if (!isAdminView()) {
-    await refreshState();
-  }
-  applySessionToState();
-  if (requestedRole !== "member-self" || session?.memberId) {
+  roleSwitcher.disabled = true;
+  try {
+    if (requestedRole === "member-self") {
+      const response = await fetch("/api/account/member-profile", { method: "POST" });
+      const payload = await readJsonResponse(response, "No se pudo preparar tu perfil de aprendizaje");
+      if (!response.ok) throw new Error(payload.error || "No se pudo activar el modo socio");
+      session.memberId = payload.memberId;
+      persistSession();
+    }
+    if (requestedRole === "member-preview") {
+      viewRole = "member-preview";
+    } else if (requestedRole === "member-self") {
+      viewRole = "member-self";
+      state.activeView = "overview";
+    } else {
+      viewRole = "admin";
+    }
+    persistViewRole();
+    if (requestedRole === "admin" && wasMemberView) {
+      await refreshState({ forceAdminState: true });
+    } else if (!isAdminView()) {
+      await refreshState();
+    }
+    applySessionToState();
     syncStatus =
       viewRole === "member-preview"
         ? "Vista alumno activada para previsualizar cambios"
         : viewRole === "member-self"
-        ? "Mi perfil socio activado"
+        ? "Modo Socio activado con tu propia cuenta"
         : "Vista administracion recuperada";
+  } catch (error) {
+    viewRole = previousRole;
+    state = previousState;
+    persistViewRole();
+    syncStatus = error.message || "No se pudo cambiar de modo";
+    showToast(syncStatus, "error");
+  } finally {
+    roleSwitcher.disabled = false;
+    render();
   }
-  render();
-});
+}
+
+roleSwitcher.addEventListener("change", (event) => changeViewRole(event.target.value));
 
 memberSwitcher.addEventListener("change", async (event) => {
   state.selectedMemberId = event.target.value;
@@ -755,6 +771,8 @@ document.addEventListener("click", async (event) => {
 
   if (action === "nav") {
     const requestedView = actionTarget.dataset.view;
+    if (requestedView === "tests") testsViewMode = actionTarget.dataset.testsMode === "practice" ? "practice" : "live";
+    if (["test", "tests"].includes(requestedView)) expandedNavViews.add("test");
     const requestedAnchorId = String(actionTarget.dataset.anchor || "").trim();
     const normalizedRequestedView =
       requestedView === "overview" && shouldUseMemberProfileAsPrimaryView() ? "join" : requestedView;
@@ -1564,46 +1582,7 @@ document.addEventListener("click", async (event) => {
     }
 
   if (action === "switch-to-member-self" && isAdminSession()) {
-    let targetAccount =
-      session?.memberId && session?.associateId
-        ? state.accounts.find((item) => item.id === session.accountId)
-        : null;
-
-    if (!targetAccount) {
-      targetAccount =
-        state.accounts.find(
-          (item) =>
-            item.memberId === state.selectedMemberId &&
-            item.associateId &&
-            String(item.email || "").trim()
-        ) || null;
-    }
-
-    if (!targetAccount) {
-      syncStatus = "La persona seleccionada no tiene una cuenta de socio real vinculada";
-      showToast(syncStatus, "error");
-      render();
-      return;
-    }
-
-    session = {
-      accountId: targetAccount.id,
-      name: targetAccount.name,
-      email: targetAccount.email,
-      role: targetAccount.role,
-      memberId: targetAccount.memberId,
-      associateId: targetAccount.associateId || "",
-      mustChangePassword: Boolean(targetAccount.mustChangePassword)
-    };
-    persistSession();
-    viewRole = "member-self";
-    persistViewRole();
-    await refreshState();
-    applySessionToState();
-    state.activeView = "overview";
-    syncStatus = `Mi panel activado para ${targetAccount.name}`;
-    showToast(syncStatus, "success");
-    render();
+    await changeViewRole("member-self");
     return;
   }
 
@@ -5487,7 +5466,6 @@ async function submitAssociateDeletion() {
 }
 
 function render() {
-  const hasOwnMemberProfile = Boolean(session?.memberId);
   const currentAssociate = getCurrentAssociate();
   normalizePrimaryMemberView();
   if (session && !isViewAllowed(state.activeView)) {
@@ -5503,7 +5481,7 @@ function render() {
       syncStatus = `Ficha de socio #${currentAssociate.associateNumber || "-"} cargada correctamente`;
     }
   }
-  roleSwitcher.querySelector('option[value="member-self"]')?.toggleAttribute("hidden", !hasOwnMemberProfile);
+  roleSwitcher.querySelector('option[value="member-self"]')?.toggleAttribute("hidden", !isAdminSession());
   roleSwitcher.querySelector('option[value="member-preview"]')?.toggleAttribute("hidden", !isAdminSession());
   roleSwitcher.closest(".switcher")?.toggleAttribute("hidden", !isAdminSession());
   updateRoleSwitcherOptions();
@@ -5704,7 +5682,7 @@ function renderSidebarContextCard() {
     members: "Personas y accesos",
     campus: "Campus",
     test: "Zona Test",
-    tests: "Tests",
+    tests: testsViewMode === "live" ? "Zona Test / Test en Vivo" : "Zona Test / Tests publicados",
     reports: "Informes",
     activity: "Auditoria",
     automation: "Automatizacion"
@@ -5764,12 +5742,13 @@ function renderNav() {
   const effectiveNavItems = !isAdminView()
     ? [
         { id: "overview", label: "Mi aula", action: "nav", view: "overview" },
-        { id: "test", label: "Tests y practicas", action: "nav", view: "test" },
+        { id: "test", label: "Zona Test", action: "nav", view: "test", sections: TEST_SECTION_LINKS },
         { id: "diplomas", label: "Mis diplomas", action: "open-member-campus-mode", mode: "diplomas" },
         { id: "join", label: campusOnlySession ? "Hazte socio" : "Mi perfil", action: "nav", view: "join" }
       ]
     : navItems;
   const isNavItemActive = (item) => {
+    if (item.id === "test") return ["test", "tests"].includes(state.activeView);
     if (item.id === "diplomas") {
       return state.activeView === "campus" && campusSectionMode === "diplomas";
     }
@@ -5792,7 +5771,7 @@ function renderNav() {
               ${escapeHtml(navLabel)}
             </button>
             ${
-              item.sections?.length && isAdminView()
+              item.sections?.length && (isAdminView() || item.id === "test")
                 ? `
                     <button
                       class="nav-toggle-button ${isNavGroupExpanded(item.id) ? "expanded" : ""}"
@@ -5815,7 +5794,7 @@ function renderNav() {
                     ${item.sections
                       .map(
                         (section) => `
-                          <button class="nav-subbutton" type="button" data-action="nav-section" data-view="${item.id}" data-section-id="${section.id}">
+                          <button class="nav-subbutton" type="button" data-action="${section.view ? "nav" : "nav-section"}" data-view="${section.view || item.id}" data-section-id="${section.id}">
                             ${section.label}
                           </button>
                         `
@@ -20976,6 +20955,9 @@ function isViewAllowed(viewId) {
   }
   if (ADMIN_ONLY_VIEWS.has(viewId)) {
     return false;
+  }
+  if (isAdminSession() && isSelfMemberSession()) {
+    return ["overview", "join", "campus", "courses", "diplomas", "test", "tests"].includes(viewId);
   }
   if (isCampusOnlySession()) {
     return ["overview", "join", "campus"].includes(viewId);
