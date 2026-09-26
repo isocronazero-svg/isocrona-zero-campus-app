@@ -439,9 +439,34 @@ async function main() {
         code: liveSessionResponse.body?.session?.code
       })
     });
-    const joinPayload = await publicJoinResponse.json();
+    const lobbyJoinPayload = await publicJoinResponse.json();
     assert.equal(publicJoinResponse.ok, true);
-    assert.equal(joinPayload?.ok, true);
+    assert.equal(lobbyJoinPayload?.ok, true);
+    assert.equal(lobbyJoinPayload?.liveSession?.status, "lobby");
+    assert.equal((lobbyJoinPayload?.liveSession?.questions || []).length, 0, "El lobby no debe exponer preguntas antes de iniciar");
+
+    const adminLobbyResponse = await adminClient.request("GET", "/api/test-zone/live-sessions");
+    const adminLobbySession = (adminLobbyResponse.body?.sessions || []).find(
+      (session) => session.id === liveSessionResponse.body?.session?.id
+    );
+    assert.equal(adminLobbySession?.participants?.[0]?.name, "Visitante");
+
+    const startLiveResponse = await adminClient.request(
+      "POST",
+      `/api/test-zone/live-sessions/${encodeURIComponent(liveSessionResponse.body?.session?.id)}/start`,
+      {}
+    );
+    assert.equal(startLiveResponse.body?.ok, true);
+    assert.equal(startLiveResponse.body?.session?.status, "active");
+
+    const activeJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ guestName: "Visitante", code: liveSessionResponse.body?.session?.code })
+    });
+    const joinPayload = await activeJoinResponse.json();
+    assert.equal(activeJoinResponse.ok, true);
+    assert.equal(joinPayload?.liveSession?.status, "active");
     assert.equal((joinPayload?.liveSession?.questions || []).length, 2);
     (joinPayload?.liveSession?.questions || []).forEach(assertQuestionSafe);
 
@@ -483,6 +508,7 @@ async function main() {
       filters: { part: "all", category: "all", difficulty: "all" }
     });
     assert.equal(singleQuestionSessionResponse.body?.ok, true);
+    await adminClient.request("POST", `/api/test-zone/live-sessions/${encodeURIComponent(singleQuestionSessionResponse.body?.session?.id)}/start`, {});
     const singleQuestionJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -599,6 +625,7 @@ async function main() {
       expiresAt: new Date(Date.now() + 1000).toISOString()
     });
     assert.equal(expiringSessionResponse.body?.ok, true);
+    await adminClient.request("POST", `/api/test-zone/live-sessions/${encodeURIComponent(expiringSessionResponse.body?.session?.id)}/start`, {});
     const expiringJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
