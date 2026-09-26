@@ -1064,10 +1064,12 @@ function expireStaleTestZoneLiveSessions(state, now = Date.now()) {
   ensureTestZoneState(state);
   let changed = false;
   for (const session of state.testZoneLiveSessions || []) {
-    if (!["lobby", "active"].includes(String(session?.status || "").trim())) {
+    const status = String(session?.status || "").trim();
+    if (!["lobby", "active"].includes(status)) {
       continue;
     }
-    if (!isTestZoneLiveSessionActive(session, now)) {
+    const expiresAtMs = Date.parse(String(session?.expiresAt || ""));
+    if (Number.isFinite(expiresAtMs) && expiresAtMs <= now) {
       session.status = "expired";
       session.closedAt = session.closedAt || new Date(now).toISOString();
       changed = true;
