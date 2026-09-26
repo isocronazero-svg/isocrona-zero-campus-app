@@ -430,6 +430,7 @@ async function main() {
     });
     assert.equal(liveSessionResponse.body?.ok, true);
     assert.ok(liveSessionResponse.body?.session?.code);
+    assert.equal(liveSessionResponse.body?.session?.status, "lobby");
 
     const publicJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
       method: "POST",
