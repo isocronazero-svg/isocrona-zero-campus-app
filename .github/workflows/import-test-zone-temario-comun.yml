@@ -1,0 +1,82 @@
+name: Import Test Zone Temario Comun to Railway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data/test-zone/temario-comun/*.csv"
+      - ".github/workflows/import-test-zone-temario-comun.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: import-test-zone-temario-comun-production
+  cancel-in-progress: false
+
+jobs:
+  import-temario-comun:
+    name: Import Temario Comun questions in Railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_SSH_PRIVATE_KEY }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+      RAILWAY_ENVIRONMENT: ${{ vars.RAILWAY_ENVIRONMENT || 'production' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Import Temario Comun CSVs in Railway
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RAILWAY_TOKEN:-}" || { echo "::error::Missing RAILWAY_TOKEN"; exit 1; }
+          test -n "${RAILWAY_SSH_PRIVATE_KEY:-}" || { echo "::error::Missing RAILWAY_SSH_PRIVATE_KEY"; exit 1; }
+
+          ssh_key="$(mktemp)"
+          trap 'rm -f "$ssh_key"' EXIT
+          umask 077
+          printf '%s\n' "$RAILWAY_SSH_PRIVATE_KEY" > "$ssh_key"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H ssh.railway.com >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          railway_args=()
+          [ -z "${RAILWAY_PROJECT_ID:-}" ] || railway_args+=(--project "$RAILWAY_PROJECT_ID")
+          [ -z "${RAILWAY_SERVICE:-}" ] || railway_args+=(--service "$RAILWAY_SERVICE")
+          railway_args+=(--environment "$RAILWAY_ENVIRONMENT")
+
+          railway_ssh() {
+            railway ssh "${railway_args[@]}" --identity-file "$ssh_key" -- "$@"
+          }
+
+          railway_ssh sh -lc 'node scripts/import-test-zone-questions.mjs data/test-zone/temario-comun/constitucion-espanola-01.csv'
+          railway_ssh sh -lc 'node scripts/import-test-zone-questions.mjs data/test-zone/temario-comun/constitucion-espanola-02.csv'
+
+          railway_ssh sh -lc 'node - <<'"'"'NODE'"'"'
+          const storage = require("./storage.js");
+          const state = storage.readState();
+          const questions = Array.isArray(state.testZoneQuestions) ? state.testZoneQuestions : [];
+          const constitution = questions.filter(q =>
+            String(q.part || "").trim() === "TEMARIO COMÚN" &&
+            String(q.category || "").trim() === "Constitución Española"
+          );
+          console.log(JSON.stringify({ total: questions.length, constitucionEspanola: constitution.length }, null, 2));
+          if (constitution.length < 50) process.exit(1);
+          NODE'

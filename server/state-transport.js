@@ -330,7 +330,7 @@ function createStateTransport(dependencies = {}) {
       memberNotifications: listVisibleMemberNotifications(state, memberId).map((notification) =>
         buildMemberNotificationAudiencePayload(notification, memberId)
       ),
-      testZoneQuestions: (state.testZoneQuestions || []).map(buildTestZoneQuestionAudiencePayload),
+      testZoneQuestions: (state.testZoneQuestions || []).filter(question => !question.deletedAt).map(buildTestZoneQuestionAudiencePayload),
       testZoneResults: scopedTestZoneResults,
       testZoneReviewMarks: scopedTestZoneReviewMarks,
       testZoneLiveSessions: [],

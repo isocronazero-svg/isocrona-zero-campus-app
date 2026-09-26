@@ -584,7 +584,7 @@ function normalizeTestZoneResult(result, resultIndex) {
     blankCount: Number(result?.blankCount || 0),
     answeredCount: Number(result?.answeredCount || 0),
     total: Number(result?.total || 0),
-    score: Number(result?.score || result?.correctCount || 0),
+    score: Number(result?.score ?? result?.correctCount ?? 0),
     percentage: Number(result?.percentage || 0),
     incorrectQuestionIds: Array.isArray(result?.incorrectQuestionIds)
       ? result.incorrectQuestionIds.map((item) => String(item || "").trim()).filter(Boolean)

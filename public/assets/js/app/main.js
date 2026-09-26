@@ -8,7 +8,7 @@ import { renderCoursesView } from "./views/coursesView.js";
 import { renderDiplomasView } from "./views/diplomasView.js";
 import { renderJoinView } from "./views/joinView.js";
 import { renderAdminView } from "./views/adminView.js";
-import { renderTestView } from "./views/testView.js";
+import { renderTestView, resetTestView } from "./views/testView.js";
 import { renderTestsView } from "./views/testsView.js";
 
 export function createApp() {
@@ -27,6 +27,7 @@ export function createApp() {
     router,
     apiClient,
     authApi,
+    resetTestView,
     views: {
       courses: renderCoursesView,
       diplomas: renderDiplomasView,
