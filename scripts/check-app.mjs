@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
   "server/question-maintenance.js", "public/assets/js/app/modules/tests/questionMaintenance.js",
+  "public/assets/js/app/views/testsView.js", "public/assets/js/app/ui/testNavigation.js",
   "public/assets/js/app/views/testView.js", "public/assets/js/app/modules/tests/practiceTiming.js",
   "server/course-shared-tests.js", "server/question-bank-import.js",
   "public/course-test.js", "public/question-bank.js", "public/assets/js/app/modules/tests/topicPicker.js",

@@ -1,4 +1,9 @@
+import { renderTestNavigation } from "../ui/testNavigation.js";
+import { buildPublicLiveAdminMarkup, submitPublicLiveForm } from "./testView.js";
+import { loadSharedQuestions, loadLiveSessions } from "../modules/tests/questionService.js";
+
 const testsViewState = {
+  displayMode: "all",
   role: "member",
   modules: [],
   tests: [],
@@ -463,7 +468,7 @@ async function ensureStudentActiveLiveSession() {
     return;
   }
 
-  const response = await client.get(`/api/live-tests/${encodeURIComponent(testsViewState.activeLiveSessionId)}`);
+  const response = await client.get(`/api/live-tests/${encodeURIComponent(testsViewState.activeLiveSessionId)}?scope=participant`);
   testsViewState.liveSessionState = response.session || null;
   syncLiveQuestionShownAt(testsViewState.liveSessionState);
 }
@@ -1589,11 +1594,11 @@ function renderAdminMarkup() {
           </div>
         </form>
       </article>
-      <article class="panel panel-wide">
+      ${testsViewState.displayMode === "all" ? `<article class="panel panel-wide">
         <p class="eyebrow">Sesiones live</p>
         <h2>Sesiones live</h2>
         ${buildAdminLiveSessionsMarkup()}
-      </article>
+      </article>` : ""}
       ${
         testsViewState.modules.length
           ? testsViewState.modules.map((module) => buildAdminModuleMarkup(module)).join("")
@@ -1788,8 +1793,7 @@ function renderStudentMarkup() {
         )}</p>
       </article>
       ${buildStudentPracticeMarkup()}
-      ${buildStudentLiveJoinMarkup()}
-      ${buildStudentLiveSessionMarkup()}
+      ${testsViewState.displayMode === "all" ? buildStudentLiveJoinMarkup() + buildStudentLiveSessionMarkup() : ""}
       <article class="panel panel-side">
         <h3>Tests publicados</h3>
         ${buildStudentTestListMarkup()}
@@ -1802,7 +1806,17 @@ function renderStudentMarkup() {
 }
 
 function renderTestsMarkup(container) {
-  container.innerHTML = isAdminRole(testsViewState.role) ? renderAdminMarkup() : renderStudentMarkup();
+  const admin = isAdminRole(testsViewState.role);
+  const live = testsViewState.displayMode === "live";
+  const markup = live
+    ? `<section class="panel-stack">
+        <header><h2>Test en Vivo</h2><p role="status">${escapeHtml(testsViewState.message)}</p></header>
+        ${admin ? buildAdminLiveSessionsMarkup() : buildStudentLiveJoinMarkup() + buildStudentLiveSessionMarkup()}
+        <section><h3>Acceso con codigo publico</h3><a class="ghost-button" href="/public-live-test.html" target="_blank" rel="noopener">Entrar con nombre y codigo</a></section>
+        ${admin ? buildPublicLiveAdminMarkup() + `<details><summary>Preparar tests para sesiones privadas</summary>${renderAdminMarkup()}</details>` : ""}
+      </section>`
+    : admin ? renderAdminMarkup() : renderStudentMarkup();
+  container.innerHTML = renderTestNavigation(live ? "live" : "test") + markup;
 }
 
 async function refreshTestsView(container, role) {
@@ -1813,6 +1827,10 @@ async function refreshTestsView(container, role) {
   try {
     if (isAdminRole(role)) {
       await loadAdminData();
+      if (testsViewState.displayMode === "live") {
+        await loadSharedQuestions();
+        await loadLiveSessions();
+      }
     } else {
       await loadStudentData();
     }
@@ -2228,9 +2246,11 @@ async function handleStudentLiveAnswer(container, form) {
   finalizeTestsViewRender(container);
 }
 
-export function renderTestsView(container, role = "member") {
+export function renderTestsView(container, role = "member", displayMode = "all") {
+  testsViewState.displayMode = displayMode;
   container.onclick = async (event) => {
     const adminActionButton = event.target.closest("[data-action]");
+    if (adminActionButton?.dataset.action === "nav") return;
     const openTestButton = event.target.closest('[data-action="open-test"]');
     const startAttemptButton = event.target.closest('[data-action="start-test-attempt"]');
     if (isAdminRole(role) && adminActionButton && !openTestButton && !startAttemptButton) {
@@ -2269,6 +2289,20 @@ export function renderTestsView(container, role = "member") {
   };
 
   container.onsubmit = async (event) => {
+    if (event.target.hasAttribute("data-test-zone-live-form")) {
+      event.preventDefault();
+      if (!isAdminRole(role)) return;
+      try {
+        await submitPublicLiveForm(event.target);
+        setTestsViewMessage("Test publico creado.", "success");
+        await refreshTestsView(container, role);
+      } catch (error) {
+        setTestsViewMessage(error.message || "No se pudo crear el test publico.", "error");
+        const status = container.querySelector('[role="status"]');
+        if (status) status.textContent = testsViewState.message;
+      }
+      return;
+    }
     const form = event.target.closest("form");
     if (!form) {
       return;

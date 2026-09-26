@@ -4888,6 +4888,10 @@ tr:last-child td {
 }
 
 .test-zone-attempt-status {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #fff;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -4898,6 +4902,7 @@ tr:last-child td {
 }
 
 [data-practice-timer] {
+  font-size: 24px;
   display: inline-block;
   min-width: 6ch;
   font-variant-numeric: tabular-nums;
@@ -4905,6 +4910,28 @@ tr:last-child td {
 }
 
 [data-practice-timer].is-urgent { color: #b42318; }
+
+.test-section-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #cbd5d1;
+}
+.test-section-nav button {
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #33443d;
+  font: inherit;
+  cursor: pointer;
+}
+.test-section-nav button[aria-current="page"] {
+  border-color: #126647;
+  color: #126647;
+  font-weight: 700;
+}
+.test-section-nav button:focus-visible { outline: 2px solid #126647; outline-offset: -2px; }
 
 .test-zone-empty,
 .test-zone-inline-error {
