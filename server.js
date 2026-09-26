@@ -4952,7 +4952,11 @@ const server = http.createServer(async (req, res) => {
         writeState(state);
       }
       const questions = getTestZoneLiveSessionQuestions(state, session);
-      const sessionStatus = String(session.status || "lobby").trim();
+      const sessionStatus = session.startedAt ? "active" : "lobby";
+      if (session.status !== sessionStatus) {
+        session.status = sessionStatus;
+        writeState(state);
+      }
       if (expired) {
         writeState(state);
       }
