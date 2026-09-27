@@ -782,10 +782,21 @@ function buildLiveSessionControls(session) {
     questionClosed && currentQuestion && Number.isInteger(correctIndex)
       ? `<p class="status-note"><strong>Respuesta correcta:</strong> ${escapeHtml(String.fromCharCode(65 + correctIndex))}. ${escapeHtml(currentQuestion.options?.[correctIndex] || "")}</p>`
       : "";
+  const provisionalRanking =
+    questionClosed && Array.isArray(session.leaderboard) && session.leaderboard.length
+      ? `<div class="test-zone-live-list">
+          <h4>Clasificación provisional</h4>
+          ${session.leaderboard
+            .slice(0, 5)
+            .map((row) => `<p><strong>${escapeHtml(row.rank)}. ${escapeHtml(row.name)}</strong> · ${escapeHtml(Number(row.score || 0))} puntos</p>`)
+            .join("")}
+        </div>`
+      : "";
   return `
     <p class="muted"><strong>Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(session.questionCount)}</strong> · ${escapeHtml(timeLimitSeconds)} s por pregunta</p>
     ${currentQuestion ? `<p>${escapeHtml(currentQuestion.prompt)}</p>` : ""}
     ${correctAnswer}
+    ${provisionalRanking}
     <div class="test-zone-actions">
       <button type="button" class="test-zone-secondary-button" data-action="refresh-live-lobby">Actualizar estado</button>
       ${!questionClosed
