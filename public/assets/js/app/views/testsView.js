@@ -1,4 +1,16 @@
+import { renderTestNavigation } from "../ui/testNavigation.js";
+import { buildPublicLiveAdminMarkup, submitPublicLiveForm } from "./testView.js";
+import {
+  finishLiveSession,
+  loadLiveSessions,
+  loadSharedQuestions,
+  nextLiveQuestion,
+  revealLiveQuestion,
+  startLiveSession
+} from "../modules/tests/questionService.js";
+
 const testsViewState = {
+  displayMode: "all",
   role: "member",
   modules: [],
   tests: [],
@@ -463,7 +475,7 @@ async function ensureStudentActiveLiveSession() {
     return;
   }
 
-  const response = await client.get(`/api/live-tests/${encodeURIComponent(testsViewState.activeLiveSessionId)}`);
+  const response = await client.get(`/api/live-tests/${encodeURIComponent(testsViewState.activeLiveSessionId)}?scope=participant`);
   testsViewState.liveSessionState = response.session || null;
   syncLiveQuestionShownAt(testsViewState.liveSessionState);
 }
@@ -1589,11 +1601,11 @@ function renderAdminMarkup() {
           </div>
         </form>
       </article>
-      <article class="panel panel-wide">
+      ${testsViewState.displayMode === "all" ? `<article class="panel panel-wide">
         <p class="eyebrow">Sesiones live</p>
         <h2>Sesiones live</h2>
         ${buildAdminLiveSessionsMarkup()}
-      </article>
+      </article>` : ""}
       ${
         testsViewState.modules.length
           ? testsViewState.modules.map((module) => buildAdminModuleMarkup(module)).join("")
@@ -1788,8 +1800,7 @@ function renderStudentMarkup() {
         )}</p>
       </article>
       ${buildStudentPracticeMarkup()}
-      ${buildStudentLiveJoinMarkup()}
-      ${buildStudentLiveSessionMarkup()}
+      ${testsViewState.displayMode === "all" ? buildStudentLiveJoinMarkup() + buildStudentLiveSessionMarkup() : ""}
       <article class="panel panel-side">
         <h3>Tests publicados</h3>
         ${buildStudentTestListMarkup()}
@@ -1802,7 +1813,28 @@ function renderStudentMarkup() {
 }
 
 function renderTestsMarkup(container) {
-  container.innerHTML = isAdminRole(testsViewState.role) ? renderAdminMarkup() : renderStudentMarkup();
+  const admin = isAdminRole(testsViewState.role);
+  const live = testsViewState.displayMode === "live";
+  const markup = live
+    ? `<section class="panel-stack">
+        <header class="panel panel-wide">
+          <p class="eyebrow">Zona Test</p>
+          <h2>Test en Vivo</h2>
+          <p role="status" class="status-note ${testsViewState.message ? `is-${escapeHtml(testsViewState.tone)}` : ""}">${escapeHtml(
+            testsViewState.message || "Crea una sala o entra con el código del test."
+          )}</p>
+        </header>
+        <section class="panel panel-wide">
+          <h3>Entrada de participantes</h3>
+          <p class="muted">Los participantes entran con su nombre y el código de la sala.</p>
+          <a class="ghost-button" href="/public-live-test.html" target="_blank" rel="noopener">Abrir entrada de participantes</a>
+        </section>
+        ${admin ? `<div data-public-live-controls>${buildPublicLiveAdminMarkup()}</div>` : ""}
+      </section>`
+    : admin
+      ? renderAdminMarkup()
+      : renderStudentMarkup();
+  container.innerHTML = renderTestNavigation(live ? "live" : "test") + markup;
 }
 
 async function refreshTestsView(container, role) {
@@ -1813,6 +1845,10 @@ async function refreshTestsView(container, role) {
   try {
     if (isAdminRole(role)) {
       await loadAdminData();
+      if (testsViewState.displayMode === "live") {
+        await loadSharedQuestions();
+        await loadLiveSessions();
+      }
     } else {
       await loadStudentData();
     }
