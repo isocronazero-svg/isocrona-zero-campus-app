@@ -5095,7 +5095,7 @@ const server = http.createServer(async (req, res) => {
       if (!currentQuestion) {
         return sendJson(res, 404, { ok: false, error: "La pregunta activa ya no existe." });
       }
-      const answerIndex = Number(payload.answerIndex);
+      const answerIndex = typeof payload.answerIndex === "number" ? payload.answerIndex : Number.NaN;
       if (!Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= (currentQuestion.options || []).length) {
         return sendJson(res, 400, { ok: false, error: "Selecciona una respuesta valida." });
       }
