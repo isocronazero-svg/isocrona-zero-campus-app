@@ -1082,7 +1082,7 @@ function expireStaleTestZoneLiveSessions(state, now = Date.now()) {
 }
 
 function closeTestZoneLiveSession(session) {
-  if (!session || !["lobby", "active"].includes(String(session.status || "").trim())) {
+  if (!session || !["lobby", "active", "finished"].includes(String(session.status || "").trim())) {
     return session;
   }
   session.status = "closed";
