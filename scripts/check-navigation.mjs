@@ -39,6 +39,41 @@ for (const [index, item] of navItems.entries()) {
 assert.equal(render(true, (id) => id !== "reports").length, navItems.length - 1);
 const memberButtons = render(false);
 assert.equal(memberButtons.length, 4);
+assert.equal(navItems.filter((item) => item.id === "test").length, 1);
+assert.ok(!navItems.some((item) => item.id === "tests"), "Test en Vivo debe estar dentro de Zona Test");
+assert.deepEqual(TEST_SECTION_LINKS.map((item) => item.label), ["Test", "Test en Vivo"]);
+
+const switchStart = app.indexOf("async function changeViewRole(");
+const switchEnd = app.indexOf('\nroleSwitcher.addEventListener("change"', switchStart);
+assert.ok(switchStart >= 0 && switchEnd > switchStart, "Debe existir el cambio seguro a Modo Socio");
+for (const success of [true, false]) {
+  const context = {
+    session: { role: "admin", accountId: "own-account", memberId: "" },
+    state: { activeView: "overview", selectedMemberId: "another-member" },
+    viewRole: "admin",
+    roleSwitcher: { disabled: false },
+    isAdminSession: () => true,
+    isAdminView: () => context.viewRole === "admin",
+    persistSession: () => {},
+    persistViewRole: () => {},
+    render: () => {},
+    showToast: () => {},
+    applySessionToState: () => {},
+    fetch: async (url, options) => {
+      assert.equal(url, "/api/account/member-profile");
+      assert.equal(options.method, "POST");
+      assert.equal(options.body, undefined, "Modo Socio nunca debe enviar el ID de la persona seleccionada");
+      return { ok: success };
+    },
+    readJsonResponse: async () => ({ ok: success, memberId: "own-member", error: "Unavailable" }),
+    refreshState: async () => {}
+  };
+  await vm.runInNewContext(app.slice(switchStart, switchEnd) + '\nchangeViewRole("member-self");', context);
+  assert.equal(context.session.accountId, "own-account");
+  assert.equal(context.session.role, "admin");
+  assert.equal(context.viewRole, success ? "member-self" : "admin");
+  assert.equal(context.roleSwitcher.disabled, false);
+}
 for (const view of ["overview", "test", "join"]) {
   assert.ok(memberButtons.some((tag) => tag.includes(`data-view="${view}"`) && tag.includes('data-action="nav"')));
 }
@@ -149,4 +184,22 @@ for (const admin of [true, false]) {
   assert.equal(calls, admin ? 1 : 0, "Members must not request admin-only storage metadata");
   assert.equal(result, admin ? storage : null);
 }
+const permissionStart = app.indexOf("function isViewAllowed(");
+const permissionEnd = app.indexOf("\nfunction ", permissionStart + 1);
+assert.ok(permissionStart >= 0 && permissionEnd > permissionStart);
+for (const admin of [true, false]) {
+  const context = {
+    isAdminView: () => false,
+    isCurrentMemberLimitedToAssociateProfile: () => false,
+    ADMIN_ONLY_VIEWS: new Set(["reports", "associates"]),
+    isAdminSession: () => admin,
+    isSelfMemberSession: () => true,
+    isCampusOnlySession: () => true
+  };
+  vm.runInNewContext(app.slice(permissionStart, permissionEnd), context);
+  assert.equal(context.isViewAllowed("test"), admin, "Modo Socio del admin no amplía permisos de usuarios externos");
+  assert.equal(context.isViewAllowed("tests"), admin);
+  assert.equal(context.isViewAllowed("reports"), false);
+}
+
 console.log("Frontend navigation, session and course context check passed.");
