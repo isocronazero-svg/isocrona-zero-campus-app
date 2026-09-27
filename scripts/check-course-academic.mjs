@@ -290,6 +290,7 @@ async function main() {
     assert.deepEqual(liveJoin.body.liveSession.questions.map((q) => q.id), ["shared-q1"]);
     assert.equal(liveJoin.body.liveSession.currentQuestionIndex, 0);
     assert.equal(JSON.stringify(liveJoin.body).includes("correctIndex"), false);
+    await admin.request("POST", `/api/test-zone/live-sessions/${live.body.session.id}/reveal`, {});
     await admin.request("POST", `/api/test-zone/live-sessions/${live.body.session.id}/next`, {});
     const secondLiveJoin = await anonymous.request("POST", "/api/test-zone/live/join", { code: live.body.session.code, guestName: "Participante temporal" });
     assert.deepEqual(secondLiveJoin.body.liveSession.questions.map((q) => q.id), ["shared-q2"]);
