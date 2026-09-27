@@ -93,7 +93,13 @@
   function startQuestionCountdown() {
     stopQuestionCountdown();
     const session = state.liveSession;
-    if (!session || session.status !== "active" || session.guided !== true || session.questionClosed === true) {
+    if (
+      !session ||
+      session.status !== "active" ||
+      session.guided !== true ||
+      session.questionClosed === true ||
+      session._timerExpiredLocally === true
+    ) {
       return;
     }
     const tick = () => {
@@ -103,6 +109,7 @@
         output.textContent = `${remainingSeconds} s`;
       }
       if (remainingSeconds <= 0) {
+        session._timerExpiredLocally = true;
         stopQuestionCountdown();
         updateStatus("Tiempo agotado. Espera a que se muestre la respuesta correcta.", "info");
         render();
