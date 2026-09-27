@@ -180,6 +180,10 @@
         if (previousStatus !== "active" || questionChanged || revealChanged) {
           render();
         }
+      } else if (state.liveSession?.status === "finished") {
+        stopQuestionCountdown();
+        updateStatus("Test finalizado. Consulta el podio final.", "success");
+        render();
       } else {
         updateStatus("Sigues en la sala de espera.");
       }
@@ -238,6 +242,27 @@
           <p><strong>${escapeHtml(state.guestName)}</strong>, ya estás dentro.</p>
           <p class="status-note">Espera a que el administrador inicie el test.</p>
           <button type="button" id="publicLiveRefreshButton" class="test-zone-secondary-button">Comprobar si ha comenzado</button>
+        </section>
+      `;
+    }
+    if (String(state.liveSession.status || "") === "finished") {
+      const podium = Array.isArray(state.liveSession.leaderboard) ? state.liveSession.leaderboard.slice(0, 3) : [];
+      const currentRank = state.liveSession.currentRank && typeof state.liveSession.currentRank === "object"
+        ? state.liveSession.currentRank
+        : null;
+      return `
+        <section class="test-zone-card test-zone-card-highlight">
+          <p class="test-zone-kicker">Test finalizado</p>
+          <h3>${escapeHtml(state.liveSession.title || "Test en vivo")}</h3>
+          <div class="test-zone-live-list">
+            <h4>Podio final</h4>
+            ${podium.length
+              ? podium.map((row) => `<p><strong>${escapeHtml(row.rank)}. ${escapeHtml(row.name)}</strong> · ${escapeHtml(Number(row.score || 0))} puntos</p>`).join("")
+              : '<p class="muted">No hay participantes clasificados.</p>'}
+          </div>
+          ${currentRank
+            ? `<p class="status-note"><strong>Tu posición final:</strong> ${escapeHtml(currentRank.rank)} · ${escapeHtml(Number(currentRank.score || 0))} puntos</p>`
+            : ""}
         </section>
       `;
     }
