@@ -78,6 +78,11 @@ jobs:
           trap 'rm -f "$ssh_key"' EXIT
           umask 077
           printf '%s\n' "$RAILWAY_SSH_PRIVATE_KEY" > "$ssh_key"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan ssh.railway.app >> ~/.ssh/known_hosts
+          ssh-keyscan railway.app || true
+          chmod 600 ~/.ssh/known_hosts
 
           railway_args=()
           if [ -n "${RAILWAY_PROJECT_ID:-}" ]; then
