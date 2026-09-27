@@ -11,6 +11,10 @@ const active = {
   questionCount: 2,
   currentQuestionIndex: 0,
   currentQuestionId: "q1",
+  questionStartedAt: new Date(1000).toISOString(),
+  questionTimeLimitSeconds: 20,
+  questionDeadlineAt: new Date(21000).toISOString(),
+  serverNow: new Date(1000).toISOString(),
   answered: false,
   currentAnswerIndex: null,
   questions: [{ id: "q1", prompt: "Pregunta uno", options: ["A", "B"] }]
@@ -31,7 +35,7 @@ const legacyActive = {
 };
 
 function harness() {
-  const timers = new Map(), requests = [], replies = [], events = {}, elements = new Map();
+  const timers = new Map(), intervals = new Map(), requests = [], replies = [], events = {}, elements = new Map();
   let renders = 0, markup = "", timerId = 0, now = 1000;
   const element = () => ({ listeners: {}, values: {}, disabled: false,
     addEventListener(event, callback) { this.listeners[event] = callback; },
@@ -53,6 +57,8 @@ function harness() {
     FormData: class { constructor(form) { this.values = form.values; } get(key) { return this.values[key] ?? null; } },
     setTimeout: (callback, ms) => { const id = ++timerId; timers.set(id, { callback, ms }); return id; },
     clearTimeout: id => timers.delete(id),
+    setInterval: (callback, ms) => { const id = ++timerId; intervals.set(id, { callback, ms }); return id; },
+    clearInterval: id => intervals.delete(id),
     fetch: async (url, options) => {
       requests.push({ url, options });
       assert.ok(replies.length, "Unexpected request: " + url);
@@ -64,7 +70,7 @@ function harness() {
     ok: status < 400, status, headers: { get: () => retry }, json: async () => body
   }));
   return {
-    document, events, timers, requests, replies, elements, reply,
+    document, events, timers, intervals, requests, replies, elements, reply,
     get markup() { return markup; }, get renders() { return renders; },
     advance(ms) { now += ms; },
     async join(session = lobby) {
@@ -97,6 +103,9 @@ h.reply({ ok: true, liveSession: active });
 await h.tick();
 assert.match(h.markup, /publicLiveQuestionForm/);
 assert.match(h.markup, /Pregunta uno/);
+assert.match(h.markup, /Tiempo:/);
+assert.match(h.markup, /20 s/);
+assert.equal(h.intervals.size, 1, "La pregunta activa inicia un contador visible");
 assert.doesNotMatch(h.markup, /checked/, "An unanswered question must not preselect option A");
 assert.equal([...h.timers.values()][0].ms, 2500, "Guided active sessions keep polling for the next question");
 
