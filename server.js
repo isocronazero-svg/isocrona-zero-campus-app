@@ -1115,6 +1115,8 @@ function createTestZoneLiveSession(state, account, payload = {}) {
     status: "lobby",
     participants: [],
     startedAt: "",
+    currentQuestionIndex: 0,
+    participantAnswers: {},
     createdByAccountId: String(account?.id || "").trim(),
     createdByMemberId: String(account?.memberId || "").trim(),
     filters: {
@@ -1139,6 +1141,10 @@ function buildTestZoneLiveSessionAdminPayload(session) {
     status: String(session?.status || "lobby").trim(),
     participants: Array.isArray(session?.participants) ? session.participants.map((participant) => ({ id: String(participant?.id || "").trim(), name: String(participant?.name || "").trim(), joinedAt: String(participant?.joinedAt || "").trim() })) : [],
     startedAt: String(session?.startedAt || "").trim(),
+    currentQuestionIndex: Number.isInteger(session?.currentQuestionIndex) ? session.currentQuestionIndex : null,
+    currentQuestionId: Number.isInteger(session?.currentQuestionIndex)
+      ? String((session?.questionIds || [])[session.currentQuestionIndex] || "").trim()
+      : "",
     filters:
       session?.filters && typeof session.filters === "object"
         ? {
@@ -1180,12 +1186,40 @@ function getTestZoneLiveSessionQuestions(state, session) {
 }
 
 function buildPublicTestZoneLiveSession(state, session, participantId) {
+  const guided = Number.isInteger(session?.currentQuestionIndex);
+  const currentQuestionIndex = guided ? session.currentQuestionIndex : null;
+  const currentQuestionId = guided
+    ? String((session?.questionIds || [])[currentQuestionIndex] || "").trim()
+    : "";
+  const currentQuestion = currentQuestionId
+    ? (state.testZoneQuestions || [])
+        .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
+        .find((question) => String(question.id || "").trim() === currentQuestionId)
+    : null;
+  const participantAnswer =
+    guided && participantId
+      ? session?.participantAnswers?.[participantId]?.[currentQuestionId] || null
+      : null;
   return {
-    id: session.id, code: session.code, title: session.title, questionCount: session.questionCount,
-    status: session.status, participantId,
-    questions: session.status === "active"
-      ? getTestZoneLiveSessionQuestions(state, session).map(buildTestZoneQuestionAudiencePayload)
-      : []
+    id: session.id,
+    code: session.code,
+    title: session.title,
+    questionCount: session.questionCount,
+    status: session.status,
+    participantId,
+    guided,
+    currentQuestionIndex,
+    currentQuestionId,
+    answered: Boolean(participantAnswer),
+    currentAnswerIndex: Number.isInteger(participantAnswer?.answerIndex) ? participantAnswer.answerIndex : null,
+    questions:
+      session.status !== "active"
+        ? []
+        : guided
+          ? currentQuestion
+            ? [buildTestZoneQuestionAudiencePayload(currentQuestion)]
+            : []
+          : getTestZoneLiveSessionQuestions(state, session).map(buildTestZoneQuestionAudiencePayload)
   };
 }
 
@@ -4913,11 +4947,45 @@ const server = http.createServer(async (req, res) => {
       }
       session.status = "active";
       session.startedAt = new Date().toISOString();
+      session.currentQuestionIndex = Number.isInteger(session.currentQuestionIndex) ? session.currentQuestionIndex : 0;
+      session.participantAnswers =
+        session.participantAnswers && typeof session.participantAnswers === "object" ? session.participantAnswers : {};
       writeState(state);
       publicLivePollState = null;
       return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo iniciar el test en vivo" });
+    }
+  }
+
+  if (/^\/api\/test-zone\/live-sessions\/[^/]+\/next$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      ensureTestZoneState(state);
+      if (expireStaleTestZoneLiveSessions(state)) {
+        writeState(state);
+      }
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const session = getTestZoneLiveSessionById(state, sessionId);
+      if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
+      if (String(session.status || "").trim() !== "active") {
+        return sendJson(res, 409, { ok: false, error: "El test en vivo no esta iniciado" });
+      }
+      if (!Number.isInteger(session.currentQuestionIndex)) {
+        return sendJson(res, 409, { ok: false, error: "Esta sesion usa el flujo anterior y no admite avance dirigido" });
+      }
+      const lastQuestionIndex = Math.max(Number(session.questionCount || 0) - 1, 0);
+      if (session.currentQuestionIndex >= lastQuestionIndex) {
+        return sendJson(res, 409, { ok: false, error: "Ya estas en la ultima pregunta" });
+      }
+      session.currentQuestionIndex += 1;
+      writeState(state);
+      publicLivePollState = null;
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo avanzar a la siguiente pregunta" });
     }
   }
 
@@ -4983,6 +5051,81 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (/^\/api\/test-zone\/live-sessions\/[^/]+\/answer$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const clientIp = getClientIp(req);
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const participantId = String(req.headers["x-live-participant"] || "").trim();
+      if (!participantId || participantId.length > 128 || sessionId.length > 128) {
+        return sendJson(res, 401, { ok: false, error: "Vuelve a entrar con tu nombre y codigo." });
+      }
+      if (
+        enforceRateLimit(
+          res,
+          `live-question-answer:${sessionId}:${participantId}:${clientIp}`,
+          120,
+          10 * rateLimitMinuteMs
+        )
+      ) {
+        return;
+      }
+      const payload = await readJsonBody(req, payloadLimitBytes.liveAttempt);
+      const state = readState();
+      ensureTestZoneState(state);
+      const expired = expireStaleTestZoneLiveSessions(state);
+      const session = getTestZoneLiveSessionById(state, sessionId);
+      if (!session || !isTestZoneLiveSessionActive(session)) {
+        if (expired) writeState(state);
+        return sendJson(res, 404, { ok: false, error: "La sesion ha terminado o ya no esta activa." });
+      }
+      if (!(session.participants || []).some((participant) => participant.id === participantId)) {
+        return sendJson(res, 403, { ok: false, error: "Vuelve a entrar con tu nombre y codigo." });
+      }
+      if (!Number.isInteger(session.currentQuestionIndex)) {
+        return sendJson(res, 409, { ok: false, error: "Esta sesion usa el flujo anterior." });
+      }
+      const currentQuestionId = String((session.questionIds || [])[session.currentQuestionIndex] || "").trim();
+      const submittedQuestionId = String(payload.questionId || "").trim();
+      if (!currentQuestionId || submittedQuestionId !== currentQuestionId) {
+        return sendJson(res, 409, { ok: false, error: "La pregunta ya ha cambiado. Actualiza la sesion." });
+      }
+      const currentQuestion = (state.testZoneQuestions || [])
+        .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
+        .find((question) => String(question.id || "").trim() === currentQuestionId);
+      if (!currentQuestion) {
+        return sendJson(res, 404, { ok: false, error: "La pregunta activa ya no existe." });
+      }
+      const answerIndex = typeof payload.answerIndex === "number" ? payload.answerIndex : Number.NaN;
+      if (!Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= (currentQuestion.options || []).length) {
+        return sendJson(res, 400, { ok: false, error: "Selecciona una respuesta valida." });
+      }
+      session.participantAnswers =
+        session.participantAnswers && typeof session.participantAnswers === "object" ? session.participantAnswers : {};
+      session.participantAnswers[participantId] =
+        session.participantAnswers[participantId] && typeof session.participantAnswers[participantId] === "object"
+          ? session.participantAnswers[participantId]
+          : {};
+      const existingAnswer = session.participantAnswers[participantId][currentQuestionId];
+      if (existingAnswer && Number(existingAnswer.answerIndex) !== answerIndex) {
+        return sendJson(res, 409, { ok: false, error: "Ya has respondido esta pregunta." });
+      }
+      if (!existingAnswer) {
+        session.participantAnswers[participantId][currentQuestionId] = {
+          answerIndex,
+          answeredAt: new Date().toISOString()
+        };
+        writeState(state);
+        publicLivePollState = null;
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        liveSession: buildPublicTestZoneLiveSession(state, session, participantId)
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo guardar la respuesta.");
+    }
+  }
+
   if (/^\/api\/test-zone\/live-sessions\/[^/]+\/participant$/.test(requestUrl.pathname) && req.method === "GET") {
     res.setHeader("Cache-Control", "no-store");
     try {
@@ -5037,6 +5180,9 @@ const server = http.createServer(async (req, res) => {
           writeState(state);
         }
         return sendJson(res, 404, { ok: false, error: "El test en vivo no existe o ya no esta activo" });
+      }
+      if (Number.isInteger(session.currentQuestionIndex)) {
+        return sendJson(res, 409, { ok: false, error: "Esta sesion usa respuestas pregunta a pregunta." });
       }
       const guestName = String(payload.guestName || "").trim();
       if (!guestName) {

@@ -269,6 +269,11 @@ async function main() {
     (memberQuestionsResponse.body?.questions || []).forEach(assertQuestionSafe);
 
     const questionIds = [createdQuestions[0]?.id, createdQuestions[1]?.id, createdQuestions[2]?.id];
+    const stateForLegacyLive = (await adminClient.request("GET", "/api/state")).body;
+    const legacyLiveSession = (stateForLegacyLive.testZoneLiveSessions || []).find((session) => session.id === "legacy-active-live");
+    legacyLiveSession.questionIds = questionIds.slice(0, 2);
+    legacyLiveSession.questionCount = 2;
+    await adminClient.request("POST", "/api/state", stateForLegacyLive);
     const initialReviewMarksResponse = await memberClient.request("GET", "/api/test-zone/review-marks/me");
     assert.equal(initialReviewMarksResponse.body?.ok, true);
     assert.equal((initialReviewMarksResponse.body?.marks || []).length, 0);
@@ -484,6 +489,8 @@ async function main() {
     assert.equal(readFileSync(path.join(tempDataDir, "state.json"), "utf8"), beforePoll, "Consultar no escribe ni registra participantes");
     const legacyJoin = (await guest.request("POST", "/api/test-zone/live/join", { guestName: "Visitante", code: "LEGACY-ACTIVE" })).body.liveSession;
     assert.equal(legacyJoin.status, "active", "Una sesion anterior sin startedAt no vuelve al lobby");
+    assert.equal(legacyJoin.guided, false, "Las sesiones activas anteriores mantienen el flujo compatible");
+    assert.equal(legacyJoin.questions.length, 2);
 
     const startLiveResponse = await adminClient.request(
       "POST",
@@ -493,11 +500,86 @@ async function main() {
     assert.equal(startLiveResponse.body?.ok, true);
     assert.equal(startLiveResponse.body?.session?.status, "active");
     assert.ok(startLiveResponse.body.session.startedAt);
+    assert.equal(startLiveResponse.body.session.currentQuestionIndex, 0);
     const activePoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
     assert.equal(activePoll.status, "active", "El inicio invalida la lectura de lobby cacheada");
-    assert.equal(activePoll.questions.length, 2);
+    assert.equal(activePoll.guided, true);
+    assert.equal(activePoll.currentQuestionIndex, 0);
+    assert.equal(activePoll.questions.length, 1, "El flujo dirigido solo expone la pregunta activa");
     activePoll.questions.forEach(assertQuestionSafe);
+    assert.equal(activePoll.currentQuestionId, activePoll.questions[0].id);
+    assert.equal(activePoll.answered, false);
     assert.equal((await adminClient.request("POST", livePath + "/start", {}, { allowFailure: true })).status, 409);
+
+    const firstQuestionId = activePoll.currentQuestionId;
+    const answerPath = livePath + "/answer";
+    assert.equal(
+      (await guest.request(
+        "POST",
+        answerPath,
+        { questionId: firstQuestionId, answerIndex: null },
+        { headers: pollHeaders, allowFailure: true }
+      )).status,
+      400,
+      "Una respuesta vacia no se convierte en la opcion A"
+    );
+    const firstAnswer = await guest.request(
+      "POST",
+      answerPath,
+      { questionId: firstQuestionId, answerIndex: 0 },
+      { headers: pollHeaders }
+    );
+    assert.equal(firstAnswer.body.liveSession.answered, true);
+    assert.equal(firstAnswer.body.liveSession.currentAnswerIndex, 0);
+    assert.equal(firstAnswer.body.liveSession.questions.length, 1);
+    const repeatedAnswer = await guest.request(
+      "POST",
+      answerPath,
+      { questionId: firstQuestionId, answerIndex: 0 },
+      { headers: pollHeaders }
+    );
+    assert.equal(repeatedAnswer.body.liveSession.answered, true, "Repetir la misma respuesta es idempotente");
+    assert.equal(
+      (await guest.request(
+        "POST",
+        answerPath,
+        { questionId: firstQuestionId, answerIndex: 1 },
+        { headers: pollHeaders, allowFailure: true }
+      )).status,
+      409,
+      "Una respuesta ya enviada no se puede cambiar"
+    );
+
+    const nextResponse = await adminClient.request("POST", livePath + "/next", {});
+    assert.equal(nextResponse.body.session.currentQuestionIndex, 1);
+    assert.notEqual(nextResponse.body.session.currentQuestionId, firstQuestionId);
+    const secondPoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
+    assert.equal(secondPoll.currentQuestionIndex, 1);
+    assert.equal(secondPoll.questions.length, 1);
+    assert.equal(secondPoll.currentQuestionId, secondPoll.questions[0].id);
+    assert.notEqual(secondPoll.currentQuestionId, firstQuestionId);
+    assert.equal(secondPoll.answered, false);
+    assert.equal(
+      (await guest.request(
+        "POST",
+        answerPath,
+        { questionId: firstQuestionId, answerIndex: 0 },
+        { headers: pollHeaders, allowFailure: true }
+      )).status,
+      409,
+      "No se acepta una respuesta cuando el administrador ya ha cambiado de pregunta"
+    );
+    await guest.request(
+      "POST",
+      answerPath,
+      { questionId: secondPoll.currentQuestionId, answerIndex: 0 },
+      { headers: pollHeaders }
+    );
+    assert.equal(
+      (await adminClient.request("POST", livePath + "/next", {}, { allowFailure: true })).status,
+      409,
+      "No se puede avanzar mas alla de la ultima pregunta"
+    );
 
     const activeJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
       method: "POST",
@@ -509,21 +591,35 @@ async function main() {
     assert.equal(joinPayload?.liveSession?.status, "active");
     assert.equal(joinPayload.liveSession.participantId, repeatedJoin.participantId);
     assert.equal(joinPayload.liveSession.participants, undefined, "No se expone la lista de asistentes al invitado");
-    assert.equal((joinPayload?.liveSession?.questions || []).length, 2);
+    assert.equal(joinPayload.liveSession.guided, true);
+    assert.equal(joinPayload.liveSession.currentQuestionIndex, 1);
+    assert.equal((joinPayload?.liveSession?.questions || []).length, 1);
+    assert.equal(joinPayload.liveSession.answered, true);
     (joinPayload?.liveSession?.questions || []).forEach(assertQuestionSafe);
 
-    const liveQuestionIds = (joinPayload?.liveSession?.questions || []).map((question) => question.id);
-    const outsideLiveQuestionId = questionIds.find((questionId) => !liveQuestionIds.includes(questionId));
-    assert.ok(outsideLiveQuestionId, "El check necesita una pregunta fuera de la sesion live");
+    assert.equal(
+      (await guest.request(
+        "POST",
+        livePath + "/attempt",
+        { guestName: "Visitante", questionIds: [joinPayload.liveSession.currentQuestionId], answers: [0] },
+        { allowFailure: true }
+      )).status,
+      409,
+      "El flujo dirigido no permite saltarse las respuestas pregunta a pregunta"
+    );
+
+    const legacyQuestionIds = (legacyJoin.questions || []).map((question) => question.id);
+    const outsideLegacyQuestionId = questionIds.find((questionId) => !legacyQuestionIds.includes(questionId));
+    assert.ok(outsideLegacyQuestionId, "El check necesita una pregunta fuera de la sesion legacy");
 
     const outsideLiveAttemptResponse = await fetch(
-      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/attempt`, baseUrl),
+      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(legacyJoin.id)}/attempt`, baseUrl),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           guestName: "Visitante",
-          questionIds: [...liveQuestionIds, outsideLiveQuestionId],
+          questionIds: [...legacyQuestionIds, outsideLegacyQuestionId],
           answers: [0, 0, 0]
         })
       }
@@ -531,13 +627,13 @@ async function main() {
     assert.equal(outsideLiveAttemptResponse.status, 400);
 
     const duplicateLiveAttemptResponse = await fetch(
-      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/attempt`, baseUrl),
+      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(legacyJoin.id)}/attempt`, baseUrl),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           guestName: "Visitante",
-          questionIds: [liveQuestionIds[0], liveQuestionIds[0]],
+          questionIds: [legacyQuestionIds[0], legacyQuestionIds[0]],
           answers: [0, 0]
         })
       }
@@ -580,7 +676,7 @@ async function main() {
         })
       }
     );
-    assert.equal(oversizedSingleAttemptResponse.status, 400);
+    assert.equal(oversizedSingleAttemptResponse.status, 409);
 
     const contaminatedLiveViaNormalEndpointResponse = await memberClient.request(
       "POST",
@@ -616,26 +712,26 @@ async function main() {
       "El endpoint normal de Zona Test debe rechazar resultados live aunque sean validos"
     );
 
-    const publicAttemptResponse = await fetch(
-      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/attempt`, baseUrl),
+    const legacyAttemptResponse = await fetch(
+      new URL(`/api/test-zone/live-sessions/${encodeURIComponent(legacyJoin.id)}/attempt`, baseUrl),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           guestName: "Visitante",
-          questionIds: liveQuestionIds,
+          questionIds: legacyQuestionIds,
           answers: [0, 0]
         })
       }
     );
-    const publicAttemptPayload = await publicAttemptResponse.json();
-    assert.equal(publicAttemptResponse.ok, true);
-    assert.equal(publicAttemptPayload?.ok, true);
-    assert.equal(typeof publicAttemptPayload?.result?.score, "number");
+    const legacyAttemptPayload = await legacyAttemptResponse.json();
+    assert.equal(legacyAttemptResponse.ok, true);
+    assert.equal(legacyAttemptPayload?.ok, true);
+    assert.equal(typeof legacyAttemptPayload?.result?.score, "number");
     assert.equal(
-      Object.prototype.hasOwnProperty.call(publicAttemptPayload?.result?.responses?.[0] || {}, "correctAnswer"),
+      Object.prototype.hasOwnProperty.call(legacyAttemptPayload?.result?.responses?.[0] || {}, "correctAnswer"),
       false,
-      "El endpoint publico live no debe recibir los detalles de revision del test normal"
+      "El endpoint publico legacy no debe recibir los detalles de revision del test normal"
     );
 
     const closeLiveSessionResponse = await adminClient.request(
@@ -656,8 +752,8 @@ async function main() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           guestName: "Visitante",
-          questionIds: liveQuestionIds,
-          answers: [0, 0]
+          questionIds: [joinPayload.liveSession.currentQuestionId],
+          answers: [0]
         })
       }
     );

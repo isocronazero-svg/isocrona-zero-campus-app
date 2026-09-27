@@ -4,7 +4,31 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("../public/public-live-test.js", import.meta.url), "utf8");
 const lobby = { id: "room-a", code: "123456", title: "Sala A", status: "lobby", participantId: "participant-a", questions: [] };
-const active = { ...lobby, status: "active", questions: [{ id: "q1", prompt: "Pregunta", options: ["A", "B"] }] };
+const active = {
+  ...lobby,
+  status: "active",
+  guided: true,
+  questionCount: 2,
+  currentQuestionIndex: 0,
+  currentQuestionId: "q1",
+  answered: false,
+  currentAnswerIndex: null,
+  questions: [{ id: "q1", prompt: "Pregunta uno", options: ["A", "B"] }]
+};
+const activeSecond = {
+  ...active,
+  currentQuestionIndex: 1,
+  currentQuestionId: "q2",
+  answered: false,
+  currentAnswerIndex: null,
+  questions: [{ id: "q2", prompt: "Pregunta dos", options: ["C", "D"] }]
+};
+const legacyActive = {
+  ...lobby,
+  status: "active",
+  guided: false,
+  questions: [{ id: "q1", prompt: "Pregunta", options: ["A", "B"] }]
+};
 
 function harness() {
   const timers = new Map(), requests = [], replies = [], events = {}, elements = new Map();
@@ -68,26 +92,47 @@ assert.equal(h.renders, renders, "Waiting must not replace the form or typed inp
 assert.equal(h.requests.at(-1).options.method, "GET");
 assert.equal(h.requests.at(-1).options.headers["X-Live-Participant"], lobby.participantId);
 assert.equal(h.requests.filter(r => r.url.endsWith("/join")).length, 1, "Polling never rejoins");
+
 h.reply({ ok: true, liveSession: active });
 await h.tick();
-assert.match(h.markup, /publicLiveAttemptForm/);
-assert.equal(h.timers.size, 0, "Stop polling once answering begins");
+assert.match(h.markup, /publicLiveQuestionForm/);
+assert.match(h.markup, /Pregunta uno/);
+assert.doesNotMatch(h.markup, /checked/, "An unanswered question must not preselect option A");
+assert.equal([...h.timers.values()][0].ms, 2500, "Guided active sessions keep polling for the next question");
 
-const form = h.elements.get("publicLiveAttemptForm");
-form.values = { "question-0": "1" };
+let form = h.elements.get("publicLiveQuestionForm");
+form.values = { answerIndex: "1" };
 const beforeFailure = h.renders;
 h.replies.push(async () => { throw new TypeError("Failed to fetch"); });
 await form.listeners.submit({ preventDefault() {} });
-assert.equal(h.renders, beforeFailure, "A failed save must preserve selected answers");
+assert.equal(h.renders, beforeFailure, "A failed answer save must preserve the selected answer");
 assert.equal(form.button.disabled, false);
 assert.match(h.elements.get("publicLiveStatus").textContent, /No se pudo conectar/);
-h.reply({ result: { title: "Sala A", score: 0, total: 1, correctCount: 0, wrongCount: 1, blankCount: 0, percentage: 0 } });
+
+h.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 1 } });
+const answerRequestsBefore = h.requests.filter(r => r.url.endsWith("/answer")).length;
 const saving = form.listeners.submit({ preventDefault() {} });
 await form.listeners.submit({ preventDefault() {} });
 await saving;
-assert.equal(h.requests.filter(r => r.url.endsWith("/attempt")).length, 2, "Double submit adds no duplicate request");
-assert.doesNotMatch(h.markup, /publicLiveAttemptForm/, "A saved attempt cannot be submitted again through the same form");
-assert.match(h.markup, /Resultado guardado/);
+assert.equal(
+  h.requests.filter(r => r.url.endsWith("/answer")).length,
+  answerRequestsBefore + 1,
+  "Double submit adds no duplicate answer request"
+);
+assert.match(h.markup, /Respuesta enviada/);
+assert.match(h.markup, /Espera a que el administrador pase a la siguiente pregunta/);
+
+h.reply({ ok: true, liveSession: activeSecond });
+await h.tick();
+assert.match(h.markup, /Pregunta dos/);
+assert.match(h.markup, /Pregunta 2 de 2/);
+assert.match(h.markup, /publicLiveQuestionForm/);
+assert.equal([...h.timers.values()][0].ms, 2500);
+
+const legacy = harness();
+await legacy.join(legacyActive);
+assert.match(legacy.markup, /publicLiveAttemptForm/, "A previous active session keeps the legacy full-attempt UI");
+assert.equal(legacy.timers.size, 0, "Legacy active sessions do not enter guided polling");
 
 const blocked = harness();
 await blocked.join();
@@ -130,4 +175,4 @@ await oldRequest;
 assert.match(stale.markup, /Sala B/);
 assert.doesNotMatch(stale.markup, /publicLiveAttemptForm/, "An obsolete response cannot restore the previous room");
 assert.equal(stale.timers.size, 1);
-console.log("Public live lobby UI passed: automatic start, throttling, visibility, stale responses and save recovery.");
+console.log("Public live UI passed: lobby start, synchronized questions, answer recovery, throttling, visibility and stale responses.");
