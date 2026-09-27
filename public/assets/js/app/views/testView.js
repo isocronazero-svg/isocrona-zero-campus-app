@@ -11,6 +11,7 @@ import {
   loadTestHistory,
   markQuestionForReview,
   markQuestionReviewed,
+  nextLiveQuestion,
   saveQuestion,
   startLiveSession,
   unmarkQuestionForReview
@@ -763,6 +764,26 @@ function buildHistoryMarkup() {
   `;
 }
 
+function buildLiveSessionControls(session) {
+  if (session.status === "lobby") {
+    return `<div class="test-zone-actions"><button type="button" class="test-zone-secondary-button" data-action="refresh-live-lobby">Actualizar participantes</button><button type="button" class="test-zone-primary-button" data-action="start-live-session" data-session-id="${escapeHtml(session.id)}">Iniciar test</button></div>`;
+  }
+  if (session.status !== "active" || !Number.isInteger(session.currentQuestionIndex)) {
+    return "";
+  }
+  const questionNumber = session.currentQuestionIndex + 1;
+  const currentQuestion = getCurrentQuestionMap().get(String(session.currentQuestionId || "").trim());
+  const isLastQuestion = questionNumber >= Number(session.questionCount || 0);
+  return `
+    <p class="muted"><strong>Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(session.questionCount)}</strong></p>
+    ${currentQuestion ? `<p>${escapeHtml(currentQuestion.prompt)}</p>` : ""}
+    <div class="test-zone-actions">
+      <button type="button" class="test-zone-secondary-button" data-action="refresh-live-lobby">Actualizar estado</button>
+      ${isLastQuestion ? '<span class="muted">Última pregunta</span>' : `<button type="button" class="test-zone-primary-button" data-action="next-live-question" data-session-id="${escapeHtml(session.id)}">Siguiente pregunta</button>`}
+    </div>
+  `;
+}
+
 function buildAdminQuestionForm() {
   if (testSession.role !== "admin") {
     return "";
@@ -867,7 +888,7 @@ function buildAdminQuestionForm() {
                       <p class="muted">${escapeHtml(formatDate(session.createdAt))}</p>
                       <p class="muted">${escapeHtml(`${Array.isArray(session.participants) ? session.participants.length : 0} participantes`)} · ${escapeHtml(session.status === "lobby" ? "Sala de espera" : session.status === "active" ? "En curso" : session.status)}</p>
                       ${Array.isArray(session.participants) && session.participants.length ? `<p class="muted">${session.participants.map((participant) => escapeHtml(participant.name)).join(" · ")}</p>` : ""}
-                      ${session.status === "lobby" ? `<div class="test-zone-actions"><button type="button" class="test-zone-secondary-button" data-action="refresh-live-lobby">Actualizar participantes</button><button type="button" class="test-zone-primary-button" data-action="start-live-session" data-session-id="${escapeHtml(session.id)}">Iniciar test</button></div>` : ""}
+                      ${buildLiveSessionControls(session)}
                     </article>
                   `
                 )
@@ -1055,15 +1076,17 @@ function bindActions(container) {
     }
 
     const action = String(actionTarget.dataset.action || "").trim();
-    if (action === "refresh-live-lobby" || action === "start-live-session") {
+    if (["refresh-live-lobby", "start-live-session", "next-live-question"].includes(action)) {
       if (actionTarget.disabled) return;
       const sessionId = String(actionTarget.dataset.sessionId || "").trim();
-      if (action === "start-live-session" && !sessionId) return;
+      if (["start-live-session", "next-live-question"].includes(action) && !sessionId) return;
       actionTarget.disabled = true;
       testSession.liveError = "";
       try {
         if (action === "start-live-session") {
           await startLiveSession(sessionId);
+        } else if (action === "next-live-question") {
+          await nextLiveQuestion(sessionId);
         }
         await loadLiveSessions();
       } catch (error) {
