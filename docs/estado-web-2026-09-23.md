@@ -298,3 +298,24 @@ Después:
 7. Prueba real con varios participantes simultáneos.
 
 No conviene mezclar todavía estos bloques en un único cambio grande.
+
+
+---
+
+## Avance — 27 de septiembre de 2026: cierre y revelado de pregunta
+
+Se ha abierto la **PR #204 — Close and reveal each live question**, todavía en validación y sin fusionar.
+
+El bloque añade:
+
+- cierre explícito de la pregunta por el administrador;
+- bloqueo de nuevas respuestas una vez cerrada;
+- revelado de la respuesta correcta únicamente después del cierre;
+- comparación de la respuesta del participante con la correcta;
+- obligación de cerrar la pregunta antes de avanzar;
+- apertura limpia de la siguiente pregunta sin revelar su solución;
+- mantenimiento del flujo antiguo para sesiones legacy.
+
+Todavía **no** incorpora temporizador, puntuación por velocidad, clasificación provisional ni podio.
+
+La PR #204 solo se fusionará si los checks automáticos terminan en verde. Después, el siguiente bloque será el temporizador por pregunta.
