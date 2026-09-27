@@ -1153,6 +1153,24 @@ function isTestZoneLiveQuestionClosed(session, now = Date.now()) {
   return session?.questionClosed === true || isTestZoneLiveQuestionTimedOut(session, now);
 }
 
+function buildTestZoneLiveLeaderboard(session) {
+  return (Array.isArray(session?.participants) ? session.participants : [])
+    .map((participant) => ({
+      participantId: String(participant?.id || "").trim(),
+      name: String(participant?.name || "Participante").trim() || "Participante",
+      score: Number(participant?.score || 0),
+      joinedAt: String(participant?.joinedAt || "").trim()
+    }))
+    .sort((left, right) => {
+      const scoreDiff = right.score - left.score;
+      if (scoreDiff !== 0) return scoreDiff;
+      const joinedDiff = left.joinedAt.localeCompare(right.joinedAt);
+      if (joinedDiff !== 0) return joinedDiff;
+      return left.name.localeCompare(right.name, "es");
+    })
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
 function buildTestZoneLiveSessionAdminPayload(session) {
   const questionClosed = Number.isInteger(session?.currentQuestionIndex) ? isTestZoneLiveQuestionClosed(session) : false;
   const deadlineMs = getTestZoneLiveQuestionDeadlineMs(session);
@@ -1173,6 +1191,9 @@ function buildTestZoneLiveSessionAdminPayload(session) {
     currentQuestionId: Number.isInteger(session?.currentQuestionIndex)
       ? String((session?.questionIds || [])[session.currentQuestionIndex] || "").trim()
       : "",
+    leaderboard: questionClosed
+      ? buildTestZoneLiveLeaderboard(session).map(({ rank, name, score }) => ({ rank, name, score }))
+      : [],
     filters:
       session?.filters && typeof session.filters === "object"
         ? {
@@ -1234,6 +1255,8 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
       : null;
   const questionClosed = guided && isTestZoneLiveQuestionClosed(session);
   const deadlineMs = getTestZoneLiveQuestionDeadlineMs(session);
+  const fullLeaderboard = questionClosed ? buildTestZoneLiveLeaderboard(session) : [];
+  const currentRank = fullLeaderboard.find((row) => row.participantId === String(participantId || "").trim()) || null;
   return {
     id: session.id,
     code: session.code,
@@ -1257,7 +1280,9 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
           responseTimeMs: Number.isFinite(Number(participantAnswer?.responseTimeMs))
             ? Number(participantAnswer.responseTimeMs)
             : null,
-          score: Number(participant?.score || 0)
+          score: Number(participant?.score || 0),
+          leaderboard: fullLeaderboard.slice(0, 5).map(({ rank, name, score }) => ({ rank, name, score })),
+          currentRank: currentRank ? { rank: currentRank.rank, name: currentRank.name, score: currentRank.score } : null
         }
       : {}),
     answered: Boolean(participantAnswer),
