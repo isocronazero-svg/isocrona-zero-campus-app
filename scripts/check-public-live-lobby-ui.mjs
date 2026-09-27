@@ -143,7 +143,12 @@ h.reply({
     isCorrect: true,
     pointsAwarded: 142,
     score: 142,
-    responseTimeMs: 3200
+    responseTimeMs: 3200,
+    leaderboard: [
+      { rank: 1, name: "Alumno", score: 142 },
+      { rank: 2, name: "Rival", score: 0 }
+    ],
+    currentRank: { rank: 1, name: "Alumno", score: 142 }
   }
 });
 await h.tick();
@@ -153,6 +158,10 @@ assert.match(h.markup, /Correcta/);
 assert.match(h.markup, /Puntos:/);
 assert.match(h.markup, /\+142/);
 assert.match(h.markup, /Total:/);
+assert.match(h.markup, /Clasificación provisional/);
+assert.match(h.markup, /1\. Alumno/);
+assert.match(h.markup, /2\. Rival/);
+assert.match(h.markup, /Tu posición:/);
 assert.match(h.markup, /Pregunta cerrada/);
 
 h.reply({ ok: true, liveSession: activeSecond });
@@ -208,4 +217,4 @@ await oldRequest;
 assert.match(stale.markup, /Sala B/);
 assert.doesNotMatch(stale.markup, /publicLiveAttemptForm/, "An obsolete response cannot restore the previous room");
 assert.equal(stale.timers.size, 1);
-console.log("Public live UI passed: lobby start, synchronized questions, scoring reveal, answer recovery, throttling, visibility and stale responses.");
+console.log("Public live UI passed: lobby start, synchronized questions, scoring and provisional ranking, answer recovery, throttling, visibility and stale responses.");
