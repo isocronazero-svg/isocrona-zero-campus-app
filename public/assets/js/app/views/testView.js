@@ -822,7 +822,7 @@ function buildLiveSessionControls(session) {
   `;
 }
 
-function buildAdminQuestionForm() {
+export function buildPublicLiveAdminMarkup() {
   if (testSession.role !== "admin") {
     return "";
   }
@@ -953,14 +953,16 @@ function buildAdminQuestionForm() {
 
 function buildLayout() {
   return `
+    ${renderTestNavigation("test")}
     <section class="test-zone-view">
       <header class="test-zone-hero">
         <div>
           <p class="test-zone-kicker">Zona Test</p>
-          <h2>Tests rapidos para socios</h2>
+          <h2>Test</h2>
           <p class="muted">Crea un test, revisa fallos y guarda preguntas para repasar.</p>
         </div>
       </header>
+      ${testSession.activeRun ? "" : '<button type="button" class="test-zone-secondary-button" data-action="nav" data-view="tests" data-tests-mode="practice">Tests publicados</button>'}
       ${testSession.role === "admin" ? '<section class="test-zone-card"><h3>Cargar preguntas por bloques y temas</h3><p>IVASPE · TEMARIO COMÚN · GUADALAJARA</p><a class="test-zone-primary-button" href="/question-bank.html">Importar documentos de preguntas</a></section>' : ""}
       ${testSession.activeRun ? "" : buildProgressStatsPanel() + buildControlsMarkup()}
       ${buildQuestionAttemptMarkup()}
@@ -969,7 +971,6 @@ function buildLayout() {
       ${buildReviewMarkedQuestionsMarkup()}
       ${buildHistoryMarkup()}
       ${testSession.role === "admin" && !testSession.activeRun ? questionManagementPanel() : ""}
-      ${buildAdminQuestionForm()}
     </section>
   `;
 }
