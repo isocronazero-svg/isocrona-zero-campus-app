@@ -770,8 +770,8 @@ function buildAdminQuestionForm() {
       <div class="test-zone-card-head">
         <div>
           <p class="test-zone-kicker">Administración</p>
-          <h3>Banco y tests a tu ritmo</h3>
-          <p class="muted">Mantén el banco compartido y crea tests con código para responder sin temporizador.</p>
+          <h3>Banco y test en vivo</h3>
+          <p class="muted">Mantén el banco compartido y abre sesiones de test en vivo con código para externos.</p>
         </div>
       </div>
       <form class="test-zone-admin-form" data-test-zone-question-form>
@@ -883,7 +883,6 @@ function buildLayout() {
         </div>
       </header>
       ${testSession.role === "admin" ? '<section class="test-zone-card"><h3>Cargar preguntas por bloques y temas</h3><p>IVASPE · TEMARIO COMÚN · GUADALAJARA</p><a class="test-zone-primary-button" href="/question-bank.html">Importar documentos de preguntas</a></section>' : ""}
-      ${testSession.role === "admin" ? '<section class="test-zone-card"><h3>Test en vivo · Todos a la vez</h3><p>Sala de espera, preguntas con tiempo y clasificación. El profesor marca el ritmo.</p><a class="test-zone-primary-button" href="/live-host.html">Dirigir test en vivo</a></section>' : '<section class="test-zone-card"><a class="test-zone-primary-button" href="/play-live.html">Entrar al test en vivo con código</a></section>'}
       ${testSession.activeRun ? "" : buildProgressStatsPanel() + buildControlsMarkup()}
       ${buildQuestionAttemptMarkup()}
       ${buildLatestResultMarkup()}

@@ -9,8 +9,29 @@ import net from 'node:net';
 import { randomUUID, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
+import vm from 'node:vm';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+const testsView = readFileSync(path.join(root, 'public/assets/js/app/views/testsView.js'), 'utf8');
+const liveMarkupStart = testsView.indexOf('function buildAdminLiveSessionsMarkup()');
+const liveMarkupEnd = testsView.indexOf('function buildStudentLiveAnswerFeedbackMarkup(', liveMarkupStart);
+assert.ok(liveMarkupStart >= 0 && liveMarkupEnd > liveMarkupStart);
+for (const sessions of [[], [{ id: 'private-room', status: 'lobby' }]]) {
+  const context = {
+    testsViewState: { liveSessions: sessions }, escapeHtml: String,
+    getLiveStatusLabel: String, buildLiveLeaderboardMarkup: () => ''
+  };
+  vm.runInNewContext(testsView.slice(liveMarkupStart, liveMarkupEnd), context);
+  const adminMarkup = context.buildAdminLiveSessionsMarkup();
+  assert.match(adminMarkup, /href="\/live-host.html"/, 'Host entry remains visible even without private rooms');
+  assert.equal(adminMarkup.includes('data-session-id="private-room"'), sessions.length > 0);
+  const memberMarkup = context.buildStudentLiveJoinMarkup();
+  assert.match(memberMarkup, /href="\/play-live.html"/);
+  assert.match(memberMarkup, /data-tests-student-form="live-join"/, 'Existing private live join is preserved');
+  assert.doesNotMatch(memberMarkup, /live-host.html/);
+}
+const practiceView = readFileSync(path.join(root, 'public/assets/js/app/views/testView.js'), 'utf8');
+assert.doesNotMatch(practiceView, /href="\/(live-host|play-live).html"/, 'Directed live belongs in the live view, not inside practice');
 const dir = mkdtempSync(path.join(tmpdir(), 'iz-live-quiz-'));
 const seed = JSON.parse(readFileSync(path.join(root, 'data/default-state.json'), 'utf8'));
 seed.accounts = [

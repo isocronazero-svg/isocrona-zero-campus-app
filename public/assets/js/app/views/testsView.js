@@ -1175,11 +1175,15 @@ function buildLiveTimerNodeMarkup(session) {
 }
 
 function buildAdminLiveSessionsMarkup() {
+  const directedLive = `<section>
+    <h3>Test en vivo con ranking</h3>
+    <a class="primary-button" href="/live-host.html">Dirigir test en vivo</a>
+  </section>`;
   if (!Array.isArray(testsViewState.liveSessions) || !testsViewState.liveSessions.length) {
-    return '<div class="empty-state">Todavia no hay sesiones live creadas.</div>';
+    return directedLive + '<div class="empty-state">Todavia no hay sesiones privadas creadas.</div>';
   }
 
-  return testsViewState.liveSessions
+  return directedLive + testsViewState.liveSessions
     .map(
       (session) => `
         <article class="panel panel-side">
@@ -1233,8 +1237,12 @@ function buildAdminLiveSessionsMarkup() {
 
 function buildStudentLiveJoinMarkup() {
   return `
+    <section>
+      <h3>Test en vivo con ranking</h3>
+      <a class="primary-button" href="/play-live.html">Entrar al test en vivo con codigo</a>
+    </section>
     <article class="panel panel-side">
-      <h3>Unirse a una sesion live</h3>
+      <h3>Unirse a una sesion privada</h3>
       <form class="stack" data-tests-student-form="live-join">
         <label class="inline-field">
           PIN de la sesion
