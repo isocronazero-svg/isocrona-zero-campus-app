@@ -104,35 +104,37 @@ Se está desarrollando de forma incremental para reducir riesgo.
 
 **PR #201 — Add Test en Vivo waiting room**
 
-Estado actual: abierta como borrador y **no fusionada**.
+Estado actual: **fusionada en `main`** el 27 de septiembre de 2026.
 
-Implementado en la rama de trabajo:
+Queda incorporado:
 
 - Las nuevas sesiones nacen en estado `lobby`.
 - El participante entra mediante nombre y código/PIN.
 - Los participantes quedan registrados en la sesión.
 - El administrador puede consultar los participantes de la sala.
-- Se ha añadido la acción administrativa para iniciar la sesión.
-- Mientras la sesión está en `lobby`, el cliente público no debe recibir las preguntas.
-- Se han ampliado las comprobaciones automáticas del flujo.
+- Solo el administrador puede iniciar la sesión y realizar la transición `lobby → active`.
+- Mientras la sesión está en `lobby`, el cliente público no recibe preguntas.
+- La incidencia de estado detectada durante el desarrollo quedó corregida antes de fusionar.
+- La ejecución `App checks` #210 terminó correctamente.
 
-### Incidencia pendiente en PR #201
+**PR #203 — Synchronize one live question at a time**
 
-Los checks automáticos han detectado una incoherencia en el ciclo de estado de la sala. Tras entrar un participante, el flujo puede dejar la sesión fuera de `lobby`, provocando después un `409` al ejecutar la acción administrativa **Iniciar test**.
+Estado actual: **fusionada en `main`**.
 
-La corrección que debe aplicarse es mantener la entrada del participante libre de efectos secundarios sobre el estado:
+Queda incorporado:
 
-- entrar/unirse registra al participante;
-- unirse **no cambia** `lobby → active`;
-- únicamente la acción administrativa de inicio puede realizar esa transición.
+- Una sola pregunta activa cada vez mediante `currentQuestionIndex`.
+- El participante recibe únicamente la pregunta actual.
+- El administrador puede avanzar a la siguiente pregunta.
+- Cada participante puede contestar una sola vez por pregunta.
+- Las respuestas quedan ligadas al participante y a la pregunta.
+- Las respuestas atrasadas se rechazan al cambiar de pregunta.
+- Se mantiene compatibilidad con sesiones antiguas.
+- La ejecución `App checks` #219 terminó correctamente.
 
-El PR #201 no debe fusionarse hasta que esta secuencia pase las comprobaciones automáticas.
+### Trabajo posterior
 
-Los últimos checks también muestran fallos de compatibilidad en pruebas de recorrido académico que esperan preguntas inmediatamente en sesiones live. Esas pruebas deben adaptarse al nuevo flujo de sala de espera/inicio explícito sin debilitar la validación existente.
-
-### Trabajo posterior, todavía no iniciado
-
-Después de estabilizar y fusionar #201, el siguiente bloque será la sincronización **de una sola pregunta cada vez** entre administrador y participantes. En ese bloque todavía no se incorporarán temporizador, clasificación ni podio; se añadirán posteriormente y por separado.
+El siguiente bloque es **cerrar la pregunta actual y revelar la respuesta correcta de forma controlada**. Todavía no se deben mezclar temporizador, ranking provisional ni podio en este mismo cambio.
 
 ### PR abiertas que no deben confundirse con este trabajo
 
@@ -153,22 +155,15 @@ Continuar con cambios pequeños, comprobables y reversibles. No tocar datos real
 
 ### Estado general
 
-La rama productiva `main` está actualmente en el commit `be19afd5a857c62c2a141b1fc9b2ac0722819b64`.
+La rama productiva `main` está actualmente en el commit `539a9cf621af016ac8ebdc8d294425293ba1e07e`.
 
 La base funcional principal del portal está ya construida: gestión administrativa, socios, pagos, cursos, seguimiento académico, diplomas, Zona Test, banco compartido de preguntas, importación CSV y acceso recordado. Las mejoras fusionadas hasta la PR #200 forman parte de `main`.
 
 ### Cambio importante respecto a la actualización anterior
 
-La incidencia de la PR #201 descrita en la actualización del 26 de septiembre ha sido corregida en su rama.
+La sala de espera de la PR #201 ya está fusionada y el siguiente bloque, PR #203, también está terminado y fusionado. El flujo canónico ya llega hasta **una pregunta activa sincronizada, respuesta individual y avance a la siguiente pregunta**.
 
-**PR #201 — Add Test en Vivo waiting room**
-- Estado: abierta como borrador; todavía no fusionada ni publicada en `main`.
-- GitHub indica que es fusionable.
-- Último commit revisado: `04b33482e4b31e5b0fdda58511ab47abe43cbb2d`.
-- La ejecución `App checks` #210 ha terminado correctamente.
-- Por tanto, el bloqueo técnico que impedía avanzar con la sala de espera ya no está presente en los checks automáticos.
-
-Antes de publicar esta PR se debe hacer la revisión final del cambio, pasarla de borrador a lista para revisión y fusionarla.
+El siguiente trabajo activo pasa a ser el **cierre de pregunta y revelado controlado de la respuesta correcta**.
 
 ### Qué falta por terminar
 
@@ -182,14 +177,14 @@ Secuencia objetivo:
 
 Situación:
 - Entrada pública única: terminada y fusionada en #200.
-- Sala de espera: implementada en #201, checks superados, pendiente de revisión final y fusión.
-- Una pregunta sincronizada cada vez: pendiente.
-- Control del avance por el administrador: pendiente de completar sobre el flujo nuevo.
-- Temporizador por pregunta: pendiente en el flujo canónico.
-- Registro de respuesta por participante y pregunta: pendiente de completar.
-- Cierre de pregunta y revelado de respuesta correcta: pendiente.
+- Sala de espera: terminada y fusionada en #201.
+- Una pregunta sincronizada cada vez: terminada y fusionada en #203.
+- Registro de respuesta por participante y pregunta: terminado en #203.
+- Avance del administrador a la siguiente pregunta: terminado en #203.
+- Cierre de pregunta y revelado de respuesta correcta: **siguiente bloque a implementar**.
+- Temporizador por pregunta: pendiente.
 - Clasificación provisional entre preguntas: pendiente.
-- Siguiente pregunta sincronizada: pendiente.
+- Paso desde resultado a siguiente pregunta: pendiente de integrar con el cierre/revelado.
 - Clasificación/podio final: pendiente.
 - Prueba completa con varios participantes simultáneos: pendiente.
 
@@ -233,15 +228,15 @@ En este momento no deben considerarse publicadas las funcionalidades que permane
 
 | PR | Funcionalidad | Situación |
 | --- | --- | --- |
-| #201 | Sala de espera de Test en Vivo | Checks verdes; pendiente de revisión final y fusión |
+| #201 | Sala de espera de Test en Vivo | Fusionada en `main` |
 | #196 | Test dirigido, temporizador y clasificación (implementación anterior) | Pendiente de reconciliar; no fusionar directamente |
 | #197 | Grupos internos/subgrupos y persistencia de borradores | Pendiente; actualmente no fusionable |
 | #199 | Banners/patrocinadores configurables | Pendiente de actualizar, validar y fusionar |
 
 ### Orden recomendado de cierre
 
-1. Revisar y fusionar #201.
-2. Terminar el Test en Vivo canónico por bloques pequeños hasta completar pregunta-a-pregunta, temporizador, clasificación y podio.
+1. Implementar cierre de pregunta y revelado controlado de la respuesta correcta.
+2. Continuar el Test en Vivo canónico por bloques pequeños: temporizador, puntuación, clasificación y podio.
 3. Cerrar o reaprovechar #196 para no mantener dos implementaciones competidoras.
 4. Resolver #197 y comprobar grupos/subgrupos.
 5. Resolver #199 y validar banners/patrocinadores.
