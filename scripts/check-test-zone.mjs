@@ -470,6 +470,14 @@ async function main() {
     assert.equal(repeatedJoin.status, "lobby", "Unirse nunca inicia la sesion");
     assert.equal(repeatedJoin.participantId, lobbyJoinPayload.liveSession.participantId);
     assert.deepEqual(repeatedJoin.questions, []);
+    const rival = createJsonClient("rival", baseUrl);
+    const rivalJoin = (
+      await rival.request("POST", "/api/test-zone/live/join", {
+        guestName: "Rival",
+        code: liveSessionResponse.body.session.code
+      })
+    ).body.liveSession;
+    const rivalHeaders = { "X-Live-Participant": rivalJoin.participantId };
     assert.equal((await guest.request("POST", livePath + "/attempt", {
       guestName: "Visitante", questionIds, answers: [0, 0, 0]
     }, { allowFailure: true })).status, 404, "No se aceptan resultados en lobby");
@@ -477,7 +485,7 @@ async function main() {
     assert.equal((await memberClient.request("POST", livePath + "/start", {}, { allowFailure: true })).status, 403);
     assert.equal((await guest.request("GET", "/api/test-zone/live-sessions", undefined, { allowFailure: true })).status, 401);
     const persistedLobby = (await adminClient.request("GET", "/api/test-zone/live-sessions")).body.sessions.find(s => s.id === liveSessionResponse.body.session.id);
-    assert.equal(persistedLobby.participants.length, 1, "Actualizar no duplica participantes");
+    assert.equal(persistedLobby.participants.length, 2, "Actualizar no duplica participantes y conserva los dos jugadores");
     const pollHeaders = { "X-Live-Participant": repeatedJoin.participantId };
     const pollPath = livePath + "/participant";
     assert.equal((await guest.request("GET", pollPath, undefined, { allowFailure: true })).status, 401);
@@ -548,6 +556,7 @@ async function main() {
     assert.equal(firstAnswer.body.liveSession.questions.length, 1);
     assert.equal(firstAnswer.body.liveSession.pointsAwarded, undefined, "La puntuacion no se revela antes del cierre");
     assert.equal(firstAnswer.body.liveSession.score, undefined, "El total no se revela antes del cierre");
+    assert.equal(firstAnswer.body.liveSession.leaderboard, undefined, "La clasificacion no se revela mientras la pregunta esta abierta");
     const repeatedAnswer = await guest.request(
       "POST",
       answerPath,
@@ -565,6 +574,12 @@ async function main() {
       409,
       "Una respuesta ya enviada no se puede cambiar"
     );
+    await rival.request(
+      "POST",
+      answerPath,
+      { questionId: firstQuestionId, answerIndex: alternativeAnswerIndex },
+      { headers: rivalHeaders }
+    );
 
     assert.equal(
       (await adminClient.request("POST", livePath + "/next", {}, { allowFailure: true })).status,
@@ -573,12 +588,22 @@ async function main() {
     );
     const revealResponse = await adminClient.request("POST", livePath + "/reveal", {});
     assert.equal(revealResponse.body.session.questionClosed, true);
+    assert.equal(revealResponse.body.session.leaderboard.length, 2);
+    assert.equal(revealResponse.body.session.leaderboard[0].name, "Visitante");
+    assert.equal(revealResponse.body.session.leaderboard[0].rank, 1);
+    assert.equal(revealResponse.body.session.leaderboard[1].name, "Rival");
+    assert.equal(revealResponse.body.session.leaderboard[1].score, 0);
     const revealedPoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
     assert.equal(revealedPoll.questionClosed, true);
     assert.equal(revealedPoll.correctIndex, firstCorrectIndex, "Al cerrar se revela el indice correcto");
     assert.equal(revealedPoll.isCorrect, true);
     assert.ok(revealedPoll.pointsAwarded >= 100 && revealedPoll.pointsAwarded <= 150, "Un acierto suma entre 100 y 150 puntos segun velocidad");
     assert.equal(revealedPoll.score, revealedPoll.pointsAwarded, "El primer acierto coincide con el total acumulado");
+    assert.equal(revealedPoll.leaderboard.length, 2);
+    assert.equal(revealedPoll.leaderboard[0].name, "Visitante");
+    assert.equal(revealedPoll.leaderboard[0].rank, 1);
+    assert.equal(revealedPoll.currentRank.rank, 1);
+    assert.equal(revealedPoll.currentRank.name, "Visitante");
     assert.ok(Number.isFinite(revealedPoll.responseTimeMs));
     revealedPoll.questions.forEach(assertQuestionSafe);
     assert.equal(
@@ -594,6 +619,7 @@ async function main() {
     const nextResponse = await adminClient.request("POST", livePath + "/next", {});
     assert.equal(nextResponse.body.session.currentQuestionIndex, 1);
     assert.equal(nextResponse.body.session.questionClosed, false);
+    assert.deepEqual(nextResponse.body.session.leaderboard, [], "La clasificacion se oculta al abrir la siguiente pregunta");
     assert.notEqual(nextResponse.body.session.currentQuestionId, firstQuestionId);
     const secondPoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
     assert.equal(secondPoll.currentQuestionIndex, 1);
@@ -602,6 +628,7 @@ async function main() {
     assert.notEqual(secondPoll.currentQuestionId, firstQuestionId);
     assert.equal(secondPoll.questionClosed, false);
     assert.equal(secondPoll.correctIndex, undefined);
+    assert.equal(secondPoll.leaderboard, undefined);
     assert.equal(secondPoll.answered, false);
     const secondCorrectIndex = Number(createdQuestions.find((question) => question.id === secondPoll.currentQuestionId)?.correctIndex);
     assert.ok(Number.isInteger(secondCorrectIndex));
