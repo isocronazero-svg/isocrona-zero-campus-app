@@ -145,3 +145,110 @@ No deben mezclarse automáticamente con #201.
 ### Criterio de trabajo actual
 
 Continuar con cambios pequeños, comprobables y reversibles. No tocar datos reales de producción, Railway, DNS, socios, pagos o cursos para desarrollar Test en Vivo. Ningún cambio del nuevo flujo live se fusionará mientras los checks relevantes estén en rojo.
+
+
+---
+
+## Actualización de situación — 27 de septiembre de 2026
+
+### Estado general
+
+La rama productiva `main` está actualmente en el commit `be19afd5a857c62c2a141b1fc9b2ac0722819b64`.
+
+La base funcional principal del portal está ya construida: gestión administrativa, socios, pagos, cursos, seguimiento académico, diplomas, Zona Test, banco compartido de preguntas, importación CSV y acceso recordado. Las mejoras fusionadas hasta la PR #200 forman parte de `main`.
+
+### Cambio importante respecto a la actualización anterior
+
+La incidencia de la PR #201 descrita en la actualización del 26 de septiembre ha sido corregida en su rama.
+
+**PR #201 — Add Test en Vivo waiting room**
+- Estado: abierta como borrador; todavía no fusionada ni publicada en `main`.
+- GitHub indica que es fusionable.
+- Último commit revisado: `04b33482e4b31e5b0fdda58511ab47abe43cbb2d`.
+- La ejecución `App checks` #210 ha terminado correctamente.
+- Por tanto, el bloqueo técnico que impedía avanzar con la sala de espera ya no está presente en los checks automáticos.
+
+Antes de publicar esta PR se debe hacer la revisión final del cambio, pasarla de borrador a lista para revisión y fusionarla.
+
+### Qué falta por terminar
+
+#### 1. Test en Vivo
+
+Es el bloque funcional principal todavía incompleto.
+
+Secuencia objetivo:
+
+`sala de espera → administrador inicia → pregunta actual → respuestas → cierre de pregunta → clasificación → siguiente pregunta → resultado/podio final`.
+
+Situación:
+- Entrada pública única: terminada y fusionada en #200.
+- Sala de espera: implementada en #201, checks superados, pendiente de revisión final y fusión.
+- Una pregunta sincronizada cada vez: pendiente.
+- Control del avance por el administrador: pendiente de completar sobre el flujo nuevo.
+- Temporizador por pregunta: pendiente en el flujo canónico.
+- Registro de respuesta por participante y pregunta: pendiente de completar.
+- Cierre de pregunta y revelado de respuesta correcta: pendiente.
+- Clasificación provisional entre preguntas: pendiente.
+- Siguiente pregunta sincronizada: pendiente.
+- Clasificación/podio final: pendiente.
+- Prueba completa con varios participantes simultáneos: pendiente.
+
+La PR #196 contiene un desarrollo anterior de test dirigido con temporizador y clasificación, pero sigue abierta y no debe fusionarse directamente sin reconciliarla con la arquitectura canónica creada por #200/#201.
+
+#### 2. Grupos internos y subgrupos
+
+**PR #197 — Fix internal group uploads, subgroups and draft persistence**
+- Abierta.
+- No fusionada.
+- GitHub la marca actualmente como no fusionable con `main`.
+- Debe revisarse/rebasarse y comprobar qué partes siguen siendo necesarias antes de publicar.
+
+#### 3. Banners/patrocinadores
+
+**PR #199 — Add configurable own banners, disabled by default**
+- Abierta y no fusionada.
+- Contiene el trabajo para banners propios configurables.
+- Debe actualizarse respecto a `main`, revisar conflictos/compatibilidad y validar visualmente antes de publicar.
+- Sigue pendiente completar/verificar la experiencia final de patrocinadores prevista para el portal.
+
+#### 4. Validación final de administración y socio
+
+Aunque existen checks automáticos, antes de considerar la web terminada se mantiene pendiente una pasada funcional real de los recorridos principales:
+- acceso y opción de recordar sesión;
+- administrador usando también la experiencia de socio;
+- ficha de socio;
+- pagos;
+- alta/edición de cursos;
+- inscripción y plazas;
+- asistencia/evaluación;
+- cierre de expediente;
+- diplomas;
+- Zona Test;
+- carga y revisión de preguntas;
+- Test en Vivo completo cuando esté terminado.
+
+### Qué falta por publicar
+
+En este momento no deben considerarse publicadas las funcionalidades que permanecen únicamente en PR abiertas:
+
+| PR | Funcionalidad | Situación |
+| --- | --- | --- |
+| #201 | Sala de espera de Test en Vivo | Checks verdes; pendiente de revisión final y fusión |
+| #196 | Test dirigido, temporizador y clasificación (implementación anterior) | Pendiente de reconciliar; no fusionar directamente |
+| #197 | Grupos internos/subgrupos y persistencia de borradores | Pendiente; actualmente no fusionable |
+| #199 | Banners/patrocinadores configurables | Pendiente de actualizar, validar y fusionar |
+
+### Orden recomendado de cierre
+
+1. Revisar y fusionar #201.
+2. Terminar el Test en Vivo canónico por bloques pequeños hasta completar pregunta-a-pregunta, temporizador, clasificación y podio.
+3. Cerrar o reaprovechar #196 para no mantener dos implementaciones competidoras.
+4. Resolver #197 y comprobar grupos/subgrupos.
+5. Resolver #199 y validar banners/patrocinadores.
+6. Ejecutar una prueba integral de administrador y socio.
+7. Corregir únicamente los fallos encontrados en esa prueba.
+8. Publicación final y comprobación del portal real.
+
+### Criterio para considerar la web terminada
+
+No basta con que las pantallas existan. La versión final debe tener un único flujo para cada función, checks automáticos verdes, recorridos principales probados y ninguna PR antigua que pueda introducir una implementación duplicada o incompatible.
