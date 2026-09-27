@@ -305,6 +305,7 @@ async function main() {
       body: JSON.stringify({ questionId: attempt.questionIds[0], answerIndex: 1 })
     });
     assert.equal(firstLiveAnswer.ok, true);
+    await admin.request("POST", livePath + "/reveal", {});
     await admin.request("POST", livePath + "/next", {});
     const secondJoined = (await guest.request("POST", "/api/test-zone/live/join", { code: live.code, guestName: "Alumno temporal" })).body.liveSession;
     assert.deepEqual(secondJoined.questions.map(q => q.id), [attempt.questionIds[1]]);
