@@ -1981,6 +1981,40 @@ async function handleAdminSubmit(container, form) {
   await refreshTestsView(container, testsViewState.role);
 }
 
+async function handlePublicLiveAction(container, button) {
+  const action = String(button?.dataset?.action || "").trim();
+  const sessionId = String(button?.dataset?.sessionId || "").trim();
+  const validActions = ["refresh-live-lobby", "start-live-session", "reveal-live-question", "next-live-question", "finish-live-session"];
+  if (!validActions.includes(action) || button.disabled) return;
+  if (action !== "refresh-live-lobby" && !sessionId) {
+    throw new Error("No se ha encontrado la sala pública.");
+  }
+
+  button.disabled = true;
+  try {
+    if (action === "start-live-session") {
+      await startLiveSession(sessionId);
+      setTestsViewMessage("Test público iniciado.", "success");
+    } else if (action === "reveal-live-question") {
+      await revealLiveQuestion(sessionId);
+      setTestsViewMessage("Pregunta cerrada y respuesta mostrada.", "success");
+    } else if (action === "next-live-question") {
+      await nextLiveQuestion(sessionId);
+      setTestsViewMessage("Siguiente pregunta activada.", "success");
+    } else if (action === "finish-live-session") {
+      await finishLiveSession(sessionId);
+      setTestsViewMessage("Test finalizado. Podio disponible.", "success");
+    } else {
+      setTestsViewMessage("Estado de la sala actualizado.", "success");
+    }
+    await loadLiveSessions();
+    renderTestsMarkup(container);
+    finalizeTestsViewRender(container);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function handleAdminAction(container, action, dataset = {}) {
   const client = getApiClient();
   if (!client) {
@@ -2264,14 +2298,20 @@ async function handleStudentLiveAnswer(container, form) {
   finalizeTestsViewRender(container);
 }
 
-export function renderTestsView(container, role = "member") {
+export function renderTestsView(container, role = "member", displayMode = "all") {
+  testsViewState.displayMode = displayMode;
   container.onclick = async (event) => {
     const adminActionButton = event.target.closest("[data-action]");
+    if (adminActionButton?.dataset.action === "nav") return;
     const openTestButton = event.target.closest('[data-action="open-test"]');
     const startAttemptButton = event.target.closest('[data-action="start-test-attempt"]');
     if (isAdminRole(role) && adminActionButton && !openTestButton && !startAttemptButton) {
       event.preventDefault();
       try {
+        if (adminActionButton.closest("[data-public-live-controls]")) {
+          await handlePublicLiveAction(container, adminActionButton);
+          return;
+        }
         await handleAdminAction(container, adminActionButton.dataset.action, adminActionButton.dataset);
       } catch (error) {
         setTestsViewMessage(error.message || "No se pudo completar la accion administrativa.", "error");
@@ -2313,6 +2353,15 @@ export function renderTestsView(container, role = "member") {
     event.preventDefault();
 
     try {
+      if (form.hasAttribute("data-test-zone-live-form")) {
+        if (!isAdminRole(role)) return;
+        await submitPublicLiveForm(form);
+        await loadLiveSessions();
+        setTestsViewMessage("Test público creado.", "success");
+        renderTestsMarkup(container);
+        finalizeTestsViewRender(container);
+        return;
+      }
       if (isAdminRole(role) && form.dataset.testsAdminForm) {
         await handleAdminSubmit(container, form);
         return;
