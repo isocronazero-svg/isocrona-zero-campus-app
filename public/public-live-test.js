@@ -250,6 +250,10 @@
       const currentAnswerIndex = Number.isInteger(state.liveSession.currentAnswerIndex) ? state.liveSession.currentAnswerIndex : null;
       const remainingSeconds = getQuestionRemainingSeconds(state.liveSession);
       const questionLocked = questionClosed || remainingSeconds <= 0;
+      const leaderboard = Array.isArray(state.liveSession.leaderboard) ? state.liveSession.leaderboard : [];
+      const currentRank = state.liveSession.currentRank && typeof state.liveSession.currentRank === "object"
+        ? state.liveSession.currentRank
+        : null;
       const answerResult =
         questionClosed && correctIndex !== null
           ? `<div class="status-note"><strong>Respuesta correcta:</strong> ${escapeHtml(String.fromCharCode(65 + correctIndex))}. ${escapeHtml(question?.options?.[correctIndex] || "")}${
@@ -257,6 +261,16 @@
                 ? `<br><strong>Tu respuesta:</strong> ${escapeHtml(String.fromCharCode(65 + currentAnswerIndex))}. ${escapeHtml(question?.options?.[currentAnswerIndex] || "")} · ${state.liveSession.isCorrect === true ? "Correcta" : "Incorrecta"}`
                 : "<br>No enviaste respuesta antes del cierre."
             }<br><strong>Puntos:</strong> +${escapeHtml(Number(state.liveSession.pointsAwarded || 0))} · <strong>Total:</strong> ${escapeHtml(Number(state.liveSession.score || 0))}</div>`
+          : "";
+      const rankingResult =
+        questionClosed && leaderboard.length
+          ? `<div class="test-zone-live-list">
+              <h4>Clasificación provisional</h4>
+              ${leaderboard
+                .map((row) => `<p><strong>${escapeHtml(row.rank)}. ${escapeHtml(row.name)}</strong> · ${escapeHtml(Number(row.score || 0))} puntos</p>`)
+                .join("")}
+              ${currentRank ? `<p class="status-note"><strong>Tu posición:</strong> ${escapeHtml(currentRank.rank)} · ${escapeHtml(Number(currentRank.score || 0))} puntos</p>` : ""}
+            </div>`
           : "";
       if (!question) {
         return `
@@ -308,6 +322,7 @@
                   .join("")}
               </div>
               ${answerResult}
+              ${rankingResult}
             </article>
             <div class="test-zone-footer-actions">
               ${questionClosed
