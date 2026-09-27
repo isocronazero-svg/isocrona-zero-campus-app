@@ -97,6 +97,7 @@ h.reply({ ok: true, liveSession: active });
 await h.tick();
 assert.match(h.markup, /publicLiveQuestionForm/);
 assert.match(h.markup, /Pregunta uno/);
+assert.doesNotMatch(h.markup, /checked/, "An unanswered question must not preselect option A");
 assert.equal([...h.timers.values()][0].ms, 2500, "Guided active sessions keep polling for the next question");
 
 let form = h.elements.get("publicLiveQuestionForm");
