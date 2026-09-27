@@ -603,11 +603,14 @@ async function main() {
     assert.equal(secondPoll.questionClosed, false);
     assert.equal(secondPoll.correctIndex, undefined);
     assert.equal(secondPoll.answered, false);
+    const secondCorrectIndex = Number(createdQuestions.find((question) => question.id === secondPoll.currentQuestionId)?.correctIndex);
+    assert.ok(Number.isInteger(secondCorrectIndex));
+    const secondWrongIndex = secondCorrectIndex === 0 ? 1 : 0;
     assert.equal(
       (await guest.request(
         "POST",
         answerPath,
-        { questionId: firstQuestionId, answerIndex: 0 },
+        { questionId: firstQuestionId, answerIndex: firstCorrectIndex },
         { headers: pollHeaders, allowFailure: true }
       )).status,
       409,
@@ -616,7 +619,7 @@ async function main() {
     await guest.request(
       "POST",
       answerPath,
-      { questionId: secondPoll.currentQuestionId, answerIndex: 0 },
+      { questionId: secondPoll.currentQuestionId, answerIndex: secondWrongIndex },
       { headers: pollHeaders }
     );
     await adminClient.request("POST", livePath + "/reveal", {});
@@ -641,8 +644,9 @@ async function main() {
     assert.equal((joinPayload?.liveSession?.questions || []).length, 1);
     assert.equal(joinPayload.liveSession.questionClosed, true);
     assert.ok(Number.isInteger(joinPayload.liveSession.correctIndex));
-    assert.ok(Number.isInteger(joinPayload.liveSession.pointsAwarded));
-    assert.ok(Number.isFinite(joinPayload.liveSession.score));
+    assert.equal(joinPayload.liveSession.isCorrect, false);
+    assert.equal(joinPayload.liveSession.pointsAwarded, 0, "Una respuesta incorrecta no suma puntos");
+    assert.equal(joinPayload.liveSession.score, revealedPoll.score, "El fallo no altera el total acumulado");
     assert.equal(joinPayload.liveSession.answered, true);
     (joinPayload?.liveSession?.questions || []).forEach(assertQuestionSafe);
 
