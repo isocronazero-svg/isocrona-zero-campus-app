@@ -340,4 +340,20 @@ Queda funcionando:
 - rechazo de respuestas fuera de tiempo;
 - revelado de la correcta cuando termina el tiempo.
 
-El siguiente bloque será **puntuación de cada respuesta**, separado todavía de la clasificación/podio.
+La puntuación de cada respuesta ya está completada y fusionada en la **PR #206 — Score each guided live answer**.
+
+Commit incorporado a `main`: `c2cf24cc8f4cd009b8cfe74a5f0c618b926b62ee`.
+
+La ejecución `App checks` #233 terminó correctamente antes de fusionar.
+
+Queda funcionando:
+
+- acierto: entre 100 y 150 puntos según rapidez;
+- fallo: 0 puntos;
+- cálculo y acumulación de puntos en servidor;
+- reenvío idéntico idempotente, sin duplicar puntuación;
+- puntuación oculta mientras la pregunta está abierta;
+- tras el cierre, cada participante ve los puntos obtenidos y su total acumulado;
+- un fallo posterior no altera los puntos ya conseguidos.
+
+El siguiente bloque será la **clasificación provisional entre preguntas**, todavía separado del podio final.
