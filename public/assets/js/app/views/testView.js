@@ -823,9 +823,6 @@ function buildLiveSessionControls(session) {
 }
 
 export function buildPublicLiveAdminMarkup() {
-  if (testSession.role !== "admin") {
-    return "";
-  }
   const liveSessions = getTestState().liveSessions || [];
   return `
     <section class="test-zone-card">
