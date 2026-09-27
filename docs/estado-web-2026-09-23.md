@@ -304,9 +304,13 @@ No conviene mezclar todavía estos bloques en un único cambio grande.
 
 ## Avance — 27 de septiembre de 2026: cierre y revelado de pregunta
 
-Se ha abierto la **PR #204 — Close and reveal each live question**, todavía en validación y sin fusionar.
+Se ha completado y fusionado la **PR #204 — Close and reveal each live question**.
 
-El bloque añade:
+Commit incorporado a `main`: `02e5c8eaabfd4b767fbfd00f2196de374113214e`.
+
+La ejecución `App checks` #227 terminó correctamente antes de fusionar.
+
+El flujo canónico ya incorpora:
 
 - cierre explícito de la pregunta por el administrador;
 - bloqueo de nuevas respuestas una vez cerrada;
@@ -316,6 +320,8 @@ El bloque añade:
 - apertura limpia de la siguiente pregunta sin revelar su solución;
 - mantenimiento del flujo antiguo para sesiones legacy.
 
-Todavía **no** incorpora temporizador, puntuación por velocidad, clasificación provisional ni podio.
+Todavía **no** incorpora puntuación por velocidad, clasificación provisional ni podio.
 
-La PR #204 solo se fusionará si los checks automáticos terminan en verde. Después, el siguiente bloque será el temporizador por pregunta.
+### Siguiente bloque
+
+El siguiente paso es el **temporizador por pregunta**, manteniéndolo separado de la puntuación y del ranking.
