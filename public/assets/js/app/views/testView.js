@@ -822,15 +822,17 @@ function buildLiveSessionControls(session) {
   `;
 }
 
-export function buildPublicLiveAdminMarkup() {
-  const liveSessions = getTestState().liveSessions || [];
+function buildAdminQuestionForm() {
+  if (testSession.role !== "admin") {
+    return "";
+  }
   return `
     <section class="test-zone-card">
       <div class="test-zone-card-head">
         <div>
           <p class="test-zone-kicker">Administración</p>
-          <h3>Banco y test en vivo</h3>
-          <p class="muted">Mantén el banco compartido y abre sesiones de test en vivo con código para externos.</p>
+          <h3>Añadir pregunta</h3>
+          <p class="muted">Añade una pregunta nueva al banco compartido.</p>
         </div>
       </div>
       <form class="test-zone-admin-form" data-test-zone-question-form>
@@ -873,6 +875,21 @@ export function buildPublicLiveAdminMarkup() {
           <button type="submit" class="test-zone-primary-button">Guardar pregunta</button>
         </div>
       </form>
+    </section>
+  `;
+}
+
+export function buildPublicLiveAdminMarkup() {
+  const liveSessions = getTestState().liveSessions || [];
+  return `
+    <section class="test-zone-card">
+      <div class="test-zone-card-head">
+        <div>
+          <p class="test-zone-kicker">Administración</p>
+          <h3>Banco y test en vivo</h3>
+          <p class="muted">Mantén el banco compartido y abre sesiones de test en vivo con código para externos.</p>
+        </div>
+      </div>
       <form class="test-zone-live-form" data-test-zone-live-form>
         <label class="test-zone-field test-zone-field-full">
           <span>Título del test en vivo</span>
@@ -968,6 +985,7 @@ function buildLayout() {
       ${buildReviewMarkedQuestionsMarkup()}
       ${buildHistoryMarkup()}
       ${testSession.role === "admin" && !testSession.activeRun ? questionManagementPanel() : ""}
+      ${testSession.activeRun ? "" : buildAdminQuestionForm()}
     </section>
   `;
 }
