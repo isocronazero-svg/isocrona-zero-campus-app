@@ -1,4 +1,5 @@
 const http = require("http");
+const { randomUUID } = require("node:crypto");
 const handleQuestionMaintenance = require("./server/question-maintenance");
 const fs = require("fs");
 const path = require("path");
@@ -284,6 +285,8 @@ function ensureTestZoneState(state) {
 const independentTestTimingGraceMs = 3000;
 const independentTestMaxClientDurationMs = 24 * 60 * 60 * 1000;
 const testZoneLiveSessionMaxAgeMs = 24 * 60 * 60 * 1000;
+let publicLivePollState = null;
+let publicLivePollReadAt = 0;
 const liveTestFinishedSessionRetentionLimit = 20;
 const liveTestPollIntervalMs = 2000;
 const liveTestMaxResponseTimeMs = 24 * 60 * 60 * 1000;
@@ -1174,6 +1177,16 @@ function getTestZoneLiveSessionQuestions(state, session) {
   return (state.testZoneQuestions || [])
     .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
     .filter((question) => questionIds.has(question.id));
+}
+
+function buildPublicTestZoneLiveSession(state, session, participantId) {
+  return {
+    id: session.id, code: session.code, title: session.title, questionCount: session.questionCount,
+    status: session.status, participantId,
+    questions: session.status === "active"
+      ? getTestZoneLiveSessionQuestions(state, session).map(buildTestZoneQuestionAudiencePayload)
+      : []
+  };
 }
 
 function normalizeIndependentTestQuestionsPerAttempt(value) {
@@ -4853,6 +4866,7 @@ const server = http.createServer(async (req, res) => {
       expireStaleTestZoneLiveSessions(state);
       const session = createTestZoneLiveSession(state, account, payload);
       writeState(state);
+      publicLivePollState = null;
       return sendJson(res, 201, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo abrir el test en vivo" });
@@ -4875,6 +4889,7 @@ const server = http.createServer(async (req, res) => {
       }
       closeTestZoneLiveSession(session);
       writeState(state);
+      publicLivePollState = null;
       return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cerrar el test en vivo" });
@@ -4899,6 +4914,7 @@ const server = http.createServer(async (req, res) => {
       session.status = "active";
       session.startedAt = new Date().toISOString();
       writeState(state);
+      publicLivePollState = null;
       return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo iniciar el test en vivo" });
@@ -4948,31 +4964,52 @@ const server = http.createServer(async (req, res) => {
       const isNewParticipant = !participant;
       if (!participant) {
         participant = {
-          id: generateLegacyId("live-participant"),
+          id: randomUUID(),
           name: guestName,
           joinedAt: new Date().toISOString()
         };
         session.participants.push(participant);
       }
-      const questions = getTestZoneLiveSessionQuestions(state, session);
-      const sessionStatus = session.status;
       if (expired || isNewParticipant) {
         writeState(state);
+        publicLivePollState = null;
       }
       return sendJson(res, 200, {
         ok: true,
-        liveSession: {
-          id: session.id,
-          code: session.code,
-          title: session.title,
-          questionCount: session.questionCount,
-          status: sessionStatus,
-          participantId: participant.id,
-          questions: sessionStatus === "active" ? questions.map(buildTestZoneQuestionAudiencePayload) : []
-        }
+        liveSession: buildPublicTestZoneLiveSession(state, session, participant.id)
       });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo entrar al test en vivo");
+    }
+  }
+
+  if (/^\/api\/test-zone\/live-sessions\/[^/]+\/participant$/.test(requestUrl.pathname) && req.method === "GET") {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const clientIp = getClientIp(req);
+      if (enforceRateLimit(res, `live-lobby-poll:ip:${clientIp}`, 3600, rateLimitMinuteMs)) return;
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const participantId = String(req.headers["x-live-participant"] || "").trim();
+      if (!participantId || participantId.length > 128 || sessionId.length > 128) {
+        return sendJson(res, 401, { ok: false, error: "Vuelve a entrar con tu nombre y codigo." });
+      }
+      if (enforceRateLimit(res, `live-lobby-poll:participant:${sessionId}:${participantId}`, 30, rateLimitMinuteMs)) return;
+      // Share a short read snapshot across a classroom, without writing on every poll.
+      if (!publicLivePollState || Date.now() - publicLivePollReadAt >= 1000) {
+        publicLivePollState = readState();
+        publicLivePollReadAt = Date.now();
+      }
+      const state = publicLivePollState;
+      const session = getTestZoneLiveSessionById(state, sessionId);
+      if (!session || !["lobby", "active"].includes(session.status) || Date.parse(session.expiresAt) <= Date.now()) {
+        return sendJson(res, 404, { ok: false, error: "La sesion ha terminado o ha caducado." });
+      }
+      if (!(session.participants || []).some(participant => participant.id === participantId)) {
+        return sendJson(res, 403, { ok: false, error: "Vuelve a entrar con tu nombre y codigo." });
+      }
+      return sendJson(res, 200, { ok: true, liveSession: buildPublicTestZoneLiveSession(state, session, participantId) });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo actualizar la sala.");
     }
   }
 

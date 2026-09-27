@@ -12,6 +12,15 @@
     status: "Introduce tu nombre y el código del test en vivo.",
     tone: "info"
   };
+  let pollTimer = null;
+  let pollController = null;
+  let pollBusy = false;
+  let joining = false;
+  let submitting = false;
+  let requestVersion = 0;
+  let pageClosed = false;
+  let pollDelay = 5000;
+  let retryNotBefore = 0;
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -23,18 +32,103 @@
   }
 
   async function fetchJson(url, options = {}) {
-    const response = await fetch(url, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {})
-      },
-      ...options
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {})
+        }
+      });
+    } catch (error) {
+      if (error.name === "TypeError") {
+        throw new Error("No se pudo conectar. Comprueba tu conexion y vuelve a intentarlo.");
+      }
+      throw error;
+    }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload?.ok === false) {
-      throw new Error(payload?.error || "No se pudo completar la operación");
+      const error = new Error(payload?.error || "No se pudo completar la operación");
+      error.status = response.status;
+      const retryAfter = Number(response.headers.get("Retry-After") || payload?.retryAfterSeconds || 5);
+      error.retryAfterSeconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 5;
+      throw error;
     }
     return payload;
+  }
+
+  function updateStatus(message, tone = "info") {
+    state.status = message;
+    state.tone = tone;
+    const note = document.getElementById("publicLiveStatus");
+    if (note) {
+      note.textContent = message;
+      note.className = `status-note ${tone === "error" ? "warning" : ""}`;
+    }
+  }
+
+  function stopLobbyRefresh() {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+    pollController?.abort();
+  }
+
+  function scheduleLobbyRefresh(delay = 5000) {
+    clearTimeout(pollTimer);
+    if (pageClosed || document.hidden || state.liveSession?.status !== "lobby") return;
+    pollTimer = setTimeout(refreshLobby, Math.max(delay, retryNotBefore - Date.now()));
+  }
+
+  async function refreshLobby() {
+    if (pollBusy || pageClosed || document.hidden || state.liveSession?.status !== "lobby") return;
+    if (Date.now() < retryNotBefore) {
+      scheduleLobbyRefresh();
+      return;
+    }
+    clearTimeout(pollTimer);
+    pollBusy = true;
+    const version = requestVersion;
+    const session = state.liveSession;
+    const controller = new AbortController();
+    pollController = controller;
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const button = document.getElementById("publicLiveRefreshButton");
+    if (button) button.disabled = true;
+    try {
+      const payload = await fetchJson(`/api/test-zone/live-sessions/${encodeURIComponent(session.id)}/participant`, {
+        method: "GET", cache: "no-store", signal: controller.signal,
+        headers: { "X-Live-Participant": session.participantId }
+      });
+      if (version !== requestVersion || pageClosed) return;
+      state.liveSession = payload.liveSession;
+      retryNotBefore = 0;
+      pollDelay = 5000;
+      if (state.liveSession?.status === "active") {
+        updateStatus("El administrador ha iniciado el test.", "success");
+        render();
+      } else {
+        updateStatus("Sigues en la sala de espera.");
+      }
+    } catch (error) {
+      if (version !== requestVersion || pageClosed || document.hidden) return;
+      updateStatus(error.name === "AbortError" ? "La conexion tarda en responder. Volveremos a intentarlo." : error.message, "error");
+      if ([401, 403, 404, 410].includes(error.status)) {
+        state.liveSession = null;
+        render();
+      } else {
+        pollDelay = Math.min(60000, pollDelay * 2);
+        if (error.status === 429) retryNotBefore = Date.now() + Math.max(5000, error.retryAfterSeconds * 1000);
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (version === requestVersion) {
+        pollBusy = false;
+        pollController = null;
+        if (button) button.disabled = false;
+        scheduleLobbyRefresh(pollDelay);
+      }
+    }
   }
 
   function renderJoinForm() {
@@ -53,13 +147,13 @@
             <button type="submit" class="test-zone-primary-button">Entrar al test en vivo</button>
           </div>
         </form>
-        <p class="status-note ${state.tone === "error" ? "warning" : ""}">${escapeHtml(state.status)}</p>
+        <p id="publicLiveStatus" aria-live="polite" class="status-note ${state.tone === "error" ? "warning" : ""}">${escapeHtml(state.status)}</p>
       </section>
     `;
   }
 
   function renderAttempt() {
-    if (!state.liveSession) {
+    if (!state.liveSession || state.result) {
       return "";
     }
     if (String(state.liveSession.status || "") === "lobby") {
@@ -151,29 +245,23 @@
     const attemptForm = document.getElementById("publicLiveAttemptForm");
     const refreshButton = document.getElementById("publicLiveRefreshButton");
 
-    refreshButton?.addEventListener("click", async () => {
-      try {
-        const payload = await fetchJson("/api/test-zone/live/join", {
-          method: "POST",
-          body: JSON.stringify({ guestName: state.guestName, code: state.code })
-        });
-        state.liveSession = payload.liveSession;
-        state.status = String(state.liveSession?.status || "") === "active"
-          ? "El administrador ha iniciado el test."
-          : "Sigues en la sala de espera.";
-        state.tone = "success";
-      } catch (error) {
-        state.status = error.message || "No se pudo actualizar la sala.";
-        state.tone = "error";
-      }
-      render();
-    });
+    refreshButton?.addEventListener("click", refreshLobby);
 
     joinForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (joining || submitting) return;
+      joining = true;
+      requestVersion++;
+      stopLobbyRefresh();
+      pollBusy = false;
+      retryNotBefore = 0;
+      pollDelay = 5000;
       const formData = new FormData(joinForm);
       state.guestName = String(formData.get("guestName") || "").trim();
       state.code = String(formData.get("code") || "").trim();
+      state.liveSession = null;
+      state.result = null;
+      joinForm.querySelector('button[type="submit"]').disabled = true;
       try {
         const payload = await fetchJson("/api/test-zone/live/join", {
           method: "POST",
@@ -190,14 +278,19 @@
         state.status = error.message || "No se pudo entrar al test en vivo.";
         state.tone = "error";
       }
+      joining = false;
       render();
+      scheduleLobbyRefresh();
     });
 
     attemptForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!state.liveSession) {
+      if (!state.liveSession || state.result || submitting || joining) {
         return;
       }
+      submitting = true;
+      const button = attemptForm.querySelector('button[type="submit"]');
+      button.disabled = true;
       const formData = new FormData(attemptForm);
       const answers = (state.liveSession.questions || []).map((question, index) => {
         const value = formData.get(`question-${index}`);
@@ -215,13 +308,29 @@
         state.result = payload.result;
         state.status = "Resultado guardado correctamente.";
         state.tone = "success";
+        render();
       } catch (error) {
-        state.status = error.message || "No se pudo guardar el resultado.";
-        state.tone = "error";
+        updateStatus(error.message || "No se pudo guardar el resultado.", "error");
+      } finally {
+        submitting = false;
+        button.disabled = false;
       }
-      render();
     });
   }
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopLobbyRefresh();
+    else scheduleLobbyRefresh(0);
+  });
+  window.addEventListener("pagehide", () => {
+    pageClosed = true;
+    requestVersion++;
+    pollBusy = false;
+    stopLobbyRefresh();
+  });
+  window.addEventListener("pageshow", () => {
+    pageClosed = false;
+    scheduleLobbyRefresh(0);
+  });
   render();
 })();
