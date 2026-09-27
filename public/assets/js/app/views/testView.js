@@ -3,6 +3,7 @@ import { renderTopicPicker, readTopics, syncTopicPicker, changeTopicPicker } fro
 import {
   createLiveSession,
   createQuestion,
+  finishLiveSession,
   getQuestionFilters,
   getStoredQuestions,
   loadLiveSessions,
@@ -769,6 +770,17 @@ function buildLiveSessionControls(session) {
   if (session.status === "lobby") {
     return `<div class="test-zone-actions"><button type="button" class="test-zone-secondary-button" data-action="refresh-live-lobby">Actualizar participantes</button><button type="button" class="test-zone-primary-button" data-action="start-live-session" data-session-id="${escapeHtml(session.id)}">Iniciar test</button></div>`;
   }
+  if (session.status === "finished") {
+    const podium = Array.isArray(session.leaderboard) ? session.leaderboard.slice(0, 3) : [];
+    return `
+      <div class="test-zone-live-list">
+        <h4>Podio final</h4>
+        ${podium.length
+          ? podium.map((row) => `<p><strong>${escapeHtml(row.rank)}. ${escapeHtml(row.name)}</strong> · ${escapeHtml(Number(row.score || 0))} puntos</p>`).join("")
+          : '<p class="muted">No hay participantes clasificados.</p>'}
+      </div>
+    `;
+  }
   if (session.status !== "active" || !Number.isInteger(session.currentQuestionIndex)) {
     return "";
   }
@@ -802,7 +814,7 @@ function buildLiveSessionControls(session) {
       ${!questionClosed
         ? `<button type="button" class="test-zone-primary-button" data-action="reveal-live-question" data-session-id="${escapeHtml(session.id)}">Cerrar y mostrar respuesta</button>`
         : isLastQuestion
-          ? '<span class="muted">Respuesta mostrada · última pregunta</span>'
+          ? `<button type="button" class="test-zone-primary-button" data-action="finish-live-session" data-session-id="${escapeHtml(session.id)}">Finalizar y mostrar podio</button>`
           : `<button type="button" class="test-zone-primary-button" data-action="next-live-question" data-session-id="${escapeHtml(session.id)}">Siguiente pregunta</button>`}
     </div>
   `;
@@ -1114,10 +1126,10 @@ function bindActions(container) {
     }
 
     const action = String(actionTarget.dataset.action || "").trim();
-    if (["refresh-live-lobby", "start-live-session", "reveal-live-question", "next-live-question"].includes(action)) {
+    if (["refresh-live-lobby", "start-live-session", "reveal-live-question", "next-live-question", "finish-live-session"].includes(action)) {
       if (actionTarget.disabled) return;
       const sessionId = String(actionTarget.dataset.sessionId || "").trim();
-      if (["start-live-session", "reveal-live-question", "next-live-question"].includes(action) && !sessionId) return;
+      if (["start-live-session", "reveal-live-question", "next-live-question", "finish-live-session"].includes(action) && !sessionId) return;
       actionTarget.disabled = true;
       testSession.liveError = "";
       try {
@@ -1127,6 +1139,8 @@ function bindActions(container) {
           await revealLiveQuestion(sessionId);
         } else if (action === "next-live-question") {
           await nextLiveQuestion(sessionId);
+        } else if (action === "finish-live-session") {
+          await finishLiveSession(sessionId);
         }
         await loadLiveSessions();
       } catch (error) {
