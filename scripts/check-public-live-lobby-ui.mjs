@@ -120,7 +120,14 @@ assert.equal(
   "Double submit adds no duplicate answer request"
 );
 assert.match(h.markup, /Respuesta enviada/);
-assert.match(h.markup, /Espera a que el administrador pase a la siguiente pregunta/);
+assert.match(h.markup, /Espera a que el administrador cierre la pregunta/);
+
+h.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 1, questionClosed: true, correctIndex: 1 } });
+await h.tick();
+assert.match(h.markup, /Respuesta correcta/);
+assert.match(h.markup, /Tu respuesta/);
+assert.match(h.markup, /Correcta/);
+assert.match(h.markup, /Pregunta cerrada/);
 
 h.reply({ ok: true, liveSession: activeSecond });
 await h.tick();
@@ -175,4 +182,4 @@ await oldRequest;
 assert.match(stale.markup, /Sala B/);
 assert.doesNotMatch(stale.markup, /publicLiveAttemptForm/, "An obsolete response cannot restore the previous room");
 assert.equal(stale.timers.size, 1);
-console.log("Public live UI passed: lobby start, synchronized questions, answer recovery, throttling, visibility and stale responses.");
+console.log("Public live UI passed: lobby start, synchronized questions, controlled reveal, answer recovery, throttling, visibility and stale responses.");

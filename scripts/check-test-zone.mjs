@@ -508,6 +508,8 @@ async function main() {
     assert.equal(activePoll.questions.length, 1, "El flujo dirigido solo expone la pregunta activa");
     activePoll.questions.forEach(assertQuestionSafe);
     assert.equal(activePoll.currentQuestionId, activePoll.questions[0].id);
+    assert.equal(activePoll.questionClosed, false);
+    assert.equal(activePoll.correctIndex, undefined, "La correcta no se revela mientras la pregunta esta abierta");
     assert.equal(activePoll.answered, false);
     assert.equal((await adminClient.request("POST", livePath + "/start", {}, { allowFailure: true })).status, 409);
 
@@ -550,14 +552,38 @@ async function main() {
       "Una respuesta ya enviada no se puede cambiar"
     );
 
+    assert.equal(
+      (await adminClient.request("POST", livePath + "/next", {}, { allowFailure: true })).status,
+      409,
+      "No se puede avanzar sin cerrar primero la pregunta"
+    );
+    const revealResponse = await adminClient.request("POST", livePath + "/reveal", {});
+    assert.equal(revealResponse.body.session.questionClosed, true);
+    const revealedPoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
+    assert.equal(revealedPoll.questionClosed, true);
+    assert.ok(Number.isInteger(revealedPoll.correctIndex), "Al cerrar se revela el indice correcto");
+    revealedPoll.questions.forEach(assertQuestionSafe);
+    assert.equal(
+      (await guest.request(
+        "POST",
+        answerPath,
+        { questionId: firstQuestionId, answerIndex: 0 },
+        { headers: pollHeaders, allowFailure: true }
+      )).status,
+      409,
+      "No se aceptan respuestas despues del cierre"
+    );
     const nextResponse = await adminClient.request("POST", livePath + "/next", {});
     assert.equal(nextResponse.body.session.currentQuestionIndex, 1);
+    assert.equal(nextResponse.body.session.questionClosed, false);
     assert.notEqual(nextResponse.body.session.currentQuestionId, firstQuestionId);
     const secondPoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
     assert.equal(secondPoll.currentQuestionIndex, 1);
     assert.equal(secondPoll.questions.length, 1);
     assert.equal(secondPoll.currentQuestionId, secondPoll.questions[0].id);
     assert.notEqual(secondPoll.currentQuestionId, firstQuestionId);
+    assert.equal(secondPoll.questionClosed, false);
+    assert.equal(secondPoll.correctIndex, undefined);
     assert.equal(secondPoll.answered, false);
     assert.equal(
       (await guest.request(
@@ -575,6 +601,7 @@ async function main() {
       { questionId: secondPoll.currentQuestionId, answerIndex: 0 },
       { headers: pollHeaders }
     );
+    await adminClient.request("POST", livePath + "/reveal", {});
     assert.equal(
       (await adminClient.request("POST", livePath + "/next", {}, { allowFailure: true })).status,
       409,
@@ -594,6 +621,8 @@ async function main() {
     assert.equal(joinPayload.liveSession.guided, true);
     assert.equal(joinPayload.liveSession.currentQuestionIndex, 1);
     assert.equal((joinPayload?.liveSession?.questions || []).length, 1);
+    assert.equal(joinPayload.liveSession.questionClosed, true);
+    assert.ok(Number.isInteger(joinPayload.liveSession.correctIndex));
     assert.equal(joinPayload.liveSession.answered, true);
     (joinPayload?.liveSession?.questions || []).forEach(assertQuestionSafe);
 

@@ -12,6 +12,7 @@ import {
   markQuestionForReview,
   markQuestionReviewed,
   nextLiveQuestion,
+  revealLiveQuestion,
   saveQuestion,
   startLiveSession,
   unmarkQuestionForReview
@@ -774,12 +775,23 @@ function buildLiveSessionControls(session) {
   const questionNumber = session.currentQuestionIndex + 1;
   const currentQuestion = getCurrentQuestionMap().get(String(session.currentQuestionId || "").trim());
   const isLastQuestion = questionNumber >= Number(session.questionCount || 0);
+  const questionClosed = session.questionClosed === true;
+  const correctIndex = Number(currentQuestion?.correctIndex);
+  const correctAnswer =
+    questionClosed && currentQuestion && Number.isInteger(correctIndex)
+      ? `<p class="status-note"><strong>Respuesta correcta:</strong> ${escapeHtml(String.fromCharCode(65 + correctIndex))}. ${escapeHtml(currentQuestion.options?.[correctIndex] || "")}</p>`
+      : "";
   return `
     <p class="muted"><strong>Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(session.questionCount)}</strong></p>
     ${currentQuestion ? `<p>${escapeHtml(currentQuestion.prompt)}</p>` : ""}
+    ${correctAnswer}
     <div class="test-zone-actions">
       <button type="button" class="test-zone-secondary-button" data-action="refresh-live-lobby">Actualizar estado</button>
-      ${isLastQuestion ? '<span class="muted">Última pregunta</span>' : `<button type="button" class="test-zone-primary-button" data-action="next-live-question" data-session-id="${escapeHtml(session.id)}">Siguiente pregunta</button>`}
+      ${!questionClosed
+        ? `<button type="button" class="test-zone-primary-button" data-action="reveal-live-question" data-session-id="${escapeHtml(session.id)}">Cerrar y mostrar respuesta</button>`
+        : isLastQuestion
+          ? '<span class="muted">Respuesta mostrada · última pregunta</span>'
+          : `<button type="button" class="test-zone-primary-button" data-action="next-live-question" data-session-id="${escapeHtml(session.id)}">Siguiente pregunta</button>`}
     </div>
   `;
 }
@@ -1076,15 +1088,17 @@ function bindActions(container) {
     }
 
     const action = String(actionTarget.dataset.action || "").trim();
-    if (["refresh-live-lobby", "start-live-session", "next-live-question"].includes(action)) {
+    if (["refresh-live-lobby", "start-live-session", "reveal-live-question", "next-live-question"].includes(action)) {
       if (actionTarget.disabled) return;
       const sessionId = String(actionTarget.dataset.sessionId || "").trim();
-      if (["start-live-session", "next-live-question"].includes(action) && !sessionId) return;
+      if (["start-live-session", "reveal-live-question", "next-live-question"].includes(action) && !sessionId) return;
       actionTarget.disabled = true;
       testSession.liveError = "";
       try {
         if (action === "start-live-session") {
           await startLiveSession(sessionId);
+        } else if (action === "reveal-live-question") {
+          await revealLiveQuestion(sessionId);
         } else if (action === "next-live-question") {
           await nextLiveQuestion(sessionId);
         }

@@ -137,6 +137,13 @@ export async function startLiveSession(sessionId) {
   return response.session;
 }
 
+export async function revealLiveQuestion(sessionId) {
+  const response = await fetchJson(`/api/test-zone/live-sessions/${encodeURIComponent(String(sessionId || "").trim())}/reveal`, {
+    method: "POST"
+  });
+  return response.session;
+}
+
 export async function nextLiveQuestion(sessionId) {
   const response = await fetchJson(`/api/test-zone/live-sessions/${encodeURIComponent(String(sessionId || "").trim())}/next`, {
     method: "POST"
