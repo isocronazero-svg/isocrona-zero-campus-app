@@ -1,5 +1,6 @@
 import { questionTools, questionManagementPanel, bindQuestionMaintenance } from "../modules/tests/questionMaintenance.js";
 import { renderTopicPicker, readTopics, syncTopicPicker, changeTopicPicker } from "../modules/tests/topicPicker.js";
+import { renderTestNavigation } from "../ui/testNavigation.js";
 import {
   createLiveSession,
   createQuestion,
@@ -19,7 +20,7 @@ import {
   unmarkQuestionForReview
 } from "../modules/tests/questionService.js";
 import { evaluateTest, generateTest, saveTestResult } from "../modules/tests/testService.js";
-import { getTestState, resetTestState } from "../modules/tests/testStore.js";
+import { getTestState, resetTestState, getTestGeneration } from "../modules/tests/testStore.js";
 import { remainingSeconds, formatDuration, correctionLabel } from "../modules/tests/practiceTiming.js";
 
 const testSession = {
@@ -38,7 +39,7 @@ const testSession = {
     difficulty: "all",
     topics: null,
     questionCount: 25,
-    timeLimitMinutes: 0,
+    timeLimitMinutes: 30,
     penaltyDivisor: 0
   }
 };
@@ -143,6 +144,7 @@ export function resetTestView() {
   setActiveRun(null);
   testSession.latestResult = null;
   testSession.loadedRole = "";
+  testSession.loading = false;
   testSession.accountId = "";
   testSession.error = "";
   testSession.liveError = "";
@@ -365,7 +367,7 @@ function buildControlsMarkup() {
         <label class="test-zone-field">
           <span>Contrarreloj</span>
           <select name="timeLimitMinutes">
-            ${[0, 1, 5, 10, 15, 30, 45, 60, 90, 120, 180].map(minutes => `<option value="${minutes}" ${minutes === testSession.filters.timeLimitMinutes ? "selected" : ""}>${minutes ? `${minutes} min` : "Sin limite"}</option>`).join("")}
+            ${[0, ...Array.from({ length: 18 }, (_, index) => (index + 1) * 10)].map(minutes => `<option value="${minutes}" ${minutes === testSession.filters.timeLimitMinutes ? "selected" : ""}>${minutes ? `${minutes} min` : "Sin limite"}</option>`).join("")}
           </select>
         </label>
         <label class="test-zone-field">
