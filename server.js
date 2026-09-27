@@ -1214,7 +1214,9 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     currentQuestionIndex,
     currentQuestionId,
     questionClosed,
-    correctIndex: questionClosed && currentQuestion && Number.isInteger(currentQuestion.correctIndex) ? currentQuestion.correctIndex : null,
+    ...(questionClosed && currentQuestion && Number.isInteger(currentQuestion.correctIndex)
+      ? { correctIndex: currentQuestion.correctIndex }
+      : {}),
     answered: Boolean(participantAnswer),
     currentAnswerIndex: Number.isInteger(participantAnswer?.answerIndex) ? participantAnswer.answerIndex : null,
     questions:
