@@ -776,13 +776,14 @@ function buildLiveSessionControls(session) {
   const currentQuestion = getCurrentQuestionMap().get(String(session.currentQuestionId || "").trim());
   const isLastQuestion = questionNumber >= Number(session.questionCount || 0);
   const questionClosed = session.questionClosed === true;
+  const timeLimitSeconds = Number(session.questionTimeLimitSeconds || 20);
   const correctIndex = Number(currentQuestion?.correctIndex);
   const correctAnswer =
     questionClosed && currentQuestion && Number.isInteger(correctIndex)
       ? `<p class="status-note"><strong>Respuesta correcta:</strong> ${escapeHtml(String.fromCharCode(65 + correctIndex))}. ${escapeHtml(currentQuestion.options?.[correctIndex] || "")}</p>`
       : "";
   return `
-    <p class="muted"><strong>Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(session.questionCount)}</strong></p>
+    <p class="muted"><strong>Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(session.questionCount)}</strong> · ${escapeHtml(timeLimitSeconds)} s por pregunta</p>
     ${currentQuestion ? `<p>${escapeHtml(currentQuestion.prompt)}</p>` : ""}
     ${correctAnswer}
     <div class="test-zone-actions">
@@ -881,6 +882,19 @@ function buildAdminQuestionForm() {
         <label class="test-zone-field">
           <span>Preguntas</span>
           <input type="number" name="questionCount" min="1" max="100" value="20" />
+        </label>
+        <label class="test-zone-field">
+          <span>Tiempo por pregunta</span>
+          <select name="questionTimeLimitSeconds">
+            <option value="10">10 s</option>
+            <option value="15">15 s</option>
+            <option value="20" selected>20 s</option>
+            <option value="30">30 s</option>
+            <option value="45">45 s</option>
+            <option value="60">60 s</option>
+            <option value="90">90 s</option>
+            <option value="120">120 s</option>
+          </select>
         </label>
         <div class="test-zone-actions test-zone-field-full">
           <button type="submit" class="test-zone-secondary-button">Abrir test en vivo</button>
@@ -1069,6 +1083,7 @@ async function handleLiveFormSubmit(container, form) {
   await createLiveSession({
     title: String(formData.get("title") || "").trim(),
     questionCount: Number(formData.get("questionCount") || 20),
+    questionTimeLimitSeconds: Number(formData.get("questionTimeLimitSeconds") || 20),
     filters: {
       part: String(formData.get("part") || "").trim(),
       category: String(formData.get("category") || "").trim(),

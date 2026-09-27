@@ -1117,6 +1117,8 @@ function createTestZoneLiveSession(state, account, payload = {}) {
     startedAt: "",
     currentQuestionIndex: 0,
     questionClosed: false,
+    questionStartedAt: "",
+    questionTimeLimitSeconds: normalizeLiveTestQuestionTimeLimitSeconds(payload.questionTimeLimitSeconds),
     participantAnswers: {},
     createdByAccountId: String(account?.id || "").trim(),
     createdByMemberId: String(account?.memberId || "").trim(),
@@ -1133,7 +1135,27 @@ function createTestZoneLiveSession(state, account, payload = {}) {
   return session;
 }
 
+function getTestZoneLiveQuestionDeadlineMs(session) {
+  const startedAtMs = Date.parse(String(session?.questionStartedAt || ""));
+  const limitSeconds = normalizeLiveTestQuestionTimeLimitSeconds(session?.questionTimeLimitSeconds);
+  return Number.isFinite(startedAtMs) ? startedAtMs + limitSeconds * 1000 : Number.NaN;
+}
+
+function isTestZoneLiveQuestionTimedOut(session, now = Date.now()) {
+  if (!Number.isInteger(session?.currentQuestionIndex) || String(session?.status || "").trim() !== "active") {
+    return false;
+  }
+  const deadlineMs = getTestZoneLiveQuestionDeadlineMs(session);
+  return Number.isFinite(deadlineMs) && deadlineMs <= now;
+}
+
+function isTestZoneLiveQuestionClosed(session, now = Date.now()) {
+  return session?.questionClosed === true || isTestZoneLiveQuestionTimedOut(session, now);
+}
+
 function buildTestZoneLiveSessionAdminPayload(session) {
+  const questionClosed = Number.isInteger(session?.currentQuestionIndex) ? isTestZoneLiveQuestionClosed(session) : false;
+  const deadlineMs = getTestZoneLiveQuestionDeadlineMs(session);
   return {
     id: String(session?.id || "").trim(),
     code: String(session?.code || "").trim(),
@@ -1143,7 +1165,11 @@ function buildTestZoneLiveSessionAdminPayload(session) {
     participants: Array.isArray(session?.participants) ? session.participants.map((participant) => ({ id: String(participant?.id || "").trim(), name: String(participant?.name || "").trim(), joinedAt: String(participant?.joinedAt || "").trim() })) : [],
     startedAt: String(session?.startedAt || "").trim(),
     currentQuestionIndex: Number.isInteger(session?.currentQuestionIndex) ? session.currentQuestionIndex : null,
-    questionClosed: Number.isInteger(session?.currentQuestionIndex) ? session?.questionClosed === true : false,
+    questionClosed,
+    questionStartedAt: String(session?.questionStartedAt || "").trim(),
+    questionTimeLimitSeconds: normalizeLiveTestQuestionTimeLimitSeconds(session?.questionTimeLimitSeconds),
+    questionDeadlineAt: Number.isFinite(deadlineMs) ? new Date(deadlineMs).toISOString() : "",
+    serverNow: new Date().toISOString(),
     currentQuestionId: Number.isInteger(session?.currentQuestionIndex)
       ? String((session?.questionIds || [])[session.currentQuestionIndex] || "").trim()
       : "",
@@ -1202,7 +1228,8 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     guided && participantId
       ? session?.participantAnswers?.[participantId]?.[currentQuestionId] || null
       : null;
-  const questionClosed = guided && session?.questionClosed === true;
+  const questionClosed = guided && isTestZoneLiveQuestionClosed(session);
+  const deadlineMs = getTestZoneLiveQuestionDeadlineMs(session);
   return {
     id: session.id,
     code: session.code,
@@ -1214,6 +1241,10 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     currentQuestionIndex,
     currentQuestionId,
     questionClosed,
+    questionStartedAt: String(session?.questionStartedAt || "").trim(),
+    questionTimeLimitSeconds: normalizeLiveTestQuestionTimeLimitSeconds(session?.questionTimeLimitSeconds),
+    questionDeadlineAt: Number.isFinite(deadlineMs) ? new Date(deadlineMs).toISOString() : "",
+    serverNow: new Date().toISOString(),
     ...(questionClosed && currentQuestion && Number.isInteger(currentQuestion.correctIndex)
       ? { correctIndex: currentQuestion.correctIndex }
       : {}),
@@ -4956,6 +4987,8 @@ const server = http.createServer(async (req, res) => {
       session.startedAt = new Date().toISOString();
       session.currentQuestionIndex = Number.isInteger(session.currentQuestionIndex) ? session.currentQuestionIndex : 0;
       session.questionClosed = false;
+      session.questionStartedAt = session.startedAt;
+      session.questionTimeLimitSeconds = normalizeLiveTestQuestionTimeLimitSeconds(session.questionTimeLimitSeconds);
       session.participantAnswers =
         session.participantAnswers && typeof session.participantAnswers === "object" ? session.participantAnswers : {};
       writeState(state);
@@ -5013,7 +5046,7 @@ const server = http.createServer(async (req, res) => {
       if (!Number.isInteger(session.currentQuestionIndex)) {
         return sendJson(res, 409, { ok: false, error: "Esta sesion usa el flujo anterior y no admite avance dirigido" });
       }
-      if (session.questionClosed !== true) {
+      if (!isTestZoneLiveQuestionClosed(session)) {
         return sendJson(res, 409, { ok: false, error: "Cierra y muestra la respuesta antes de pasar a la siguiente pregunta" });
       }
       const lastQuestionIndex = Math.max(Number(session.questionCount || 0) - 1, 0);
@@ -5022,6 +5055,7 @@ const server = http.createServer(async (req, res) => {
       }
       session.currentQuestionIndex += 1;
       session.questionClosed = false;
+      session.questionStartedAt = new Date().toISOString();
       writeState(state);
       publicLivePollState = null;
       return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
@@ -5125,8 +5159,8 @@ const server = http.createServer(async (req, res) => {
       if (!Number.isInteger(session.currentQuestionIndex)) {
         return sendJson(res, 409, { ok: false, error: "Esta sesion usa el flujo anterior." });
       }
-      if (session.questionClosed === true) {
-        return sendJson(res, 409, { ok: false, error: "La pregunta ya esta cerrada." });
+      if (isTestZoneLiveQuestionClosed(session)) {
+        return sendJson(res, 409, { ok: false, error: "La pregunta ya esta cerrada o se ha agotado el tiempo." });
       }
       const currentQuestionId = String((session.questionIds || [])[session.currentQuestionIndex] || "").trim();
       const submittedQuestionId = String(payload.questionId || "").trim();
