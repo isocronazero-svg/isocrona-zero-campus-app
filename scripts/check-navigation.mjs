@@ -99,6 +99,52 @@ for (const role of ["admin", "member"]) {
     }
   }
 }
+// Exercise the real delegated clicks with both live systems mounted in the same view.
+const publicActionStart = view.indexOf("async function handlePublicLiveAction(");
+const liveActionsEnd = view.indexOf("async function handleStudentTestSelection(", publicActionStart);
+const bindStart = view.indexOf("export function renderTestsView(");
+const bindEnd = view.indexOf("export default renderTestsView;", bindStart);
+assert.ok(publicActionStart >= 0 && liveActionsEnd > publicActionStart && bindEnd > bindStart);
+for (const role of ["admin", "member"]) {
+  for (const scope of ["public", "private"]) {
+    for (const action of ["start-live-session", "refresh-live-lobby"]) {
+      const calls = [];
+      let refreshes = 0;
+      const button = {
+        dataset: { action, sessionId: "room/id" }, disabled: false,
+        closest: (selector) => selector === "[data-public-live-controls]" && scope === "public" ? {} : null
+      };
+      const context = {
+        container: {}, testsViewState: { role },
+        isAdminRole: (value) => value === "admin",
+        getApiClient: () => ({ post: async (url) => { calls.push(url); } }),
+        loadLiveSessions: async () => { refreshes += 1; },
+        refreshTestsView: async () => {}, setTestsViewMessage: () => {},
+        renderTestsMarkup: () => {}, finalizeTestsViewRender: () => {},
+        event: { preventDefault() {}, target: { closest: (selector) => selector === "[data-action]" ? button : null } }
+      };
+      vm.runInNewContext(view.slice(publicActionStart, liveActionsEnd) + view.slice(bindStart, bindEnd).replace(/^export /, "") + `\nrenderTestsView(container, "${role}", "live");`, context);
+      await context.container.onclick(context.event);
+      assert.deepEqual(calls, role === "admin" && action === "start-live-session"
+        ? [`/api/${scope === "public" ? "test-zone/live-sessions" : "live-tests"}/room%2Fid/start`] : []);
+      assert.equal(refreshes, role === "admin" && scope === "public" ? 1 : 0);
+      assert.equal(button.disabled, false);
+      if (role === "admin" && scope === "public") {
+        button.disabled = true;
+        await context.container.onclick(context.event);
+        assert.equal(refreshes, 1, "A pending public action must not run twice");
+        button.disabled = false;
+        context.getApiClient = () => ({ post: async () => { throw new Error("Disconnected"); } });
+        context.loadLiveSessions = async () => { throw new Error("Disconnected"); };
+        let reported = "";
+        context.setTestsViewMessage = (message) => { reported = message; };
+        await context.container.onclick(context.event);
+        assert.equal(reported, "Disconnected");
+        assert.equal(button.disabled, false, "A failed public action can be retried");
+      }
+    }
+  }
+}
 for (const view of ["overview", "test", "join"]) {
   assert.ok(memberButtons.some((tag) => tag.includes(`data-view="${view}"`) && tag.includes('data-action="nav"')));
 }

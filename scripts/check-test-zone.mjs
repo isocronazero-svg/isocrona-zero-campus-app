@@ -44,14 +44,14 @@ async function getAvailablePort() {
 
 function buildSeedState() {
   const seed = JSON.parse(readFileSync(bundledDefaultStatePath, "utf8"));
-  seed.testZoneQuestions = [];
-  seed.testZoneResults = [];
-  seed.testZoneReviewMarks = [];
-  seed.testZoneLiveSessions = [];
   seed.accounts.push({
     id: "admin-self-qa", role: "admin", name: "Admin aprendiz",
     email: "self-admin@example.test", password: selfAdminPassword, memberId: ""
   });
+  seed.testZoneQuestions = [];
+  seed.testZoneResults = [];
+  seed.testZoneReviewMarks = [];
+  seed.testZoneLiveSessions = [];
   return seed;
 }
 

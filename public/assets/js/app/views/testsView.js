@@ -1813,7 +1813,7 @@ function renderTestsMarkup(container) {
         <header><h2>Test en Vivo</h2><p role="status">${escapeHtml(testsViewState.message)}</p></header>
         ${admin ? buildAdminLiveSessionsMarkup() : buildStudentLiveJoinMarkup() + buildStudentLiveSessionMarkup()}
         <section><h3>Acceso con codigo publico</h3><a class="ghost-button" href="/public-live-test.html" target="_blank" rel="noopener">Entrar con nombre y codigo</a></section>
-        ${admin ? buildPublicLiveAdminMarkup() + `<details><summary>Preparar tests para sesiones privadas</summary>${renderAdminMarkup()}</details>` : ""}
+        ${admin ? `<div data-public-live-controls>${buildPublicLiveAdminMarkup()}</div><details><summary>Preparar tests para sesiones privadas</summary>${renderAdminMarkup()}</details>` : ""}
       </section>`
     : admin ? renderAdminMarkup() : renderStudentMarkup();
   container.innerHTML = renderTestNavigation(live ? "live" : "test") + markup;
@@ -1961,6 +1961,27 @@ async function handleAdminSubmit(container, form) {
   }
 
   await refreshTestsView(container, testsViewState.role);
+}
+
+async function handlePublicLiveAction(container, button) {
+  const action = button.dataset.action;
+  if (button.disabled || !["refresh-live-lobby", "start-live-session"].includes(action)) return;
+  button.disabled = true;
+  try {
+    if (action === "start-live-session") {
+      const sessionId = String(button.dataset.sessionId || "").trim();
+      if (!sessionId) throw new Error("No se ha encontrado la sala publica.");
+      const client = getApiClient();
+      if (!client) throw new Error("Cliente API no disponible");
+      await client.post(`/api/test-zone/live-sessions/${encodeURIComponent(sessionId)}/start`, {});
+    }
+    await loadLiveSessions();
+    setTestsViewMessage(action === "start-live-session" ? "Test publico iniciado." : "Participantes actualizados.", "success");
+    renderTestsMarkup(container);
+    finalizeTestsViewRender(container);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function handleAdminAction(container, action, dataset = {}) {
@@ -2256,6 +2277,10 @@ export function renderTestsView(container, role = "member", displayMode = "all")
     if (isAdminRole(role) && adminActionButton && !openTestButton && !startAttemptButton) {
       event.preventDefault();
       try {
+        if (adminActionButton.closest("[data-public-live-controls]")) {
+          await handlePublicLiveAction(container, adminActionButton);
+          return;
+        }
         await handleAdminAction(container, adminActionButton.dataset.action, adminActionButton.dataset);
       } catch (error) {
         setTestsViewMessage(error.message || "No se pudo completar la accion administrativa.", "error");
