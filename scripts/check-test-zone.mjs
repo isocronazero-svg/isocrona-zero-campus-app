@@ -509,7 +509,7 @@ async function main() {
     activePoll.questions.forEach(assertQuestionSafe);
     assert.equal(activePoll.currentQuestionId, activePoll.questions[0].id);
     assert.equal(activePoll.questionClosed, false);
-    assert.equal(activePoll.correctIndex, null, "La correcta no se revela mientras la pregunta esta abierta");
+    assert.equal(activePoll.correctIndex, undefined, "La correcta no se revela mientras la pregunta esta abierta");
     assert.equal(activePoll.answered, false);
     assert.equal((await adminClient.request("POST", livePath + "/start", {}, { allowFailure: true })).status, 409);
 
@@ -583,7 +583,7 @@ async function main() {
     assert.equal(secondPoll.currentQuestionId, secondPoll.questions[0].id);
     assert.notEqual(secondPoll.currentQuestionId, firstQuestionId);
     assert.equal(secondPoll.questionClosed, false);
-    assert.equal(secondPoll.correctIndex, null);
+    assert.equal(secondPoll.correctIndex, undefined);
     assert.equal(secondPoll.answered, false);
     assert.equal(
       (await guest.request(
