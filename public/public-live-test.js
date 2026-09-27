@@ -73,11 +73,13 @@
   function getQuestionRemainingSeconds(session = state.liveSession) {
     const deadlineMs = Date.parse(String(session?.questionDeadlineAt || ""));
     const serverNowMs = Date.parse(String(session?.serverNow || ""));
+    const receivedAtMs = Number(session?._receivedAtMs);
     const limitSeconds = Number(session?.questionTimeLimitSeconds || 20);
     if (!Number.isFinite(deadlineMs) || !Number.isFinite(serverNowMs)) {
       return Math.max(0, Math.ceil(limitSeconds));
     }
-    const estimatedServerNow = serverNowMs + Math.max(0, Date.now() - serverNowMs);
+    const elapsedSinceResponse = Number.isFinite(receivedAtMs) ? Math.max(0, Date.now() - receivedAtMs) : 0;
+    const estimatedServerNow = serverNowMs + elapsedSinceResponse;
     return Math.max(0, Math.ceil((deadlineMs - estimatedServerNow) / 1000));
   }
 
@@ -154,6 +156,7 @@
       const previousQuestionIndex = state.liveSession?.currentQuestionIndex;
       const previousQuestionClosed = state.liveSession?.questionClosed === true;
       state.liveSession = payload.liveSession;
+      if (state.liveSession) state.liveSession._receivedAtMs = Date.now();
       retryNotBefore = 0;
       pollDelay = state.liveSession?.status === "active" && state.liveSession?.guided === true ? 2500 : 5000;
       if (state.liveSession?.status === "active") {
@@ -416,6 +419,7 @@
           })
         });
         state.liveSession = payload.liveSession;
+      if (state.liveSession) state.liveSession._receivedAtMs = Date.now();
         state.result = null;
         state.status =
           String(state.liveSession?.status || "") === "lobby"
@@ -471,6 +475,7 @@
           }
         );
         state.liveSession = payload.liveSession;
+      if (state.liveSession) state.liveSession._receivedAtMs = Date.now();
         state.status = "Respuesta enviada. Espera a que el administrador cierre la pregunta.";
         state.tone = "success";
         render();
