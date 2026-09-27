@@ -784,7 +784,7 @@ document.addEventListener("click", async (event) => {
     if (requestedView === "tests") {
       testsViewMode = actionTarget.dataset.testsMode === "practice" ? "practice" : "live";
     }
-    if (["test", "tests"].includes(requestedView)) {
+    if (["test", "tests", "test-add"].includes(requestedView)) {
       expandedNavViews.add("test");
     }
     const requestedAnchorId = String(actionTarget.dataset.anchor || "").trim();
@@ -5566,7 +5566,7 @@ function getChromeProfile() {
     hideAssistantCard: false,
     hideHero: Boolean(session),
     hideMetrics: !isAdminView() || !isOverview || state.activeView === "campus",
-    hideSidePanel: isMemberLike || isJoin || isOverview || isCampusGroups,
+    hideSidePanel: isMemberLike || isJoin || isOverview || isCampusGroups || state.activeView === "test-add",
     singleWorkspace: (isOverview && isMemberLike) || isJoin || isCampusGroups || focusedWorkspaceViews.includes(state.activeView)
   };
 }
@@ -5696,6 +5696,7 @@ function renderSidebarContextCard() {
     members: "Personas y accesos",
     campus: "Campus",
     test: "Zona Test",
+    "test-add": "Zona Test / Añadir preguntas",
     tests: testsViewMode === "live" ? "Zona Test / Test en Vivo" : "Zona Test / Tests publicados",
     reports: "Informes",
     activity: "Auditoria",
@@ -5763,7 +5764,7 @@ function renderNav() {
     : navItems;
   const isNavItemActive = (item) => {
     if (item.id === "test") {
-      return ["test", "tests"].includes(state.activeView);
+      return ["test", "tests", "test-add"].includes(state.activeView);
     }
     if (item.id === "diplomas") {
       return state.activeView === "campus" && campusSectionMode === "diplomas";
@@ -5908,6 +5909,11 @@ function renderMainPanel() {
   }
 
   const selectedCourse = getSelectedCourse();
+  if (state.activeView === "test-add") {
+    const source = `/question-bank.html?embedded=1${isAdminView() ? "" : "&mode=member"}`;
+    mainPanel.innerHTML = `<section class="test-zone-embedded"><nav class="test-section-nav" aria-label="Zona Test"><button type="button" data-action="nav" data-view="test">Test</button><button type="button" data-action="nav" data-view="tests">Test en Vivo</button><button type="button" data-action="nav" data-view="test-add" aria-current="page">Añadir preguntas</button></nav><iframe title="Añadir y revisar preguntas" src="${source}" class="test-zone-frame"></iframe></section>`;
+    return;
+  }
   if (state.activeView === "test") {
     renderFrontendTestView();
     mainPanel.insertAdjacentHTML("beforeend", renderCampusAttachmentPreviewModal());
@@ -20973,7 +20979,7 @@ function isViewAllowed(viewId) {
     return false;
   }
   if (isAdminSession() && isSelfMemberSession()) {
-    return ["overview", "join", "campus", "courses", "diplomas", "test", "tests"].includes(viewId);
+    return ["overview", "join", "campus", "courses", "diplomas", "test", "tests", "test-add"].includes(viewId);
   }
   if (isCampusOnlySession()) {
     return ["overview", "join", "campus"].includes(viewId);

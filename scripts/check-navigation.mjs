@@ -41,7 +41,7 @@ const memberButtons = render(false);
 assert.equal(memberButtons.length, 4);
 assert.equal(navItems.filter((item) => item.id === "test").length, 1);
 assert.ok(!navItems.some((item) => item.id === "tests"), "Test en Vivo debe estar dentro de Zona Test");
-assert.deepEqual(TEST_SECTION_LINKS.map((item) => item.label), ["Test", "Test en Vivo"]);
+assert.deepEqual(TEST_SECTION_LINKS.map((item) => item.label), ["Test", "Test en Vivo", "Añadir preguntas"]);
 
 const switchStart = app.indexOf("async function changeViewRole(");
 const switchEnd = app.indexOf('\nroleSwitcher.addEventListener("change"', switchStart);

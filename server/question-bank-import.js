@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const { queueQuestions } = require("./question-contributions");
 const path = require("node:path");
 const BLOCKS = ["IVASPE", "TEMARIO COMÚN", "GUADALAJARA"];
 const HEADER = "prompt,optionA,optionB,optionC,optionD,correctIndex,part,category,difficulty,explanation,temaNumero,temaTitulo,moduleTitle";
@@ -12,33 +13,37 @@ function createQuestionBankImportHandler(deps) {
     if (!/^\/api\/test-zone\/import(?:\/(preview|apply))?$/.test(url.pathname)) return false;
     const send = (status, body) => { deps.sendJson(res, status, body); return true; };
     try {
-      if (!deps.requireAdminAccount(req, res, deps.readState())) return true;
+      if (!deps.requireAuthenticatedAccount(req, res, deps.readState())) return true;
       if (req.method === "GET" && url.pathname === "/api/test-zone/import") {
-        const questions = deps.readState().testZoneQuestions || [];
+        const state = deps.readState();
+        const account = deps.requireAuthenticatedAccount(req, res, state);
+        const questions = (state.testZoneQuestions || []).filter(q => !q.deletedAt);
         const blocks = [...new Set([...BLOCKS, ...questions.map(q => blockName(q.part)).filter(Boolean)])].map(part => {
           const own = questions.filter(q => blockName(q.part) === part);
           const topics = [...new Set(own.map(q => q.category || "Sin tema"))].sort().map(name => ({ name, count: own.filter(q => (q.category || "Sin tema") === name).length }));
           return { part, count: own.length, topics };
         });
-        return send(200, { ok: true, blocks, template: HEADER + '\n"Pregunta de ejemplo","Opcion A","Opcion B","Opcion C","Opcion D",0,"IVASPE","Nombre del tema","media","Explicacion de la respuesta","1","Titulo del tema","IVASPE"\n' });
+        return send(200, { ok: true, admin: account.role === "admin", blocks, template: HEADER + '\n"Pregunta de ejemplo","Opcion A","Opcion B","Opcion C","Opcion D",0,"IVASPE","Nombre del tema","media","Explicacion de la respuesta","1","Titulo del tema","IVASPE"\n' });
       }
       if (req.method !== "POST" || !/\/(preview|apply)$/.test(url.pathname)) return send(405, { ok: false, error: "Metodo no permitido" });
       const payload = await deps.readJsonBody(req, 5 * 1024 * 1024);
       const { buildImportPlan } = await import("../scripts/import-test-zone-questions.mjs");
       // Resolve fresh state after asynchronous input/import; no partial writes.
       const state = deps.readState();
-      const account = deps.requireAdminAccount(req, res, state);
+      const account = deps.requireAuthenticatedAccount(req, res, state);
       if (!account) return true;
       const part = blockName(payload.part);
       if (!BLOCKS.includes(part)) throw new Error("Selecciona IVASPE, TEMARIO COMÚN o GUADALAJARA");
       let files = payload.files;
       if (payload.bundled === true) {
+        if (account.role !== "admin") return send(403, { ok: false, error: "El paquete incluido solo está disponible para administración" });
         if (part !== "IVASPE") throw new Error("El paquete incluido pertenece a IVASPE");
         const dir = path.join(__dirname, "..", "data", "test-zone", "ivaspe");
         files = fs.readdirSync(dir).filter(name => name.endsWith(".csv") && !name.startsWith("_")).sort().map(name => ({ name, csv: fs.readFileSync(path.join(dir, name), "utf8") }));
       }
       if (!Array.isArray(files) || !files.length || files.length > 20) throw new Error("Selecciona entre 1 y 20 archivos CSV");
-      const existing = (state.testZoneQuestions || []).filter(q => blockName(q.part) === part);
+      const moderationRequired = account.role !== "admin" || payload.submitForReview === true;
+      const existing = [...(state.testZoneQuestions || []), ...(moderationRequired ? (state.testZoneContributions || []).filter(c => c.accountId === account.id && c.status === "pending").map(c => c.question) : [])].filter(q => blockName(q.part) === part);
       const imported = [], errors = [], summaries = [];
       let duplicates = 0;
       for (const file of files) {
@@ -56,10 +61,11 @@ function createQuestionBankImportHandler(deps) {
       const apply = url.pathname.endsWith("/apply");
       if (apply && errors.length) return send(400, { ok: false, error: "Corrige los errores antes de importar. No se ha guardado ninguna pregunta.", errors });
       if (apply && imported.length) {
-        state.testZoneQuestions = [...(state.testZoneQuestions || []), ...imported];
+        if (moderationRequired) queueQuestions(state, account, imported);
+        else state.testZoneQuestions = [...(state.testZoneQuestions || []), ...imported.map(q => ({ ...q, updatedAt: q.createdAt }))];
         deps.writeState(state);
       }
-      return send(200, { ok: true, applied: apply, part, ready: imported.length, duplicates, errors, files: summaries });
+      return send(200, { ok: true, moderationRequired, applied: apply, part, ready: imported.length, duplicates, errors, files: summaries });
     } catch (error) { deps.sendJsonError(res, error, "No se pudo importar el banco de preguntas"); return true; }
   };
 }

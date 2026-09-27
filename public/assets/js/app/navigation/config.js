@@ -72,7 +72,8 @@ export const AUTOMATION_SECTION_LINKS = [
 
 export const TEST_SECTION_LINKS = [
   { id: "test", label: "Test", view: "test" },
-  { id: "tests", label: "Test en Vivo", view: "tests" }
+  { id: "tests", label: "Test en Vivo", view: "tests" },
+  { id: "test-add", label: "Añadir preguntas", view: "test-add" }
 ];
 
 export const navItems = [

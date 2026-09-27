@@ -5042,3 +5042,5 @@ tr:last-child td {
 .test-zone-report-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
 .test-zone-dialog p, [data-question-management] strong { overflow-wrap: anywhere; }
 .test-zone-dialog button { min-height: 44px; }
+
+.test-zone-embedded{width:100%;min-width:0}.test-zone-frame{display:block;width:100%;height:calc(100dvh - 180px);min-height:640px;border:0;border-radius:14px;background:#fff}

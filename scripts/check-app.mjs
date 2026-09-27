@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
-  "server/question-maintenance.js", "public/assets/js/app/modules/tests/questionMaintenance.js",
+  "server/question-contributions.js", "server/question-maintenance.js", "public/assets/js/app/modules/tests/questionMaintenance.js",
   "public/assets/js/app/views/testsView.js", "public/assets/js/app/ui/testNavigation.js",
   "public/assets/js/app/views/testView.js", "public/assets/js/app/modules/tests/practiceTiming.js",
   "server/course-shared-tests.js", "server/question-bank-import.js",
@@ -30,6 +30,8 @@ const conflictCheckedFiles = [
 ];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
+  "scripts/check-question-contributions.mjs",
+  "scripts/check-contributions-ui.mjs",
   "scripts/check-public-live-lobby-ui.mjs",
   "scripts/check-question-maintenance-ui.mjs",
   "scripts/check-practice-timer.mjs",
