@@ -4,7 +4,7 @@ import vm from "node:vm";
 
 const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 const config = readFileSync(new URL("../public/assets/js/app/navigation/config.js", import.meta.url), "utf8");
-const { navItems } = await import(`data:text/javascript;base64,${Buffer.from(config).toString("base64")}`);
+const { navItems, TEST_SECTION_LINKS } = await import(`data:text/javascript;base64,${Buffer.from(config).toString("base64")}`);
 const start = app.indexOf("function renderNav() {");
 const end = app.indexOf("function renderMetrics()", start);
 assert.ok(start >= 0 && end > start, "Navigation renderer must exist");
@@ -12,6 +12,7 @@ assert.ok(start >= 0 && end > start, "Navigation renderer must exist");
 function render(admin, allowed = () => true) {
   const context = {
     navItems,
+    TEST_SECTION_LINKS,
     navElement: { innerHTML: "" },
     state: { activeView: "overview" },
     session: { memberId: "member-qa" },
