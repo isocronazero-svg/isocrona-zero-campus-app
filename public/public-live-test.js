@@ -254,9 +254,9 @@
         questionClosed && correctIndex !== null
           ? `<div class="status-note"><strong>Respuesta correcta:</strong> ${escapeHtml(String.fromCharCode(65 + correctIndex))}. ${escapeHtml(question?.options?.[correctIndex] || "")}${
               currentAnswerIndex !== null
-                ? `<br><strong>Tu respuesta:</strong> ${escapeHtml(String.fromCharCode(65 + currentAnswerIndex))}. ${escapeHtml(question?.options?.[currentAnswerIndex] || "")} · ${currentAnswerIndex === correctIndex ? "Correcta" : "Incorrecta"}`
+                ? `<br><strong>Tu respuesta:</strong> ${escapeHtml(String.fromCharCode(65 + currentAnswerIndex))}. ${escapeHtml(question?.options?.[currentAnswerIndex] || "")} · ${state.liveSession.isCorrect === true ? "Correcta" : "Incorrecta"}`
                 : "<br>No enviaste respuesta antes del cierre."
-            }</div>`
+            }<br><strong>Puntos:</strong> +${escapeHtml(Number(state.liveSession.pointsAwarded || 0))} · <strong>Total:</strong> ${escapeHtml(Number(state.liveSession.score || 0))}</div>`
           : "";
       if (!question) {
         return `
