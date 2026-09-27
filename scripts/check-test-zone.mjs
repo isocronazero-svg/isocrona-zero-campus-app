@@ -513,6 +513,16 @@ async function main() {
 
     const firstQuestionId = activePoll.currentQuestionId;
     const answerPath = livePath + "/answer";
+    assert.equal(
+      (await guest.request(
+        "POST",
+        answerPath,
+        { questionId: firstQuestionId, answerIndex: null },
+        { headers: pollHeaders, allowFailure: true }
+      )).status,
+      400,
+      "Una respuesta vacia no se convierte en la opcion A"
+    );
     const firstAnswer = await guest.request(
       "POST",
       answerPath,
