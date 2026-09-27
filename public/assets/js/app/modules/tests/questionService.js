@@ -1,6 +1,7 @@
-import { getQuestions, setQuestions, setResults, setReviewMarks, setLiveSessions } from "./testStore.js";
+import { getQuestions, setQuestions, setResults, setReviewMarks, setLiveSessions, getTestGeneration } from "./testStore.js";
 
 async function fetchJson(url, options = {}) {
+  const generation = getTestGeneration();
   const response = await fetch(url, {
     credentials: "include",
     headers: {
@@ -10,6 +11,11 @@ async function fetchJson(url, options = {}) {
     ...options
   });
   const payload = await response.json().catch(() => ({}));
+  if (generation !== getTestGeneration()) {
+    const error = new Error("La sesion de tests ha cambiado.");
+    error.name = "AbortError";
+    throw error;
+  }
   if (!response.ok || payload?.ok === false) {
     throw new Error(payload?.error || "No se pudo completar la operacion de tests");
   }
