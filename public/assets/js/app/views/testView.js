@@ -975,6 +975,7 @@ function buildLayout() {
 }
 
 async function refreshData(role) {
+  const generation = getTestGeneration();
   testSession.loading = true;
   try {
     await loadSharedQuestions();
@@ -984,7 +985,9 @@ async function refreshData(role) {
       await loadLiveSessions();
     }
   } finally {
-    testSession.loading = false;
+    if (generation === getTestGeneration()) {
+      testSession.loading = false;
+    }
   }
 }
 
@@ -1103,7 +1106,7 @@ async function handleQuestionFormSubmit(container, form) {
   renderTestView(container, testSession.role);
 }
 
-async function handleLiveFormSubmit(container, form) {
+export async function submitPublicLiveForm(form) {
   const formData = new FormData(form);
   await createLiveSession({
     title: String(formData.get("title") || "").trim(),
@@ -1116,6 +1119,10 @@ async function handleLiveFormSubmit(container, form) {
     }
   });
   form.reset();
+}
+
+async function handleLiveFormSubmit(container, form) {
+  await submitPublicLiveForm(form);
   await refreshData(testSession.role);
   renderTestView(container, testSession.role);
 }
@@ -1328,6 +1335,7 @@ export async function renderTestView(container, role = "member", accountId = tes
     testSession.accountId = accountId;
   }
   testSession.role = String(role || "member").trim() || "member";
+  const generation = getTestGeneration();
 
   if (testSession.loading) {
     container.innerHTML = '<section class="test-zone-view"><div class="test-zone-empty">Cargando Zona Test...</div></section>';
@@ -1343,8 +1351,10 @@ export async function renderTestView(container, role = "member", accountId = tes
     container.innerHTML = '<section class="test-zone-view"><div class="test-zone-empty">Cargando Zona Test...</div></section>';
     try {
       await refreshData(testSession.role);
+      if (generation !== getTestGeneration()) return;
       testSession.loadedRole = testSession.role;
     } catch (error) {
+      if (generation !== getTestGeneration()) return;
       testSession.loading = false;
       container.innerHTML = `<section class="test-zone-view"><div class="test-zone-inline-error">${escapeHtml(error.message || "No se pudo cargar la Zona Test.")}</div></section>`;
       return;
