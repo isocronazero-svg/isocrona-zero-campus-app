@@ -523,6 +523,9 @@ async function main() {
     assert.equal((await adminClient.request("POST", livePath + "/start", {}, { allowFailure: true })).status, 409);
 
     const firstQuestionId = activePoll.currentQuestionId;
+    const firstCorrectIndex = Number(createdQuestions.find((question) => question.id === firstQuestionId)?.correctIndex);
+    assert.ok(Number.isInteger(firstCorrectIndex), "El check necesita conocer la correcta de la pregunta activa");
+    const alternativeAnswerIndex = firstCorrectIndex === 0 ? 1 : 0;
     const answerPath = livePath + "/answer";
     assert.equal(
       (await guest.request(
@@ -537,16 +540,18 @@ async function main() {
     const firstAnswer = await guest.request(
       "POST",
       answerPath,
-      { questionId: firstQuestionId, answerIndex: 0 },
+      { questionId: firstQuestionId, answerIndex: firstCorrectIndex },
       { headers: pollHeaders }
     );
     assert.equal(firstAnswer.body.liveSession.answered, true);
-    assert.equal(firstAnswer.body.liveSession.currentAnswerIndex, 0);
+    assert.equal(firstAnswer.body.liveSession.currentAnswerIndex, firstCorrectIndex);
     assert.equal(firstAnswer.body.liveSession.questions.length, 1);
+    assert.equal(firstAnswer.body.liveSession.pointsAwarded, undefined, "La puntuacion no se revela antes del cierre");
+    assert.equal(firstAnswer.body.liveSession.score, undefined, "El total no se revela antes del cierre");
     const repeatedAnswer = await guest.request(
       "POST",
       answerPath,
-      { questionId: firstQuestionId, answerIndex: 0 },
+      { questionId: firstQuestionId, answerIndex: firstCorrectIndex },
       { headers: pollHeaders }
     );
     assert.equal(repeatedAnswer.body.liveSession.answered, true, "Repetir la misma respuesta es idempotente");
@@ -554,7 +559,7 @@ async function main() {
       (await guest.request(
         "POST",
         answerPath,
-        { questionId: firstQuestionId, answerIndex: 1 },
+        { questionId: firstQuestionId, answerIndex: alternativeAnswerIndex },
         { headers: pollHeaders, allowFailure: true }
       )).status,
       409,
@@ -570,13 +575,17 @@ async function main() {
     assert.equal(revealResponse.body.session.questionClosed, true);
     const revealedPoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
     assert.equal(revealedPoll.questionClosed, true);
-    assert.ok(Number.isInteger(revealedPoll.correctIndex), "Al cerrar se revela el indice correcto");
+    assert.equal(revealedPoll.correctIndex, firstCorrectIndex, "Al cerrar se revela el indice correcto");
+    assert.equal(revealedPoll.isCorrect, true);
+    assert.ok(revealedPoll.pointsAwarded >= 100 && revealedPoll.pointsAwarded <= 150, "Un acierto suma entre 100 y 150 puntos segun velocidad");
+    assert.equal(revealedPoll.score, revealedPoll.pointsAwarded, "El primer acierto coincide con el total acumulado");
+    assert.ok(Number.isFinite(revealedPoll.responseTimeMs));
     revealedPoll.questions.forEach(assertQuestionSafe);
     assert.equal(
       (await guest.request(
         "POST",
         answerPath,
-        { questionId: firstQuestionId, answerIndex: 0 },
+        { questionId: firstQuestionId, answerIndex: firstCorrectIndex },
         { headers: pollHeaders, allowFailure: true }
       )).status,
       409,
@@ -594,11 +603,14 @@ async function main() {
     assert.equal(secondPoll.questionClosed, false);
     assert.equal(secondPoll.correctIndex, undefined);
     assert.equal(secondPoll.answered, false);
+    const secondCorrectIndex = Number(createdQuestions.find((question) => question.id === secondPoll.currentQuestionId)?.correctIndex);
+    assert.ok(Number.isInteger(secondCorrectIndex));
+    const secondWrongIndex = secondCorrectIndex === 0 ? 1 : 0;
     assert.equal(
       (await guest.request(
         "POST",
         answerPath,
-        { questionId: firstQuestionId, answerIndex: 0 },
+        { questionId: firstQuestionId, answerIndex: firstCorrectIndex },
         { headers: pollHeaders, allowFailure: true }
       )).status,
       409,
@@ -607,7 +619,7 @@ async function main() {
     await guest.request(
       "POST",
       answerPath,
-      { questionId: secondPoll.currentQuestionId, answerIndex: 0 },
+      { questionId: secondPoll.currentQuestionId, answerIndex: secondWrongIndex },
       { headers: pollHeaders }
     );
     await adminClient.request("POST", livePath + "/reveal", {});
@@ -632,6 +644,9 @@ async function main() {
     assert.equal((joinPayload?.liveSession?.questions || []).length, 1);
     assert.equal(joinPayload.liveSession.questionClosed, true);
     assert.ok(Number.isInteger(joinPayload.liveSession.correctIndex));
+    assert.equal(joinPayload.liveSession.isCorrect, false);
+    assert.equal(joinPayload.liveSession.pointsAwarded, 0, "Una respuesta incorrecta no suma puntos");
+    assert.equal(joinPayload.liveSession.score, revealedPoll.score, "El fallo no altera el total acumulado");
     assert.equal(joinPayload.liveSession.answered, true);
     (joinPayload?.liveSession?.questions || []).forEach(assertQuestionSafe);
 

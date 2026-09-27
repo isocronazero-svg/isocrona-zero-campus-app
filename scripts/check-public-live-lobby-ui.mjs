@@ -130,12 +130,29 @@ assert.equal(
 );
 assert.match(h.markup, /Respuesta enviada/);
 assert.match(h.markup, /Espera a que el administrador cierre la pregunta/);
+assert.doesNotMatch(h.markup, /Puntos:/, "La puntuacion no se muestra antes del cierre");
 
-h.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 1, questionClosed: true, correctIndex: 1 } });
+h.reply({
+  ok: true,
+  liveSession: {
+    ...active,
+    answered: true,
+    currentAnswerIndex: 1,
+    questionClosed: true,
+    correctIndex: 1,
+    isCorrect: true,
+    pointsAwarded: 142,
+    score: 142,
+    responseTimeMs: 3200
+  }
+});
 await h.tick();
 assert.match(h.markup, /Respuesta correcta/);
 assert.match(h.markup, /Tu respuesta/);
 assert.match(h.markup, /Correcta/);
+assert.match(h.markup, /Puntos:/);
+assert.match(h.markup, /\+142/);
+assert.match(h.markup, /Total:/);
 assert.match(h.markup, /Pregunta cerrada/);
 
 h.reply({ ok: true, liveSession: activeSecond });
@@ -191,4 +208,4 @@ await oldRequest;
 assert.match(stale.markup, /Sala B/);
 assert.doesNotMatch(stale.markup, /publicLiveAttemptForm/, "An obsolete response cannot restore the previous room");
 assert.equal(stale.timers.size, 1);
-console.log("Public live UI passed: lobby start, synchronized questions, controlled reveal, answer recovery, throttling, visibility and stale responses.");
+console.log("Public live UI passed: lobby start, synchronized questions, scoring reveal, answer recovery, throttling, visibility and stale responses.");

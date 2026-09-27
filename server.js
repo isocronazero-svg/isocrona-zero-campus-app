@@ -1224,6 +1224,10 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
         .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
         .find((question) => String(question.id || "").trim() === currentQuestionId)
     : null;
+  const participant =
+    participantId && Array.isArray(session?.participants)
+      ? session.participants.find((item) => String(item?.id || "").trim() === String(participantId).trim()) || null
+      : null;
   const participantAnswer =
     guided && participantId
       ? session?.participantAnswers?.[participantId]?.[currentQuestionId] || null
@@ -1246,7 +1250,15 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     questionDeadlineAt: Number.isFinite(deadlineMs) ? new Date(deadlineMs).toISOString() : "",
     serverNow: new Date().toISOString(),
     ...(questionClosed && currentQuestion && Number.isInteger(currentQuestion.correctIndex)
-      ? { correctIndex: currentQuestion.correctIndex }
+      ? {
+          correctIndex: currentQuestion.correctIndex,
+          isCorrect: participantAnswer?.isCorrect === true,
+          pointsAwarded: Number(participantAnswer?.pointsAwarded || 0),
+          responseTimeMs: Number.isFinite(Number(participantAnswer?.responseTimeMs))
+            ? Number(participantAnswer.responseTimeMs)
+            : null,
+          score: Number(participant?.score || 0)
+        }
       : {}),
     answered: Boolean(participantAnswer),
     currentAnswerIndex: Number.isInteger(participantAnswer?.answerIndex) ? participantAnswer.answerIndex : null,
@@ -5109,7 +5121,8 @@ const server = http.createServer(async (req, res) => {
         participant = {
           id: randomUUID(),
           name: guestName,
-          joinedAt: new Date().toISOString()
+          joinedAt: new Date().toISOString(),
+          score: 0
         };
         session.participants.push(participant);
       }
@@ -5188,10 +5201,27 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 409, { ok: false, error: "Ya has respondido esta pregunta." });
       }
       if (!existingAnswer) {
+        const answeredAtMs = Date.now();
+        const questionStartedAtMs = Date.parse(String(session.questionStartedAt || ""));
+        const limitMs = normalizeLiveTestQuestionTimeLimitSeconds(session.questionTimeLimitSeconds) * 1000;
+        const responseTimeMs = Number.isFinite(questionStartedAtMs)
+          ? Math.max(0, Math.min(answeredAtMs - questionStartedAtMs, limitMs))
+          : limitMs;
+        const isCorrect = answerIndex === Number(currentQuestion.correctIndex);
+        const pointsAwarded = isCorrect
+          ? 100 + Math.max(0, Math.round(50 * (1 - responseTimeMs / Math.max(limitMs, 1))))
+          : 0;
+        const participant = (session.participants || []).find((item) => item.id === participantId);
         session.participantAnswers[participantId][currentQuestionId] = {
           answerIndex,
-          answeredAt: new Date().toISOString()
+          answeredAt: new Date(answeredAtMs).toISOString(),
+          isCorrect,
+          pointsAwarded,
+          responseTimeMs
         };
+        if (participant && pointsAwarded > 0) {
+          participant.score = Number(participant.score || 0) + pointsAwarded;
+        }
         writeState(state);
         publicLivePollState = null;
       }
