@@ -435,11 +435,13 @@ async function main() {
     const liveSessionResponse = await adminClient.request("POST", "/api/test-zone/live-sessions", {
       title: "Simulacro abierto",
       questionCount: 2,
+      questionTimeLimitSeconds: 120,
       filters: { part: "all", category: "all", difficulty: "all" }
     });
     assert.equal(liveSessionResponse.body?.ok, true);
     assert.ok(liveSessionResponse.body?.session?.code);
     assert.equal(liveSessionResponse.body?.session?.status, "lobby");
+    assert.equal(liveSessionResponse.body?.session?.questionTimeLimitSeconds, 120);
 
     const publicJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
       method: "POST",
@@ -500,11 +502,18 @@ async function main() {
     assert.equal(startLiveResponse.body?.ok, true);
     assert.equal(startLiveResponse.body?.session?.status, "active");
     assert.ok(startLiveResponse.body.session.startedAt);
+    assert.ok(startLiveResponse.body.session.questionStartedAt);
+    assert.ok(startLiveResponse.body.session.questionDeadlineAt);
+    assert.equal(startLiveResponse.body.session.questionTimeLimitSeconds, 120);
     assert.equal(startLiveResponse.body.session.currentQuestionIndex, 0);
     const activePoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
     assert.equal(activePoll.status, "active", "El inicio invalida la lectura de lobby cacheada");
     assert.equal(activePoll.guided, true);
     assert.equal(activePoll.currentQuestionIndex, 0);
+    assert.equal(activePoll.questionTimeLimitSeconds, 120);
+    assert.ok(activePoll.questionStartedAt);
+    assert.ok(activePoll.questionDeadlineAt);
+    assert.ok(activePoll.serverNow);
     assert.equal(activePoll.questions.length, 1, "El flujo dirigido solo expone la pregunta activa");
     activePoll.questions.forEach(assertQuestionSafe);
     assert.equal(activePoll.currentQuestionId, activePoll.questions[0].id);
@@ -833,6 +842,43 @@ async function main() {
     await adminClient.request("POST", `/api/test-zone/live-sessions/${closedLobby.id}/close`, {});
     assert.equal((await adminClient.request("POST", `/api/test-zone/live-sessions/${closedLobby.id}/start`, {}, { allowFailure: true })).status, 409);
     assert.equal((await guest.request("POST", "/api/test-zone/live/join", { code: closedLobby.code, guestName: "Visitante" }, { allowFailure: true })).status, 404);
+
+    const timedSession = (
+      await adminClient.request("POST", "/api/test-zone/live-sessions", {
+        title: "Sesion con tiempo",
+        questionCount: 1,
+        questionTimeLimitSeconds: 5
+      })
+    ).body.session;
+    const timedJoin = (
+      await guest.request("POST", "/api/test-zone/live/join", {
+        code: timedSession.code,
+        guestName: "Cronometro"
+      })
+    ).body.liveSession;
+    await adminClient.request("POST", `/api/test-zone/live-sessions/${timedSession.id}/start`, {});
+    const timedPath = `/api/test-zone/live-sessions/${timedSession.id}`;
+    const timedHeaders = { "X-Live-Participant": timedJoin.participantId };
+    const timedOpen = (await guest.request("GET", timedPath + "/participant", undefined, { headers: timedHeaders })).body.liveSession;
+    assert.equal(timedOpen.questionTimeLimitSeconds, 5);
+    assert.equal(timedOpen.questionClosed, false);
+    assert.equal(timedOpen.correctIndex, undefined);
+    await delay(5200);
+    const timedClosed = (await guest.request("GET", timedPath + "/participant", undefined, { headers: timedHeaders })).body.liveSession;
+    assert.equal(timedClosed.questionClosed, true, "Al agotarse el tiempo la pregunta queda cerrada");
+    assert.ok(Number.isInteger(timedClosed.correctIndex), "Al agotarse el tiempo se revela la respuesta correcta");
+    assert.equal(
+      (
+        await guest.request(
+          "POST",
+          timedPath + "/answer",
+          { questionId: timedClosed.currentQuestionId, answerIndex: 0 },
+          { headers: timedHeaders, allowFailure: true }
+        )
+      ).status,
+      409,
+      "No se aceptan respuestas despues de agotar el tiempo"
+    );
 
     const memberStateResponse = await memberClient.request("GET", "/api/state");
     assert.equal(memberStateResponse.body?.ok, undefined);
