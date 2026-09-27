@@ -616,6 +616,11 @@ async function main() {
       409,
       "No se aceptan respuestas despues del cierre"
     );
+    assert.equal(
+      (await adminClient.request("POST", livePath + "/finish", {}, { allowFailure: true })).status,
+      409,
+      "No se puede finalizar mientras queden preguntas"
+    );
     const nextResponse = await adminClient.request("POST", livePath + "/next", {});
     assert.equal(nextResponse.body.session.currentQuestionIndex, 1);
     assert.equal(nextResponse.body.session.questionClosed, false);
@@ -648,6 +653,11 @@ async function main() {
       answerPath,
       { questionId: secondPoll.currentQuestionId, answerIndex: secondWrongIndex },
       { headers: pollHeaders }
+    );
+    assert.equal(
+      (await adminClient.request("POST", livePath + "/finish", {}, { allowFailure: true })).status,
+      409,
+      "La ultima pregunta debe cerrarse antes de finalizar"
     );
     await adminClient.request("POST", livePath + "/reveal", {});
     assert.equal(
@@ -686,6 +696,26 @@ async function main() {
       )).status,
       409,
       "El flujo dirigido no permite saltarse las respuestas pregunta a pregunta"
+    );
+
+    const finishResponse = await adminClient.request("POST", livePath + "/finish", {});
+    assert.equal(finishResponse.body.session.status, "finished");
+    assert.ok(finishResponse.body.session.finishedAt);
+    assert.equal(finishResponse.body.session.leaderboard[0].name, "Visitante");
+    const finalPoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
+    assert.equal(finalPoll.status, "finished");
+    assert.equal(finalPoll.questions.length, 0, "El podio final no vuelve a exponer preguntas");
+    assert.ok(finalPoll.finishedAt);
+    assert.equal(finalPoll.leaderboard[0].name, "Visitante");
+    assert.equal(finalPoll.currentRank.rank, 1);
+    assert.equal(
+      (await fetch(new URL("/api/test-zone/live/join", baseUrl), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guestName: "Nuevo", code: liveSessionResponse.body?.session?.code })
+      })).status,
+      404,
+      "Una sesion finalizada no admite nuevos participantes"
     );
 
     const legacyQuestionIds = (legacyJoin.questions || []).map((question) => question.id);
