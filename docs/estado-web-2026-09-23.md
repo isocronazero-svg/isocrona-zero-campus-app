@@ -324,4 +324,20 @@ Todavía **no** incorpora puntuación por velocidad, clasificación provisional 
 
 ### Siguiente bloque
 
-El siguiente paso es el **temporizador por pregunta**, manteniéndolo separado de la puntuación y del ranking.
+El temporizador por pregunta ya está completado y fusionado en la **PR #205 — Add timer to each guided live question**.
+
+Commit incorporado a `main`: `2e14e99b47da74f9063bd944874c786dab47fdce`.
+
+La ejecución `App checks` #230 terminó correctamente antes de fusionar.
+
+Queda funcionando:
+
+- tiempo configurable por pregunta;
+- 20 segundos por defecto;
+- cuenta atrás visible para el participante;
+- sincronización con el reloj del servidor;
+- cierre automático al agotarse el tiempo;
+- rechazo de respuestas fuera de tiempo;
+- revelado de la correcta cuando termina el tiempo.
+
+El siguiente bloque será **puntuación de cada respuesta**, separado todavía de la clasificación/podio.
