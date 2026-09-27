@@ -1116,6 +1116,7 @@ function createTestZoneLiveSession(state, account, payload = {}) {
     participants: [],
     startedAt: "",
     currentQuestionIndex: 0,
+    questionClosed: false,
     participantAnswers: {},
     createdByAccountId: String(account?.id || "").trim(),
     createdByMemberId: String(account?.memberId || "").trim(),
@@ -1142,6 +1143,7 @@ function buildTestZoneLiveSessionAdminPayload(session) {
     participants: Array.isArray(session?.participants) ? session.participants.map((participant) => ({ id: String(participant?.id || "").trim(), name: String(participant?.name || "").trim(), joinedAt: String(participant?.joinedAt || "").trim() })) : [],
     startedAt: String(session?.startedAt || "").trim(),
     currentQuestionIndex: Number.isInteger(session?.currentQuestionIndex) ? session.currentQuestionIndex : null,
+    questionClosed: Number.isInteger(session?.currentQuestionIndex) ? session?.questionClosed === true : false,
     currentQuestionId: Number.isInteger(session?.currentQuestionIndex)
       ? String((session?.questionIds || [])[session.currentQuestionIndex] || "").trim()
       : "",
@@ -1200,6 +1202,7 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     guided && participantId
       ? session?.participantAnswers?.[participantId]?.[currentQuestionId] || null
       : null;
+  const questionClosed = guided && session?.questionClosed === true;
   return {
     id: session.id,
     code: session.code,
@@ -1210,6 +1213,8 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     guided,
     currentQuestionIndex,
     currentQuestionId,
+    questionClosed,
+    correctIndex: questionClosed && currentQuestion && Number.isInteger(currentQuestion.correctIndex) ? currentQuestion.correctIndex : null,
     answered: Boolean(participantAnswer),
     currentAnswerIndex: Number.isInteger(participantAnswer?.answerIndex) ? participantAnswer.answerIndex : null,
     questions:
@@ -4948,6 +4953,7 @@ const server = http.createServer(async (req, res) => {
       session.status = "active";
       session.startedAt = new Date().toISOString();
       session.currentQuestionIndex = Number.isInteger(session.currentQuestionIndex) ? session.currentQuestionIndex : 0;
+      session.questionClosed = false;
       session.participantAnswers =
         session.participantAnswers && typeof session.participantAnswers === "object" ? session.participantAnswers : {};
       writeState(state);
@@ -4955,6 +4961,35 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo iniciar el test en vivo" });
+    }
+  }
+
+  if (/^\/api\/test-zone\/live-sessions\/[^/]+\/reveal$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      ensureTestZoneState(state);
+      if (expireStaleTestZoneLiveSessions(state)) {
+        writeState(state);
+      }
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const session = getTestZoneLiveSessionById(state, sessionId);
+      if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
+      if (String(session.status || "").trim() !== "active") {
+        return sendJson(res, 409, { ok: false, error: "El test en vivo no esta iniciado" });
+      }
+      if (!Number.isInteger(session.currentQuestionIndex)) {
+        return sendJson(res, 409, { ok: false, error: "Esta sesion usa el flujo anterior y no admite revelado dirigido" });
+      }
+      if (session.questionClosed !== true) {
+        session.questionClosed = true;
+        writeState(state);
+        publicLivePollState = null;
+      }
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cerrar y revelar la pregunta" });
     }
   }
 
@@ -4976,11 +5011,15 @@ const server = http.createServer(async (req, res) => {
       if (!Number.isInteger(session.currentQuestionIndex)) {
         return sendJson(res, 409, { ok: false, error: "Esta sesion usa el flujo anterior y no admite avance dirigido" });
       }
+      if (session.questionClosed !== true) {
+        return sendJson(res, 409, { ok: false, error: "Cierra y muestra la respuesta antes de pasar a la siguiente pregunta" });
+      }
       const lastQuestionIndex = Math.max(Number(session.questionCount || 0) - 1, 0);
       if (session.currentQuestionIndex >= lastQuestionIndex) {
         return sendJson(res, 409, { ok: false, error: "Ya estas en la ultima pregunta" });
       }
       session.currentQuestionIndex += 1;
+      session.questionClosed = false;
       writeState(state);
       publicLivePollState = null;
       return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
@@ -5083,6 +5122,9 @@ const server = http.createServer(async (req, res) => {
       }
       if (!Number.isInteger(session.currentQuestionIndex)) {
         return sendJson(res, 409, { ok: false, error: "Esta sesion usa el flujo anterior." });
+      }
+      if (session.questionClosed === true) {
+        return sendJson(res, 409, { ok: false, error: "La pregunta ya esta cerrada." });
       }
       const currentQuestionId = String((session.questionIds || [])[session.currentQuestionIndex] || "").trim();
       const submittedQuestionId = String(payload.questionId || "").trim();
