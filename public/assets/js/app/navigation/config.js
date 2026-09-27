@@ -70,13 +70,17 @@ export const AUTOMATION_SECTION_LINKS = [
   { id: "automationSectionHistory", label: "Historial" }
 ];
 
+export const TEST_SECTION_LINKS = [
+  { id: "test", label: "Test", view: "test" },
+  { id: "tests", label: "Test en Vivo", view: "tests" }
+];
+
 export const navItems = [
   { id: "overview", label: "Vision general", sections: OVERVIEW_SECTION_LINKS },
   { id: "join", label: "Hazte socio" },
   { id: "associates", label: "Socios y cuotas", sections: ASSOCIATE_SECTION_LINKS },
   { id: "campus", label: "Campus", sections: CAMPUS_SECTION_LINKS },
-  { id: "test", label: "Zona Test" },
-  { id: "tests", label: "Tests" },
+  { id: "test", label: "Zona Test", sections: TEST_SECTION_LINKS },
   { id: "reports", label: "Informes y validacion", sections: REPORT_SECTION_LINKS },
 ];
 
