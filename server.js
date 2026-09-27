@@ -4370,6 +4370,33 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, prepareStateForTransport(state, account));
   }
 
+  if (requestUrl.pathname === "/api/account/member-profile" && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      let member = (state.members || []).find((item) => String(item?.id || "").trim() === String(account.memberId || "").trim());
+      if (!member) {
+        member = {
+          id: `member-${randomUUID()}`,
+          name: account.name,
+          email: account.email,
+          role: "Alumno",
+          certifications: [],
+          renewalsDue: 0,
+          associateId: account.associateId || ""
+        };
+        state.members = Array.isArray(state.members) ? state.members : [];
+        state.members.push(member);
+        account.memberId = member.id;
+        writeState(state);
+      }
+      return sendJson(res, 200, { ok: true, memberId: member.id });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: "No se pudo guardar tu perfil de aprendizaje. Vuelve a intentarlo." });
+    }
+  }
+
   if (requestUrl.pathname === "/api/session" && req.method === "GET") {
     const state = readState();
     const account = getAuthenticatedAccount(req, state);
@@ -5945,7 +5972,7 @@ const server = http.createServer(async (req, res) => {
         }
         return sendJson(res, 404, { ok: false, error: "Sesion live no encontrada" });
       }
-      if (account.role === "admin") {
+      if (account.role === "admin" && requestUrl.searchParams.get("scope") !== "participant") {
         if (expired) {
           writeState(state);
         }
