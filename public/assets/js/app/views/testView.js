@@ -1,5 +1,6 @@
 import { questionTools, questionManagementPanel, bindQuestionMaintenance } from "../modules/tests/questionMaintenance.js";
 import { renderTopicPicker, readTopics, syncTopicPicker, changeTopicPicker } from "../modules/tests/topicPicker.js";
+import { renderTestNavigation } from "../ui/testNavigation.js";
 import {
   createLiveSession,
   createQuestion,
@@ -19,7 +20,7 @@ import {
   unmarkQuestionForReview
 } from "../modules/tests/questionService.js";
 import { evaluateTest, generateTest, saveTestResult } from "../modules/tests/testService.js";
-import { getTestState, resetTestState } from "../modules/tests/testStore.js";
+import { getTestState, resetTestState, getTestGeneration } from "../modules/tests/testStore.js";
 import { remainingSeconds, formatDuration, correctionLabel } from "../modules/tests/practiceTiming.js";
 
 const testSession = {
@@ -38,7 +39,7 @@ const testSession = {
     difficulty: "all",
     topics: null,
     questionCount: 25,
-    timeLimitMinutes: 0,
+    timeLimitMinutes: 30,
     penaltyDivisor: 0
   }
 };
@@ -143,6 +144,7 @@ export function resetTestView() {
   setActiveRun(null);
   testSession.latestResult = null;
   testSession.loadedRole = "";
+  testSession.loading = false;
   testSession.accountId = "";
   testSession.error = "";
   testSession.liveError = "";
@@ -365,7 +367,7 @@ function buildControlsMarkup() {
         <label class="test-zone-field">
           <span>Contrarreloj</span>
           <select name="timeLimitMinutes">
-            ${[0, 1, 5, 10, 15, 30, 45, 60, 90, 120, 180].map(minutes => `<option value="${minutes}" ${minutes === testSession.filters.timeLimitMinutes ? "selected" : ""}>${minutes ? `${minutes} min` : "Sin limite"}</option>`).join("")}
+            ${[0, ...Array.from({ length: 18 }, (_, index) => (index + 1) * 10)].map(minutes => `<option value="${minutes}" ${minutes === testSession.filters.timeLimitMinutes ? "selected" : ""}>${minutes ? `${minutes} min` : "Sin limite"}</option>`).join("")}
           </select>
         </label>
         <label class="test-zone-field">
@@ -824,14 +826,13 @@ function buildAdminQuestionForm() {
   if (testSession.role !== "admin") {
     return "";
   }
-  const liveSessions = getTestState().liveSessions || [];
   return `
     <section class="test-zone-card">
       <div class="test-zone-card-head">
         <div>
           <p class="test-zone-kicker">Administración</p>
-          <h3>Banco y test en vivo</h3>
-          <p class="muted">Mantén el banco compartido y abre sesiones de test en vivo con código para externos.</p>
+          <h3>Añadir pregunta</h3>
+          <p class="muted">Añade una pregunta nueva al banco compartido.</p>
         </div>
       </div>
       <form class="test-zone-admin-form" data-test-zone-question-form>
@@ -874,6 +875,21 @@ function buildAdminQuestionForm() {
           <button type="submit" class="test-zone-primary-button">Guardar pregunta</button>
         </div>
       </form>
+    </section>
+  `;
+}
+
+export function buildPublicLiveAdminMarkup() {
+  const liveSessions = getTestState().liveSessions || [];
+  return `
+    <section class="test-zone-card">
+      <div class="test-zone-card-head">
+        <div>
+          <p class="test-zone-kicker">Administración</p>
+          <h3>Test en Vivo</h3>
+          <p class="muted">Abre una sala con código, controla cada pregunta y finaliza mostrando el podio.</p>
+        </div>
+      </div>
       <form class="test-zone-live-form" data-test-zone-live-form>
         <label class="test-zone-field test-zone-field-full">
           <span>Título del test en vivo</span>
@@ -935,7 +951,7 @@ function buildAdminQuestionForm() {
                       <strong>${escapeHtml(session.title || "Test en vivo")}</strong>
                       <p class="muted">Código ${escapeHtml(session.code)} · ${escapeHtml(`${session.questionCount} preguntas`)}</p>
                       <p class="muted">${escapeHtml(formatDate(session.createdAt))}</p>
-                      <p class="muted">${escapeHtml(`${Array.isArray(session.participants) ? session.participants.length : 0} participantes`)} · ${escapeHtml(session.status === "lobby" ? "Sala de espera" : session.status === "active" ? "En curso" : session.status)}</p>
+                      <p class="muted">${escapeHtml(`${Array.isArray(session.participants) ? session.participants.length : 0} participantes`)} · ${escapeHtml(session.status === "lobby" ? "Sala de espera" : session.status === "active" ? "En curso" : session.status === "finished" ? "Finalizado" : session.status)}</p>
                       ${Array.isArray(session.participants) && session.participants.length ? `<p class="muted">${session.participants.map((participant) => escapeHtml(participant.name)).join(" · ")}</p>` : ""}
                       ${buildLiveSessionControls(session)}
                     </article>
@@ -951,14 +967,16 @@ function buildAdminQuestionForm() {
 
 function buildLayout() {
   return `
+    ${renderTestNavigation("test")}
     <section class="test-zone-view">
       <header class="test-zone-hero">
         <div>
           <p class="test-zone-kicker">Zona Test</p>
-          <h2>Tests rapidos para socios</h2>
+          <h2>Test</h2>
           <p class="muted">Crea un test, revisa fallos y guarda preguntas para repasar.</p>
         </div>
       </header>
+      ${testSession.activeRun ? "" : '<button type="button" class="test-zone-secondary-button" data-action="nav" data-view="tests" data-tests-mode="practice">Tests publicados</button>'}
       ${testSession.role === "admin" ? '<section class="test-zone-card"><h3>Cargar preguntas por bloques y temas</h3><p>IVASPE · TEMARIO COMÚN · GUADALAJARA</p><a class="test-zone-primary-button" href="/question-bank.html">Importar documentos de preguntas</a></section>' : ""}
       ${testSession.activeRun ? "" : buildProgressStatsPanel() + buildControlsMarkup()}
       ${buildQuestionAttemptMarkup()}
@@ -967,12 +985,13 @@ function buildLayout() {
       ${buildReviewMarkedQuestionsMarkup()}
       ${buildHistoryMarkup()}
       ${testSession.role === "admin" && !testSession.activeRun ? questionManagementPanel() : ""}
-      ${buildAdminQuestionForm()}
+      ${testSession.activeRun ? "" : buildAdminQuestionForm()}
     </section>
   `;
 }
 
 async function refreshData(role) {
+  const generation = getTestGeneration();
   testSession.loading = true;
   try {
     await loadSharedQuestions();
@@ -982,7 +1001,9 @@ async function refreshData(role) {
       await loadLiveSessions();
     }
   } finally {
-    testSession.loading = false;
+    if (generation === getTestGeneration()) {
+      testSession.loading = false;
+    }
   }
 }
 
@@ -1101,7 +1122,7 @@ async function handleQuestionFormSubmit(container, form) {
   renderTestView(container, testSession.role);
 }
 
-async function handleLiveFormSubmit(container, form) {
+export async function submitPublicLiveForm(form) {
   const formData = new FormData(form);
   await createLiveSession({
     title: String(formData.get("title") || "").trim(),
@@ -1114,6 +1135,10 @@ async function handleLiveFormSubmit(container, form) {
     }
   });
   form.reset();
+}
+
+async function handleLiveFormSubmit(container, form) {
+  await submitPublicLiveForm(form);
   await refreshData(testSession.role);
   renderTestView(container, testSession.role);
 }
@@ -1326,6 +1351,7 @@ export async function renderTestView(container, role = "member", accountId = tes
     testSession.accountId = accountId;
   }
   testSession.role = String(role || "member").trim() || "member";
+  const generation = getTestGeneration();
 
   if (testSession.loading) {
     container.innerHTML = '<section class="test-zone-view"><div class="test-zone-empty">Cargando Zona Test...</div></section>';
@@ -1341,8 +1367,10 @@ export async function renderTestView(container, role = "member", accountId = tes
     container.innerHTML = '<section class="test-zone-view"><div class="test-zone-empty">Cargando Zona Test...</div></section>';
     try {
       await refreshData(testSession.role);
+      if (generation !== getTestGeneration()) return;
       testSession.loadedRole = testSession.role;
     } catch (error) {
+      if (generation !== getTestGeneration()) return;
       testSession.loading = false;
       container.innerHTML = `<section class="test-zone-view"><div class="test-zone-inline-error">${escapeHtml(error.message || "No se pudo cargar la Zona Test.")}</div></section>`;
       return;

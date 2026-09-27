@@ -1,3 +1,9 @@
+let testGeneration = 0;
+
+export function getTestGeneration() {
+  return testGeneration;
+}
+
 const testState = {
   questions: [],
   results: [],
@@ -54,6 +60,7 @@ export function setLiveSessions(sessions = []) {
 }
 
 export function resetTestState() {
+  testGeneration += 1;
   testState.questions = [];
   testState.results = [];
   testState.stats = {
