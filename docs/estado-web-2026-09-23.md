@@ -1,5 +1,7 @@
 # Estado de la web — 23 de septiembre de 2026
 
+> Histórico. Estado actualizado y siguientes pasos en [estado-web-2026-09-28.md](estado-web-2026-09-28.md).
+
 ## Punto de partida verificado
 
 Repositorio: `isocronazero-svg/isocrona-zero-campus-app`.

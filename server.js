@@ -1,4 +1,5 @@
 const http = require("http");
+const { createQuestionContributionsHandler } = require("./server/question-contributions");
 const { randomUUID } = require("node:crypto");
 const handleQuestionMaintenance = require("./server/question-maintenance");
 const fs = require("fs");
@@ -4309,11 +4310,13 @@ const handleCourseSharedTest = createCourseSharedTestHandler({
     item.id === course.id && (item.enrolledIds || []).includes(account.memberId))
 });
 
-const handleQuestionBankImport = createQuestionBankImportHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError });
+const handleQuestionBankImport = createQuestionBankImportHandler({ readState, writeState, requireAdminAccount, requireAuthenticatedAccount, readJsonBody, sendJson, sendJsonError });
+const handleQuestionContributions = createQuestionContributionsHandler({ readState, writeState, requireAdminAccount, requireAuthenticatedAccount, readJsonBody, sendJson, sendJsonError, buildQuestion: buildTestZoneQuestion });
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
   if (await handleCourseSharedTest(req, res, requestUrl)) return;
+  if (await handleQuestionContributions(req, res, requestUrl)) return;
   if (await handleQuestionBankImport(req, res, requestUrl)) return;
 
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
@@ -6343,6 +6346,7 @@ const server = http.createServer(async (req, res) => {
       // Reports are written only through the scoped moderation API.
       const latestQuestionState = readState();
       state.testZoneQuestionReports = latestQuestionState.testZoneQuestionReports || [];
+      state.testZoneContributions = latestQuestionState.testZoneContributions || [];
       if (account.role === "admin") {
         // A stale whole-state save must not resurrect removed questions or undo a correction.
         const incomingQuestions = new Map((state.testZoneQuestions || []).map(q => [q.id, q]));

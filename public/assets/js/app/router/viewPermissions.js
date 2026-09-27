@@ -1,6 +1,6 @@
 export const ROLE_PERMISSIONS = Object.freeze({
   admin: ["*"],
-  member: ["join", "courses", "diplomas", "test", "tests"]
+  member: ["join", "courses", "diplomas", "test", "tests", "test-add"]
 });
 
 export const TEST_ACTION_PERMISSIONS = Object.freeze({
