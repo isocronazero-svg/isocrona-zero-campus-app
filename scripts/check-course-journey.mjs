@@ -296,10 +296,19 @@ async function main() {
     const live = (await admin.request("POST", "/api/test-zone/live-sessions", { courseId })).body.session;
     await admin.request("POST", `/api/test-zone/live-sessions/${live.id}/start`, {});
     const joined = (await guest.request("POST", "/api/test-zone/live/join", { code: live.code, guestName: "Alumno temporal" })).body.liveSession;
-    assert.deepEqual(joined.questions.map(q => q.id), attempt.questionIds);
+    assert.deepEqual(joined.questions.map(q => q.id), [attempt.questionIds[0]]);
+    assert.equal(joined.currentQuestionIndex, 0);
     const livePath = `/api/test-zone/live-sessions/${live.id}`;
-    const liveResult = await guest.request("POST", livePath + "/attempt", { code: live.code, guestName: "Alumno temporal", questionIds: attempt.questionIds, answers: [1, 2] });
-    assert.equal(liveResult.body.result.percentage, 100);
+    const firstLiveAnswer = await fetch(new URL(livePath + "/answer", baseUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Live-Participant": joined.participantId },
+      body: JSON.stringify({ questionId: attempt.questionIds[0], answerIndex: 1 })
+    });
+    assert.equal(firstLiveAnswer.ok, true);
+    await admin.request("POST", livePath + "/next", {});
+    const secondJoined = (await guest.request("POST", "/api/test-zone/live/join", { code: live.code, guestName: "Alumno temporal" })).body.liveSession;
+    assert.deepEqual(secondJoined.questions.map(q => q.id), [attempt.questionIds[1]]);
+    assert.equal(secondJoined.currentQuestionIndex, 1);
     await admin.request("POST", livePath + "/close", {});
     assert.equal((await guest.request("POST", "/api/test-zone/live/join", { code: live.code, guestName: "Alumno temporal" }, true)).status, 404);
     await stopServer(server);
