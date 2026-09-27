@@ -171,6 +171,33 @@ assert.match(h.markup, /Pregunta 2 de 2/);
 assert.match(h.markup, /publicLiveQuestionForm/);
 assert.equal([...h.timers.values()][0].ms, 2500);
 
+h.reply({
+  ok: true,
+  liveSession: {
+    ...activeSecond,
+    status: "finished",
+    finishedAt: new Date(30000).toISOString(),
+    questions: [],
+    questionClosed: true,
+    score: 142,
+    leaderboard: [
+      { rank: 1, name: "Alumno", score: 142 },
+      { rank: 2, name: "Rival", score: 80 },
+      { rank: 3, name: "Tercero", score: 50 }
+    ],
+    currentRank: { rank: 1, name: "Alumno", score: 142 }
+  }
+});
+await h.tick();
+assert.match(h.markup, /Test finalizado/);
+assert.match(h.markup, /Podio final/);
+assert.match(h.markup, /1\. Alumno/);
+assert.match(h.markup, /2\. Rival/);
+assert.match(h.markup, /3\. Tercero/);
+assert.match(h.markup, /Tu posición final:/);
+assert.doesNotMatch(h.markup, /publicLiveQuestionForm/);
+assert.equal(h.timers.size, 0, "El podio final detiene el polling");
+
 const legacy = harness();
 await legacy.join(legacyActive);
 assert.match(legacy.markup, /publicLiveAttemptForm/, "A previous active session keeps the legacy full-attempt UI");
@@ -217,4 +244,4 @@ await oldRequest;
 assert.match(stale.markup, /Sala B/);
 assert.doesNotMatch(stale.markup, /publicLiveAttemptForm/, "An obsolete response cannot restore the previous room");
 assert.equal(stale.timers.size, 1);
-console.log("Public live UI passed: lobby start, synchronized questions, scoring and provisional ranking, answer recovery, throttling, visibility and stale responses.");
+console.log("Public live UI passed: lobby start, synchronized questions, scoring, provisional ranking, final podium, answer recovery, throttling, visibility and stale responses.");
