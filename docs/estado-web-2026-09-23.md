@@ -375,11 +375,19 @@ La clasificación provisional ya queda integrada:
 - cada participante ve además su posición y puntuación;
 - mientras la pregunta está abierta no se expone la clasificación.
 
-### Trabajo actual
+### Podio final completado
 
-Se ha abierto la **PR #208 — Finish guided live test with final podium**, todavía en validación y sin fusionar.
+Se ha completado y fusionado la **PR #208 — Finish guided live test with final podium**.
 
-Este bloque añade:
+Commit incorporado a `main`: `65a3bf28100987251439be989ddd7bb202ea1a0d`.
+
+Antes de fusionar, la ejecución `App checks` #240 terminó correctamente.
+
+El flujo canónico de Test en Vivo queda completo de extremo a extremo:
+
+`sala de espera → inicio → pregunta → temporizador → respuesta → cierre/revelado → puntuación → clasificación provisional → siguiente pregunta → finalización → podio`.
+
+Queda incorporado:
 
 - finalización explícita por el administrador después de cerrar la última pregunta;
 - estado final `finished`;
@@ -387,9 +395,25 @@ Este bloque añade:
 - acceso del participante ya registrado al resultado final;
 - podio final de los tres primeros;
 - posición y puntuación final del participante;
-- persistencia correcta del estado `finished` en almacenamiento;
-- detención del polling al llegar al podio.
+- persistencia correcta del estado `finished`;
+- detención del polling al llegar al podio;
+- posibilidad de archivar posteriormente la sesión finalizada.
 
-La PR #208 solo se fusionará con los checks automáticos en verde.
+La antigua **PR #196** ha quedado cerrada sin fusionar por estar superada por el flujo canónico construido en #200, #201 y #203–#208.
 
-Si este bloque queda validado, el flujo funcional principal de Test en Vivo quedará completo de extremo a extremo y el siguiente paso será una prueba integral con varios participantes y revisión de detalles de experiencia de uso.
+### Trabajo actual: Modo Socio y navegación de Zona Test
+
+Se está trabajando en la **PR #209 — Unify Zona Test navigation and safe admin member mode**, basada en el `main` actual para no recuperar código live antiguo de la PR #202.
+
+El cambio en preparación:
+
+- permite al administrador activar **Modo Socio (mi aprendizaje)** usando su propia cuenta;
+- si necesita una identidad de alumno, crea de forma segura su propio perfil de aprendizaje;
+- no usa ni suplanta la cuenta de la persona seleccionada;
+- mantiene disponible el regreso a Administración;
+- agrupa **Test** y **Test en Vivo** bajo un único menú **Zona Test**;
+- lleva Test en Vivo al flujo canónico ya terminado;
+- protege la Zona Test frente a respuestas asíncronas antiguas al cambiar de cuenta o modo;
+- deja el contrarreloj de test normal en 30 minutos por defecto, con opciones de 10 en 10 minutos hasta 180 y opción sin límite.
+
+La ejecución `App checks` #248 ha terminado correctamente durante el desarrollo. La PR #209 seguirá en borrador hasta terminar su revisión y actualizar todas las comprobaciones relacionadas.
