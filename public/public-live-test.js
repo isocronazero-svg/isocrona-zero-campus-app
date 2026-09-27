@@ -226,7 +226,7 @@
                           type="radio"
                           name="answerIndex"
                           value="${optionIndex}"
-                          ${Number(state.liveSession.currentAnswerIndex) === optionIndex ? "checked" : ""}
+                          ${Number.isInteger(state.liveSession.currentAnswerIndex) && state.liveSession.currentAnswerIndex === optionIndex ? "checked" : ""}
                           ${answered ? "disabled" : ""}
                         />
                         <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
@@ -379,6 +379,9 @@
         return;
       }
       answering = true;
+      requestVersion++;
+      stopLobbyRefresh();
+      pollBusy = false;
       const button = questionForm.querySelector('button[type="submit"]');
       if (button) button.disabled = true;
       try {
@@ -403,6 +406,7 @@
       } finally {
         answering = false;
         if (button) button.disabled = false;
+        scheduleLobbyRefresh(2500);
       }
     });
 
