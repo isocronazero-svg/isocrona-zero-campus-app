@@ -22,6 +22,7 @@
   let pageClosed = false;
   let pollDelay = 5000;
   let retryNotBefore = 0;
+  let questionTimerId = null;
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -66,6 +67,49 @@
     if (note) {
       note.textContent = message;
       note.className = `status-note ${tone === "error" ? "warning" : ""}`;
+    }
+  }
+
+  function getQuestionRemainingSeconds(session = state.liveSession) {
+    const deadlineMs = Date.parse(String(session?.questionDeadlineAt || ""));
+    const serverNowMs = Date.parse(String(session?.serverNow || ""));
+    const limitSeconds = Number(session?.questionTimeLimitSeconds || 20);
+    if (!Number.isFinite(deadlineMs) || !Number.isFinite(serverNowMs)) {
+      return Math.max(0, Math.ceil(limitSeconds));
+    }
+    const estimatedServerNow = serverNowMs + Math.max(0, Date.now() - serverNowMs);
+    return Math.max(0, Math.ceil((deadlineMs - estimatedServerNow) / 1000));
+  }
+
+  function stopQuestionCountdown() {
+    if (questionTimerId !== null) {
+      clearInterval(questionTimerId);
+      questionTimerId = null;
+    }
+  }
+
+  function startQuestionCountdown() {
+    stopQuestionCountdown();
+    const session = state.liveSession;
+    if (!session || session.status !== "active" || session.guided !== true || session.questionClosed === true) {
+      return;
+    }
+    const tick = () => {
+      const remainingSeconds = getQuestionRemainingSeconds(session);
+      const output = document.getElementById("publicLiveCountdown");
+      if (output) {
+        output.textContent = `${remainingSeconds} s`;
+      }
+      if (remainingSeconds <= 0) {
+        stopQuestionCountdown();
+        updateStatus("Tiempo agotado. Espera a que se muestre la respuesta correcta.", "info");
+        render();
+        scheduleLobbyRefresh(0);
+      }
+    };
+    tick();
+    if (getQuestionRemainingSeconds(session) > 0) {
+      questionTimerId = setInterval(tick, 1000);
     }
   }
 
@@ -194,6 +238,8 @@
       const questionClosed = state.liveSession.questionClosed === true;
       const correctIndex = Number.isInteger(state.liveSession.correctIndex) ? state.liveSession.correctIndex : null;
       const currentAnswerIndex = Number.isInteger(state.liveSession.currentAnswerIndex) ? state.liveSession.currentAnswerIndex : null;
+      const remainingSeconds = getQuestionRemainingSeconds(state.liveSession);
+      const questionLocked = questionClosed || remainingSeconds <= 0;
       const answerResult =
         questionClosed && correctIndex !== null
           ? `<div class="status-note"><strong>Respuesta correcta:</strong> ${escapeHtml(String.fromCharCode(65 + correctIndex))}. ${escapeHtml(question?.options?.[correctIndex] || "")}${
@@ -217,7 +263,7 @@
             <div>
               <p class="test-zone-kicker">Sesión activa</p>
               <h3>${escapeHtml(state.liveSession.title || "Test en vivo")}</h3>
-              <p class="muted">Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(state.liveSession.questionCount)}</p>
+              <p class="muted">Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(state.liveSession.questionCount)} · Tiempo: <strong id="publicLiveCountdown">${escapeHtml(remainingSeconds)} s</strong></p>
             </div>
           </div>
           <form id="publicLiveQuestionForm">
@@ -242,7 +288,7 @@
                           name="answerIndex"
                           value="${optionIndex}"
                           ${Number.isInteger(state.liveSession.currentAnswerIndex) && state.liveSession.currentAnswerIndex === optionIndex ? "checked" : ""}
-                          ${answered || questionClosed ? "disabled" : ""}
+                          ${answered || questionLocked ? "disabled" : ""}
                         />
                         <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
                         <span class="test-zone-option-copy">${escapeHtml(option)}</span>
@@ -256,9 +302,11 @@
             <div class="test-zone-footer-actions">
               ${questionClosed
                 ? '<p class="status-note">Pregunta cerrada. Espera a que el administrador continúe.</p>'
-                : answered
-                  ? '<p class="status-note">Respuesta enviada. Espera a que el administrador cierre la pregunta.</p>'
-                  : '<button type="submit" class="test-zone-primary-button">Enviar respuesta</button>'}
+                : remainingSeconds <= 0
+                  ? '<p class="status-note">Tiempo agotado. Espera a que se muestre la respuesta correcta.</p>'
+                  : answered
+                    ? '<p class="status-note">Respuesta enviada. Espera a que el administrador cierre la pregunta.</p>'
+                    : '<button type="submit" class="test-zone-primary-button">Enviar respuesta</button>'}
             </div>
           </form>
         </section>
@@ -387,7 +435,15 @@
 
     questionForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!state.liveSession || state.result || answering || joining || state.liveSession.answered || state.liveSession.questionClosed) {
+      if (
+        !state.liveSession ||
+        state.result ||
+        answering ||
+        joining ||
+        state.liveSession.answered ||
+        state.liveSession.questionClosed ||
+        getQuestionRemainingSeconds(state.liveSession) <= 0
+      ) {
         return;
       }
       const formData = new FormData(questionForm);
@@ -427,6 +483,8 @@
         scheduleLobbyRefresh(2500);
       }
     });
+
+    startQuestionCountdown();
 
     attemptForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -472,6 +530,7 @@
     requestVersion++;
     pollBusy = false;
     stopLobbyRefresh();
+    stopQuestionCountdown();
   });
   window.addEventListener("pageshow", () => {
     pageClosed = false;
