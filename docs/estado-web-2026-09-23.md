@@ -252,3 +252,54 @@ En este momento no deben considerarse publicadas las funcionalidades que permane
 ### Criterio para considerar la web terminada
 
 No basta con que las pantallas existan. La versión final debe tener un único flujo para cada función, checks automáticos verdes, recorridos principales probados y ninguna PR antigua que pueda introducir una implementación duplicada o incompatible.
+
+
+---
+
+## Avance — 27 de septiembre de 2026: pregunta sincronizada
+
+Se ha completado y fusionado la **PR #203 — Synchronize one live question at a time**.
+
+Commit incorporado a `main`: `73e8bfe47dd6d161c24183f7a6d58a1b1406d13f`.
+
+### Qué queda ya funcionando en Test en Vivo
+
+El flujo canónico incorpora ahora:
+
+`crear sala → participantes entran → administrador inicia → una única pregunta activa → participante responde → administrador avanza → siguiente pregunta`.
+
+Cambios principales:
+
+- Las sesiones nuevas usan una pregunta activa identificada por `currentQuestionIndex`.
+- El participante solo recibe la pregunta que corresponde en ese momento.
+- El administrador ve el número de pregunta actual y puede pasar a la siguiente.
+- Los participantes siguen consultando el estado mientras el test está activo para recibir el cambio de pregunta.
+- Cada participante puede enviar una única respuesta por pregunta.
+- La respuesta queda almacenada por participante y pregunta.
+- Repetir exactamente la misma respuesta es idempotente; intentar cambiarla después queda bloqueado.
+- Una respuesta atrasada se rechaza si el administrador ya ha cambiado de pregunta.
+- El flujo dirigido ya no puede utilizar el endpoint antiguo de envío completo para saltarse el control pregunta a pregunta.
+- Las sesiones antiguas activas sin estado guiado mantienen compatibilidad con el flujo anterior.
+- Se corrigió un caso en el que una respuesta vacía podía interpretarse como la opción A.
+- Se evitó una carrera entre el polling activo y el guardado de la respuesta.
+- Se han adaptado las pruebas de cursos y recorrido del alumno al nuevo flujo.
+
+### Validación
+
+La ejecución `App checks` #219 terminó correctamente antes de fusionar.
+
+### Siguiente bloque pendiente de Test en Vivo
+
+El siguiente paso debe ser el **cierre de la pregunta y revelado controlado de la respuesta correcta**, todavía sin ranking general ni podio.
+
+Después:
+
+1. Temporizador por pregunta.
+2. Puntuación por acierto y, si se decide, velocidad.
+3. Clasificación provisional entre preguntas.
+4. Paso controlado a la siguiente pregunta desde la pantalla de resultado.
+5. Cierre de sesión.
+6. Clasificación/podio final.
+7. Prueba real con varios participantes simultáneos.
+
+No conviene mezclar todavía estos bloques en un único cambio grande.
