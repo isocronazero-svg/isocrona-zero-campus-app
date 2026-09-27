@@ -886,8 +886,8 @@ export function buildPublicLiveAdminMarkup() {
       <div class="test-zone-card-head">
         <div>
           <p class="test-zone-kicker">Administración</p>
-          <h3>Banco y test en vivo</h3>
-          <p class="muted">Mantén el banco compartido y abre sesiones de test en vivo con código para externos.</p>
+          <h3>Test en Vivo</h3>
+          <p class="muted">Abre una sala con código, controla cada pregunta y finaliza mostrando el podio.</p>
         </div>
       </div>
       <form class="test-zone-live-form" data-test-zone-live-form>
@@ -951,7 +951,7 @@ export function buildPublicLiveAdminMarkup() {
                       <strong>${escapeHtml(session.title || "Test en vivo")}</strong>
                       <p class="muted">Código ${escapeHtml(session.code)} · ${escapeHtml(`${session.questionCount} preguntas`)}</p>
                       <p class="muted">${escapeHtml(formatDate(session.createdAt))}</p>
-                      <p class="muted">${escapeHtml(`${Array.isArray(session.participants) ? session.participants.length : 0} participantes`)} · ${escapeHtml(session.status === "lobby" ? "Sala de espera" : session.status === "active" ? "En curso" : session.status)}</p>
+                      <p class="muted">${escapeHtml(`${Array.isArray(session.participants) ? session.participants.length : 0} participantes`)} · ${escapeHtml(session.status === "lobby" ? "Sala de espera" : session.status === "active" ? "En curso" : session.status === "finished" ? "Finalizado" : session.status)}</p>
                       ${Array.isArray(session.participants) && session.participants.length ? `<p class="muted">${session.participants.map((participant) => escapeHtml(participant.name)).join(" · ")}</p>` : ""}
                       ${buildLiveSessionControls(session)}
                     </article>
