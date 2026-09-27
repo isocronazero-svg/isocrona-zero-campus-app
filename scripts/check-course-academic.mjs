@@ -285,6 +285,7 @@ async function main() {
     assert.equal(findCourse(sharedState, "course-1").evaluations["member-1"], "Apto", "La práctica no sustituye la evaluación académica");
     const live = await admin.request("POST", "/api/test-zone/live-sessions", { courseId: "course-1" });
     assert.equal(live.body.session.questionCount, 2);
+    await admin.request("POST", `/api/test-zone/live-sessions/${live.body.session.id}/start`, {});
     const liveJoin = await anonymous.request("POST", "/api/test-zone/live/join", { code: live.body.session.code, guestName: "Participante temporal" });
     assert.deepEqual(liveJoin.body.liveSession.questions.map((q) => q.id), ["shared-q1", "shared-q2"]);
     assert.equal(JSON.stringify(liveJoin.body).includes("correctIndex"), false);

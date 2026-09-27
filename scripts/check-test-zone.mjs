@@ -45,7 +45,11 @@ function buildSeedState() {
   seed.testZoneQuestions = [];
   seed.testZoneResults = [];
   seed.testZoneReviewMarks = [];
-  seed.testZoneLiveSessions = [];
+  seed.testZoneLiveSessions = [{
+    id: "legacy-active-live", code: "LEGACY-ACTIVE", status: "active",
+    title: "Sesion anterior al lobby", questionIds: [], questionCount: 0,
+    createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3600000).toISOString()
+  }];
   return seed;
 }
 
@@ -83,7 +87,7 @@ function createJsonClient(label, baseUrl) {
       if (!response.ok && options.allowFailure !== true) {
         throw new Error(`${label} ${method} ${requestPath} -> ${response.status}: ${parsedBody?.error || text}`);
       }
-      return { status: response.status, body: parsedBody };
+      return { status: response.status, body: parsedBody, headers: response.headers };
     }
   };
 }
@@ -430,6 +434,7 @@ async function main() {
     });
     assert.equal(liveSessionResponse.body?.ok, true);
     assert.ok(liveSessionResponse.body?.session?.code);
+    assert.equal(liveSessionResponse.body?.session?.status, "lobby");
 
     const publicJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
       method: "POST",
@@ -439,9 +444,71 @@ async function main() {
         code: liveSessionResponse.body?.session?.code
       })
     });
-    const joinPayload = await publicJoinResponse.json();
+    const lobbyJoinPayload = await publicJoinResponse.json();
     assert.equal(publicJoinResponse.ok, true);
-    assert.equal(joinPayload?.ok, true);
+    assert.equal(lobbyJoinPayload?.ok, true);
+    assert.equal(lobbyJoinPayload?.liveSession?.status, "lobby");
+    assert.equal((lobbyJoinPayload?.liveSession?.questions || []).length, 0, "El lobby no debe exponer preguntas antes de iniciar");
+
+    const adminLobbyResponse = await adminClient.request("GET", "/api/test-zone/live-sessions");
+    const adminLobbySession = (adminLobbyResponse.body?.sessions || []).find(
+      (session) => session.id === liveSessionResponse.body?.session?.id
+    );
+    assert.equal(adminLobbySession?.participants?.[0]?.name, "Visitante");
+    assert.equal(adminLobbySession?.status, "lobby", "Persistir no debe iniciar la sala");
+    const guest = createJsonClient("guest", baseUrl);
+    const livePath = `/api/test-zone/live-sessions/${liveSessionResponse.body.session.id}`;
+    const joinBody = { guestName: "Visitante", code: liveSessionResponse.body.session.code };
+    const repeatedJoin = (await guest.request("POST", "/api/test-zone/live/join", joinBody)).body.liveSession;
+    assert.equal(repeatedJoin.status, "lobby", "Unirse nunca inicia la sesion");
+    assert.equal(repeatedJoin.participantId, lobbyJoinPayload.liveSession.participantId);
+    assert.deepEqual(repeatedJoin.questions, []);
+    assert.equal((await guest.request("POST", livePath + "/attempt", {
+      guestName: "Visitante", questionIds, answers: [0, 0, 0]
+    }, { allowFailure: true })).status, 404, "No se aceptan resultados en lobby");
+    assert.equal((await guest.request("POST", livePath + "/start", {}, { allowFailure: true })).status, 401);
+    assert.equal((await memberClient.request("POST", livePath + "/start", {}, { allowFailure: true })).status, 403);
+    assert.equal((await guest.request("GET", "/api/test-zone/live-sessions", undefined, { allowFailure: true })).status, 401);
+    const persistedLobby = (await adminClient.request("GET", "/api/test-zone/live-sessions")).body.sessions.find(s => s.id === liveSessionResponse.body.session.id);
+    assert.equal(persistedLobby.participants.length, 1, "Actualizar no duplica participantes");
+    const pollHeaders = { "X-Live-Participant": repeatedJoin.participantId };
+    const pollPath = livePath + "/participant";
+    assert.equal((await guest.request("GET", pollPath, undefined, { allowFailure: true })).status, 401);
+    assert.equal((await guest.request("GET", pollPath, undefined, { headers: { "X-Live-Participant": "another-guest" }, allowFailure: true })).status, 403);
+    const beforePoll = readFileSync(path.join(tempDataDir, "state.json"), "utf8");
+    const lobbyPoll = await guest.request("GET", pollPath, undefined, { headers: pollHeaders });
+    assert.equal(lobbyPoll.headers.get("cache-control"), "no-store");
+    assert.deepEqual(lobbyPoll.body.liveSession.questions, []);
+    assert.equal(lobbyPoll.body.liveSession.status, "lobby");
+    assert.equal(lobbyPoll.body.liveSession.participants, undefined);
+    assert.equal(readFileSync(path.join(tempDataDir, "state.json"), "utf8"), beforePoll, "Consultar no escribe ni registra participantes");
+    const legacyJoin = (await guest.request("POST", "/api/test-zone/live/join", { guestName: "Visitante", code: "LEGACY-ACTIVE" })).body.liveSession;
+    assert.equal(legacyJoin.status, "active", "Una sesion anterior sin startedAt no vuelve al lobby");
+
+    const startLiveResponse = await adminClient.request(
+      "POST",
+      `/api/test-zone/live-sessions/${encodeURIComponent(liveSessionResponse.body?.session?.id)}/start`,
+      {}
+    );
+    assert.equal(startLiveResponse.body?.ok, true);
+    assert.equal(startLiveResponse.body?.session?.status, "active");
+    assert.ok(startLiveResponse.body.session.startedAt);
+    const activePoll = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
+    assert.equal(activePoll.status, "active", "El inicio invalida la lectura de lobby cacheada");
+    assert.equal(activePoll.questions.length, 2);
+    activePoll.questions.forEach(assertQuestionSafe);
+    assert.equal((await adminClient.request("POST", livePath + "/start", {}, { allowFailure: true })).status, 409);
+
+    const activeJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ guestName: "Visitante", code: liveSessionResponse.body?.session?.code })
+    });
+    const joinPayload = await activeJoinResponse.json();
+    assert.equal(activeJoinResponse.ok, true);
+    assert.equal(joinPayload?.liveSession?.status, "active");
+    assert.equal(joinPayload.liveSession.participantId, repeatedJoin.participantId);
+    assert.equal(joinPayload.liveSession.participants, undefined, "No se expone la lista de asistentes al invitado");
     assert.equal((joinPayload?.liveSession?.questions || []).length, 2);
     (joinPayload?.liveSession?.questions || []).forEach(assertQuestionSafe);
 
@@ -483,6 +550,7 @@ async function main() {
       filters: { part: "all", category: "all", difficulty: "all" }
     });
     assert.equal(singleQuestionSessionResponse.body?.ok, true);
+    await adminClient.request("POST", `/api/test-zone/live-sessions/${encodeURIComponent(singleQuestionSessionResponse.body?.session?.id)}/start`, {});
     const singleQuestionJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -577,6 +645,9 @@ async function main() {
     );
     assert.equal(closeLiveSessionResponse.body?.ok, true);
     assert.equal(closeLiveSessionResponse.body?.session?.status, "closed");
+    assert.equal((await guest.request("GET", pollPath, undefined, { headers: pollHeaders, allowFailure: true })).status, 404, "Cerrar invalida el polling");
+    assert.equal((await adminClient.request("POST", livePath + "/start", {}, { allowFailure: true })).status, 409);
+    assert.equal((await guest.request("POST", "/api/test-zone/live/join", joinBody, { allowFailure: true })).status, 404);
 
     const closedLiveAttemptResponse = await fetch(
       new URL(`/api/test-zone/live-sessions/${encodeURIComponent(joinPayload.liveSession.id)}/attempt`, baseUrl),
@@ -599,6 +670,7 @@ async function main() {
       expiresAt: new Date(Date.now() + 1000).toISOString()
     });
     assert.equal(expiringSessionResponse.body?.ok, true);
+    await adminClient.request("POST", `/api/test-zone/live-sessions/${encodeURIComponent(expiringSessionResponse.body?.session?.id)}/start`, {});
     const expiringJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -625,6 +697,17 @@ async function main() {
       }
     );
     assert.equal(expiredLiveAttemptResponse.status, 404);
+
+    const expiredLobby = (await adminClient.request("POST", "/api/test-zone/live-sessions", {
+      title: "Lobby caducado", questionCount: 1, expiresAt: new Date(Date.now() + 1000).toISOString()
+    })).body.session;
+    await delay(1200);
+    assert.equal((await adminClient.request("POST", `/api/test-zone/live-sessions/${expiredLobby.id}/start`, {}, { allowFailure: true })).status, 409, "Iniciar no revive una sala caducada");
+    assert.equal((await guest.request("POST", "/api/test-zone/live/join", { code: expiredLobby.code, guestName: "Visitante" }, { allowFailure: true })).status, 404);
+    const closedLobby = (await adminClient.request("POST", "/api/test-zone/live-sessions", { title: "Lobby cerrado", questionCount: 1 })).body.session;
+    await adminClient.request("POST", `/api/test-zone/live-sessions/${closedLobby.id}/close`, {});
+    assert.equal((await adminClient.request("POST", `/api/test-zone/live-sessions/${closedLobby.id}/start`, {}, { allowFailure: true })).status, 409);
+    assert.equal((await guest.request("POST", "/api/test-zone/live/join", { code: closedLobby.code, guestName: "Visitante" }, { allowFailure: true })).status, 404);
 
     const memberStateResponse = await memberClient.request("GET", "/api/state");
     assert.equal(memberStateResponse.body?.ok, undefined);
@@ -758,11 +841,33 @@ async function main() {
     assert.equal(courseAfterDelete.sharedTestPublished, false);
     await adminClient.request("POST", `${reportPath}/${report.id}/resolve`, {});
     assert.equal((await memberClient.request("GET", reportPath)).body.reports[0].status, "resolved");
+    const restartLobby = (await adminClient.request("POST", "/api/test-zone/live-sessions", { title: "Lobby persistente", questionCount: 1 })).body.session;
+    const longName = "Visitante ".repeat(10);
+    const restartJoin = (await guest.request("POST", "/api/test-zone/live/join", { code: restartLobby.code, guestName: longName })).body.liveSession;
     server.kill("SIGTERM");
     await new Promise(resolve => server.once("exit", resolve));
     server = startServer(port, baseUrl);
     await waitForServer(baseUrl);
     await login(adminClient, "admin@isocronazero.org", "campus123");
+    const restoredJoin = (await guest.request("POST", "/api/test-zone/live/join", { code: restartLobby.code, guestName: longName })).body.liveSession;
+    assert.equal(restoredJoin.status, "lobby", "El reinicio conserva la sala de espera");
+    assert.equal(restoredJoin.participantId, restartJoin.participantId, "El reinicio conserva al participante");
+    assert.deepEqual(restoredJoin.questions, []);
+    const restoredLobby = (await adminClient.request("GET", "/api/test-zone/live-sessions")).body.sessions.find(s => s.id === restartLobby.id);
+    assert.equal(restoredLobby.participants.length, 1, "Los nombres largos no duplican participantes al actualizar");
+    assert.equal(restoredLobby.participants[0].name, longName.trim().slice(0, 60).trim());
+    const restoredStart = (await adminClient.request("POST", `/api/test-zone/live-sessions/${restartLobby.id}/start`, {})).body.session;
+    assert.equal(restoredStart.status, "active", "El admin puede iniciar tras reiniciar");
+    const restoredPollPath = `/api/test-zone/live-sessions/${restartLobby.id}/participant`;
+    assert.equal((await guest.request("GET", restoredPollPath, undefined, { headers: pollHeaders, allowFailure: true })).status, 403, "La identidad del lobby queda limitada a su sala");
+    const restoredHeaders = { "X-Live-Participant": restoredJoin.participantId };
+    for (let index = 0; index < 30; index++) {
+      assert.equal((await guest.request("GET", restoredPollPath, undefined, { headers: restoredHeaders })).status, 200);
+    }
+    const throttledPoll = await guest.request("GET", restoredPollPath, undefined, { headers: restoredHeaders, allowFailure: true });
+    assert.equal(throttledPoll.status, 429);
+    assert.ok(Number(throttledPoll.headers.get("retry-after")) > 0);
+    assert.equal(throttledPoll.headers.get("cache-control"), "no-store");
     assert.equal((await adminClient.request("GET", reportPath)).body.reports[0].status, "resolved", "Avisos persistidos tras reinicio");
     assert.equal((await adminClient.request("GET", "/api/test-zone/questions")).body.questions.some(q => q.id === original.id), false);
     console.log("Test zone checks passed (timer, scoring, reports, moderation permissions, history and persistence).");

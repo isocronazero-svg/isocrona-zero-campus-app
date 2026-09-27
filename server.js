@@ -1,4 +1,5 @@
 const http = require("http");
+const { randomUUID } = require("node:crypto");
 const handleQuestionMaintenance = require("./server/question-maintenance");
 const fs = require("fs");
 const path = require("path");
@@ -284,6 +285,8 @@ function ensureTestZoneState(state) {
 const independentTestTimingGraceMs = 3000;
 const independentTestMaxClientDurationMs = 24 * 60 * 60 * 1000;
 const testZoneLiveSessionMaxAgeMs = 24 * 60 * 60 * 1000;
+let publicLivePollState = null;
+let publicLivePollReadAt = 0;
 const liveTestFinishedSessionRetentionLimit = 20;
 const liveTestPollIntervalMs = 2000;
 const liveTestMaxResponseTimeMs = 24 * 60 * 60 * 1000;
@@ -1064,10 +1067,12 @@ function expireStaleTestZoneLiveSessions(state, now = Date.now()) {
   ensureTestZoneState(state);
   let changed = false;
   for (const session of state.testZoneLiveSessions || []) {
-    if (String(session?.status || "").trim() !== "active") {
+    const status = String(session?.status || "").trim();
+    if (!["lobby", "active"].includes(status)) {
       continue;
     }
-    if (!isTestZoneLiveSessionActive(session, now)) {
+    const expiresAtMs = Date.parse(String(session?.expiresAt || ""));
+    if (Number.isFinite(expiresAtMs) && expiresAtMs <= now) {
       session.status = "expired";
       session.closedAt = session.closedAt || new Date(now).toISOString();
       changed = true;
@@ -1077,7 +1082,7 @@ function expireStaleTestZoneLiveSessions(state, now = Date.now()) {
 }
 
 function closeTestZoneLiveSession(session) {
-  if (!session || String(session.status || "").trim() !== "active") {
+  if (!session || !["lobby", "active"].includes(String(session.status || "").trim())) {
     return session;
   }
   session.status = "closed";
@@ -1107,7 +1112,9 @@ function createTestZoneLiveSession(state, account, payload = {}) {
     courseId: sourceCourse?.id || "",
     questionIds: selectedQuestions.map((question) => question.id),
     questionCount: selectedQuestions.length,
-    status: "active",
+    status: "lobby",
+    participants: [],
+    startedAt: "",
     createdByAccountId: String(account?.id || "").trim(),
     createdByMemberId: String(account?.memberId || "").trim(),
     filters: {
@@ -1129,7 +1136,9 @@ function buildTestZoneLiveSessionAdminPayload(session) {
     code: String(session?.code || "").trim(),
     title: String(session?.title || "").trim(),
     questionCount: Number(session?.questionCount || 0),
-    status: String(session?.status || "active").trim(),
+    status: String(session?.status || "lobby").trim(),
+    participants: Array.isArray(session?.participants) ? session.participants.map((participant) => ({ id: String(participant?.id || "").trim(), name: String(participant?.name || "").trim(), joinedAt: String(participant?.joinedAt || "").trim() })) : [],
+    startedAt: String(session?.startedAt || "").trim(),
     filters:
       session?.filters && typeof session.filters === "object"
         ? {
@@ -1147,9 +1156,14 @@ function buildTestZoneLiveSessionAdminPayload(session) {
 function getTestZoneLiveSessionByCode(state, code) {
   ensureTestZoneState(state);
   const normalizedCode = String(code || "").trim();
-  return (state.testZoneLiveSessions || []).find(
-    (session) => String(session.code || "").trim() === normalizedCode && isTestZoneLiveSessionActive(session)
-  ) || null;
+  const now = Date.now();
+  return (state.testZoneLiveSessions || []).find((session) => {
+    const status = String(session?.status || "").trim();
+    const expiresAtMs = Date.parse(String(session?.expiresAt || ""));
+    const available = status === "lobby" || status === "active";
+    const unexpired = !Number.isFinite(expiresAtMs) || expiresAtMs > now;
+    return String(session.code || "").trim() === normalizedCode && available && unexpired;
+  }) || null;
 }
 
 function getTestZoneLiveSessionById(state, sessionId) {
@@ -1163,6 +1177,16 @@ function getTestZoneLiveSessionQuestions(state, session) {
   return (state.testZoneQuestions || [])
     .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
     .filter((question) => questionIds.has(question.id));
+}
+
+function buildPublicTestZoneLiveSession(state, session, participantId) {
+  return {
+    id: session.id, code: session.code, title: session.title, questionCount: session.questionCount,
+    status: session.status, participantId,
+    questions: session.status === "active"
+      ? getTestZoneLiveSessionQuestions(state, session).map(buildTestZoneQuestionAudiencePayload)
+      : []
+  };
 }
 
 function normalizeIndependentTestQuestionsPerAttempt(value) {
@@ -4842,6 +4866,7 @@ const server = http.createServer(async (req, res) => {
       expireStaleTestZoneLiveSessions(state);
       const session = createTestZoneLiveSession(state, account, payload);
       writeState(state);
+      publicLivePollState = null;
       return sendJson(res, 201, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo abrir el test en vivo" });
@@ -4864,9 +4889,35 @@ const server = http.createServer(async (req, res) => {
       }
       closeTestZoneLiveSession(session);
       writeState(state);
+      publicLivePollState = null;
       return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cerrar el test en vivo" });
+    }
+  }
+
+  if (/^\/api\/test-zone\/live-sessions\/[^/]+\/start$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      ensureTestZoneState(state);
+      if (expireStaleTestZoneLiveSessions(state)) {
+        writeState(state);
+      }
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const session = getTestZoneLiveSessionById(state, sessionId);
+      if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
+      if (String(session.status || "").trim() !== "lobby") {
+        return sendJson(res, 409, { ok: false, error: "La sesion ya no esta en la sala de espera" });
+      }
+      session.status = "active";
+      session.startedAt = new Date().toISOString();
+      writeState(state);
+      publicLivePollState = null;
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo iniciar el test en vivo" });
     }
   }
 
@@ -4880,7 +4931,7 @@ const server = http.createServer(async (req, res) => {
       const state = readState();
       ensureTestZoneState(state);
       const expired = expireStaleTestZoneLiveSessions(state);
-      const guestName = String(payload.guestName || "").trim();
+      const guestName = String(payload.guestName || "").trim().slice(0, 60).trim();
       const code = String(payload.code || "").trim();
       if (!guestName) {
         throw new Error("Necesitas indicar tu nombre para entrar");
@@ -4906,22 +4957,59 @@ const server = http.createServer(async (req, res) => {
         }
         return sendJson(res, 404, { ok: false, error: "El test en vivo no existe o ya no esta activo" });
       }
-      const questions = getTestZoneLiveSessionQuestions(state, session);
-      if (expired) {
+      session.participants = Array.isArray(session.participants) ? session.participants : [];
+      let participant = session.participants.find(
+        (item) => String(item?.name || "").trim().toLocaleLowerCase("es") === guestName.toLocaleLowerCase("es")
+      );
+      const isNewParticipant = !participant;
+      if (!participant) {
+        participant = {
+          id: randomUUID(),
+          name: guestName,
+          joinedAt: new Date().toISOString()
+        };
+        session.participants.push(participant);
+      }
+      if (expired || isNewParticipant) {
         writeState(state);
+        publicLivePollState = null;
       }
       return sendJson(res, 200, {
         ok: true,
-        liveSession: {
-          id: session.id,
-          code: session.code,
-          title: session.title,
-          questionCount: session.questionCount,
-          questions: questions.map(buildTestZoneQuestionAudiencePayload)
-        }
+        liveSession: buildPublicTestZoneLiveSession(state, session, participant.id)
       });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo entrar al test en vivo");
+    }
+  }
+
+  if (/^\/api\/test-zone\/live-sessions\/[^/]+\/participant$/.test(requestUrl.pathname) && req.method === "GET") {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const clientIp = getClientIp(req);
+      if (enforceRateLimit(res, `live-lobby-poll:ip:${clientIp}`, 3600, rateLimitMinuteMs)) return;
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const participantId = String(req.headers["x-live-participant"] || "").trim();
+      if (!participantId || participantId.length > 128 || sessionId.length > 128) {
+        return sendJson(res, 401, { ok: false, error: "Vuelve a entrar con tu nombre y codigo." });
+      }
+      if (enforceRateLimit(res, `live-lobby-poll:participant:${sessionId}:${participantId}`, 30, rateLimitMinuteMs)) return;
+      // Share a short read snapshot across a classroom, without writing on every poll.
+      if (!publicLivePollState || Date.now() - publicLivePollReadAt >= 1000) {
+        publicLivePollState = readState();
+        publicLivePollReadAt = Date.now();
+      }
+      const state = publicLivePollState;
+      const session = getTestZoneLiveSessionById(state, sessionId);
+      if (!session || !["lobby", "active"].includes(session.status) || Date.parse(session.expiresAt) <= Date.now()) {
+        return sendJson(res, 404, { ok: false, error: "La sesion ha terminado o ha caducado." });
+      }
+      if (!(session.participants || []).some(participant => participant.id === participantId)) {
+        return sendJson(res, 403, { ok: false, error: "Vuelve a entrar con tu nombre y codigo." });
+      }
+      return sendJson(res, 200, { ok: true, liveSession: buildPublicTestZoneLiveSession(state, session, participantId) });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo actualizar la sala.");
     }
   }
 
