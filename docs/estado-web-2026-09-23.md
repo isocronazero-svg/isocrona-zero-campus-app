@@ -357,3 +357,39 @@ Queda funcionando:
 - un fallo posterior no altera los puntos ya conseguidos.
 
 El siguiente bloque será la **clasificación provisional entre preguntas**, todavía separado del podio final.
+
+
+---
+
+## Avance — 27 de septiembre de 2026: clasificación provisional y podio final
+
+Se ha completado y fusionado la **PR #207 — Show provisional ranking between live questions**.
+
+Commit incorporado a `main`: `8dbe61d4d0d57e915f96d7f3afe8ec31631e16e3`.
+
+La clasificación provisional ya queda integrada:
+
+- solo aparece cuando la pregunta está cerrada;
+- el administrador ve la clasificación de la sesión;
+- los participantes ven el top 5;
+- cada participante ve además su posición y puntuación;
+- mientras la pregunta está abierta no se expone la clasificación.
+
+### Trabajo actual
+
+Se ha abierto la **PR #208 — Finish guided live test with final podium**, todavía en validación y sin fusionar.
+
+Este bloque añade:
+
+- finalización explícita por el administrador después de cerrar la última pregunta;
+- estado final `finished`;
+- bloqueo de nuevas incorporaciones cuando el test ha terminado;
+- acceso del participante ya registrado al resultado final;
+- podio final de los tres primeros;
+- posición y puntuación final del participante;
+- persistencia correcta del estado `finished` en almacenamiento;
+- detención del polling al llegar al podio.
+
+La PR #208 solo se fusionará con los checks automáticos en verde.
+
+Si este bloque queda validado, el flujo funcional principal de Test en Vivo quedará completo de extremo a extremo y el siguiente paso será una prueba integral con varios participantes y revisión de detalles de experiencia de uso.
