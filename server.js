@@ -5181,6 +5181,9 @@ const server = http.createServer(async (req, res) => {
         }
         return sendJson(res, 404, { ok: false, error: "El test en vivo no existe o ya no esta activo" });
       }
+      if (Number.isInteger(session.currentQuestionIndex)) {
+        return sendJson(res, 409, { ok: false, error: "Esta sesion usa respuestas pregunta a pregunta." });
+      }
       const guestName = String(payload.guestName || "").trim();
       if (!guestName) {
         throw new Error("Necesitas indicar tu nombre para enviar el test en vivo");
