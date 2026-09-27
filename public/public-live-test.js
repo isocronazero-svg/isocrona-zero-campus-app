@@ -17,6 +17,7 @@
   let pollBusy = false;
   let joining = false;
   let submitting = false;
+  let answering = false;
   let requestVersion = 0;
   let pageClosed = false;
   let pollDelay = 5000;
@@ -76,12 +77,16 @@
 
   function scheduleLobbyRefresh(delay = 5000) {
     clearTimeout(pollTimer);
-    if (pageClosed || document.hidden || state.liveSession?.status !== "lobby") return;
+    const liveStatus = String(state.liveSession?.status || "");
+    const shouldPoll = liveStatus === "lobby" || (liveStatus === "active" && state.liveSession?.guided === true);
+    if (pageClosed || document.hidden || !shouldPoll) return;
     pollTimer = setTimeout(refreshLobby, Math.max(delay, retryNotBefore - Date.now()));
   }
 
   async function refreshLobby() {
-    if (pollBusy || pageClosed || document.hidden || state.liveSession?.status !== "lobby") return;
+    const liveStatus = String(state.liveSession?.status || "");
+    const shouldPoll = liveStatus === "lobby" || (liveStatus === "active" && state.liveSession?.guided === true);
+    if (pollBusy || pageClosed || document.hidden || !shouldPoll) return;
     if (Date.now() < retryNotBefore) {
       scheduleLobbyRefresh();
       return;
@@ -101,12 +106,22 @@
         headers: { "X-Live-Participant": session.participantId }
       });
       if (version !== requestVersion || pageClosed) return;
+      const previousStatus = String(state.liveSession?.status || "");
+      const previousQuestionIndex = state.liveSession?.currentQuestionIndex;
       state.liveSession = payload.liveSession;
       retryNotBefore = 0;
-      pollDelay = 5000;
+      pollDelay = state.liveSession?.status === "active" && state.liveSession?.guided === true ? 2500 : 5000;
       if (state.liveSession?.status === "active") {
-        updateStatus("El administrador ha iniciado el test.", "success");
-        render();
+        const questionChanged = previousQuestionIndex !== state.liveSession.currentQuestionIndex;
+        updateStatus(
+          questionChanged && previousStatus === "active"
+            ? "El administrador ha pasado a la siguiente pregunta."
+            : "El test está en curso.",
+          "success"
+        );
+        if (previousStatus !== "active" || questionChanged) {
+          render();
+        }
       } else {
         updateStatus("Sigues en la sala de espera.");
       }
@@ -165,6 +180,69 @@
           <p><strong>${escapeHtml(state.guestName)}</strong>, ya estás dentro.</p>
           <p class="status-note">Espera a que el administrador inicie el test.</p>
           <button type="button" id="publicLiveRefreshButton" class="test-zone-secondary-button">Comprobar si ha comenzado</button>
+        </section>
+      `;
+    }
+    if (state.liveSession.guided === true) {
+      const question = (state.liveSession.questions || [])[0];
+      const questionNumber = Number(state.liveSession.currentQuestionIndex || 0) + 1;
+      const answered = state.liveSession.answered === true;
+      if (!question) {
+        return `
+          <section class="test-zone-card test-zone-card-highlight">
+            <p class="test-zone-kicker">Sesión activa</p>
+            <h3>${escapeHtml(state.liveSession.title || "Test en vivo")}</h3>
+            <p class="status-note">Esperando la pregunta activa.</p>
+          </section>
+        `;
+      }
+      return `
+        <section class="test-zone-card">
+          <div class="test-zone-card-head">
+            <div>
+              <p class="test-zone-kicker">Sesión activa</p>
+              <h3>${escapeHtml(state.liveSession.title || "Test en vivo")}</h3>
+              <p class="muted">Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(state.liveSession.questionCount)}</p>
+            </div>
+          </div>
+          <form id="publicLiveQuestionForm">
+            <article class="test-zone-question-card">
+              <div class="test-zone-question-head">
+                <div>
+                  <p class="test-zone-question-index">Pregunta ${escapeHtml(questionNumber)}</p>
+                  <h4>${escapeHtml(question.prompt)}</h4>
+                </div>
+                <div class="test-zone-tag-row">
+                  <span class="test-zone-tag">${escapeHtml(question.part || "Parte común")}</span>
+                  <span class="test-zone-tag">${escapeHtml(question.category || "Legislación")}</span>
+                </div>
+              </div>
+              <div class="test-zone-option-list">
+                ${(question.options || [])
+                  .map(
+                    (option, optionIndex) => `
+                      <label class="test-zone-option-row">
+                        <input
+                          type="radio"
+                          name="answerIndex"
+                          value="${optionIndex}"
+                          ${Number(state.liveSession.currentAnswerIndex) === optionIndex ? "checked" : ""}
+                          ${answered ? "disabled" : ""}
+                        />
+                        <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
+                        <span class="test-zone-option-copy">${escapeHtml(option)}</span>
+                      </label>
+                    `
+                  )
+                  .join("")}
+              </div>
+            </article>
+            <div class="test-zone-footer-actions">
+              ${answered
+                ? '<p class="status-note">Respuesta enviada. Espera a que el administrador pase a la siguiente pregunta.</p>'
+                : '<button type="submit" class="test-zone-primary-button">Enviar respuesta</button>'}
+            </div>
+          </form>
         </section>
       `;
     }
@@ -242,6 +320,7 @@
     `;
 
     const joinForm = document.getElementById("publicLiveJoinForm");
+    const questionForm = document.getElementById("publicLiveQuestionForm");
     const attemptForm = document.getElementById("publicLiveAttemptForm");
     const refreshButton = document.getElementById("publicLiveRefreshButton");
 
@@ -272,7 +351,12 @@
         });
         state.liveSession = payload.liveSession;
         state.result = null;
-        state.status = String(state.liveSession?.status || "") === "lobby" ? "Has entrado. Espera a que el administrador inicie el test." : "Acceso concedido. Completa el test y finaliza para guardar tu resultado.";
+        state.status =
+          String(state.liveSession?.status || "") === "lobby"
+            ? "Has entrado. Espera a que el administrador inicie el test."
+            : state.liveSession?.guided === true
+              ? "El test está en curso. Responde la pregunta activa."
+              : "Acceso concedido. Completa el test y finaliza para guardar tu resultado.";
         state.tone = "success";
       } catch (error) {
         state.status = error.message || "No se pudo entrar al test en vivo.";
@@ -281,6 +365,45 @@
       joining = false;
       render();
       scheduleLobbyRefresh();
+    });
+
+    questionForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!state.liveSession || state.result || answering || joining || state.liveSession.answered) {
+        return;
+      }
+      const formData = new FormData(questionForm);
+      const rawAnswerIndex = formData.get("answerIndex");
+      if (rawAnswerIndex === null) {
+        updateStatus("Selecciona una respuesta antes de enviarla.", "error");
+        return;
+      }
+      answering = true;
+      const button = questionForm.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        const payload = await fetchJson(
+          `/api/test-zone/live-sessions/${encodeURIComponent(state.liveSession.id)}/answer`,
+          {
+            method: "POST",
+            headers: { "X-Live-Participant": state.liveSession.participantId },
+            body: JSON.stringify({
+              questionId: state.liveSession.currentQuestionId,
+              answerIndex: Number(rawAnswerIndex)
+            })
+          }
+        );
+        state.liveSession = payload.liveSession;
+        state.status = "Respuesta enviada. Espera a la siguiente pregunta.";
+        state.tone = "success";
+        render();
+        scheduleLobbyRefresh(2500);
+      } catch (error) {
+        updateStatus(error.message || "No se pudo guardar la respuesta.", "error");
+      } finally {
+        answering = false;
+        if (button) button.disabled = false;
+      }
     });
 
     attemptForm?.addEventListener("submit", async (event) => {
