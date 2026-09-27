@@ -1115,6 +1115,7 @@ function createTestZoneLiveSession(state, account, payload = {}) {
     status: "lobby",
     participants: [],
     startedAt: "",
+    finishedAt: "",
     currentQuestionIndex: 0,
     questionClosed: false,
     questionStartedAt: "",
@@ -1182,6 +1183,7 @@ function buildTestZoneLiveSessionAdminPayload(session) {
     status: String(session?.status || "lobby").trim(),
     participants: Array.isArray(session?.participants) ? session.participants.map((participant) => ({ id: String(participant?.id || "").trim(), name: String(participant?.name || "").trim(), joinedAt: String(participant?.joinedAt || "").trim() })) : [],
     startedAt: String(session?.startedAt || "").trim(),
+    finishedAt: String(session?.finishedAt || "").trim(),
     currentQuestionIndex: Number.isInteger(session?.currentQuestionIndex) ? session.currentQuestionIndex : null,
     questionClosed,
     questionStartedAt: String(session?.questionStartedAt || "").trim(),
@@ -1264,6 +1266,7 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     questionCount: session.questionCount,
     status: session.status,
     participantId,
+    finishedAt: String(session?.finishedAt || "").trim(),
     guided,
     currentQuestionIndex,
     currentQuestionId,
@@ -5101,6 +5104,41 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (/^\/api\/test-zone\/live-sessions\/[^/]+\/finish$/.test(requestUrl.pathname) && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      ensureTestZoneState(state);
+      if (expireStaleTestZoneLiveSessions(state)) {
+        writeState(state);
+      }
+      const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
+      const session = getTestZoneLiveSessionById(state, sessionId);
+      if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
+      if (String(session.status || "").trim() !== "active") {
+        return sendJson(res, 409, { ok: false, error: "El test en vivo no esta iniciado" });
+      }
+      if (!Number.isInteger(session.currentQuestionIndex)) {
+        return sendJson(res, 409, { ok: false, error: "Esta sesion usa el flujo anterior y no admite cierre con podio" });
+      }
+      const lastQuestionIndex = Math.max(Number(session.questionCount || 0) - 1, 0);
+      if (session.currentQuestionIndex !== lastQuestionIndex) {
+        return sendJson(res, 409, { ok: false, error: "Todavia quedan preguntas por completar" });
+      }
+      if (!isTestZoneLiveQuestionClosed(session)) {
+        return sendJson(res, 409, { ok: false, error: "Cierra y muestra la respuesta antes de finalizar el test" });
+      }
+      session.status = "finished";
+      session.finishedAt = new Date().toISOString();
+      writeState(state);
+      publicLivePollState = null;
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo finalizar el test en vivo" });
+    }
+  }
+
   if (requestUrl.pathname === "/api/test-zone/live/join" && req.method === "POST") {
     try {
       const clientIp = getClientIp(req);
@@ -5277,8 +5315,8 @@ const server = http.createServer(async (req, res) => {
       }
       const state = publicLivePollState;
       const session = getTestZoneLiveSessionById(state, sessionId);
-      if (!session || !["lobby", "active"].includes(session.status) || Date.parse(session.expiresAt) <= Date.now()) {
-        return sendJson(res, 404, { ok: false, error: "La sesion ha terminado o ha caducado." });
+      if (!session || !["lobby", "active", "finished"].includes(session.status) || Date.parse(session.expiresAt) <= Date.now()) {
+        return sendJson(res, 404, { ok: false, error: "La sesion no esta disponible o ha caducado." });
       }
       if (!(session.participants || []).some(participant => participant.id === participantId)) {
         return sendJson(res, 403, { ok: false, error: "Vuelve a entrar con tu nombre y codigo." });
