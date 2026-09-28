@@ -11,6 +11,7 @@ import {
   MANUAL_NOTICE_TONE_LABELS
 } from "./assets/js/app/ui/labels.js";
 import { escapeHtml, formatDate } from "./assets/js/app/ui/formatters.js";
+import { createMobileNavigation } from "./assets/js/app/ui/mobile-navigation.js";
 import { renderBanners, renderBannerSettings, bindBannerSettings } from "./assets/js/app/ui/banners.js";
 import {
   ADMIN_ONLY_VIEWS,
@@ -195,7 +196,7 @@ let associatePages = {
   directory: 1
 };
 let legacyReviewFilter = "all";
-let expandedNavViews = new Set(["associates"]);
+let expandedNavViews = new Set();
 let associatesSectionMode = "directory";
 let membersSectionMode = "directory";
 let campusSectionMode = "courses";
@@ -273,10 +274,9 @@ const heroElement = document.getElementById("hero");
 const workspaceElement = document.getElementById("workspace");
 const isLocalEnvironment = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const mobileShellMediaQuery = window.matchMedia("(max-width: 900px)");
-let mobileShellBar = null;
-let mobileShellToggle = null;
-let mobileShellBackdrop = null;
-let isMobileMenuOpen = false;
+const mobileNavigation = createMobileNavigation({
+  shell: shellElement, sidebar: sidebarElement, content: contentElement, mediaQuery: mobileShellMediaQuery
+});
 
 function getFrontendBridge() {
   return window.__IZ_FRONTEND_APP__ || null;
@@ -324,78 +324,9 @@ function normalizePrimaryMemberView() {
   }
 }
 
-function isMobileShellViewport() {
-  return mobileShellMediaQuery.matches;
-}
-
-function setMobileMenuOpen(nextOpen) {
-  isMobileMenuOpen = Boolean(nextOpen) && isMobileShellViewport();
-  shellElement?.classList.toggle("shell-mobile-menu-open", isMobileMenuOpen);
-  document.body.classList.toggle("shell-mobile-lock", isMobileMenuOpen);
-  if (mobileShellToggle) {
-    mobileShellToggle.setAttribute("aria-expanded", isMobileMenuOpen ? "true" : "false");
-  }
-  if (mobileShellBackdrop) {
-    mobileShellBackdrop.hidden = !isMobileMenuOpen;
-  }
-}
-
 function closeMobileMenu() {
-  setMobileMenuOpen(false);
+  mobileNavigation.close();
 }
-
-function toggleMobileMenu() {
-  setMobileMenuOpen(!isMobileMenuOpen);
-}
-
-function ensureMobileShellControls() {
-  if (!shellElement || !contentElement) {
-    return;
-  }
-
-  if (!mobileShellBar) {
-    mobileShellBar = document.createElement("div");
-    mobileShellBar.className = "mobile-shell-bar";
-    mobileShellBar.innerHTML = `
-      <button
-        class="ghost-button mobile-shell-toggle"
-        id="mobileShellToggle"
-        type="button"
-        aria-expanded="false"
-        aria-controls="sidebar"
-        aria-label="Abrir o cerrar menu"
-      >
-        Menu
-      </button>
-      <span class="mobile-shell-title">Portal Isocrona Zero</span>
-    `;
-    contentElement.insertBefore(mobileShellBar, heroElement || contentElement.firstChild);
-    mobileShellToggle = mobileShellBar.querySelector("#mobileShellToggle");
-    mobileShellToggle?.addEventListener("click", () => toggleMobileMenu());
-  }
-
-  if (!mobileShellBackdrop) {
-    mobileShellBackdrop = document.createElement("button");
-    mobileShellBackdrop.type = "button";
-    mobileShellBackdrop.className = "shell-mobile-backdrop";
-    mobileShellBackdrop.setAttribute("aria-label", "Cerrar menu");
-    mobileShellBackdrop.hidden = true;
-    mobileShellBackdrop.addEventListener("click", () => closeMobileMenu());
-    shellElement.appendChild(mobileShellBackdrop);
-  }
-
-  setMobileMenuOpen(isMobileMenuOpen);
-}
-
-function syncMobileShellViewport() {
-  ensureMobileShellControls();
-  if (!isMobileShellViewport()) {
-    closeMobileMenu();
-  }
-}
-
-mobileShellMediaQuery.addEventListener("change", syncMobileShellViewport);
-ensureMobileShellControls();
 
 function saveUiSnapshot() {
   try {
@@ -5578,6 +5509,11 @@ function render() {
   renderMetrics();
   syncFrontendStore();
   renderMainPanel();
+  mobileNavigation.update({
+    label: ({ test: "Test", tests: "Test en Vivo", "test-add": "Añadir preguntas" })[state.activeView] || mainPanel.querySelector("h3")?.textContent || "Mi portal",
+    modeLabel: isAdminView() ? "Administración" : isMemberPreviewSession() ? "Vista previa" : isAdminSession() ? "Modo socio" : "Mi portal",
+    visible: Boolean(session) && !session.mustChangePassword
+  });
   const sponsorsVisible = Boolean(session) && !session.mustChangePassword && !["test", "tests", "test-add"].includes(state.activeView);
   void renderBanners(document.getElementById("publicBanners"), { visible: !session });
   void renderBanners(document.getElementById("portalSponsors"), { visible: sponsorsVisible });
@@ -5851,7 +5787,7 @@ function renderNav() {
         return `
         <div class="nav-item-group ${isNavItemActive(item) ? "active" : ""}">
           <div class="nav-item-row">
-            <button class="nav-main-button ${isNavItemActive(item) ? "active" : ""}" type="button" data-action="${item.action || "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}>
+            <button class="nav-main-button ${isNavItemActive(item) ? "active" : ""}" ${isNavItemActive(item) ? 'aria-current="page"' : ""} type="button" data-action="${item.action || "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}>
               ${escapeHtml(navLabel)}
             </button>
             ${
@@ -5863,7 +5799,7 @@ function renderNav() {
                       data-action="toggle-nav-group"
                       data-view="${item.id}"
                       aria-expanded="${isNavGroupExpanded(item.id) ? "true" : "false"}"
-                      title="${isNavGroupExpanded(item.id) ? "Ocultar subapartados" : "Mostrar subapartados"}"
+                      aria-label="${isNavGroupExpanded(item.id) ? "Ocultar" : "Mostrar"} apartados de ${escapeHtml(item.label)}"
                     >
                       <span>${isNavGroupExpanded(item.id) ? "&#9662;" : "&#9656;"}</span>
                     </button>
@@ -6273,7 +6209,8 @@ function showToast(message, type = "success") {
   }
   toastTimer = setTimeout(() => {
     toastMessage = "";
-    render();
+    // Dismissing a notice must not replace an in-progress form or file upload.
+    toastLayer.replaceChildren();
   }, 2600);
 }
 
@@ -6345,7 +6282,7 @@ function renderSidePanel() {
     automation: renderSettings
   };
   sidePanel.className = `panel panel-side ${["associates", "campus"].includes(state.activeView) ? "panel-side-sticky" : ""}`;
-  sidePanel.innerHTML = sideViews[state.activeView]();
+  sidePanel.innerHTML = sideViews[state.activeView]?.() || "";
 }
 
 function renderOverview() {
@@ -6806,8 +6743,8 @@ function renderJoinView() {
         <div class="panel-header">
           <div>
             <p class="eyebrow">Estado de socio</p>
-            <h3>Tu acceso nace desde la ficha de socio</h3>
-            <p class="muted">El alta, las cuotas y el acceso al campus quedan vinculados en un unico proceso.</p>
+            <h3>Mi perfil</h3>
+            <p class="muted">Tus datos, cuotas y formación, en un mismo lugar.</p>
           </div>
         </div>
 
@@ -11211,7 +11148,7 @@ function renderReports() {
       <div class="panel-header">
         <div>
           <p class="eyebrow">Informes y validacion</p>
-          <h3>Exportaciones y comprobacion publica de diplomas</h3>
+          <h3>${reportsSectionMode === "sponsors" ? "Patrocinadores" : "Exportaciones y comprobacion publica de diplomas"}</h3>
         </div>
       </div>
 

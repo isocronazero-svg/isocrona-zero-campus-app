@@ -213,3 +213,20 @@ for (const id of ["memberImportForm", "courseImportForm", "associatePaymentForm"
 }
 
 console.log("Form save recovery check passed (draft preservation, double submit, confirmed saves and form wiring).");
+
+// A toast expiring while the user types or uploads must leave the form DOM intact.
+{
+  let expire, renders = 0, clears = 0;
+  const context = {
+    toastMessage: '', toastType: '', toastTimer: null,
+    render: () => { renders++; },
+    toastLayer: { replaceChildren: () => { clears++; } },
+    setTimeout: callback => { expire = callback; return 1; }, clearTimeout: () => {}
+  };
+  vm.runInNewContext(between('function showToast(', 'function renderSidePanel(') + '\nshowToast("Guardado");', context);
+  assert.equal(renders, 1);
+  expire();
+  assert.equal(renders, 1, 'Closing a toast must not replace a form or cancel an upload');
+  assert.equal(clears, 1);
+  assert.equal(context.toastMessage, '');
+}
