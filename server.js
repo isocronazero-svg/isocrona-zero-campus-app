@@ -30,6 +30,7 @@ const {
 const {
   checkRateLimit,
   getClientIp,
+  PayloadTooLargeError,
   isPayloadTooLargeError,
   payloadLimitBytes,
   readJsonBody,
@@ -6347,6 +6348,12 @@ const server = http.createServer(async (req, res) => {
       const latestQuestionState = readState();
       state.testZoneQuestionReports = latestQuestionState.testZoneQuestionReports || [];
       state.testZoneContributions = latestQuestionState.testZoneContributions || [];
+      // Libraries saved through their dedicated endpoint cannot be overwritten by an old whole-state form.
+      const incomingGroups = new Map((state.campusGroups || []).map(group => [group.id, group]));
+      for (const current of latestQuestionState.campusGroups || []) {
+        if (current.contentRevision > 0) incomingGroups.set(current.id, current);
+      }
+      state.campusGroups = [...incomingGroups.values()];
       if (account.role === "admin") {
         // A stale whole-state save must not resurrect removed questions or undo a correction.
         const incomingQuestions = new Map((state.testZoneQuestions || []).map(q => [q.id, q]));
@@ -6743,6 +6750,68 @@ const server = http.createServer(async (req, res) => {
         writeState(state);
       }
       return sendJsonError(res, error, "No se pudo crear el acceso solo campus");
+    }
+  }
+
+  const campusGroupSaveMatch = requestUrl.pathname.match(/^\/api\/campus-groups\/([^/]+)$/);
+  if (campusGroupSaveMatch && req.method === "PUT") {
+    if (!requireAdminAccount(req, res, readState())) return;
+    try {
+      const payload = await readJsonBody(req, 40_000_000);
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      const groupId = decodeURIComponent(campusGroupSaveMatch[1]);
+      const input = payload?.group;
+      if (!input || typeof input.title !== "string" || !input.title.trim() || !Array.isArray(input.modules) || !input.modules.length) {
+        return sendJson(res, 400, { ok: false, error: "El grupo necesita nombre y al menos un subgrupo" });
+      }
+      const current = findCampusGroupById(state.campusGroups || [], groupId);
+      const revision = Number(current?.contentRevision || 0);
+      if (input.contentRevision !== undefined && !Number.isSafeInteger(input.contentRevision)) {
+        return sendJson(res, 400, { ok: false, error: "Version de grupo invalida" });
+      }
+      if (Number(input.contentRevision || 0) !== revision) {
+        return sendJson(res, 409, { ok: false, error: "El grupo se ha actualizado desde otra pestaña. Conservamos tu borrador. Usa Descartar borrador y actualizar para cargar la última versión antes de volver a editar." });
+      }
+      const categories = ["documents", "practiceSheets", "videos", "links"];
+      const moduleIds = new Set();
+      const modules = input.modules.map((module) => {
+        if (!module || typeof module.id !== "string" || !module.id.trim() || moduleIds.has(module.id) || typeof module.title !== "string" || !module.title.trim()) {
+          throw new Error("Cada subgrupo necesita un identificador unico y un nombre");
+        }
+        moduleIds.add(module.id);
+        const next = { id: module.id, title: module.title.trim(), summary: String(module.summary || "") };
+        for (const category of categories) {
+          if (!Array.isArray(module[category])) throw new Error("Lista de recursos invalida");
+          const entryIds = new Set();
+          next[category] = module[category].map((entry) => {
+            if (!entry || typeof entry.id !== "string" || !entry.id.trim() || entryIds.has(entry.id)) throw new Error("Identificador de recurso invalido o duplicado");
+            entryIds.add(entry.id);
+            const attachment = entry.attachment;
+            if (attachment?.contentBase64 && Buffer.byteLength(String(attachment.contentBase64), "base64") > 20_000_000) {
+              throw new PayloadTooLargeError(20_000_000);
+            }
+            if (attachment && !attachment.contentBase64 && (attachment.pendingUpload || !findCampusGroupEntry(current ? [current] : [], groupId, module.id, category, entry.id)?.attachment?.contentBase64)) {
+              throw new Error(`Vuelve a seleccionar el archivo ${attachment.name || "pendiente"} antes de guardar`);
+            }
+            return { id: entry.id, title: String(entry.title || ""), url: String(entry.url || ""), note: String(entry.note || ""), attachment: attachment || null };
+          });
+        }
+        return next;
+      });
+      // Preserve access rules and other groups; this endpoint only edits library content.
+      const next = { ...current, id: groupId, title: input.title.trim(), summary: String(input.summary || ""), modules, contentRevision: revision + 1 };
+      for (const category of categories) next[category] = modules.flatMap((module) => module[category]);
+      const [saved] = mergeCampusGroupAttachmentsFromCurrentState(current ? [current] : [], [next]);
+      state.campusGroups = current
+        ? state.campusGroups.map((group) => group.id === groupId ? saved : group)
+        : [...(state.campusGroups || []), saved];
+      writeState(state);
+      return sendJson(res, 200, { ok: true, group: prepareStateForTransport({ campusGroups: [saved] }, account).campusGroups[0] });
+    } catch (error) {
+      if (isPayloadTooLargeError(error)) return sendPayloadTooLarge(res, error);
+      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo guardar el grupo interno" });
     }
   }
 
