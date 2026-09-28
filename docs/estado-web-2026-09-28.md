@@ -38,13 +38,32 @@ Rama: `codex/finish-community-questions`, construida desde el main actual.
 
 El usuario autorizó el 28 de septiembre subir estos cambios a `isocronazero-svg/isocrona-zero-campus-app`, fusionarlos tras checks verdes y publicarlos en el portal. El bloqueo previo de autorización queda resuelto.
 
-Comprobar el estado de la PR `codex/finish-community-questions` y el despliegue del commit fusionado antes de afirmar que el bloque está publicado.
+PR #210 fusionada y publicada: `b94cf57d197df4a62511d34d88a1dcaaa9e5f85d`. App checks #255 y servicio productivo Railway correctos. Portal comprobado: health 200, HTML/JS/CSS de preguntas y navegación coinciden exactamente con el código, API de aportaciones sin sesión devuelve 401.
 
 ## Siguientes bloques
 
-1. Reconciliar #197 (grupos/subgrupos, adjuntos y borradores) con main y verificar sus recorridos.
+1. Integrar el bloque de grupos descrito debajo y comprobar su despliegue; sustituye el cambio antiguo de #197.
 2. Completar patrocinadores desde #199: la petición original requiere 5–10 imágenes con rotación y uno/dos espacios superiores; la PR antigua solo ofrece tres banners estáticos y no cumple todavía esa experiencia.
 3. Revisión visual y funcional real de socio/administrador, aportaciones y directo con varios participantes.
 4. Corregir los fallos encontrados y comprobar el portal publicado.
 
 El fallo conocido del segundo proyecto Railway `outstanding-wholeness` es independiente del servicio del portal. Comprobar siempre el contexto productivo correcto.
+
+
+## Grupos internos: bloque preparado el 28 de septiembre
+
+Rama `codex/finish-campus-groups`, basada en el main publicado de #210. Reaprovecha #197 y resuelve su conflicto de integración manteniendo todas las comprobaciones nuevas de Zona Test.
+
+- Adjuntos pendientes conservados al navegar entre subgrupos/categorías y al fallar un guardado.
+- Guardar con filtros mantiene los recursos no visibles; las descripciones pueden vaciarse.
+- Nuevo guardado limitado al grupo activo, exclusivo de administración y sin cambiar permisos de acceso ni otros grupos.
+- Control de versión: una pestaña antigua recibe 409 en lugar de borrar la actualización reciente. Guardados generales antiguos tampoco revierten contenido ya guardado por este endpoint.
+- Los borradores se separan por cuenta. Respuestas de guardado de una cuenta anterior no alteran la vista de otra cuenta.
+- El guardado espera a que termine de leerse el archivo; cada subida conserva su destino original.
+- Máximo 20 MB por archivo / 40 MB por petición. Los archivos pendientes sin bytes deben seleccionarse otra vez tras recargar, incluidos reemplazos de archivos existentes.
+- Estado de cambios pendientes, actualización de biblioteca y descarte explícito del borrador con confirmación.
+- Los socios ven únicamente los grupos autorizados y no reciben controles ni borradores de administración.
+
+Validación local: suite completa correcta; prueba específica de grupos ampliada con filtros, vaciado, permisos 401/403, contenido ajeno intacto, descargas, 413, reinicio, versiones obsoletas, reemplazos pendientes, cambio de cuenta y subida en curso. Sintaxis y diff sin errores. Pruebas con datos sintéticos; revisión visual no repetida en este entorno.
+
+Confirmar PR y estado Railway de esta rama antes de considerarla publicada. Siguiente desarrollo funcional: patrocinadores rotatorios, partiendo de #199 sin limitarse a sus tres banners estáticos.
