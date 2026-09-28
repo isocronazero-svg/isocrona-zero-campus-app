@@ -4,9 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Portal de socios | Isocrona Zero</title>
-    <link rel="stylesheet" href="./styles.css?v=20260924-answer-cards" />
+    <link rel="stylesheet" href="./styles.css?v=20260928" />
+    <link rel="stylesheet" href="./assets/css/portal-ui.css?v=20260928" />
   </head>
-  <body>
+  <body class="portal-ui">
     <div class="login-screen" id="loginScreen">
       <a class="portal-top-membership" href="/join.html" aria-label="Ir al formulario para hacerse socio">
         <span>Asociacion</span>
@@ -19,10 +20,27 @@
             <img src="./assets/isocrona-brand.png" alt="Marca Isocrona Zero" />
           </div>
           <p class="eyebrow">Portal del socio</p>
-          <h2>Socios, aula y avisos</h2>
+          <h2>Tu próximo paso empieza aquí</h2>
           <p class="hero-copy">
-            Accede a tu ficha, al campus y a la formacion de la asociacion desde un unico punto de entrada.
+            Accede a tus cursos, entrena en Zona Test y sigue conectado con la asociación.
           </p>
+          <label class="inline-field">
+            Email
+            <input id="loginEmail" name="email" autocomplete="username" type="email" placeholder="tu@email.com" required />
+          </label>
+          <label class="inline-field">
+            Contraseña
+            <input id="loginPassword" name="password" autocomplete="current-password" type="password" placeholder="********" required />
+          </label>
+          <label class="checkbox-field">
+            <input id="loginRememberMe" name="rememberMe" type="checkbox" aria-describedby="rememberMeHelp" />
+            <span>Recordarme durante 30 días</span>
+          </label>
+          <p class="field-help" id="rememberMeHelp">Márcalo solo en tu dispositivo personal.</p>
+          <p class="status-note" id="loginStatus" role="status" aria-live="polite">Introduce tus datos para entrar.</p>
+          <div class="chip-row">
+            <button class="primary-button" type="submit">Entrar</button>
+          </div>
           <div class="portal-decision-strip">
             <div class="portal-route-card portal-route-card-clickable" data-focus-target="#loginEmail" tabindex="0" role="button" aria-label="Ir al acceso de socios">
               <span class="eyebrow">Ya soy socio</span>
@@ -39,23 +57,6 @@
               <strong>Entrar a test en vivo</strong>
               <p>Introduce tu nombre y el codigo del test para acceder solo a la sesion activa.</p>
             </a>
-          </div>
-          <label class="inline-field">
-            Email
-            <input id="loginEmail" name="email" autocomplete="username" type="email" placeholder="tu@email.com" required />
-          </label>
-          <label class="inline-field">
-            Contrasena
-            <input id="loginPassword" name="password" autocomplete="current-password" type="password" placeholder="********" required />
-          </label>
-          <label class="checkbox-field">
-            <input id="loginRememberMe" name="rememberMe" type="checkbox" aria-describedby="rememberMeHelp" />
-            <span>Recordarme durante 30 días</span>
-          </label>
-          <p class="field-help" id="rememberMeHelp">Márcalo solo en tu dispositivo personal.</p>
-          <p class="status-note" id="loginStatus" role="status" aria-live="polite">Introduce tus datos para entrar.</p>
-          <div class="chip-row">
-            <button class="primary-button" type="submit">Entrar</button>
           </div>
           <div class="portal-support-strip">
             <span>Si eres socio, entra con el correo vinculado a tu ficha.</span>
@@ -180,6 +181,8 @@
           </div>
         </div>
 
+        <nav class="nav" id="nav" aria-label="Secciones del portal"></nav>
+
         <section class="sidebar-utility">
           <label class="switcher">
             <span>Vista</span>
@@ -200,8 +203,6 @@
           </div>
         </section>
 
-        <nav class="nav" id="nav"></nav>
-
         <section class="sidebar-card" id="sidebarAssistantCard">
           <p class="eyebrow">Automatizacion</p>
           <h2>Asistente operativo</h2>
@@ -214,7 +215,7 @@
         </section>
       </aside>
 
-      <main class="content" id="content">
+      <main class="content" id="content" tabindex="-1">
         <section id="portalSponsors" class="sponsor-strip" aria-label="Patrocinadores" hidden></section>
         <header class="hero" id="hero">
           <div>
@@ -237,7 +238,7 @@
     </div>
 
     <div class="toast-layer" id="toastLayer" aria-live="polite" aria-atomic="true"></div>
-    <input id="globalFilePicker" type="file" class="visually-hidden" />
+    <input id="globalFilePicker" type="file" hidden />
 
     <template id="courseCardTemplate">
       <article class="course-card">

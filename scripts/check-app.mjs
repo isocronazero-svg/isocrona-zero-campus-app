@@ -5,7 +5,7 @@ const syntaxFiles = [
   "server/question-contributions.js", "server/question-maintenance.js", "public/assets/js/app/modules/tests/questionMaintenance.js",
   "public/assets/js/app/views/testsView.js", "public/assets/js/app/ui/testNavigation.js",
   "public/assets/js/app/views/testView.js", "public/assets/js/app/modules/tests/practiceTiming.js",
-  "server/banners.js", "public/assets/js/app/ui/banners.js",
+  "server/banners.js", "public/assets/js/app/ui/banners.js", "public/assets/js/app/ui/mobile-navigation.js",
   "server/course-shared-tests.js", "server/question-bank-import.js",
   "public/course-test.js", "public/question-bank.js", "public/assets/js/app/modules/tests/topicPicker.js",
   "public/assets/js/app/campus/sharedTests.js",

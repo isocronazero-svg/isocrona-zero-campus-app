@@ -43,7 +43,7 @@ PR #210 fusionada y publicada: `b94cf57d197df4a62511d34d88a1dcaaa9e5f85d`. App c
 ## Siguientes bloques
 
 1. Grupos publicados en #211; #197 cerrada por estar superada.
-2. Publicar el bloque de patrocinadores rotatorios descrito debajo; sustituye #199.
+2. Patrocinadores publicados en #212; #199 cerrada por estar superada.
 3. Revisión visual y funcional real de socio/administrador, aportaciones y directo con varios participantes.
 4. Corregir los fallos encontrados y comprobar el portal publicado.
 
@@ -69,7 +69,7 @@ Validación local: suite completa correcta; prueba específica de grupos ampliad
 PR #211 fusionada y publicada: `c27ffd03969c052256a5a304f952c222e24fd858`. App checks #257 correctos, Railway productivo y archivos del portal verificados. #197 cerrada por estar superada.
 
 
-## Patrocinadores rotatorios: bloque preparado el 28 de septiembre
+## Patrocinadores rotatorios: bloque publicado el 28 de septiembre
 
 Rama `codex/rotating-sponsors`, basada en #211. Sustituye la propuesta estática de #199.
 
@@ -81,6 +81,26 @@ Rama `codex/rotating-sponsors`, basada en #211. Sustituye la propuesta estática
 - La carga múltiple se aplica completa después de validar todas las imágenes; un archivo dañado no deja un lote a medias. Enlaces y datos de imagen validados en servidor.
 - Los socios y visitantes solo reciben imágenes activas. Ningún logo ni dato real se ha añadido como parte del desarrollo.
 
-Pruebas específicas: rotación de diez imágenes, móvil simulado, pausa, movimiento reducido, fallos de imagen/red, cambios de navegación, cargas múltiples, límites, permisos, versiones, reinicio y aislamiento de ajustes existentes. La revisión visual con navegador real sigue pendiente por falta de ejecutable en este entorno. Confirmar CI, fusión y Railway antes de considerar este bloque publicado.
+Pruebas específicas: rotación de diez imágenes, móvil simulado, pausa, movimiento reducido, fallos de imagen/red, cambios de navegación, cargas múltiples, límites, permisos, versiones, reinicio y aislamiento de ajustes existentes. PR #212 fusionada en `05d7ef544e5200bc53f45ef76f68356a48e07940`, App checks #259 y Railway productivo correctos. Archivos públicos verificados byte a byte, health y API pública 200, configuración sin sesión 401. #199 cerrada como sustituida. La revisión visual pendiente se ha realizado durante el siguiente bloque, con Chromium real y datos sintéticos: carga múltiple, adaptación de imágenes y presentación en escritorio/móvil correctas.
 
 Validación local final: `npm run check:app` completo correcto, prueba específica de cargas múltiples correcta y smoke local de diez rutas correcto, incluidos módulo JS y API pública de patrocinadores.
+
+
+## Inicio y navegación móvil: primera mejora de interfaz
+
+Rama `codex/modern-mobile-home`, desde el main publicado de #212.
+
+- Hoja de estilo exclusiva del portal: tipografía sin remates, fondos claros, tarjetas más sencillas, foco visible y controles táctiles de al menos 44 px. Respeta movimiento reducido.
+- Email, contraseña y botón de entrada antes de las rutas alternativas. Se conservan registro de campus, alta de socio y acceso externo a Test en Vivo.
+- Navegación principal antes de los controles de cuenta; submenús cerrados inicialmente. Cabecera con ubicación y modo actual. Indicadores de administración compactados en móvil.
+- Menú móvil con cierre visible, Escape, cierre exterior, foco contenido, restauración al botón y contenido de fondo inerte. El menú cerrado no recibe foco. Cambiar a escritorio o cerrar sesión libera el bloqueo de desplazamiento.
+- Perfil con título breve y accesos distribuidos en dos columnas en móvil. Sin cambios en permisos, rutas de negocio, formularios de pago ni datos productivos.
+- La revisión real encontró dos fallos existentes: el cierre automático del aviso reconstruía la pantalla y podía perder formularios/subidas; Añadir preguntas invocaba un panel lateral inexistente. Ambos corregidos. El selector interno de archivos ya no queda visible al pie.
+
+Validación: `scripts/check-portal-ui.mjs` pasa con Chromium real y servidor local temporal. Acceso, administrador, modo socio, socio, apertura/cierre de menú, Tab/Shift+Tab, Escape, cierre exterior, cambios de tamaño, salida, patrocinadores con subida real de tres PNG y adaptación a uno/dos espacios. Capturas inspeccionadas en 1440, 390 y 320 px; sin desbordamiento horizontal ni errores JS sin controlar en el recorrido.
+
+El script de navegador es opcional: admite `IZ_PLAYWRIGHT_MODULE`, `IZ_CHROMIUM_EXECUTABLE` e `IZ_UI_SCREENSHOTS`. No añade dependencias de navegador al servidor. La suite habitual incluye la regresión del aviso y la sintaxis del módulo nuevo. Confirmar PR, checks y despliegue de esta rama antes de considerarla publicada.
+
+Pendiente: prueba real de Test en Vivo con varios participantes y revisión visual de los recorridos académicos largos.
+
+Validación final de interfaz: suite `npm run check:app` completa correcta y recorrido de Chromium repetido tras las correcciones, sin errores.
