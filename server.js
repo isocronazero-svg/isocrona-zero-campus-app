@@ -71,6 +71,7 @@ const {
 const { createStateTransport } = require("./server/state-transport");
 const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
 const { createQuestionBankImportHandler } = require("./server/question-bank-import");
+const { createBannerHandler, preserveBannerSettings } = require("./server/banners");
 const {
   handleRoute,
   withAdmin,
@@ -4313,12 +4314,14 @@ const handleCourseSharedTest = createCourseSharedTestHandler({
 
 const handleQuestionBankImport = createQuestionBankImportHandler({ readState, writeState, requireAdminAccount, requireAuthenticatedAccount, readJsonBody, sendJson, sendJsonError });
 const handleQuestionContributions = createQuestionContributionsHandler({ readState, writeState, requireAdminAccount, requireAuthenticatedAccount, readJsonBody, sendJson, sendJsonError, buildQuestion: buildTestZoneQuestion });
+const handleBanners = createBannerHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError });
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
   if (await handleCourseSharedTest(req, res, requestUrl)) return;
   if (await handleQuestionContributions(req, res, requestUrl)) return;
   if (await handleQuestionBankImport(req, res, requestUrl)) return;
+  if (await handleBanners(req, res, requestUrl)) return;
 
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
     return sendJson(res, 200, {
@@ -6295,6 +6298,7 @@ const server = http.createServer(async (req, res) => {
 
       restoreTransportSanitizedSecrets(state, secretMergeState);
       state.settings = secretMergeState.settings;
+      preserveBannerSettings(readState(), state);
 
       const section = payload.section === "smtp" ? "smtp" : "general";
       appendActivity(
@@ -6348,6 +6352,7 @@ const server = http.createServer(async (req, res) => {
       const latestQuestionState = readState();
       state.testZoneQuestionReports = latestQuestionState.testZoneQuestionReports || [];
       state.testZoneContributions = latestQuestionState.testZoneContributions || [];
+      preserveBannerSettings(latestQuestionState, state);
       // Libraries saved through their dedicated endpoint cannot be overwritten by an old whole-state form.
       const incomingGroups = new Map((state.campusGroups || []).map(group => [group.id, group]));
       for (const current of latestQuestionState.campusGroups || []) {
