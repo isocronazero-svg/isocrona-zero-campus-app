@@ -11,6 +11,7 @@ import {
   MANUAL_NOTICE_TONE_LABELS
 } from "./assets/js/app/ui/labels.js";
 import { escapeHtml, formatDate } from "./assets/js/app/ui/formatters.js";
+import { renderBanners, renderBannerSettings, bindBannerSettings } from "./assets/js/app/ui/banners.js";
 import {
   ADMIN_ONLY_VIEWS,
   ASSOCIATE_ADMIN_ONLY_ACTIONS,
@@ -5577,6 +5578,22 @@ function render() {
   renderMetrics();
   syncFrontendStore();
   renderMainPanel();
+  const sponsorsVisible = Boolean(session) && !session.mustChangePassword && !["test", "tests", "test-add"].includes(state.activeView);
+  void renderBanners(document.getElementById("publicBanners"), { visible: !session });
+  void renderBanners(document.getElementById("portalSponsors"), { visible: sponsorsVisible });
+  if (isAdminView()) {
+    const sponsorAccountId = session?.accountId;
+    bindBannerSettings(document.getElementById("bannersForm"), {
+      banners: state.settings.banners, revision: state.settings.bannersRevision,
+      onSaved: (result) => {
+        if (session?.accountId !== sponsorAccountId || !isAdminView()) return;
+        state.settings.banners = result.banners;
+        state.settings.bannerDisplay = result.display;
+        state.settings.bannersRevision = result.revision;
+        void renderBanners(document.getElementById("portalSponsors"), { visible: true });
+      }
+    });
+  }
   if (pendingViewAnchorId) {
     const anchorId = pendingViewAnchorId;
     pendingViewAnchorId = "";
@@ -11207,6 +11224,7 @@ function renderReports() {
       <div class="chip-row">
         <button class="${reportsSectionMode === "exports" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="exports">Exportaciones</button>
         <button class="${reportsSectionMode === "validation" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="validation">Validacion</button>
+        <button class="${reportsSectionMode === "sponsors" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="sponsors">Patrocinadores</button>
       </div>
 
       <div class="status-note">
@@ -11216,6 +11234,8 @@ function renderReports() {
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
+
+      ${showReportsSection("sponsors") ? `<section class="mail-card associate-anchor" id="reportSectionSponsors">${renderBannerSettings(state.settings.banners, state.settings.bannerDisplay)}</section>` : ""}
 
       ${
         showReportsSection("exports")

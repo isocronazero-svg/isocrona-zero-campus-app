@@ -56,7 +56,8 @@ export const DIPLOMA_SECTION_LINKS = [
 
 export const REPORT_SECTION_LINKS = [
   { id: "reportSectionExports", label: "Exportaciones" },
-  { id: "reportSectionValidation", label: "Validacion" }
+  { id: "reportSectionValidation", label: "Validacion" },
+  { id: "reportSectionSponsors", label: "Patrocinadores" }
 ];
 
 export const ACTIVITY_SECTION_LINKS = [{ id: "activitySectionTimeline", label: "Registro" }];
@@ -129,6 +130,7 @@ export const VIEW_SECTION_MODES = {
   },
   reports: {
     reportSectionExports: "exports",
+    reportSectionSponsors: "sponsors",
     reportSectionValidation: "validation",
     reportSectionStorage: "storage",
     reportSectionAgent: "agent"

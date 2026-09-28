@@ -42,15 +42,15 @@ PR #210 fusionada y publicada: `b94cf57d197df4a62511d34d88a1dcaaa9e5f85d`. App c
 
 ## Siguientes bloques
 
-1. Integrar el bloque de grupos descrito debajo y comprobar su despliegue; sustituye el cambio antiguo de #197.
-2. Completar patrocinadores desde #199: la petición original requiere 5–10 imágenes con rotación y uno/dos espacios superiores; la PR antigua solo ofrece tres banners estáticos y no cumple todavía esa experiencia.
+1. Grupos publicados en #211; #197 cerrada por estar superada.
+2. Publicar el bloque de patrocinadores rotatorios descrito debajo; sustituye #199.
 3. Revisión visual y funcional real de socio/administrador, aportaciones y directo con varios participantes.
 4. Corregir los fallos encontrados y comprobar el portal publicado.
 
 El fallo conocido del segundo proyecto Railway `outstanding-wholeness` es independiente del servicio del portal. Comprobar siempre el contexto productivo correcto.
 
 
-## Grupos internos: bloque preparado el 28 de septiembre
+## Grupos internos: bloque publicado el 28 de septiembre
 
 Rama `codex/finish-campus-groups`, basada en el main publicado de #210. Reaprovecha #197 y resuelve su conflicto de integración manteniendo todas las comprobaciones nuevas de Zona Test.
 
@@ -66,4 +66,21 @@ Rama `codex/finish-campus-groups`, basada en el main publicado de #210. Reaprove
 
 Validación local: suite completa correcta; prueba específica de grupos ampliada con filtros, vaciado, permisos 401/403, contenido ajeno intacto, descargas, 413, reinicio, versiones obsoletas, reemplazos pendientes, cambio de cuenta y subida en curso. Sintaxis y diff sin errores. Pruebas con datos sintéticos; revisión visual no repetida en este entorno.
 
-Confirmar PR y estado Railway de esta rama antes de considerarla publicada. Siguiente desarrollo funcional: patrocinadores rotatorios, partiendo de #199 sin limitarse a sus tres banners estáticos.
+PR #211 fusionada y publicada: `c27ffd03969c052256a5a304f952c222e24fd858`. App checks #257 correctos, Railway productivo y archivos del portal verificados. #197 cerrada por estar superada.
+
+
+## Patrocinadores rotatorios: bloque preparado el 28 de septiembre
+
+Rama `codex/rotating-sponsors`, basada en #211. Sustituye la propuesta estática de #199.
+
+- Administración → Informes y validación → Patrocinadores: hasta diez imágenes, carga individual o múltiple, vista previa, nombre y enlace opcional.
+- Adaptación de PNG/JPEG/WebP a un máximo de 1600 × 600, sin recorte, con límite de 500 KB por imagen preparada. También admite URL HTTPS o local.
+- Uno o dos espacios superiores; uno en móvil. Intervalo configurable de 5–30 segundos. Desactivado inicialmente hasta cargar y activar contenido real.
+- Pausa/reanudación, anterior/siguiente, pausa con cursor, foco o pestaña oculta; preferencia de movimiento reducido respetada. No aparece en Zona Test.
+- Solo administración puede guardar. Control de versión, reintento idempotente, protección ante guardados generales antiguos y formularios conservados cuando falla la petición.
+- La carga múltiple se aplica completa después de validar todas las imágenes; un archivo dañado no deja un lote a medias. Enlaces y datos de imagen validados en servidor.
+- Los socios y visitantes solo reciben imágenes activas. Ningún logo ni dato real se ha añadido como parte del desarrollo.
+
+Pruebas específicas: rotación de diez imágenes, móvil simulado, pausa, movimiento reducido, fallos de imagen/red, cambios de navegación, cargas múltiples, límites, permisos, versiones, reinicio y aislamiento de ajustes existentes. La revisión visual con navegador real sigue pendiente por falta de ejecutable en este entorno. Confirmar CI, fusión y Railway antes de considerar este bloque publicado.
+
+Validación local final: `npm run check:app` completo correcto, prueba específica de cargas múltiples correcta y smoke local de diez rutas correcto, incluidos módulo JS y API pública de patrocinadores.

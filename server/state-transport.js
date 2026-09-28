@@ -348,6 +348,7 @@ function createStateTransport(dependencies = {}) {
       liveTestParticipantResults: [],
       settings: {
         ...state.settings,
+        banners: [],
         smtp: stripSmtpSecrets({
           host: "",
           port: 0,
