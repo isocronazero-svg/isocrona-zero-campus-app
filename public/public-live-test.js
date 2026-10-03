@@ -23,6 +23,40 @@
   let pollDelay = 5000;
   let retryNotBefore = 0;
   let questionTimerId = null;
+  const resumeStorageKey = "iz-public-live-participant-v1";
+
+  function clearSavedParticipant() {
+    try { window.sessionStorage.removeItem(resumeStorageKey); } catch {}
+  }
+
+  function saveParticipant() {
+    const session = state.liveSession;
+    if (!session?.id || !session.participantId || session.guided !== true) return;
+    // Keep only this tab's access details. Questions, answers and scores always
+    // come from the server, including when restoring a finished podium.
+    try {
+      window.sessionStorage.setItem(resumeStorageKey, JSON.stringify({
+        id: session.id, participantId: session.participantId,
+        guestName: state.guestName, code: state.code, savedAt: Date.now()
+      }));
+    } catch {}
+  }
+
+  function restoreParticipant() {
+    try {
+      const saved = JSON.parse(window.sessionStorage.getItem(resumeStorageKey) || "null");
+      if (!saved) return;
+      if (![saved.id, saved.participantId, saved.code, saved.guestName].every(value =>
+        typeof value === "string" && value.trim() && value.length <= 128
+      ) || !Number.isFinite(saved.savedAt) || saved.savedAt > Date.now() || Date.now() - saved.savedAt > 12 * 60 * 60 * 1000) {
+        clearSavedParticipant(); return;
+      }
+      state.guestName = saved.guestName;
+      state.code = saved.code;
+      state.liveSession = { id: saved.id, participantId: saved.participantId, status: "lobby", _restoring: true };
+      state.status = "Recuperando tu participación…";
+    } catch { clearSavedParticipant(); }
+  }
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -162,8 +196,11 @@
       const previousStatus = String(state.liveSession?.status || "");
       const previousQuestionIndex = state.liveSession?.currentQuestionIndex;
       const previousQuestionClosed = state.liveSession?.questionClosed === true;
+      const previousAnswered = state.liveSession?.answered === true;
+      const wasRestoring = state.liveSession?._restoring === true;
       state.liveSession = payload.liveSession;
       if (state.liveSession) state.liveSession._receivedAtMs = Date.now();
+      saveParticipant();
       retryNotBefore = 0;
       pollDelay = state.liveSession?.status === "active" && state.liveSession?.guided === true ? 2500 : 5000;
       if (state.liveSession?.status === "active") {
@@ -174,10 +211,12 @@
             ? "El administrador ha pasado a la siguiente pregunta."
             : state.liveSession.questionClosed === true
               ? "Pregunta cerrada. Ya puedes revisar la respuesta correcta."
-              : "El test está en curso.",
+              : state.liveSession.answered === true
+                ? "Respuesta enviada. Espera a que el administrador cierre la pregunta."
+                : "El test está en curso.",
           "success"
         );
-        if (previousStatus !== "active" || questionChanged || revealChanged) {
+        if (wasRestoring || previousStatus !== "active" || questionChanged || revealChanged || previousAnswered !== (state.liveSession.answered === true)) {
           render();
         }
       } else if (state.liveSession?.status === "finished") {
@@ -186,11 +225,14 @@
         render();
       } else {
         updateStatus("Sigues en la sala de espera.");
+        if (wasRestoring) render();
       }
     } catch (error) {
       if (version !== requestVersion || pageClosed || document.hidden) return;
       updateStatus(error.name === "AbortError" ? "La conexion tarda en responder. Volveremos a intentarlo." : error.message, "error");
       if ([401, 403, 404, 410].includes(error.status)) {
+        clearSavedParticipant();
+        stopQuestionCountdown();
         state.liveSession = null;
         render();
       } else {
@@ -230,7 +272,7 @@
   }
 
   function renderAttempt() {
-    if (!state.liveSession || state.result) {
+    if (!state.liveSession || state.liveSession._restoring || state.result) {
       return "";
     }
     if (String(state.liveSession.status || "") === "lobby") {
@@ -444,10 +486,12 @@
 
     joinForm?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (joining || submitting) return;
+      if (joining || submitting || answering) return;
       joining = true;
       requestVersion++;
       stopLobbyRefresh();
+      stopQuestionCountdown();
+      clearSavedParticipant();
       pollBusy = false;
       retryNotBefore = 0;
       pollDelay = 5000;
@@ -466,7 +510,8 @@
           })
         });
         state.liveSession = payload.liveSession;
-      if (state.liveSession) state.liveSession._receivedAtMs = Date.now();
+        if (state.liveSession) state.liveSession._receivedAtMs = Date.now();
+        saveParticipant();
         state.result = null;
         state.status =
           String(state.liveSession?.status || "") === "lobby"
@@ -586,7 +631,10 @@
   });
   window.addEventListener("pageshow", () => {
     pageClosed = false;
+    startQuestionCountdown();
     scheduleLobbyRefresh(0);
   });
+  restoreParticipant();
   render();
+  if (state.liveSession?._restoring) scheduleLobbyRefresh(0);
 })();
