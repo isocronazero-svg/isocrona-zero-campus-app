@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { webcrypto } from "node:crypto";
 
 const source = readFileSync(new URL("../public/public-live-test.js", import.meta.url), "utf8");
 const lobby = { id: "room-a", code: "123456", title: "Sala A", status: "lobby", participantId: "participant-a", questions: [] };
@@ -52,6 +53,7 @@ function harness(storage = new Map()) {
   };
   const context = vm.createContext({
     document, window: {
+      crypto: webcrypto,
       addEventListener: (event, callback) => { events[event] = callback; },
       sessionStorage: {
         getItem: key => storage.get(key) || null,
@@ -272,7 +274,7 @@ assert.equal(restored.requests[0].options.method, 'GET');
 assert.equal(restored.requests[0].options.headers['X-Live-Participant'], active.participantId);
 assert.equal(restored.requests.filter(r => r.url.endsWith('/join')).length, 0, 'Restore never rejoins');
 const saved = JSON.parse([...savedStorage.values()][0]);
-assert.deepEqual(Object.keys(saved).sort(), ['code', 'guestName', 'id', 'participantId', 'savedAt']);
+assert.deepEqual(Object.keys(saved).sort(), ['code', 'guestName', 'id', 'joinKey', 'participantId', 'savedAt']);
 
 const finishedRestore = harness(new Map(savedStorage));
 finishedRestore.reply({ ok: true, liveSession: { ...active, status: 'finished', leaderboard: [{ rank: 1, name: 'Alumno', score: 140 }] } });

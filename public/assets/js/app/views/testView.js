@@ -807,7 +807,8 @@ function buildLiveSessionControls(session) {
         </div>`
       : "";
   return `
-    <p class="muted"><strong>Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(session.questionCount)}</strong> · ${escapeHtml(timeLimitSeconds)} s por pregunta</p>
+    <p class="muted"><strong>Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(session.questionCount)}</strong> · ${questionClosed ? 'Cerrada' : `<strong data-public-live-countdown data-deadline="${escapeHtml(session.questionDeadlineAt)}" data-server-now="${escapeHtml(session.serverNow)}" data-received-at="${Date.now()}">${escapeHtml(timeLimitSeconds)} s</strong>`}</p>
+    <p class="muted">Respuestas recibidas: ${escapeHtml(Number(session.answeredCount || 0))} de ${escapeHtml((session.participants || []).length)}</p>
     ${currentQuestion ? `<p>${escapeHtml(currentQuestion.prompt)}</p>` : ""}
     ${correctAnswer}
     ${provisionalRanking}
@@ -879,6 +880,26 @@ function buildAdminQuestionForm() {
   `;
 }
 
+export function buildPublicLiveSessionsMarkup(liveSessions = getTestState().liveSessions || []) {
+  return liveSessions.length
+            ? liveSessions
+                .slice(0, 6)
+                .map(
+                  (session) => `
+                    <article class="test-zone-mini-card" data-live-host-session="${escapeHtml(session.id)}">
+                      <strong>${escapeHtml(session.title || "Test en vivo")}</strong>
+                      <p class="muted">Código ${escapeHtml(session.code)} · ${escapeHtml(`${session.questionCount} preguntas`)}</p>
+                      <p class="muted">${escapeHtml(formatDate(session.createdAt))}</p>
+                      <p class="muted">${escapeHtml(`${Array.isArray(session.participants) ? session.participants.length : 0} participantes`)} · ${escapeHtml(session.status === "lobby" ? "Sala de espera" : session.status === "active" ? "En curso" : session.status === "finished" ? "Finalizado" : session.status)}</p>
+                      ${Array.isArray(session.participants) && session.participants.length ? `<p class="muted">${session.participants.map((participant) => escapeHtml(participant.name)).join(" · ")}</p>` : ""}
+                      ${buildLiveSessionControls(session)}
+                    </article>
+                  `
+                )
+                .join("")
+            : '<div class="test-zone-empty">Todavía no hay tests en vivo creados.</div>';
+}
+
 export function buildPublicLiveAdminMarkup() {
   const liveSessions = getTestState().liveSessions || [];
   return `
@@ -940,27 +961,8 @@ export function buildPublicLiveAdminMarkup() {
         </div>
       </form>
       ${testSession.liveError ? `<p class="test-zone-inline-error" role="alert">${escapeHtml(testSession.liveError)}</p>` : ""}
-      <div class="test-zone-live-list">
-        ${
-          liveSessions.length
-            ? liveSessions
-                .slice(0, 6)
-                .map(
-                  (session) => `
-                    <article class="test-zone-mini-card">
-                      <strong>${escapeHtml(session.title || "Test en vivo")}</strong>
-                      <p class="muted">Código ${escapeHtml(session.code)} · ${escapeHtml(`${session.questionCount} preguntas`)}</p>
-                      <p class="muted">${escapeHtml(formatDate(session.createdAt))}</p>
-                      <p class="muted">${escapeHtml(`${Array.isArray(session.participants) ? session.participants.length : 0} participantes`)} · ${escapeHtml(session.status === "lobby" ? "Sala de espera" : session.status === "active" ? "En curso" : session.status === "finished" ? "Finalizado" : session.status)}</p>
-                      ${Array.isArray(session.participants) && session.participants.length ? `<p class="muted">${session.participants.map((participant) => escapeHtml(participant.name)).join(" · ")}</p>` : ""}
-                      ${buildLiveSessionControls(session)}
-                    </article>
-                  `
-                )
-                .join("")
-            : '<div class="test-zone-empty">Todavía no hay tests en vivo creados.</div>'
-        }
-      </div>
+      <p class="muted" data-live-host-status role="status">Actualización automática cada 3 segundos.</p>
+      <div class="test-zone-live-list" data-live-host-list>${buildPublicLiveSessionsMarkup(liveSessions)}</div>
     </section>
   `;
 }

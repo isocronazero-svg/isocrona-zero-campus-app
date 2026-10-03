@@ -1,6 +1,6 @@
 const http = require("http");
 const { createQuestionContributionsHandler } = require("./server/question-contributions");
-const { randomUUID } = require("node:crypto");
+const { randomUUID, createHash } = require("node:crypto");
 const handleQuestionMaintenance = require("./server/question-maintenance");
 const fs = require("fs");
 const path = require("path");
@@ -1196,6 +1196,9 @@ function buildTestZoneLiveSessionAdminPayload(session) {
     currentQuestionId: Number.isInteger(session?.currentQuestionIndex)
       ? String((session?.questionIds || [])[session.currentQuestionIndex] || "").trim()
       : "",
+    answeredCount: (session?.participants || []).filter(participant =>
+      session?.participantAnswers?.[participant.id]?.[(session?.questionIds || [])[session.currentQuestionIndex]]
+    ).length,
     leaderboard: questionClosed
       ? buildTestZoneLiveLeaderboard(session).map(({ rank, name, score }) => ({ rank, name, score }))
       : [],
@@ -1269,6 +1272,7 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     questionCount: session.questionCount,
     status: session.status,
     participantId,
+    participantName: participant?.name || "",
     finishedAt: String(session?.finishedAt || "").trim(),
     guided,
     currentQuestionIndex,
@@ -5186,6 +5190,10 @@ const server = http.createServer(async (req, res) => {
       const expired = expireStaleTestZoneLiveSessions(state);
       const guestName = String(payload.guestName || "").trim().slice(0, 60).trim();
       const code = String(payload.code || "").trim();
+      const joinKey = String(payload.joinKey || "").trim();
+      if (joinKey && !/^[a-f0-9]{32}$/.test(joinKey)) {
+        throw new Error("La clave de entrada no es válida. Recarga e inténtalo de nuevo.");
+      }
       if (!guestName) {
         throw new Error("Necesitas indicar tu nombre para entrar");
       }
@@ -5211,20 +5219,34 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 404, { ok: false, error: "El test en vivo no existe o ya no esta activo" });
       }
       session.participants = Array.isArray(session.participants) ? session.participants : [];
-      let participant = session.participants.find(
-        (item) => String(item?.name || "").trim().toLocaleLowerCase("es") === guestName.toLocaleLowerCase("es")
-      );
+      const participantId = String(req.headers["x-live-participant"] || "").trim();
+      const joinKeyHash = joinKey ? createHash("sha256").update(joinKey).digest("hex") : "";
+      let participant = participantId
+        ? session.participants.find(item => item.id === participantId)
+        : joinKeyHash ? session.participants.find(item => item.joinKeyHash === joinKeyHash) : null;
+      if (participantId && !participant) {
+        return sendJson(res, 403, { ok: false, error: "La participación no pertenece a esta sala." });
+      }
       const isNewParticipant = !participant;
+      const attachJoinKey = participant && joinKeyHash && !participant.joinKeyHash;
+      if (attachJoinKey) participant.joinKeyHash = joinKeyHash;
       if (!participant) {
+        const names = new Set(session.participants.map(item => String(item.name || "").toLocaleLowerCase("es")));
+        let name = guestName;
+        for (let number = 2; names.has(name.toLocaleLowerCase("es")); number++) {
+          const suffix = ` (${number})`;
+          name = guestName.slice(0, 60 - suffix.length).trimEnd() + suffix;
+        }
         participant = {
           id: randomUUID(),
-          name: guestName,
+          name,
+          ...(joinKeyHash ? { joinKeyHash } : {}),
           joinedAt: new Date().toISOString(),
           score: 0
         };
         session.participants.push(participant);
       }
-      if (expired || isNewParticipant) {
+      if (expired || isNewParticipant || attachJoinKey) {
         writeState(state);
         publicLivePollState = null;
       }
