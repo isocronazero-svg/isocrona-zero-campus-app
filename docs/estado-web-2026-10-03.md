@@ -3,6 +3,65 @@
 Repositorio: `isocronazero-svg/isocrona-zero-campus-app`.
 Portal: https://portal.isocronazero.org.
 
+## Actualización de seguimiento — 09:04, Europe/Madrid
+
+Esta sección prevalece sobre el histórico de trabajo que sigue.
+
+### Publicado y verificado
+
+- PR #214 fusionada: `af8e4e76b3e3ae5ae4f41834d70b89efda60eedc`.
+- Recuperación de partida al recargar, confirmación de respuestas tras fallos
+  de conexión, recuperación del reloj y podio correcto tras cierre por tiempo.
+- App checks #263 y #264 superados. Railway productivo
+  `zealous-warmth / isocrona-zero-campus-test` correcto para ese commit.
+- Portal y archivos públicos verificados tras la publicación. El JavaScript
+  publicado coincidía byte a byte con el validado. La consulta actual a GitHub
+  confirma que `main` continúa en #214.
+- Los bloques anteriores de preguntas, grupos, patrocinadores e interfaz
+  (#210–#213) también permanecen integrados.
+
+### Preparado, pendiente de validación final y publicación
+
+Rama de trabajo: `codex/live-identities-host-refresh`, basada en #214.
+
+- Identidades independientes para participantes con el mismo nombre. La sala
+  asigna etiquetas como «Carlos» y «Carlos (2)», con respuestas y puntos separados.
+- Clave aleatoria de entrada por pestaña para reintentar una entrada cuya
+  confirmación se perdió, sin crear otro participante; persistencia del hash
+  en servidor y recuperación de participantes antiguos mediante su identificador.
+- Panel del administrador con actualización cada tres segundos, contador de
+  respuestas recibidas, reloj y reintento tras errores de red.
+- Actualización limitada a la lista de salas para conservar valores y foco del
+  formulario. Cancelación de consultas al abandonar la vista o cambiar de cuenta.
+- Prueba de navegador ampliada para nombres repetidos, confirmación de entrada
+  perdida, recarga, borrador del administrador y salida de la vista.
+
+Comprobaciones realizadas sobre este bloque:
+
+- `scripts/check-test-zone.mjs`: correcto, incluida separación de nombres,
+  puntuaciones independientes, reintentos, permisos y persistencia tras reinicio.
+- `scripts/check-public-live-lobby-ui.mjs`: correcto (DOM simulado).
+- Sintaxis de los archivos modificados y `git diff --check`: correctos.
+- La nueva prueba multijugador en Chromium **no se ha ejecutado**. La revisión
+  automática de permisos rechazó el lanzamiento porque no pudo completarse al
+  alcanzarse el límite de uso. No fue un fallo de la aplicación ni un dictamen de
+  que la acción fuera insegura. No se ha intentado eludir ese bloqueo.
+- La suite completa todavía **no se ha repetido** para este segundo bloque.
+
+### Orden de continuación
+
+1. Reanudar la prueba multijugador en navegador cuando pueda completarse la
+   revisión de permisos; corregir lo que detecte.
+2. Revisar los cambios tardíos de vista/cuenta, pausa de consultas al ocultar la
+   página y recuperación al volver desde el historial del navegador.
+3. Ejecutar la suite completa, abrir la PR y comprobar CI.
+4. Fusionar y publicar con la autorización existente; verificar el portal.
+5. Siguiente bloque funcional: revisión visual de los recorridos académicos
+   largos (curso, evaluación y diploma).
+
+Este segundo bloque se conserva como trabajo pendiente. No está fusionado ni
+publicado y no debe describirse como validado en navegador.
+
 ## Punto de partida verificado
 
 `main` en `c87904eccff24b683f1065686c6cdd60465b4c65` (#213).

@@ -17,7 +17,9 @@ async function fetchJson(url, options = {}) {
     throw error;
   }
   if (!response.ok || payload?.ok === false) {
-    throw new Error(payload?.error || "No se pudo completar la operacion de tests");
+    const error = new Error(payload?.error || "No se pudo completar la operacion de tests");
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -89,8 +91,9 @@ export async function loadReviewMarks() {
   return payload.marks || [];
 }
 
-export async function loadLiveSessions() {
-  const payload = await fetchJson("/api/test-zone/live-sessions", { method: "GET" });
+export async function loadLiveSessions({ signal, isCurrent = () => true } = {}) {
+  const payload = await fetchJson("/api/test-zone/live-sessions", { method: "GET", signal });
+  if (!isCurrent()) return null;
   setLiveSessions(payload.sessions || []);
   return payload.sessions || [];
 }

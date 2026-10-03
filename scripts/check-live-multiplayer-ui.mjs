@@ -96,16 +96,29 @@ try {
   const second = await newPage(390); await login(second, seed.accounts[2]);
   await second.goto(base + '/public-live-test.html');
   const players = [memberPlayer, guest, second];
-  const names = ['Socio de ensayo', 'Invitado de ensayo', 'Segundo socio'];
+  const names = ['Socio de ensayo', 'Socio de ensayo', 'Segundo socio'];
+  const displayNames = ['Socio de ensayo', 'Socio de ensayo (2)', 'Segundo socio'];
   const identities = [];
+  await create.locator('[name=title]').fill('Borrador que debe conservarse');
+  await create.locator('[name=title]').focus();
   for (let i = 0; i < players.length; i++) {
     const page = players[i]; await page.fill('[name=guestName]', names[i]); await page.fill('[name=code]', session.code);
+    if (i === 1) {
+      // The join reaches the server, but its response is lost. Retry after reload.
+      await page.route('**/api/test-zone/live/join', async route => { await route.fetch(); await route.abort(); }, { times: 1 });
+      await page.locator('#publicLiveJoinForm button').click(); await waitText(page, 'No se pudo conectar');
+      await page.reload(); await waitText(page, 'entrada pendiente');
+    }
     const joinedPromise = page.waitForResponse(r => r.url().endsWith('/api/test-zone/live/join'));
     await page.locator('#publicLiveJoinForm button').click();
     identities.push((await (await joinedPromise).json()).liveSession.participantId);
     await waitText(page, 'ya estás dentro'); await fit(page, names[i] + ' lobby');
   }
-  await card().locator('[data-action=refresh-live-lobby]').click(); await waitText(admin, '3 participantes');
+  await waitText(admin, '3 participantes');
+  assert.equal(await create.locator('[name=title]').inputValue(), 'Borrador que debe conservarse');
+  assert.equal(await create.locator('[name=title]').evaluate(n => n === document.activeElement), true, 'Polling preserves form focus');
+  const joined = await adminState(); assert.deepEqual(joined.participants.map(p => p.name), displayNames);
+  await waitText(guest, 'Socio de ensayo (2)');
   assert.equal(new Set(identities).size, 3);
   await admin.screenshot({ path: join(screenshots, 'live-admin-lobby.png') });
   await card().locator('[data-action=start-live-session]').click();
@@ -125,6 +138,8 @@ try {
     await page.locator('#publicLiveQuestionForm button[type=submit]').click(); await waitText(page, 'Respuesta enviada');
   }
   for (const page of players) { assert.equal(await page.getByText('Clasificación provisional', { exact: true }).count(), 0); await fit(page, 'Question'); }
+  await waitText(admin, 'Respuestas recibidas: 3 de 3');
+  assert.ok(Number.parseInt(await card().locator('[data-public-live-countdown]').textContent()) < 30, 'Host clock counts down');
   await memberPlayer.screenshot({ path: join(screenshots, 'live-member-answer.png') });
   // Reloading should resume the existing participant, without joining again or losing their answer.
   await memberPlayer.reload();
@@ -135,7 +150,7 @@ try {
   await card().locator('[data-action=reveal-live-question]').click();
   for (const page of players) await waitText(page, 'Clasificación provisional');
   const ranking = (await adminState()).leaderboard;
-  assert.equal(ranking.length, 3); assert.equal(ranking.at(-1).name, names[1]); assert.equal(ranking.at(-1).score, 0);
+  assert.equal(ranking.length, 3); assert.equal(ranking.at(-1).name, displayNames[1]); assert.equal(ranking.at(-1).score, 0);
   assert.ok(ranking[0].score >= 100 && ranking[0].score <= 150);
   await guest.screenshot({ path: join(screenshots, 'live-guest-ranking.png') });
   // Host advances while one participant is offline; reconnect must pick up the current question.
@@ -154,16 +169,27 @@ try {
   for (const page of players) await waitText(page, 'Pregunta 3 de 3');
   // Let the server deadline expire naturally; nobody answers the last question.
   await Promise.all(players.map(page => page.getByText('No enviaste respuesta antes del cierre.', { exact: false }).waitFor({ timeout: 40000 })));
-  await card().locator('[data-action=refresh-live-lobby]').click();
   await card().locator('[data-action=finish-live-session]').click();
   for (const page of players) { await waitText(page, 'Podio final'); await waitText(page, 'Tu posición final:'); await fit(page, 'Final podium'); }
   await guest.reload(); await waitText(guest, 'Podio final');
   await guest.screenshot({ path: join(screenshots, 'live-guest-podium.png') });
   await admin.screenshot({ path: join(screenshots, 'live-admin-podium.png') });
+  assert.equal(await create.locator('[name=title]').inputValue(), 'Borrador que debe conservarse');
+  await admin.context().setOffline(true); await waitText(admin, 'Reintentando automáticamente');
+  assert.equal(await create.locator('[name=title]').inputValue(), 'Borrador que debe conservarse');
+  await admin.context().setOffline(false); await waitText(admin, 'Actualización automática activa.');
   const finished = await adminState(); assert.equal(finished.status, 'finished');
   for (const page of players) for (const row of finished.leaderboard) await waitText(page, `${row.rank}. ${row.name}`);
   const late = await guest.request.post(base + '/api/test-zone/live/join', { data: { guestName: 'Llegada tardía', code: session.code } });
   assert.equal(late.status(), 404, 'Finished room refuses new players');
+  let pollsAfterLeaving = 0;
+  admin.on('request', request => { if (request.url().endsWith('/api/test-zone/live-sessions') && request.method() === 'GET') pollsAfterLeaving++; });
+  await admin.locator('.test-section-nav [data-view=test-add]').click();
+  await admin.locator('#mainPanel').getByText('Añadir preguntas', { exact: true }).first().waitFor();
+  const beforeLeaveWait = pollsAfterLeaving;
+  await admin.waitForTimeout(3500);
+  assert.equal(pollsAfterLeaving, beforeLeaveWait, 'Leaving live stops host polling');
+  assert.equal(await admin.locator('[data-live-host-list]').count(), 0, 'Old response does not recreate live view');
   assert.deepEqual(errors, [], 'No uncaught browser errors');
   console.log('PASS: synchronized questions, offline recovery, deadline, scores, ranking, final podium, mobile layout and no browser errors.');
 } catch (error) {

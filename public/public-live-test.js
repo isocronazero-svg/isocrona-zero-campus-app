@@ -24,6 +24,15 @@
   let retryNotBefore = 0;
   let questionTimerId = null;
   const resumeStorageKey = "iz-public-live-participant-v1";
+  let joinIdentity = null;
+
+  function prepareJoinIdentity(guestName, code) {
+    if (joinIdentity?.guestName === guestName && joinIdentity?.code === code) return joinIdentity.joinKey;
+    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+    const joinKey = Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+    joinIdentity = { guestName, code, joinKey };
+    return joinKey;
+  }
 
   function clearSavedParticipant() {
     try { window.sessionStorage.removeItem(resumeStorageKey); } catch {}
@@ -31,13 +40,14 @@
 
   function saveParticipant() {
     const session = state.liveSession;
-    if (!session?.id || !session.participantId || session.guided !== true) return;
+    if (!joinIdentity && (!session?.id || !session.participantId || session.guided !== true)) return;
     // Keep only this tab's access details. Questions, answers and scores always
     // come from the server, including when restoring a finished podium.
     try {
       window.sessionStorage.setItem(resumeStorageKey, JSON.stringify({
-        id: session.id, participantId: session.participantId,
-        guestName: state.guestName, code: state.code, savedAt: Date.now()
+        id: session?.id, participantId: session?.participantId,
+        guestName: state.guestName, code: state.code, savedAt: Date.now(),
+        ...(joinIdentity ? { joinKey: joinIdentity.joinKey } : {})
       }));
     } catch {}
   }
@@ -46,13 +56,21 @@
     try {
       const saved = JSON.parse(window.sessionStorage.getItem(resumeStorageKey) || "null");
       if (!saved) return;
-      if (![saved.id, saved.participantId, saved.code, saved.guestName].every(value =>
+      if (![saved.code, saved.guestName].every(value =>
         typeof value === "string" && value.trim() && value.length <= 128
       ) || !Number.isFinite(saved.savedAt) || saved.savedAt > Date.now() || Date.now() - saved.savedAt > 12 * 60 * 60 * 1000) {
         clearSavedParticipant(); return;
       }
       state.guestName = saved.guestName;
       state.code = saved.code;
+      if (typeof saved.joinKey === "string" && /^[a-f0-9]{32}$/.test(saved.joinKey)) {
+        joinIdentity = { guestName: saved.guestName, code: saved.code, joinKey: saved.joinKey };
+      }
+      if (![saved.id, saved.participantId].every(value => typeof value === "string" && value && value.length <= 128)) {
+        if (!joinIdentity) clearSavedParticipant();
+        else state.status = "Pulsa Entrar para recuperar tu entrada pendiente.";
+        return;
+      }
       state.liveSession = { id: saved.id, participantId: saved.participantId, status: "lobby", _restoring: true };
       state.status = "Recuperando tu participación…";
     } catch { clearSavedParticipant(); }
@@ -281,7 +299,7 @@
           <p class="test-zone-kicker">Sala de espera</p>
           <h3>${escapeHtml(state.liveSession.title || "Test en vivo")}</h3>
           <p class="muted">Código ${escapeHtml(state.liveSession.code)} · ${escapeHtml(state.liveSession.questionCount)} preguntas</p>
-          <p><strong>${escapeHtml(state.guestName)}</strong>, ya estás dentro.</p>
+          <p><strong>${escapeHtml(state.liveSession.participantName || state.guestName)}</strong>, ya estás dentro.</p>
           <p class="status-note">Espera a que el administrador inicie el test.</p>
           <button type="button" id="publicLiveRefreshButton" class="test-zone-secondary-button">Comprobar si ha comenzado</button>
         </section>
@@ -354,6 +372,7 @@
             <div>
               <p class="test-zone-kicker">Sesión activa</p>
               <h3>${escapeHtml(state.liveSession.title || "Test en vivo")}</h3>
+              <p class="muted">Participante: ${escapeHtml(state.liveSession.participantName || state.guestName)}</p>
               <p class="muted">Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(state.liveSession.questionCount)} · Tiempo: <strong id="publicLiveCountdown">${escapeHtml(remainingSeconds)} s</strong></p>
             </div>
           </div>
@@ -496,17 +515,25 @@
       retryNotBefore = 0;
       pollDelay = 5000;
       const formData = new FormData(joinForm);
-      state.guestName = String(formData.get("guestName") || "").trim();
-      state.code = String(formData.get("code") || "").trim();
+      const guestName = String(formData.get("guestName") || "").trim().slice(0, 60).trim();
+      const code = String(formData.get("code") || "").trim();
+      const resumeId = state.guestName === guestName && state.code === code ? state.liveSession?.participantId : "";
+      state.guestName = guestName;
+      state.code = code;
       state.liveSession = null;
       state.result = null;
       joinForm.querySelector('button[type="submit"]').disabled = true;
       try {
+        const joinKey = prepareJoinIdentity(guestName, code);
+        // Persist before sending so a lost join response can be retried safely.
+        saveParticipant();
         const payload = await fetchJson("/api/test-zone/live/join", {
           method: "POST",
+          headers: resumeId ? { "X-Live-Participant": resumeId } : {},
           body: JSON.stringify({
             guestName: state.guestName,
-            code: state.code
+            code: state.code,
+            joinKey
           })
         });
         state.liveSession = payload.liveSession;
