@@ -34,7 +34,7 @@ const legacyActive = {
   questions: [{ id: "q1", prompt: "Pregunta", options: ["A", "B"] }]
 };
 
-function harness() {
+function harness(storage = new Map()) {
   const timers = new Map(), intervals = new Map(), requests = [], replies = [], events = {}, elements = new Map();
   let renders = 0, markup = "", timerId = 0, now = 1000;
   const element = () => ({ listeners: {}, values: {}, disabled: false,
@@ -51,7 +51,14 @@ function harness() {
     addEventListener: (event, callback) => { events[event] = callback; }
   };
   const context = vm.createContext({
-    document, window: { addEventListener: (event, callback) => { events[event] = callback; } },
+    document, window: {
+      addEventListener: (event, callback) => { events[event] = callback; },
+      sessionStorage: {
+        getItem: key => storage.get(key) || null,
+        setItem: (key, value) => storage.set(key, value),
+        removeItem: key => storage.delete(key)
+      }
+    },
     AbortController, encodeURIComponent,
     Date: class extends Date { static now() { return now; } },
     FormData: class { constructor(form) { this.values = form.values; } get(key) { return this.values[key] ?? null; } },
@@ -70,7 +77,7 @@ function harness() {
     ok: status < 400, status, headers: { get: () => retry }, json: async () => body
   }));
   return {
-    document, events, timers, intervals, requests, replies, elements, reply,
+    document, events, timers, intervals, requests, replies, elements, reply, storage,
     get markup() { return markup; }, get renders() { return renders; },
     advance(ms) { now += ms; },
     async join(session = lobby) {
@@ -244,4 +251,50 @@ await oldRequest;
 assert.match(stale.markup, /Sala B/);
 assert.doesNotMatch(stale.markup, /publicLiveAttemptForm/, "An obsolete response cannot restore the previous room");
 assert.equal(stale.timers.size, 1);
+
+// The server accepted an answer, but its HTTP response was lost. A subsequent
+// poll must acknowledge it and lock the choices without needing another submit.
+const lostConfirmation = harness();
+await lostConfirmation.join(active);
+lostConfirmation.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 1 } });
+await lostConfirmation.tick();
+assert.match(lostConfirmation.markup, /Respuesta enviada/);
+assert.doesNotMatch(lostConfirmation.markup, />Enviar respuesta</);
+
+const savedStorage = new Map(lostConfirmation.storage);
+const restored = harness(savedStorage);
+assert.match(restored.markup, /Recuperando tu participación/);
+assert.doesNotMatch(restored.markup, /publicLiveQuestionForm/, 'No stale questions before server validation');
+restored.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 1 } });
+await restored.tick();
+assert.match(restored.markup, /Respuesta enviada/);
+assert.equal(restored.requests[0].options.method, 'GET');
+assert.equal(restored.requests[0].options.headers['X-Live-Participant'], active.participantId);
+assert.equal(restored.requests.filter(r => r.url.endsWith('/join')).length, 0, 'Restore never rejoins');
+const saved = JSON.parse([...savedStorage.values()][0]);
+assert.deepEqual(Object.keys(saved).sort(), ['code', 'guestName', 'id', 'participantId', 'savedAt']);
+
+const finishedRestore = harness(new Map(savedStorage));
+finishedRestore.reply({ ok: true, liveSession: { ...active, status: 'finished', leaderboard: [{ rank: 1, name: 'Alumno', score: 140 }] } });
+await finishedRestore.tick();
+assert.match(finishedRestore.markup, /Podio final/);
+assert.match(finishedRestore.markup, /140 puntos/);
+assert.equal(finishedRestore.timers.size, 0);
+
+const expiredRestore = harness(new Map(savedStorage));
+expiredRestore.reply({ error: 'La sesión ha caducado.' }, 404);
+await expiredRestore.tick();
+assert.equal(expiredRestore.storage.size, 0);
+assert.equal(expiredRestore.timers.size, 0);
+const damaged = harness(new Map([['iz-public-live-participant-v1', '{invalid']]));
+assert.equal(damaged.storage.size, 0);
+assert.equal(damaged.timers.size, 0);
+const unavailableStorage = harness({ get() { throw new Error('Storage unavailable'); }, set() { throw new Error('Storage unavailable'); }, delete() { throw new Error('Storage unavailable'); } });
+await unavailableStorage.join(active);
+assert.match(unavailableStorage.markup, /publicLiveQuestionForm/);
+
+const bfcache = harness();
+await bfcache.join(active);
+bfcache.events.pagehide(); assert.equal(bfcache.intervals.size, 0);
+bfcache.events.pageshow(); assert.equal(bfcache.intervals.size, 1, 'Returning from browser history restores the clock');
 console.log("Public live UI passed: lobby start, synchronized questions, scoring, provisional ranking, final podium, answer recovery, throttling, visibility and stale responses.");

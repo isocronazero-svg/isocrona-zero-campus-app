@@ -985,6 +985,18 @@ async function main() {
       "No se aceptan respuestas despues de agotar el tiempo"
     );
 
+    // A time-based close must remain closed after changing status to finished;
+    // otherwise the final leaderboard disappears for the host and participants.
+    const timedFinish = (await adminClient.request("POST", timedPath + "/finish", {})).body.session;
+    assert.equal(timedFinish.status, "finished");
+    assert.equal(timedFinish.questionClosed, true);
+    assert.equal(timedFinish.leaderboard[0].name, "Cronometro");
+    const timedPodium = (await guest.request("GET", timedPath + "/participant", undefined, { headers: timedHeaders })).body.liveSession;
+    assert.equal(timedPodium.status, "finished");
+    assert.equal(timedPodium.currentRank.rank, 1);
+    assert.equal(timedPodium.leaderboard[0].score, 0);
+    assert.deepEqual(timedPodium.questions, []);
+
     const memberStateResponse = await memberClient.request("GET", "/api/state");
     assert.equal(memberStateResponse.body?.ok, undefined);
     assert.equal((memberStateResponse.body?.questions || []).length, 0, "El state de socio no debe exponer el banco de preguntas completo");

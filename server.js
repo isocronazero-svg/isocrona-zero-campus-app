@@ -1154,7 +1154,7 @@ function isTestZoneLiveQuestionTimedOut(session, now = Date.now()) {
 }
 
 function isTestZoneLiveQuestionClosed(session, now = Date.now()) {
-  return session?.questionClosed === true || isTestZoneLiveQuestionTimedOut(session, now);
+  return session?.questionClosed === true || session?.status === "finished" || isTestZoneLiveQuestionTimedOut(session, now);
 }
 
 function buildTestZoneLiveLeaderboard(session) {
@@ -5164,6 +5164,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 409, { ok: false, error: "Cierra y muestra la respuesta antes de finalizar el test" });
       }
       session.status = "finished";
+      session.questionClosed = true;
       session.finishedAt = new Date().toISOString();
       writeState(state);
       publicLivePollState = null;
