@@ -3,6 +3,40 @@
 Repositorio: `isocronazero-svg/isocrona-zero-campus-app`.
 Portal: https://portal.isocronazero.org.
 
+## Continuación móvil y portátil: PR #216 preparada
+
+La PR #217 de avisos está fusionada y publicada en el portal, con CI y Railway
+correctos y comprobación de los archivos servidos. Esta continuación integra ese
+estado (`661a6d2`) en la rama del portátil `codex/fix-member-campus-access`,
+conservando su trabajo y resolviendo el conflicto de avisos.
+
+### Cambios de la PR #216 revisados
+
+- Campus aparece en el menú de socio con Cursos, Avisos y Grupos internos. Las
+  cuentas externas conservan sus restricciones. El menú móvil se cierra al entrar.
+- El administrador puede aprender e inscribirse con su propia cuenta, sin crear
+  una ficha de socio ni saltarse fechas de inscripción o aforo.
+- La vista previa de otra persona usa sus permisos, ficha y accesos a grupos;
+  no hereda los del administrador.
+- La inscripción conserva método de pago, nota y justificante. Si falla el envío,
+  mantiene el formulario y permite reintentarlo.
+- Se conservan los adjuntos protegidos y el botón para compartir avisos en WhatsApp
+  de la entrega publicada. El envío a WhatsApp sigue requiriendo confirmación allí.
+
+### Comprobaciones y siguiente paso
+
+- `npm run check:app`: correcto, incluidas pruebas de avisos, navegación, permisos,
+  inscripción propia, cursos cerrados/futuros y lista de espera por aforo.
+- `scripts/check-campus-access-ui.mjs`: Chromium a 1440 y 390 píxeles; inscripción
+  con PDF, fallo de red y recuperación, acceso a grupos, restricciones externas,
+  avisos y menú móvil. Sin errores de JavaScript ni desbordamiento horizontal móvil.
+  Incluye `scripts/smoke-campus-test.mjs` con servidor y datos temporales.
+- Actualización de la misma PR #216 para mantener coordinadas ambas sesiones.
+  Sus comprobaciones remotas y el commit final quedan enlazados en la PR.
+- **Pendiente de confirmación para fusionar y publicar #216:** su descripción del
+  portátil incluye «No hacer merge automatico». Esta continuación deja el cambio
+  probado y revisable; todavía no lo considera publicado.
+
 ## Nueva entrega: avisos con adjuntos y compartir en WhatsApp
 
 Solicitud confirmada desde el móvil el 3 de octubre. Rama: `codex/notice-attachments-whatsapp`.

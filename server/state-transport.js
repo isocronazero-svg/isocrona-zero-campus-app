@@ -205,9 +205,17 @@ function createStateTransport(dependencies = {}) {
   function buildMemberScopedState(state, account, memberIdOverride) {
     const memberId = memberIdOverride || account.memberId || "";
     const scopedMember = (state.members || []).find((item) => item.id === memberId) || null;
+    if (account.role === "admin" && memberId !== account.memberId) {
+      // Preview the selected person's identity, never the administrator's memberships or grants.
+      const targetAccount = (state.accounts || []).find(item => item.memberId === memberId);
+      account = { ...targetAccount, id: targetAccount?.id || "", role: "member", memberId,
+        associateId: scopedMember?.associateId || targetAccount?.associateId || "",
+        name: scopedMember?.name || "", email: scopedMember?.email || "" };
+    }
     const associateId = scopedMember?.associateId || account.associateId || "";
     const memberEmail = String(scopedMember?.email || account.email || "").toLowerCase();
-    const campusOnlyAccess = !associateId;
+    const ownAdminLearning = account.role === "admin" && memberId === account.memberId;
+    const campusOnlyAccess = !associateId && !ownAdminLearning;
     const scopedAssociate = findAssociateForAccount(state, account, scopedMember);
     const quotaLimitedAccess = !campusOnlyAccess && isAssociateAccessLimitedByQuota(scopedAssociate);
     const memberOwnedCourseIds = quotaLimitedAccess
