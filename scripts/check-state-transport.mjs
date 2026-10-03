@@ -76,11 +76,12 @@ function buildSeedState() {
   seed.campusGroups = [{ id: "internal-group", title: "Grupo interno QA", modules: [] }];
   for (const [id, status, enrollmentOpensAt] of [
     ["member-only-course", "Inscripcion abierta", ""],
+    ["full-course", "Inscripcion abierta", ""],
     ["closed-course", "Cerrado", ""],
     ["future-course", "Inscripcion abierta", "2099-01-01T00:00:00.000Z"]
   ]) {
     seed.courses.push({ ...seed.courses[0], id, accessScope: "members", audience: "Socios", status, enrollmentOpensAt,
-      startDate: "2099-02-01", endDate: "2099-02-02", capacity: 2, enrollmentFee: 0,
+      startDate: "2099-02-01", endDate: "2099-02-02", capacity: id === "full-course" ? 1 : 2, enrollmentFee: 0,
       enrolledIds: ["member-1"], waitingIds: [], diplomaReady: [], enrollmentSubmissions: [] });
   }
   seed.testZoneQuestions = [
@@ -314,6 +315,11 @@ async function main() {
     const afterEnrollment = (await adminClient.request("GET", "/api/state")).body;
     assert.deepEqual(afterEnrollment.courses.find((course) => course.id === "member-only-course").enrolledIds, ["member-1", profile.memberId]);
     assert.equal(afterEnrollment.associates.length, adminState.associates.length, "Enrollment must not create a paid membership");
+    await adminClient.request("POST", "/api/member/courses/full-course/enroll", {});
+    const capacityState = (await adminClient.request("GET", "/api/state")).body;
+    const fullCourse = capacityState.courses.find(course => course.id === "full-course");
+    assert.deepEqual(fullCourse.enrolledIds, ["member-1"], "Admin learner cannot bypass capacity");
+    assert.deepEqual(fullCourse.waitingIds, [profile.memberId]);
     for (const id of ["closed-course", "future-course"]) {
       assert.equal((await adminClient.request("POST", `/api/member/courses/${id}/enroll`, {}, { allowFailure: true })).status, 403);
     }
@@ -326,6 +332,21 @@ async function main() {
     const preview = (await adminClient.request("GET", "/api/state?mode=preview&memberId=external-member")).body;
     assert.deepEqual(preview.campusGroups, [], "Preview must not inherit the admin's own learning privileges");
     assert.ok(!preview.courses.some((course) => course.id === "member-only-course"));
+    const linkedAdminState = (await adminClient.request("GET", "/api/state")).body;
+    const adminAccount = linkedAdminState.accounts.find(item => item.role === "admin");
+    adminAccount.associateId = "admin-membership";
+    linkedAdminState.associates.push({ id: "admin-membership", linkedAccountId: adminAccount.id,
+      email: adminAccount.email, firstName: "Admin", lastName: "QA", status: "Activa", annualAmount: 0 });
+    linkedAdminState.campusGroups.push({ id: "admin-only-group", title: "Solo admin QA", allowedAccountIds: [adminAccount.id], modules: [] });
+    await adminClient.request("POST", "/api/state", linkedAdminState);
+    const scopedPreview = (await adminClient.request("GET", "/api/state?mode=preview&memberId=external-member")).body;
+    assert.deepEqual(scopedPreview.associates, [], "Preview cannot inherit the admin membership");
+    assert.deepEqual(scopedPreview.campusGroups, [], "Admin grants must not pass to external preview");
+    assert.ok(!scopedPreview.courses.some(course => course.id === "member-only-course"));
+    const memberPreview = (await adminClient.request("GET", "/api/state?mode=preview&memberId=member-1")).body;
+    assert.ok(!memberPreview.campusGroups.some(group => group.id === "admin-only-group"), "Preview must respect explicit group grants");
+    assert.deepEqual(memberPreview.associates.map(item => item.id), ["associate-1"]);
+
   } finally {
     await stopServer(server);
     rmSync(tempRoot, { recursive: true, force: true });

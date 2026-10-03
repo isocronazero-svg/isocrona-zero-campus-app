@@ -44,8 +44,10 @@ const memberButtons = render(false);
 assert.equal(memberButtons.length, 5);
 assert.ok(memberButtons.some((tag) => tag.includes('data-view="campus"') && tag.includes('data-mode="courses"')));
 assert.match(renderedNav, /data-section-id="campusSectionGroups"/);
+assert.match(renderedNav, /data-section-id="campusSectionAlerts"/, "Campus keeps the notice entry from #217");
 render(false, () => true, true);
 assert.doesNotMatch(renderedNav, /data-section-id="campusSectionGroups"/, "External campus accounts do not gain internal groups");
+assert.match(renderedNav, /data-section-id="campusSectionAlerts"/, "External accounts retain notices scoped to them");
 const campusOnlyStart = app.indexOf("function isCampusOnlySession() {");
 const campusOnlyEnd = app.indexOf("\nfunction ", campusOnlyStart + 1);
 for (const ownAdmin of [true, false]) {

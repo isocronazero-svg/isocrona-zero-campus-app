@@ -3,9 +3,82 @@
 Repositorio: `isocronazero-svg/isocrona-zero-campus-app`.
 Portal: https://portal.isocronazero.org.
 
+## Continuación móvil y portátil: PR #216 preparada
+
+La PR #217 de avisos está fusionada y publicada en el portal, con CI y Railway
+correctos y comprobación de los archivos servidos. Esta continuación integra ese
+estado (`661a6d2`) en la rama del portátil `codex/fix-member-campus-access`,
+conservando su trabajo y resolviendo el conflicto de avisos.
+
+### Cambios de la PR #216 revisados
+
+- Campus aparece en el menú de socio con Cursos, Avisos y Grupos internos. Las
+  cuentas externas conservan sus restricciones. El menú móvil se cierra al entrar.
+- El administrador puede aprender e inscribirse con su propia cuenta, sin crear
+  una ficha de socio ni saltarse fechas de inscripción o aforo.
+- La vista previa de otra persona usa sus permisos, ficha y accesos a grupos;
+  no hereda los del administrador.
+- La inscripción conserva método de pago, nota y justificante. Si falla el envío,
+  mantiene el formulario y permite reintentarlo.
+- Se conservan los adjuntos protegidos y el botón para compartir avisos en WhatsApp
+  de la entrega publicada. El envío a WhatsApp sigue requiriendo confirmación allí.
+
+### Comprobaciones y siguiente paso
+
+- `npm run check:app`: correcto, incluidas pruebas de avisos, navegación, permisos,
+  inscripción propia, cursos cerrados/futuros y lista de espera por aforo.
+- `scripts/check-campus-access-ui.mjs`: Chromium a 1440 y 390 píxeles; inscripción
+  con PDF, fallo de red y recuperación, acceso a grupos, restricciones externas,
+  avisos y menú móvil. Sin errores de JavaScript ni desbordamiento horizontal móvil.
+  Incluye `scripts/smoke-campus-test.mjs` con servidor y datos temporales.
+- Actualización de la misma PR #216 para mantener coordinadas ambas sesiones.
+  Sus comprobaciones remotas y el commit final quedan enlazados en la PR.
+- **Pendiente de confirmación para fusionar y publicar #216:** su descripción del
+  portátil incluye «No hacer merge automatico». Esta continuación deja el cambio
+  probado y revisable; todavía no lo considera publicado.
+
+## Nueva entrega: avisos con adjuntos y compartir en WhatsApp
+
+Solicitud confirmada desde el móvil el 3 de octubre. Rama: `codex/notice-attachments-whatsapp`.
+
+### Cambios incluidos
+
+- Administración puede publicar desde **Campus > Avisos** y desde el gestor de novedades.
+  Los socios tienen un acceso **Avisos** en Mi perfil. Los avisos internos a socios también admiten adjuntos.
+- Hasta cinco archivos por aviso: PDF, Word (DOC/DOCX), PNG, JPG, WebP y GIF.
+  Límite de 5 MB por archivo y 10 MB por aviso; tipo y contenido se validan en el servidor.
+- Imágenes visibles, documentos descargables y enlace individual al aviso. El inicio de
+  sesión conserva el enlace y devuelve al aviso. Los archivos respetan destinatarios,
+  curso, visibilidad y caducidad; no se convierten en archivos públicos.
+- **Compartir en WhatsApp** prepara título y enlace. El administrador elige el grupo y
+  confirma el envío en WhatsApp. No hay envío automático a la comunidad. Los avisos
+  dirigidos a una sola persona no ofrecen el botón de difusión.
+- Reintentar una publicación cuya respuesta se haya perdido no duplica avisos ni correos.
+  El formulario y los archivos se conservan al fallar el envío. Los guardados de una
+  sesión antigua no borran avisos nuevos, adjuntos, lecturas ni correos de los avisos.
+- Corregido el filtrado de novedades para socios y externos en el estado enviado por el
+  servidor, incluido «Socios activos». Corregidas referencias de cursos inexistentes en
+  el código de avisos que impedían renderizar algunos contenidos.
+
+### Validación y coordinación
+
+- `npm run check:app`: suite completa superada, con el nuevo
+  `scripts/check-notice-attachments.mjs` (audiencias, permisos, archivos, reintentos,
+  ocultación/eliminación y conservación ante guardados de otra sesión).
+- Chromium: publicación con archivos, pérdida de confirmación y reintento, retorno tras
+  iniciar sesión, descarga, texto escapado y enlace WhatsApp. Pantallas de 320, 390 y
+  1440 píxeles. Solo datos sintéticos; no se enviaron mensajes ni correos reales.
+- La PR #215 está publicada y verificada en el portal. Se ha localizado la nueva
+  **PR #216 del portátil**, sobre navegación Campus e inscripción del administrador.
+  Esta entrega no fusiona ni modifica esa rama. Ambas tocan archivos compartidos;
+  al integrar #216 hay que conservar las mejoras de avisos y su corrección de cursos.
+- La publicación y sus comprobaciones de CI/Railway quedan registradas en la PR de
+  `codex/notice-attachments-whatsapp`. La automatización completa de WhatsApp continúa
+  pendiente de elegir y validar una integración compatible con la comunidad.
+
 ## Continuación: identidades y panel del administrador
 
-Esta sección es la actualización más reciente; las anotaciones de bloqueo de
+Esta sección recoge la entrega anterior; las anotaciones de bloqueo de
 las 09:04 que aparecen después se conservan como histórico.
 
 - La revisión de permisos ha permitido reanudar las pruebas.

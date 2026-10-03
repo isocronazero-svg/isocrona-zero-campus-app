@@ -1,3 +1,5 @@
+const { compactNotice, canAccessCampusNotice } = require("./notices");
+
 function createStateTransport(dependencies = {}) {
   const {
     buildCampusGroupAttachmentUrl,
@@ -203,6 +205,13 @@ function createStateTransport(dependencies = {}) {
   function buildMemberScopedState(state, account, memberIdOverride) {
     const memberId = memberIdOverride || account.memberId || "";
     const scopedMember = (state.members || []).find((item) => item.id === memberId) || null;
+    if (account.role === "admin" && memberId !== account.memberId) {
+      // Preview the selected person's identity, never the administrator's memberships or grants.
+      const targetAccount = (state.accounts || []).find(item => item.memberId === memberId);
+      account = { ...targetAccount, id: targetAccount?.id || "", role: "member", memberId,
+        associateId: scopedMember?.associateId || targetAccount?.associateId || "",
+        name: scopedMember?.name || "", email: scopedMember?.email || "" };
+    }
     const associateId = scopedMember?.associateId || account.associateId || "";
     const memberEmail = String(scopedMember?.email || account.email || "").toLowerCase();
     const ownAdminLearning = account.role === "admin" && memberId === account.memberId;
@@ -328,6 +337,7 @@ function createStateTransport(dependencies = {}) {
       emailOutbox: quotaLimitedAccess
         ? []
         : (state.emailOutbox || []).filter((item) => item.memberId === memberId || item.associateId === associateId),
+      manualCampusNotices: (state.manualCampusNotices || []).filter(notice => canAccessCampusNotice(state, { ...account, role: "member", memberId, associateId, email: memberEmail }, notice)),
       memberNotifications: listVisibleMemberNotifications(state, memberId).map((notification) =>
         buildMemberNotificationAudiencePayload(notification, memberId)
       ),
@@ -463,7 +473,9 @@ function createStateTransport(dependencies = {}) {
     const baseState = sanitizeStateForTransport(sanitizeStateForAccount(state, account));
     return {
       ...baseState,
-      campusGroups: compactCampusGroupsForTransport(baseState.campusGroups || [])
+      campusGroups: compactCampusGroupsForTransport(baseState.campusGroups || []),
+      manualCampusNotices: (baseState.manualCampusNotices || []).map(notice => compactNotice(notice, "campus")),
+      memberNotifications: (baseState.memberNotifications || []).map(notice => compactNotice(notice, "member"))
     };
   }
 
