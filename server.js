@@ -69,6 +69,7 @@ const {
   verifyLegacyAccountPassword
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
+const { normalizeNoticeAttachments, compactNotice, createNoticesHandler, MAX_NOTICE_BODY_BYTES } = require("./server/notices");
 const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
 const { createQuestionBankImportHandler } = require("./server/question-bank-import");
 const { createBannerHandler, preserveBannerSettings } = require("./server/banners");
@@ -4017,6 +4018,7 @@ function buildMemberNotificationAudiencePayload(notification, memberId) {
     targetType: normalizeMemberNotificationTargetType(notification?.targetType),
     priority: normalizeMemberNotificationPriority(notification?.priority),
     createdAt: String(notification?.createdAt || "").trim(),
+    attachments: compactNotice(notification, "member").attachments,
     read: normalizedMemberId ? readByMemberIds.includes(normalizedMemberId) : false
   };
 }
@@ -4031,6 +4033,7 @@ function buildMemberNotificationAdminPayload(notification) {
     priority: normalizeMemberNotificationPriority(notification?.priority),
     createdByMemberId: String(notification?.createdByMemberId || "").trim(),
     createdAt: String(notification?.createdAt || "").trim(),
+    attachments: compactNotice(notification, "member").attachments,
     readCount: Array.isArray(notification?.readByMemberIds) ? notification.readByMemberIds.length : 0
   };
 }
@@ -4069,6 +4072,9 @@ function createMemberNotification(state, account, payload = {}) {
     targetType,
     memberId,
     priority: payload.priority,
+    attachments: normalizeNoticeAttachments(payload.attachments),
+    clientRequestId: String(payload.clientRequestId || ""),
+    createdByAccountId: account.id,
     createdByMemberId: account?.memberId || "",
     createdAt: new Date().toISOString(),
     readByMemberIds: []
@@ -4320,12 +4326,15 @@ const handleQuestionBankImport = createQuestionBankImportHandler({ readState, wr
 const handleQuestionContributions = createQuestionContributionsHandler({ readState, writeState, requireAdminAccount, requireAuthenticatedAccount, readJsonBody, sendJson, sendJsonError, buildQuestion: buildTestZoneQuestion });
 const handleBanners = createBannerHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError });
 
+const handleNotices = createNoticesHandler({ baseUrl: campusBaseUrl, readState, writeState, requireAuthenticatedAccount, requireAdminAccount, readJsonBody, sendJson, sendJsonError, appendActivity });
+
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
   if (await handleCourseSharedTest(req, res, requestUrl)) return;
   if (await handleQuestionContributions(req, res, requestUrl)) return;
   if (await handleQuestionBankImport(req, res, requestUrl)) return;
   if (await handleBanners(req, res, requestUrl)) return;
+  if (await handleNotices(req, res, requestUrl)) return;
 
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
     return sendJson(res, 200, {
@@ -4463,12 +4472,17 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/member-notifications" && req.method === "POST") {
     try {
-      const payload = await readJsonBody(req);
+      if (!requireAdminAccount(req, res, readState())) return;
+      const payload = await readJsonBody(req, MAX_NOTICE_BODY_BYTES);
       const state = readState();
       const account = requireAdminAccount(req, res, state);
       if (!account) {
         return;
       }
+      const requestId = String(payload.clientRequestId || "");
+      if (requestId && !/^[a-zA-Z0-9-]{16,80}$/.test(requestId)) throw new Error("Identificador de publicación inválido");
+      const previous = requestId && (state.memberNotifications || []).find(item => item.clientRequestId === requestId && item.createdByAccountId === account.id);
+      if (previous) return sendJson(res, 200, { ok: true, notification: buildMemberNotificationAdminPayload(previous), duplicate: true });
       const notification = createMemberNotification(state, account, payload);
       appendActivity(
         state,
@@ -4482,7 +4496,7 @@ const server = http.createServer(async (req, res) => {
         notification: buildMemberNotificationAdminPayload(notification)
       });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo publicar el aviso" });
+      return sendJsonError(res, error, "No se pudo publicar el aviso");
     }
   }
 
@@ -6376,6 +6390,11 @@ const server = http.createServer(async (req, res) => {
       state.testZoneQuestionReports = latestQuestionState.testZoneQuestionReports || [];
       state.testZoneContributions = latestQuestionState.testZoneContributions || [];
       preserveBannerSettings(latestQuestionState, state);
+      // Notices and file contents are changed only through their dedicated APIs.
+      state.manualCampusNotices = latestQuestionState.manualCampusNotices || [];
+      state.memberNotifications = latestQuestionState.memberNotifications || [];
+      state.emailOutbox = [...(latestQuestionState.emailOutbox || []).filter(mail => mail.manualNoticeId),
+        ...(state.emailOutbox || []).filter(mail => !mail.manualNoticeId)];
       // Libraries saved through their dedicated endpoint cannot be overwritten by an old whole-state form.
       const incomingGroups = new Map((state.campusGroups || []).map(group => [group.id, group]));
       for (const current of latestQuestionState.campusGroups || []) {
