@@ -1,5 +1,7 @@
+import { startPublicLiveHost, stopPublicLiveHost } from "../modules/tests/publicLiveHost.js";
+import { getTestGeneration } from "../modules/tests/testStore.js";
 import { renderTestNavigation } from "../ui/testNavigation.js";
-import { buildPublicLiveAdminMarkup, submitPublicLiveForm } from "./testView.js";
+import { buildPublicLiveAdminMarkup, buildPublicLiveSessionsMarkup, submitPublicLiveForm } from "./testView.js";
 import {
   finishLiveSession,
   loadLiveSessions,
@@ -752,7 +754,12 @@ function startStudentTimer(container) {
 
 function finalizeTestsViewRender(container) {
   startLiveCountdown(container);
+  stopPublicLiveHost();
   if (isAdminRole(testsViewState.role)) {
+    if (testsViewState.displayMode === "live") {
+      startPublicLiveHost({ container, loadSessions: loadLiveSessions,
+        renderSessions: buildPublicLiveSessionsMarkup, getGeneration: getTestGeneration });
+    }
     clearStudentTimer();
     clearLivePolling();
     return;
@@ -1991,6 +1998,10 @@ async function handlePublicLiveAction(container, button) {
   }
 
   button.disabled = true;
+  stopPublicLiveHost();
+  const list = container.querySelector('[data-live-host-list]');
+  const generation = getTestGeneration();
+  const current = () => list?.isConnected && container.querySelector('[data-live-host-list]') === list && getTestGeneration() === generation;
   try {
     if (action === "start-live-session") {
       await startLiveSession(sessionId);
@@ -2007,11 +2018,16 @@ async function handlePublicLiveAction(container, button) {
     } else {
       setTestsViewMessage("Estado de la sala actualizado.", "success");
     }
-    await loadLiveSessions();
-    renderTestsMarkup(container);
-    finalizeTestsViewRender(container);
+    await loadLiveSessions({ isCurrent: current });
+    if (current()) list.innerHTML = buildPublicLiveSessionsMarkup();
+  } catch (error) {
+    if (current()) {
+      const status = container.querySelector('[data-live-host-status]');
+      if (status) status.textContent = error.message || "No se pudo actualizar la sala.";
+    }
   } finally {
     button.disabled = false;
+    if (current()) finalizeTestsViewRender(container);
   }
 }
 
@@ -2299,6 +2315,7 @@ async function handleStudentLiveAnswer(container, form) {
 }
 
 export function renderTestsView(container, role = "member", displayMode = "all") {
+  stopPublicLiveHost();
   testsViewState.displayMode = displayMode;
   container.onclick = async (event) => {
     const adminActionButton = event.target.closest("[data-action]");
@@ -2355,11 +2372,25 @@ export function renderTestsView(container, role = "member", displayMode = "all")
     try {
       if (form.hasAttribute("data-test-zone-live-form")) {
         if (!isAdminRole(role)) return;
-        await submitPublicLiveForm(form);
-        await loadLiveSessions();
-        setTestsViewMessage("Test público creado.", "success");
-        renderTestsMarkup(container);
-        finalizeTestsViewRender(container);
+        const button = form.querySelector('button[type="submit"]');
+        if (button.disabled) return;
+        button.disabled = true;
+        stopPublicLiveHost();
+        const generation = getTestGeneration();
+        const current = () => form.isConnected && container.contains(form) && getTestGeneration() === generation;
+        try {
+          await submitPublicLiveForm(form);
+          await loadLiveSessions({ isCurrent: current });
+          if (current()) {
+            container.querySelector('[data-live-host-list]').innerHTML = buildPublicLiveSessionsMarkup();
+            container.querySelector('[data-live-host-status]').textContent = "Test público creado.";
+          }
+        } catch (error) {
+          if (current()) container.querySelector('[data-live-host-status]').textContent = error.message || "No se pudo crear la sala. Vuelve a intentarlo.";
+        } finally {
+          button.disabled = false;
+          if (current()) finalizeTestsViewRender(container);
+        }
         return;
       }
       if (isAdminRole(role) && form.dataset.testsAdminForm) {

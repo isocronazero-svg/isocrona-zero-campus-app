@@ -481,6 +481,7 @@ async function main() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         guestName: "Visitante",
+        joinKey: "a".repeat(32),
         code: liveSessionResponse.body?.session?.code
       })
     });
@@ -498,7 +499,7 @@ async function main() {
     assert.equal(adminLobbySession?.status, "lobby", "Persistir no debe iniciar la sala");
     const guest = createJsonClient("guest", baseUrl);
     const livePath = `/api/test-zone/live-sessions/${liveSessionResponse.body.session.id}`;
-    const joinBody = { guestName: "Visitante", code: liveSessionResponse.body.session.code };
+    const joinBody = { guestName: "Visitante", joinKey: "a".repeat(32), code: liveSessionResponse.body.session.code };
     const repeatedJoin = (await guest.request("POST", "/api/test-zone/live/join", joinBody)).body.liveSession;
     assert.equal(repeatedJoin.status, "lobby", "Unirse nunca inicia la sesion");
     assert.equal(repeatedJoin.participantId, lobbyJoinPayload.liveSession.participantId);
@@ -702,7 +703,7 @@ async function main() {
     const activeJoinResponse = await fetch(new URL("/api/test-zone/live/join", baseUrl), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ guestName: "Visitante", code: liveSessionResponse.body?.session?.code })
+      body: JSON.stringify({ guestName: "Visitante", joinKey: "a".repeat(32), code: liveSessionResponse.body?.session?.code })
     });
     const joinPayload = await activeJoinResponse.json();
     assert.equal(activeJoinResponse.ok, true);
@@ -1129,15 +1130,48 @@ async function main() {
     assert.equal(courseAfterDelete.sharedTestPublished, false);
     await adminClient.request("POST", `${reportPath}/${report.id}/resolve`, {});
     assert.equal((await memberClient.request("GET", reportPath)).body.reports[0].status, "resolved");
+    const namesRoom = (await adminClient.request("POST", "/api/test-zone/live-sessions", {
+      title: "Nombres coincidentes", questionCount: 1, questionTimeLimitSeconds: 120
+    })).body.session;
+    const namesPath = `/api/test-zone/live-sessions/${namesRoom.id}`;
+    const joinOne = { code: namesRoom.code, guestName: "Mismo nombre", joinKey: "c".repeat(32) };
+    const joinTwo = { ...joinOne, joinKey: "d".repeat(32) };
+    const one = (await guest.request("POST", "/api/test-zone/live/join", joinOne)).body.liveSession;
+    const two = (await rival.request("POST", "/api/test-zone/live/join", joinTwo)).body.liveSession;
+    assert.notEqual(one.participantId, two.participantId, "Mismo nombre nunca comparte identidad");
+    assert.equal(one.participantName, "Mismo nombre");
+    assert.equal(two.participantName, "Mismo nombre (2)");
+    assert.equal((await guest.request("POST", "/api/test-zone/live/join", joinOne)).body.liveSession.participantId, one.participantId);
+    assert.equal((await rival.request("POST", "/api/test-zone/live/join", joinTwo)).body.liveSession.participantId, two.participantId);
+    assert.equal((await guest.request("POST", "/api/test-zone/live/join", { ...joinOne, joinKey: "bad" }, { allowFailure: true })).status, 400);
+    assert.equal((await guest.request("POST", "/api/test-zone/live/join", joinOne, { headers: { "X-Live-Participant": repeatedJoin.participantId }, allowFailure: true })).status, 403);
+    const anonymousOne = (await guest.request("POST", "/api/test-zone/live/join", { code: namesRoom.code, guestName: "Sin clave" })).body.liveSession;
+    const anonymousTwo = (await guest.request("POST", "/api/test-zone/live/join", { code: namesRoom.code, guestName: "Sin clave" })).body.liveSession;
+    assert.notEqual(anonymousOne.participantId, anonymousTwo.participantId, "Clientes antiguos tampoco recuperan por nombre");
+    const headerResume = (await guest.request("POST", "/api/test-zone/live/join", { code: namesRoom.code, guestName: "Sin clave", joinKey: "e".repeat(32) }, { headers: { "X-Live-Participant": anonymousOne.participantId } })).body.liveSession;
+    assert.equal(headerResume.participantId, anonymousOne.participantId);
+    assert.equal((await guest.request("POST", "/api/test-zone/live/join", { code: namesRoom.code, guestName: "Sin clave", joinKey: "e".repeat(32) })).body.liveSession.participantId, anonymousOne.participantId);
+    const namesStarted = (await adminClient.request("POST", namesPath + "/start", {})).body.session;
+    const answer = (await adminClient.request("GET", "/api/test-zone/questions")).body.questions.find(q => q.id === namesStarted.currentQuestionId).correctIndex;
+    for (const [player, choice] of [[one, answer], [two, (answer + 1) % 4]]) {
+      await guest.request("POST", namesPath + "/answer", { questionId: namesStarted.currentQuestionId, answerIndex: choice }, { headers: { "X-Live-Participant": player.participantId } });
+    }
+    const namesRevealed = (await adminClient.request("POST", namesPath + "/reveal", {})).body.session;
+    assert.equal(namesRevealed.answeredCount, 2);
+    assert.ok(namesRevealed.leaderboard.find(p => p.name === "Mismo nombre").score >= 100);
+    assert.equal(namesRevealed.leaderboard.find(p => p.name === "Mismo nombre (2)").score, 0);
+    assert.equal(JSON.stringify(namesRevealed).includes('joinKey'), false, "Las claves de entrada no salen en el panel");
+    assert.equal(JSON.stringify(one).includes('joinKey'), false, "Las claves no salen en payloads públicos");
+
     const restartLobby = (await adminClient.request("POST", "/api/test-zone/live-sessions", { title: "Lobby persistente", questionCount: 1 })).body.session;
     const longName = "Visitante ".repeat(10);
-    const restartJoin = (await guest.request("POST", "/api/test-zone/live/join", { code: restartLobby.code, guestName: longName })).body.liveSession;
+    const restartJoin = (await guest.request("POST", "/api/test-zone/live/join", { code: restartLobby.code, guestName: longName, joinKey: "b".repeat(32) })).body.liveSession;
     server.kill("SIGTERM");
     await new Promise(resolve => server.once("exit", resolve));
     server = startServer(port, baseUrl);
     await waitForServer(baseUrl);
     await login(adminClient, "admin@isocronazero.org", "campus123");
-    const restoredJoin = (await guest.request("POST", "/api/test-zone/live/join", { code: restartLobby.code, guestName: longName })).body.liveSession;
+    const restoredJoin = (await guest.request("POST", "/api/test-zone/live/join", { code: restartLobby.code, guestName: longName, joinKey: "b".repeat(32) })).body.liveSession;
     assert.equal(restoredJoin.status, "lobby", "El reinicio conserva la sala de espera");
     assert.equal(restoredJoin.participantId, restartJoin.participantId, "El reinicio conserva al participante");
     assert.deepEqual(restoredJoin.questions, []);
