@@ -13,6 +13,7 @@ async function check(pathname) {
 async function main() {
   const targets = ["/healthz", "/", "/join.html", "/application.html", "/public-live-test.html", "/question-bank.html", "/question-bank.js", "/question-bank.css", "/assets/js/app/ui/banners.js", "/api/public/banners", "/assets/js/app/ui/mobile-navigation.js", "/assets/css/portal-ui.css"];
   const results = [];
+  targets.push("/assets/js/app/modules/tests/publicLiveHost.js");
 
   for (const target of targets) {
     try {

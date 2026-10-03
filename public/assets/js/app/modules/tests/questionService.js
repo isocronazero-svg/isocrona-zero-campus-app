@@ -92,7 +92,7 @@ export async function loadReviewMarks() {
 }
 
 export async function loadLiveSessions({ signal, isCurrent = () => true } = {}) {
-  const payload = await fetchJson("/api/test-zone/live-sessions", { method: "GET", signal });
+  const payload = await fetchJson("/api/test-zone/live-sessions", { method: "GET", signal, cache: "no-store" });
   if (!isCurrent()) return null;
   setLiveSessions(payload.sessions || []);
   return payload.sessions || [];

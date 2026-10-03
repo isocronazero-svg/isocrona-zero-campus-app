@@ -3,6 +3,42 @@
 Repositorio: `isocronazero-svg/isocrona-zero-campus-app`.
 Portal: https://portal.isocronazero.org.
 
+## Continuación: identidades y panel del administrador
+
+Esta sección es la actualización más reciente; las anotaciones de bloqueo de
+las 09:04 que aparecen después se conservan como histórico.
+
+- La revisión de permisos ha permitido reanudar las pruebas.
+- Prueba multijugador real superada con administrador, dos socios y un invitado:
+  dos participantes introducen el mismo nombre y reciben identidades/etiquetas
+  diferentes. Se comprueba que sus respuestas y puntuaciones no se mezclan.
+- La entrada cuyo resultado HTTP se pierde se recupera tras recargar y reintentar
+  sin duplicar participantes. La recuperación de respuestas y del podio sigue funcionando.
+- El panel del anfitrión actualiza automáticamente participantes, respuestas y
+  estado cada tres segundos; reloj por pregunta, formulario y foco conservados.
+- Comprobados reintentos del anfitrión tras desconexión y cancelación al salir
+  de Test en Vivo. El cierre por tiempo habilita el podio sin actualización manual.
+- Añadida comprobación automatizada del panel: respuestas tardías tras cambio de
+  cuenta/vista, permisos caducados, solicitudes sin solapamiento, pausa al ocultar
+  la pestaña y recuperación al volver desde el historial del navegador.
+- `scripts/check-live-multiplayer-ui.mjs`, checks específicos de interfaz y
+  suite completa `npm run check:app` correctos. Confirmar CI y despliegue en la
+  PR de esta rama antes de considerarla publicada.
+
+### Coordinación entre móvil y portátil
+
+El usuario ha informado de que hoy también ha encargado tareas del proyecto
+mediante ChatGPT escritorio en su portátil. Se han consultado el contexto
+recuperable, las PR de hoy y las ramas compartidas. No se han recuperado las
+instrucciones concretas del otro chat ni aparece otra PR de hoy aparte de #214.
+No debe afirmarse que se conocen o han incorporado esos encargos.
+
+Este bloque se limita a Test en Vivo, en `codex/live-identities-host-refresh`.
+Se comprobará de nuevo `main` y la rama antes de integrar y se conservarán los
+cambios concurrentes. Las tareas del portátil que aún no estén compartidas
+requieren el texto, una captura o una referencia a su rama/PR para contrastarlas.
+No se han modificado otras ramas del proyecto.
+
 ## Actualización de seguimiento — 09:04, Europe/Madrid
 
 Esta sección prevalece sobre el histórico de trabajo que sigue.
