@@ -4,29 +4,32 @@ import vm from "node:vm";
 
 const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 const config = readFileSync(new URL("../public/assets/js/app/navigation/config.js", import.meta.url), "utf8");
-const { navItems, TEST_SECTION_LINKS } = await import(`data:text/javascript;base64,${Buffer.from(config).toString("base64")}`);
+const { navItems, TEST_SECTION_LINKS, CAMPUS_SECTION_LINKS } = await import(`data:text/javascript;base64,${Buffer.from(config).toString("base64")}`);
 const start = app.indexOf("function renderNav() {");
 const end = app.indexOf("function renderMetrics()", start);
 assert.ok(start >= 0 && end > start, "Navigation renderer must exist");
 
-function render(admin, allowed = () => true) {
+let renderedNav = "";
+function render(admin, allowed = () => true, campusOnly = false) {
   const context = {
     navItems,
     TEST_SECTION_LINKS,
+    CAMPUS_SECTION_LINKS,
     navElement: { innerHTML: "" },
     state: { activeView: "overview" },
     session: { memberId: "member-qa" },
     campusSectionMode: "courses",
-    isCampusOnlySession: () => false,
+    isCampusOnlySession: () => campusOnly,
     shouldUseMemberProfileAsPrimaryView: () => !admin,
     getCurrentMember: () => ({ id: "member-qa" }),
     getUnreadMemberNotifications: () => [{}],
     isAdminView: () => admin,
     isViewAllowed: allowed,
-    isNavGroupExpanded: () => false,
+    isNavGroupExpanded: () => true,
     escapeHtml: (value) => value
   };
   vm.runInNewContext(`${app.slice(start, end)}\nrenderNav();`, context);
+  renderedNav = context.navElement.innerHTML;
   return [...context.navElement.innerHTML.matchAll(/<button class="nav-main-button[^>]*>/g)].map(([tag]) => tag);
 }
 
@@ -38,8 +41,34 @@ for (const [index, item] of navItems.entries()) {
 }
 assert.equal(render(true, (id) => id !== "reports").length, navItems.length - 1);
 const memberButtons = render(false);
-assert.equal(memberButtons.length, 4);
+assert.equal(memberButtons.length, 5);
+assert.ok(memberButtons.some((tag) => tag.includes('data-view="campus"') && tag.includes('data-mode="courses"')));
+assert.match(renderedNav, /data-section-id="campusSectionGroups"/);
+render(false, () => true, true);
+assert.doesNotMatch(renderedNav, /data-section-id="campusSectionGroups"/, "External campus accounts do not gain internal groups");
+const campusOnlyStart = app.indexOf("function isCampusOnlySession() {");
+const campusOnlyEnd = app.indexOf("\nfunction ", campusOnlyStart + 1);
+for (const ownAdmin of [true, false]) {
+  const context = { session: { memberId: "own-member" }, isAdminSession: () => ownAdmin,
+    isSelfMemberSession: () => ownAdmin, isAdminView: () => false, getCurrentAssociate: () => null };
+  vm.runInNewContext(app.slice(campusOnlyStart, campusOnlyEnd), context);
+  assert.equal(context.isCampusOnlySession(), !ownAdmin);
+}
 assert.equal(navItems.filter((item) => item.id === "test").length, 1);
+const alertsStart = app.indexOf("function getMemberCampusAlerts(");
+const alertsEnd = app.indexOf("\nfunction ", alertsStart + 1);
+for (const campusOnly of [true, false]) {
+  const context = {
+    state: { courses: [{ id: "internal", accessScope: "members", enrolledIds: [], waitingIds: [], diplomaReady: [] }] },
+    findMember: () => ({ id: "own-member" }), getCurrentMember: () => ({ id: "own-member" }),
+    getCurrentAssociate: () => null, getVisibleManualCampusNotices: () => [],
+    isCampusOnlySession: () => campusOnly, normalizeCourseAccessScope: (value) => value,
+    isCourseOpenForEnrollment: () => true
+  };
+  vm.runInNewContext(app.slice(alertsStart, alertsEnd), context);
+  assert.equal(context.getMemberCampusAlerts("own-member").some((alert) => alert.id === "open-courses"), !campusOnly,
+    "Campus alerts must render without a membership record and respect course access");
+}
 assert.ok(!navItems.some((item) => item.id === "tests"), "Test en Vivo debe estar dentro de Zona Test");
 assert.deepEqual(TEST_SECTION_LINKS.map((item) => item.label), ["Test", "Test en Vivo", "Añadir preguntas"]);
 

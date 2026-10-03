@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -20,6 +21,7 @@ const tempDataDir = path.join(tempRoot, "data");
 const tempDefaultStatePath = path.join(tempRoot, "default-state.json");
 const serverOut = [];
 const serverErr = [];
+const externalPassword = randomUUID();
 
 async function getAvailablePort() {
   return await new Promise((resolve, reject) => {
@@ -69,6 +71,18 @@ function buildSeedState() {
       [currentYear]: 0
     }
   }));
+  seed.accounts.push({ id: "external-campus", role: "member", name: "External QA", email: "external@example.test", password: externalPassword, memberId: "external-member", associateId: "" });
+  seed.members.push({ id: "external-member", name: "External QA", email: "external@example.test", role: "Alumno", associateId: "" });
+  seed.campusGroups = [{ id: "internal-group", title: "Grupo interno QA", modules: [] }];
+  for (const [id, status, enrollmentOpensAt] of [
+    ["member-only-course", "Inscripcion abierta", ""],
+    ["closed-course", "Cerrado", ""],
+    ["future-course", "Inscripcion abierta", "2099-01-01T00:00:00.000Z"]
+  ]) {
+    seed.courses.push({ ...seed.courses[0], id, accessScope: "members", audience: "Socios", status, enrollmentOpensAt,
+      startDate: "2099-02-01", endDate: "2099-02-02", capacity: 2, enrollmentFee: 0,
+      enrolledIds: ["member-1"], waitingIds: [], diplomaReady: [], enrollmentSubmissions: [] });
+  }
   seed.testZoneQuestions = [
     {
       id: "tz-question-1",
@@ -287,6 +301,31 @@ async function main() {
     assert.equal(adminState.testZoneReviewMarks?.length, 2, "Admin debe mantener todas las marcas");
     assert.equal(adminState.testZoneLiveSessions?.length, 1, "Admin debe mantener sesiones live completas");
     assert.equal(adminState.testZoneLiveSessions?.[0]?.code, "LIVE1", "Admin debe mantener detalle de sesion live");
+
+    const profile = (await adminClient.request("POST", "/api/account/member-profile")).body;
+    const ownState = (await adminClient.request("GET", "/api/state?mode=self")).body;
+    assert.ok(ownState.courses.some((course) => course.id === "member-only-course"), "Own admin learner can browse member courses without creating a paid membership");
+    assert.ok(ownState.campusGroups.length > 0, "Own admin learner can browse internal groups");
+    assert.deepEqual(ownState.members.map((member) => member.id), [profile.memberId]);
+    assert.deepEqual(ownState.courses.find((course) => course.id === "member-only-course").enrolledIds, []);
+    assert.equal("correctIndex" in ownState.testZoneQuestions[0], false);
+    assert.deepEqual(ownState.testZoneLiveSessions, []);
+    await adminClient.request("POST", "/api/member/courses/member-only-course/enroll", { memberId: "external-member" });
+    const afterEnrollment = (await adminClient.request("GET", "/api/state")).body;
+    assert.deepEqual(afterEnrollment.courses.find((course) => course.id === "member-only-course").enrolledIds, ["member-1", profile.memberId]);
+    assert.equal(afterEnrollment.associates.length, adminState.associates.length, "Enrollment must not create a paid membership");
+    for (const id of ["closed-course", "future-course"]) {
+      assert.equal((await adminClient.request("POST", `/api/member/courses/${id}/enroll`, {}, { allowFailure: true })).status, 403);
+    }
+    const external = createClient("external", baseUrl);
+    await login(external, "external@example.test", externalPassword);
+    const externalState = (await external.request("GET", "/api/state")).body;
+    assert.ok(!externalState.courses.some((course) => course.id === "member-only-course"));
+    assert.deepEqual(externalState.campusGroups, []);
+    assert.equal((await external.request("POST", "/api/member/courses/member-only-course/enroll", {}, { allowFailure: true })).status, 403);
+    const preview = (await adminClient.request("GET", "/api/state?mode=preview&memberId=external-member")).body;
+    assert.deepEqual(preview.campusGroups, [], "Preview must not inherit the admin's own learning privileges");
+    assert.ok(!preview.courses.some((course) => course.id === "member-only-course"));
   } finally {
     await stopServer(server);
     rmSync(tempRoot, { recursive: true, force: true });

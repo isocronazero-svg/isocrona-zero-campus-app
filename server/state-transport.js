@@ -205,7 +205,8 @@ function createStateTransport(dependencies = {}) {
     const scopedMember = (state.members || []).find((item) => item.id === memberId) || null;
     const associateId = scopedMember?.associateId || account.associateId || "";
     const memberEmail = String(scopedMember?.email || account.email || "").toLowerCase();
-    const campusOnlyAccess = !associateId;
+    const ownAdminLearning = account.role === "admin" && memberId === account.memberId;
+    const campusOnlyAccess = !associateId && !ownAdminLearning;
     const scopedAssociate = findAssociateForAccount(state, account, scopedMember);
     const quotaLimitedAccess = !campusOnlyAccess && isAssociateAccessLimitedByQuota(scopedAssociate);
     const memberOwnedCourseIds = quotaLimitedAccess

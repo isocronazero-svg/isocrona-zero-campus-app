@@ -5760,6 +5760,7 @@ function renderNav() {
   const effectiveNavItems = !isAdminView()
     ? [
         { id: "overview", label: "Mi aula", action: "nav", view: "overview" },
+        { id: "campus", label: "Campus", action: "open-member-campus-mode", mode: "courses", sections: CAMPUS_SECTION_LINKS.filter((section) => !campusOnlySession || section.id !== "campusSectionGroups") },
         { id: "test", label: "Zona Test", action: "nav", view: "test", sections: TEST_SECTION_LINKS },
         { id: "diplomas", label: "Mis diplomas", action: "open-member-campus-mode", mode: "diplomas" },
         { id: "join", label: campusOnlySession ? "Hazte socio" : "Mi perfil", action: "nav", view: "join" }
@@ -5771,6 +5772,9 @@ function renderNav() {
     }
     if (item.id === "diplomas") {
       return state.activeView === "campus" && campusSectionMode === "diplomas";
+    }
+    if (item.id === "campus" && !isAdminView()) {
+      return state.activeView === "campus" && campusSectionMode !== "diplomas";
     }
     return state.activeView === item.id;
   };
@@ -5791,7 +5795,7 @@ function renderNav() {
               ${escapeHtml(navLabel)}
             </button>
             ${
-              item.sections?.length && (isAdminView() || item.id === "test")
+              item.sections?.length && (isAdminView() || item.id === "test" || item.id === "campus")
                 ? `
                     <button
                       class="nav-toggle-button ${isNavGroupExpanded(item.id) ? "expanded" : ""}"
@@ -19876,6 +19880,7 @@ function isSelfMemberSession() {
 }
 
 function isCampusOnlySession() {
+  if (isAdminSession() && isSelfMemberSession()) return false;
   return !isAdminView() && Boolean(session?.memberId) && !getCurrentAssociate();
 }
 
@@ -20420,7 +20425,7 @@ function getMemberCampusAlerts(memberId) {
   const openCourses = (state.courses || []).filter(
     (course) =>
       !ownCourses.some((entry) => entry.id === course.id) &&
-      (associate ? true : isCoursePublicAccess(course)) &&
+      (!isCampusOnlySession() || normalizeCourseAccessScope(course.accessScope, course.audience) === "public") &&
       isCourseOpenForEnrollment(course)
   );
   if (openCourses.length) {

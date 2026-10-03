@@ -8455,7 +8455,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if (!course || !member) {
         return sendJson(res, 404, { ok: false, error: "Curso o persona no encontrada" });
       }
-      if (!account.associateId && !isCoursePublicAccess(course)) {
+      if (account.role !== "admin" && !account.associateId && !isCoursePublicAccess(course)) {
         return sendJson(res, 403, { ok: false, error: "Este curso esta reservado a socios" });
       }
       if (String(course.status || "") !== "Inscripcion abierta") {
