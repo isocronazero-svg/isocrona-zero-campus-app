@@ -295,6 +295,7 @@ function buildFrontendCurrentUser() {
   return {
     id: session.memberId || session.accountId || session.email || session.name,
     memberId: session.memberId || "",
+    canHostLive: session.role === "instructor",
     email: session.email || "",
     name: session.name || ""
   };
@@ -1866,7 +1867,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    if (!session || (session.role !== "member" && !isAdminSession())) {
+    if (!session || (!["member", "instructor"].includes(session.role) && !isAdminSession())) {
       return;
     }
 
@@ -1888,7 +1889,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    if (!session || (session.role !== "member" && !isAdminSession())) {
+    if (!session || (!["member", "instructor"].includes(session.role) && !isAdminSession())) {
       return;
     }
 
@@ -4622,7 +4623,7 @@ function persistSession() {
     accountId: String(session.accountId || ""),
     name: String(session.name || ""),
     email: String(session.email || ""),
-    role: session.role === "admin" ? "admin" : "member",
+    role: normalizeCampusAccountRole(session.role),
     memberId: String(session.memberId || ""),
     associateId: String(session.associateId || ""),
     mustChangePassword: Boolean(session.mustChangePassword)
@@ -12240,6 +12241,7 @@ function renderMemberWorkbench(member) {
           Rol de acceso
           <select id="editMemberAccessRole">
             <option value="member" ${account?.role === "member" ? "selected" : ""}>Alumno</option>
+            <option value="instructor" ${account?.role === "instructor" ? "selected" : ""}>Socio / instructor</option>
             <option value="admin" ${account?.role === "admin" ? "selected" : ""}>Administracion</option>
           </select>
         </label>
@@ -18095,7 +18097,7 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
   const journey = getLearnerCourseJourney(course, memberId);
   const compact = Boolean(options.compact);
   const allowProgressActions =
-    !isMemberPreviewSession() && session?.role === "member" && session?.memberId === memberId;
+    !isMemberPreviewSession() && ["member", "instructor"].includes(session?.role) && session?.memberId === memberId;
   const nextBlock = journey.nextStep?.block || null;
   const finalTestStatus = getCourseFinalTestStatus(course, memberId);
   const nextStepIsFinalTest = Boolean(finalTestStatus.exists && nextBlock?.id === finalTestStatus.block?.id);
@@ -19906,11 +19908,12 @@ function isMemberPreviewSession() {
 }
 
 function isSelfMemberSession() {
-  return (session?.role === "member" && Boolean(session?.memberId)) || (isAdminSession() && viewRole === "member-self");
+  return (["member", "instructor"].includes(session?.role) && Boolean(session?.memberId)) || (isAdminSession() && viewRole === "member-self");
 }
 
 function isCampusOnlySession() {
   if (isAdminSession() && isSelfMemberSession()) return false;
+  if (session?.role === "instructor") return false;
   return !isAdminView() && Boolean(session?.memberId) && !getCurrentAssociate();
 }
 
@@ -20134,7 +20137,7 @@ function getCurrentAssociate() {
 
 function normalizeCampusAccountRole(role) {
   const normalized = String(role || "").trim().toLowerCase();
-  return normalized === "admin" ? "admin" : "member";
+  return ["admin", "instructor"].includes(normalized) ? normalized : "member";
 }
 
 function formatCampusAccountRole(role) {

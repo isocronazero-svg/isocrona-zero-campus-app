@@ -14,5 +14,6 @@ export const MANUAL_NOTICE_TONE_LABELS = {
 
 export const CAMPUS_ACCOUNT_ROLE_LABELS = {
   member: "Socio / alumno",
+  instructor: "Socio / instructor",
   admin: "Administracion"
 };

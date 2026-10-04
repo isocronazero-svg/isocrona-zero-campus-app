@@ -64,6 +64,10 @@ function isAdminRole(role) {
   return String(role || "member").trim() === "admin";
 }
 
+function canHostPublicLive(role) {
+  return isAdminRole(role) || Boolean(getFrontendBridge()?.store?.getState()?.currentUser?.canHostLive);
+}
+
 function setTestsViewMessage(message = "", tone = "neutral") {
   testsViewState.message = String(message || "").trim();
   testsViewState.tone = tone || "neutral";
@@ -755,7 +759,7 @@ function startStudentTimer(container) {
 function finalizeTestsViewRender(container) {
   startLiveCountdown(container);
   stopPublicLiveHost();
-  if (isAdminRole(testsViewState.role)) {
+  if (isAdminRole(testsViewState.role) || (testsViewState.displayMode === "live" && canHostPublicLive(testsViewState.role))) {
     if (testsViewState.displayMode === "live") {
       startPublicLiveHost({ container, loadSessions: loadLiveSessions,
         renderSessions: buildPublicLiveSessionsMarkup, getGeneration: getTestGeneration });
@@ -1836,7 +1840,7 @@ function renderTestsMarkup(container) {
           <p class="muted">Los participantes entran con su nombre y el código de la sala.</p>
           <a class="ghost-button" href="/public-live-test.html" target="_blank" rel="noopener">Abrir entrada de participantes</a>
         </section>
-        ${admin ? `<div data-public-live-controls>${buildPublicLiveAdminMarkup()}</div>` : ""}
+        ${canHostPublicLive(testsViewState.role) ? `<div data-public-live-controls>${buildPublicLiveAdminMarkup()}</div>` : ""}
       </section>`
     : admin
       ? renderAdminMarkup()
@@ -1850,12 +1854,13 @@ async function refreshTestsView(container, role) {
   container.innerHTML = '<div class="empty-state">Cargando tests...</div>';
 
   try {
-    if (isAdminRole(role)) {
-      await loadAdminData();
-      if (testsViewState.displayMode === "live") {
+    if (testsViewState.displayMode === "live") {
+      if (canHostPublicLive(role)) {
         await loadSharedQuestions();
         await loadLiveSessions();
       }
+    } else if (isAdminRole(role)) {
+      await loadAdminData();
     } else {
       await loadStudentData();
     }
@@ -2322,7 +2327,8 @@ export function renderTestsView(container, role = "member", displayMode = "all")
     if (adminActionButton?.dataset.action === "nav") return;
     const openTestButton = event.target.closest('[data-action="open-test"]');
     const startAttemptButton = event.target.closest('[data-action="start-test-attempt"]');
-    if (isAdminRole(role) && adminActionButton && !openTestButton && !startAttemptButton) {
+    const publicHostAction = adminActionButton?.closest("[data-public-live-controls]");
+    if ((isAdminRole(role) || (canHostPublicLive(role) && publicHostAction)) && adminActionButton && !openTestButton && !startAttemptButton) {
       event.preventDefault();
       try {
         if (adminActionButton.closest("[data-public-live-controls]")) {
@@ -2371,7 +2377,7 @@ export function renderTestsView(container, role = "member", displayMode = "all")
 
     try {
       if (form.hasAttribute("data-test-zone-live-form")) {
-        if (!isAdminRole(role)) return;
+        if (!canHostPublicLive(role)) return;
         const button = form.querySelector('button[type="submit"]');
         if (button.disabled) return;
         button.disabled = true;

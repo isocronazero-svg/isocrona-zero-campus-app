@@ -270,7 +270,7 @@ async function requireAdminDbUser(req, res) {
 }
 
 function mapPlatformRoleToLegacyAccountRole(role) {
-  return normalizePlatformRole(role) === "admin" ? "admin" : "member";
+  return normalizeCampusAccountRole(normalizePlatformRole(role));
 }
 
 function mapPlatformRoleToLegacyMemberRole(role) {
@@ -285,7 +285,25 @@ function mapPlatformRoleToLegacyMemberRole(role) {
 }
 
 function normalizeCampusAccountRole(role) {
-  return role === "admin" ? "admin" : "member";
+  return ["admin", "instructor"].includes(role) ? role : "member";
+}
+
+function canHostPublicLive(account) {
+  return account?.role === "admin" || account?.role === "instructor";
+}
+
+function canManagePublicLive(account, session) {
+  return account?.role === "admin" || (account?.role === "instructor" && Boolean(account.id) && session?.createdByAccountId === account.id);
+}
+
+function requireLiveHostAccount(req, res, state) {
+  const account = requireAuthenticatedAccount(req, res, state);
+  if (!account) return null;
+  if (!canHostPublicLive(account)) {
+    sendJson(res, 403, { ok: false, error: "Solo administracion o instructores pueden dirigir tests en vivo" });
+    return null;
+  }
+  return account;
 }
 
 function generateLegacyId(prefix) {
@@ -400,7 +418,7 @@ function buildPlatformSessionPayload(account, sessionToken = "", extras = {}) {
     ...buildSessionPayload(account, sessionToken),
     userId: String(extras.userId || ""),
     jwt: String(extras.jwt || ""),
-    platformRole: normalizePlatformRole(extras.platformRole || (account.role === "admin" ? "admin" : "socio"))
+    platformRole: normalizePlatformRole(extras.platformRole || (account.role === "member" ? "socio" : account.role))
   };
 }
 
@@ -413,7 +431,7 @@ function listLegacyUsersFromState(state) {
       id: account.id,
       name: account.name,
       email: account.email,
-      role: account.role === "admin" ? "admin" : member?.role === "Instructor" ? "instructor" : "socio",
+      role: account.role === "admin" ? "admin" : account.role === "instructor" || member?.role === "Instructor" ? "instructor" : "socio",
       status: "active",
       phone: member?.phone || "",
       service: member?.service || "",
@@ -432,7 +450,7 @@ function buildLegacyCurrentUser(account, state) {
     id: account.id,
     name: account.name,
     email: account.email,
-    role: account.role === "admin" ? "admin" : member?.role === "Instructor" ? "instructor" : "socio",
+    role: account.role === "admin" ? "admin" : account.role === "instructor" || member?.role === "Instructor" ? "instructor" : "socio",
     status: "active",
     phone: member?.phone || "",
     service: member?.service || "",
@@ -458,6 +476,9 @@ function canAccessEmailRecord(account, email) {
 }
 
 module.exports = {
+  canHostPublicLive,
+  canManagePublicLive,
+  requireLiveHostAccount,
   buildLegacyCurrentUser,
   buildPlatformSessionPayload,
   buildSessionPayload,
