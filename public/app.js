@@ -10949,6 +10949,16 @@ function renderMemberDiplomas(member) {
         Ahora mismo tienes <strong>${availableDiplomas}</strong> diploma(s) disponible(s) y
         <strong>${pendingDiplomas}</strong> curso(s) pendiente(s) de cierre.
       </div>
+      <section aria-label="Certificado de actividad">
+        <h4>Certificado de actividad</h4>
+        ${availableDiplomas ? `
+          <p class="muted">${availableDiplomas} actividad(es) acreditada(s). El certificado incluye el detalle y el total de horas lectivas.</p>
+          <div class="chip-row">
+            <a class="button-link" target="_blank" rel="noopener noreferrer" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}">Ver certificado</a>
+            <a class="mini-button" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}&amp;download=1">Descargar PDF acumulado</a>
+          </div>
+        ` : `<p class="muted">El certificado acumulado estara disponible cuando tengas actividades acreditadas.</p>`}
+      </section>
       <div class="panel-stack associate-anchor" id="diplomaSectionDocuments">
         ${diplomaCards}
       </div>
