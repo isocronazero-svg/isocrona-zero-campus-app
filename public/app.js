@@ -11,6 +11,7 @@ import {
   MANUAL_NOTICE_TONE_LABELS
 } from "./assets/js/app/ui/labels.js";
 import { escapeHtml, formatDate } from "./assets/js/app/ui/formatters.js";
+import { renderNoticeFileInput, readNoticeFiles, renderNoticeAttachments, renderNoticeLinks } from "./assets/js/app/ui/notices.js";
 import { createMobileNavigation } from "./assets/js/app/ui/mobile-navigation.js";
 import { renderBanners, renderBannerSettings, bindBannerSettings } from "./assets/js/app/ui/banners.js";
 import {
@@ -1254,76 +1255,69 @@ document.addEventListener("click", async (event) => {
     const sendEmail = Boolean(document.getElementById("manualNoticeSendEmail")?.checked);
 
     if (!title || !detail) {
-      showToast("Escribe un titulo y un mensaje para la novedad", "error");
+      showToast("Escribe un titulo y un mensaje para la novedad", "error", true);
       return;
     }
     if (audience === "course" && !courseId) {
-      showToast("Si eliges alumnado de un curso, selecciona el curso", "error");
+      showToast("Si eliges alumnado de un curso, selecciona el curso", "error", true);
       return;
     }
 
     const expiresAt = expiresAtRaw ? new Date(expiresAtRaw) : null;
     if (expiresAtRaw && (!expiresAt || Number.isNaN(expiresAt.getTime()))) {
-      showToast("La fecha de caducidad no es valida", "error");
+      showToast("La fecha de caducidad no es valida", "error", true);
       return;
     }
 
-    state.manualCampusNotices = state.manualCampusNotices || [];
-    const notice = normalizeManualCampusNotice({
-      id: `manual-notice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      title,
-      detail,
-      audience,
-      tone,
-      courseId,
-      actionLabel,
-      channels: {
-        campus: true,
-        email: sendEmail,
-        whatsapp: false
-      },
-      expiresAt: expiresAt ? expiresAt.toISOString() : "",
-      publishedAt: new Date().toISOString(),
-      active: true
-    });
-    state.manualCampusNotices.unshift(notice);
-    const queuedEmails = sendEmail ? queueManualNoticeEmails(notice) : 0;
-    addActivity("admin", session?.name || "Administracion", `Publica novedad manual: ${title}`);
-    automationSectionMode = "notices";
-    await persistAndRender(
-      queuedEmails
-        ? `Novedad publicada y ${queuedEmails} correo(s) registrados en salida`
-        : "Novedad publicada en el campus"
-    );
+    if (actionTarget.disabled) return;
+    actionTarget.disabled = true;
+    actionTarget.textContent = "Publicando…";
+    try {
+      const attachments = await readNoticeFiles(document.getElementById("manualNoticeAttachments"));
+      actionTarget.dataset.requestId ||= crypto.randomUUID();
+      const response = await fetch("/api/campus-notices", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, detail, audience, tone, courseId, actionLabel, sendEmail,
+          expiresAt: expiresAt ? expiresAt.toISOString() : "", attachments, clientRequestId: actionTarget.dataset.requestId })
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        if (response.status >= 400 && response.status < 500) delete actionTarget.dataset.requestId;
+        throw new Error(result.error || "No se pudo publicar el aviso");
+      }
+      await refreshState({ forceAdminState: true });
+      applySessionToState();
+      syncStatus = result.queuedEmails ? `Aviso publicado y ${result.queuedEmails} correo(s) en salida` : "Aviso publicado. Ya puedes compartirlo por WhatsApp";
+      render();
+      showToast(syncStatus, "success");
+    } catch (error) {
+      showToast(error.message || "No se pudo publicar. Conservamos el formulario para reintentarlo", "error", true);
+    } finally {
+      actionTarget.disabled = false;
+      actionTarget.textContent = "Publicar novedad";
+    }
     return;
   }
 
-  if (action === "toggle-manual-campus-notice" && isAdminView()) {
-    const noticeId = String(actionTarget.dataset.noticeId || "").trim();
-    const notice = (state.manualCampusNotices || []).find((item) => item.id === noticeId);
-    if (!notice) {
-      return;
-    }
-    notice.active = notice.active === false;
-    addActivity(
-      "admin",
-      session?.name || "Administracion",
-      `${notice.active === false ? "Oculta" : "Vuelve a publicar"} la novedad: ${notice.title}`
-    );
-    automationSectionMode = "notices";
-    await persistAndRender(notice.active === false ? "Novedad oculta" : "Novedad publicada de nuevo");
-    return;
-  }
-
-  if (action === "delete-manual-campus-notice" && isAdminView()) {
-    const noticeId = String(actionTarget.dataset.noticeId || "").trim();
-    const notice = (state.manualCampusNotices || []).find((item) => item.id === noticeId);
-    state.manualCampusNotices = (state.manualCampusNotices || []).filter((item) => item.id !== noticeId);
-    if (notice) {
-      addActivity("admin", session?.name || "Administracion", `Elimina la novedad: ${notice.title}`);
-    }
-    automationSectionMode = "notices";
-    await persistAndRender("Novedad eliminada");
+  if (["toggle-manual-campus-notice", "delete-manual-campus-notice"].includes(action) && isAdminView()) {
+    const noticeId = String(actionTarget.dataset.noticeId || "");
+    const notice = (state.manualCampusNotices || []).find(item => item.id === noticeId);
+    if (!notice || actionTarget.disabled) return;
+    actionTarget.disabled = true;
+    const deleting = action === "delete-manual-campus-notice";
+    try {
+      const response = await fetch(`/api/notices/campus/${encodeURIComponent(noticeId)}`, {
+        method: deleting ? "DELETE" : "PATCH", headers: { "Content-Type": "application/json" },
+        ...(deleting ? {} : { body: JSON.stringify({ active: notice.active === false }) })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No se pudo actualizar el aviso");
+      await refreshState({ forceAdminState: true });
+      applySessionToState();
+      render();
+      showToast(deleting ? "Aviso eliminado" : "Aviso actualizado", "success");
+    } catch (error) { showToast(error.message, "error", true); }
+    finally { actionTarget.disabled = false; }
     return;
   }
 
@@ -3643,22 +3637,30 @@ document.addEventListener("submit", async (event) => {
       priority: String(formData.get("priority") || "normal").trim()
     };
 
-    const response = await fetch("/api/member-notifications", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const result = await response.json();
-    if (!response.ok || result.ok === false) {
-      throw new Error(result.error || "No se pudo publicar el aviso");
-    }
-
-    event.target.reset();
-    await refreshState({ forceAdminState: true });
-    applySessionToState();
-    syncStatus = "Aviso interno publicado";
-    showToast("Aviso interno publicado", "success");
-    render();
+    const form = event.target;
+    const button = form.querySelector('button[type="submit"]');
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = "Publicando…";
+    try {
+      payload.attachments = await readNoticeFiles(form.querySelector('input[name="attachments"]'));
+      form.dataset.requestId ||= crypto.randomUUID();
+      payload.clientRequestId = form.dataset.requestId;
+      const response = await fetch("/api/member-notifications", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (!response.ok || result.ok === false) {
+        if (response.status >= 400 && response.status < 500) delete form.dataset.requestId;
+        throw new Error(result.error || "No se pudo publicar el aviso");
+      }
+      await refreshState({ forceAdminState: true });
+      applySessionToState();
+      syncStatus = "Aviso interno publicado";
+      render();
+      showToast(syncStatus, "success");
+    } catch (error) { showToast(error.message || "No se pudo publicar. Puedes reintentarlo", "error", true); }
+    finally { button.disabled = false; button.textContent = "Publicar aviso"; }
     return;
   }
 
@@ -5465,6 +5467,11 @@ async function submitAssociateDeletion() {
 }
 
 function render() {
+  const noticeParams = new URLSearchParams(window.location.search);
+  if (session && hasLoaded && !session.mustChangePassword && /^[a-zA-Z0-9_-]+$/.test(noticeParams.get("notice") || "") && ["campus", "member"].includes(noticeParams.get("noticeKind"))) {
+    window.location.replace(`/aviso.html?kind=${noticeParams.get("noticeKind")}&id=${encodeURIComponent(noticeParams.get("notice"))}`);
+    return;
+  }
   const currentAssociate = getCurrentAssociate();
   normalizePrimaryMemberView();
   if (session && !isViewAllowed(state.activeView)) {
@@ -6199,14 +6206,16 @@ function focusLearnerWorkspaceSection(mode) {
   target.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function showToast(message, type = "success") {
+function showToast(message, type = "success", preserveView = false) {
   if (!message) {
     return;
   }
 
   toastMessage = message;
   toastType = type;
-  render();
+  if (preserveView) {
+    toastLayer.innerHTML = `<div class="toast ${type === "error" ? "error" : "success"}">${escapeHtml(message)}</div>`;
+  } else render();
   if (toastTimer) {
     clearTimeout(toastTimer);
   }
@@ -6533,7 +6542,9 @@ function renderMemberNotifications(memberId) {
                               : "Pendiente"
                         )}</span>
                       </div>
-                      <p>${escapeHtml(notification.body || "")}</p>
+                      <p class="notice-body">${escapeHtml(notification.body || "")}</p>
+                      ${renderNoticeAttachments(notification)}
+                      ${renderNoticeLinks(notification, "member", isAdminView())}
                       <p class="muted">${escapeHtml(formatDateTime(notification.createdAt) || "Fecha pendiente")}</p>
                       ${
                         read
@@ -6764,6 +6775,7 @@ function renderJoinView() {
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionProfileEditor">Datos y cambios</button>
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionPaymentProof">Cuota y justificante</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Mis cursos</button>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Avisos</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Mis diplomas</button>
         </div>
 
@@ -7862,6 +7874,7 @@ function renderAssociates() {
             Mensaje
             <textarea name="body" rows="4" required></textarea>
           </label>
+          ${renderNoticeFileInput("memberNoticeAttachments")}
           <div class="chip-row">
             <button class="primary-button" type="submit">Publicar aviso</button>
           </div>
@@ -7895,7 +7908,9 @@ function renderAssociates() {
                             notification.priority === "important" ? "Importante" : "Normal"
                           )}</span>
                         </div>
-                        <p>${escapeHtml(notification.body || "")}</p>
+                        <p class="notice-body">${escapeHtml(notification.body || "")}</p>
+                      ${renderNoticeAttachments(notification)}
+                      ${renderNoticeLinks(notification, "member", isAdminView())}
                         <p class="muted">
                           ${escapeHtml(notification.targetType === "member" ? `Solo ${targetMember?.name || notification.memberId}` : "Todos los socios")}
                           · ${escapeHtml(formatDateTime(notification.createdAt) || "Fecha pendiente")}
@@ -9957,13 +9972,14 @@ function renderCampus() {
           </div>
           <div class="chip-row compact-chip-row">
             <button class="${effectiveCampusSectionMode === "courses" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="courses">Cursos</button>
+            <button class="${effectiveCampusSectionMode === "alerts" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="alerts">Avisos</button>
             ${!campusOnlySession ? `<button class="${effectiveCampusSectionMode === "groups" ? "primary-button" : "ghost-button"}" data-action="set-campus-section-mode" data-mode="groups">Grupos internos</button>` : ""}
           </div>
         </div>
       </div>
 
       ${effectiveCampusSectionMode === "all" ? renderCampusHub() : ""}
-      ${!isAdminView() && showCampusSection("alerts") ? `<section class="associate-anchor" id="campusSectionAlerts">${renderMemberAlerts(getCurrentMember()?.id, { anchor: true, sectionId: "campusSectionAlerts" })}</section>` : ""}
+      ${showCampusSection("alerts") ? `<section class="associate-anchor" id="campusSectionAlerts">${isAdminView() ? renderManualCampusNoticesManager() : renderMemberAlerts(getCurrentMember()?.id) + renderMemberNotifications(getCurrentMember()?.id)}</section>` : ""}
       ${showCampusSection("courses") ? `<section class="associate-anchor" id="campusSectionCourses">${renderCourses()}</section>` : ""}
       ${isAdminView() && showCampusSection("operations") ? `<section class="associate-anchor" id="campusSectionOperations">${renderOperations(selectedCourse)}</section>` : ""}
       ${
@@ -11436,19 +11452,20 @@ function renderManualCampusNoticesManager() {
         <div>
           <p class="eyebrow">Buzon manual</p>
           <h4>Novedades del campus</h4>
-          <p class="muted">Publica avisos visibles en <strong>Campus &gt; Avisos</strong> y en <strong>Mi panel</strong> para socios, externos o alumnado de un curso concreto. Email ya disponible; WhatsApp queda preparado para la siguiente fase.</p>
+          <p class="muted">Publica avisos visibles en <strong>Campus &gt; Avisos</strong> y en <strong>Mi panel</strong> para socios, externos o alumnado de un curso concreto. Adjunta documentos e imágenes y comparte el enlace en WhatsApp después de publicar.</p>
         </div>
       </div>
 
       <div class="studio-grid">
         <label class="inline-field studio-full">
           Titulo
-          <input id="manualNoticeTitle" placeholder="Ej. Se ha publicado documentacion nueva" />
+          <input id="manualNoticeTitle" maxlength="120" placeholder="Ej. Se ha publicado documentacion nueva" />
         </label>
         <label class="inline-field studio-full">
           Mensaje
-          <textarea id="manualNoticeDetail" rows="4" placeholder="Explica la novedad o el siguiente paso para la persona destinataria"></textarea>
+          <textarea id="manualNoticeDetail" maxlength="10000" rows="4" placeholder="Explica la novedad o el siguiente paso para la persona destinataria"></textarea>
         </label>
+        ${renderNoticeFileInput("manualNoticeAttachments")}
         <label class="inline-field">
           Destinatarios
           <select id="manualNoticeAudience">
@@ -11526,7 +11543,9 @@ function renderManualCampusNoticesManager() {
                           )}</span>
                         </div>
                       </div>
-                      <p>${escapeHtml(notice.detail || "Sin detalle")}</p>
+                      <p class="notice-body">${escapeHtml(notice.detail || "Sin detalle")}</p>
+                      ${renderNoticeAttachments(notice)}
+                      ${renderNoticeLinks(notice, "campus", isManualCampusNoticeActive(notice))}
                       <p class="muted">
                         Publicado ${formatDateTime(notice.publishedAt)}${notice.courseId ? ` · Curso: ${escapeHtml(findCourse(notice.courseId)?.title || "Curso vinculado")}` : ""}${notice.expiresAt ? ` · Hasta ${formatDateTime(notice.expiresAt)}` : ""}
                       </p>
@@ -19919,6 +19938,10 @@ function formatDateRange(startDate, endDate) {
   return `${formatDate(startDate)} al ${formatDate(endDate)}`;
 }
 
+function findCourse(courseId) {
+  return (state.courses || []).find(course => course.id === courseId) || null;
+}
+
 function findAssociateByMember(member) {
   if (!member) {
     return null;
@@ -20117,7 +20140,7 @@ function isCurrentMemberLimitedToAssociateProfile() {
 }
 
 function normalizeManualCampusNotice(notice, index = 0) {
-  const normalizedAudience = ["all", "associates", "campus-only", "course"].includes(
+  const normalizedAudience = ["all", "associates", "active-associates", "campus-only", "course"].includes(
     String(notice?.audience || "").trim()
   )
     ? String(notice.audience).trim()
@@ -20129,6 +20152,7 @@ function normalizeManualCampusNotice(notice, index = 0) {
     id: String(notice?.id || `manual-notice-${Date.now()}-${index}`).trim(),
     title: String(notice?.title || "").trim(),
     detail: String(notice?.detail || "").trim(),
+    attachments: Array.isArray(notice?.attachments) ? notice.attachments : [],
     audience: normalizedAudience,
     tone: normalizedTone,
     courseId: String(notice?.courseId || "").trim(),
@@ -20194,6 +20218,8 @@ function getVisibleManualCampusNotices(memberId, ownCourses = []) {
     .filter((notice) => isManualCampusNoticeActive(notice))
     .filter((notice) => {
       switch (notice.audience) {
+        case "active-associates":
+          return Boolean(associate && isAssociateActiveForBulkEmail(associate));
         case "associates":
           return Boolean(associate);
         case "campus-only":
@@ -20234,6 +20260,7 @@ function getMemberCampusAlerts(memberId) {
       tone: notice.tone || "info",
       title: notice.title || "Novedad del campus",
       detail: notice.detail || "Tienes una novedad publicada en el campus.",
+      notice,
       action: notice.courseId ? "select-course" : "",
       courseId: notice.courseId || "",
       actionLabel: notice.actionLabel || (notice.courseId ? "Abrir curso" : "")
@@ -20423,7 +20450,7 @@ function getMemberCampusAlerts(memberId) {
   const openCourses = (state.courses || []).filter(
     (course) =>
       !ownCourses.some((entry) => entry.id === course.id) &&
-      (associate ? true : isCoursePublicAccess(course)) &&
+      (associate ? true : normalizeCourseAccessScope(course.accessScope, course.audience) === "public") &&
       isCourseOpenForEnrollment(course)
   );
   if (openCourses.length) {
@@ -20521,7 +20548,8 @@ function renderMemberAlerts(memberId, options = {}) {
                               : "Info"
                         )}</span>
                       </div>
-                      <p>${escapeHtml(alert.detail)}</p>
+                      <p class="notice-body">${escapeHtml(alert.detail)}</p>
+                      ${alert.notice ? renderNoticeAttachments(alert.notice) + renderNoticeLinks(alert.notice, "campus") : ""}
                       <div class="chip-row">
                         ${renderMemberAlertAction(alert)}
                       </div>

@@ -40,6 +40,7 @@ export const COURSE_SECTION_LINKS = [
 ];
 
 export const CAMPUS_SECTION_LINKS = [
+  { id: "campusSectionAlerts", label: "Avisos" },
   { id: "campusSectionCourses", label: "Cursos" },
   { id: "campusSectionGroups", label: "Grupos internos" }
 ];
