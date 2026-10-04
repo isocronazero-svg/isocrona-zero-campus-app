@@ -57,9 +57,9 @@ export function createBannerCarousel(container, payload) {
     progress.textContent = `${index + 1} / ${items.length}`;
     for (let offset = 0; offset < count(); offset++) {
       const item = items[(index + offset) % items.length];
-      const card = el('article','','sponsor-card'), target = safeUrl(item.targetUrl);
-      const content = el(target ? 'a' : 'div','','sponsor-image-wrap');
-      if (target) { content.href = target; content.target = '_blank'; content.rel = 'noopener noreferrer sponsored'; content.setAttribute('aria-label',`${item.title} (abre en otra pestaña)`); }
+      const target = safeUrl(item.targetUrl), card = el(target ? 'a' : 'article','','sponsor-card');
+      const content = el('div','','sponsor-image-wrap');
+      if (target) { card.href = target; card.target = '_blank'; card.rel = 'noopener noreferrer sponsored'; card.setAttribute('aria-label',`${item.title} (abre en otra pestaña)`); }
       const image = el('img'); image.alt = String(item.title || 'Patrocinador'); image.referrerPolicy = 'no-referrer'; image.decoding = 'async';
       image.addEventListener('error',() => { if (disposed || !grid.contains(image)) return; items = items.filter(banner => banner !== item); draw(); });
       image.src = safeUrl(item.imageUrl,true);

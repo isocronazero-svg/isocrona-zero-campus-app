@@ -759,10 +759,9 @@ document.addEventListener("click", async (event) => {
 
     if (normalizedRequestedView === state.activeView && effectiveRequestedView === "overview") {
       expandedNavViews.add("overview");
-      pendingViewAnchorId = "";
+      pendingViewAnchorId = "mainPanel";
       closeMobileMenu();
       render();
-      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
       saveUiSnapshot();
       return;
     }
@@ -780,7 +779,7 @@ document.addEventListener("click", async (event) => {
 
     if (normalizedRequestedView === "test") {
       const routeResult = navigateWithFrontendRouter("test");
-      pendingViewAnchorId = "";
+      pendingViewAnchorId = "mainPanel";
       state.activeView = routeResult?.activeView || "test";
       setFocusedViewMode(state.activeView);
       closeMobileMenu();
@@ -839,6 +838,7 @@ document.addEventListener("click", async (event) => {
     if (memberId) {
       state.selectedMemberId = memberId;
     }
+    pendingViewAnchorId = pendingViewAnchorId || "mainPanel";
     saveUiSnapshot();
     closeMobileMenu();
     render();
@@ -931,6 +931,7 @@ document.addEventListener("click", async (event) => {
         });
       }
       saveUiSnapshot();
+      pendingViewAnchorId = "mainPanel";
       render();
       return;
     }
@@ -1029,6 +1030,8 @@ document.addEventListener("click", async (event) => {
       activateMemberCampusMode(actionTarget.dataset.mode || "courses", {
         focusCatalog: true
       });
+      pendingViewAnchorId = "mainPanel";
+      closeMobileMenu();
       render();
       return;
     }
@@ -3871,14 +3874,23 @@ document.addEventListener("submit", async (event) => {
       return;
     }
 
+    const form = event.target;
+    const button = form.querySelector('button[type="submit"]');
+    if (button.disabled) return;
     if (!window.confirm(`Vas a solicitar la inscripcion en ${course.title}. Quieres continuar?`)) {
       return;
     }
 
+    const buttonLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = "Registrando…";
+    const enrollment = {
+      amount: Number(form.querySelector("#courseEnrollmentAmount")?.value || course.enrollmentFee || 0),
+      method: form.querySelector("#courseEnrollmentMethod")?.value || "Transferencia",
+      note: form.querySelector("#courseEnrollmentNote")?.value.trim() || ""
+    };
     try {
-      syncStatus = "Registrando inscripcion...";
-      render();
-        const paymentProof = await readFileInput(document.getElementById("courseEnrollmentProof"), {
+      const paymentProof = await readFileInput(form.querySelector("#courseEnrollmentProof"), {
           maxBytes: 50_000_000,
           label: "El justificante de inscripcion"
         });
@@ -3886,10 +3898,7 @@ document.addEventListener("submit", async (event) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: Number(document.getElementById("courseEnrollmentAmount")?.value || course.enrollmentFee || 0),
-          method: document.getElementById("courseEnrollmentMethod")?.value || "Transferencia",
-          note: document.getElementById("courseEnrollmentNote")?.value.trim() || "",
-          paymentProof
+          ...enrollment, paymentProof
         })
       });
       const payload = await response.json();
@@ -3905,8 +3914,10 @@ document.addEventListener("submit", async (event) => {
       render();
     } catch (error) {
       syncStatus = error.message || "No se pudo completar la inscripcion";
-      showToast(syncStatus, "error");
-      render();
+      showToast(syncStatus, "error", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = buttonLabel;
     }
     return;
   }
@@ -5768,6 +5779,7 @@ function renderNav() {
   const effectiveNavItems = !isAdminView()
     ? [
         { id: "overview", label: "Mi aula", action: "nav", view: "overview" },
+        { id: "campus", label: "Campus", action: "open-member-campus-mode", mode: "courses", sections: CAMPUS_SECTION_LINKS.filter((section) => !campusOnlySession || section.id !== "campusSectionGroups") },
         { id: "test", label: "Zona Test", action: "nav", view: "test", sections: TEST_SECTION_LINKS },
         { id: "diplomas", label: "Mis diplomas", action: "open-member-campus-mode", mode: "diplomas" },
         { id: "join", label: campusOnlySession ? "Hazte socio" : "Mi perfil", action: "nav", view: "join" }
@@ -5780,6 +5792,9 @@ function renderNav() {
     if (item.id === "diplomas") {
       return state.activeView === "campus" && campusSectionMode === "diplomas";
     }
+    if (item.id === "campus" && !isAdminView()) {
+      return state.activeView === "campus" && campusSectionMode !== "diplomas";
+    }
     return state.activeView === item.id;
   };
 
@@ -5788,18 +5803,17 @@ function renderNav() {
     .filter((item) => !(memberPrimaryProfile && isAdminView() && item.id === "overview"))
     .map(
       (item) => {
-        const navLabel =
-          item.id === "overview" && unreadNotificationCount > 0
-            ? `${item.label} (${unreadNotificationCount})`
-            : item.label;
+        const noticeBadge = item.id === "overview" && unreadNotificationCount > 0
+          ? `<span class="notice-count" aria-label="${unreadNotificationCount} avisos sin leer">${unreadNotificationCount}</span>`
+          : "";
         return `
         <div class="nav-item-group ${isNavItemActive(item) ? "active" : ""}">
           <div class="nav-item-row">
             <button class="nav-main-button ${isNavItemActive(item) ? "active" : ""}" ${isNavItemActive(item) ? 'aria-current="page"' : ""} type="button" data-action="${item.action || "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}>
-              ${escapeHtml(navLabel)}
+              ${escapeHtml(item.label)} ${noticeBadge}
             </button>
             ${
-              item.sections?.length && (isAdminView() || item.id === "test")
+              item.sections?.length && (isAdminView() || item.id === "test" || item.id === "campus")
                 ? `
                     <button
                       class="nav-toggle-button ${isNavGroupExpanded(item.id) ? "expanded" : ""}"
@@ -6092,7 +6106,7 @@ function scrollToViewSection(viewId, sectionId) {
       return;
     }
 
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    focusElementById(sectionId);
   });
 }
 
@@ -6142,7 +6156,8 @@ function focusElementById(targetId) {
     return;
   }
 
-  target.scrollIntoView({ behavior: "smooth", block: "start" });
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
 }
 
 function focusCoursesCatalog() {
@@ -6520,7 +6535,7 @@ function renderMemberNotifications(memberId) {
           <h4>Avisos</h4>
           <p class="muted">Comunicaciones internas rapidas de administracion para socios.</p>
         </div>
-        <span class="small-chip">${unreadCount} aviso(s) pendiente(s)</span>
+        <span class="small-chip ${unreadCount ? "notice-count" : ""}">${unreadCount} aviso(s) pendiente(s)</span>
       </div>
       ${
         notifications.length
@@ -6529,10 +6544,10 @@ function renderMemberNotifications(memberId) {
                 .map((notification) => {
                   const read = isMemberNotificationRead(notification, memberId);
                   return `
-                    <div class="timeline-item compact-card">
+                    <div class="timeline-item compact-card member-notice ${read ? "is-read" : notification.priority === "important" ? "is-unread is-important" : "is-unread"}">
                       <div class="row-between">
                         <strong>${escapeHtml(notification.title || "Aviso interno")}</strong>
-                        <span class="small-chip">${escapeHtml(
+                        <span class="small-chip notice-status">${escapeHtml(
                           read
                             ? "Leido"
                             : notification.priority === "important"
@@ -6773,7 +6788,7 @@ function renderJoinView() {
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionProfileEditor">Datos y cambios</button>
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionPaymentProof">Cuota y justificante</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Mis cursos</button>
-          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Avisos</button>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Avisos${member && getUnreadMemberNotifications(member.id).length ? ` <span class="notice-count">${getUnreadMemberNotifications(member.id).length} sin leer</span>` : ""}</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Mis diplomas</button>
         </div>
 
@@ -19897,6 +19912,7 @@ function isSelfMemberSession() {
 }
 
 function isCampusOnlySession() {
+  if (isAdminSession() && isSelfMemberSession()) return false;
   if (session?.role === "instructor") return false;
   return !isAdminView() && Boolean(session?.memberId) && !getCurrentAssociate();
 }
@@ -20450,7 +20466,7 @@ function getMemberCampusAlerts(memberId) {
   const openCourses = (state.courses || []).filter(
     (course) =>
       !ownCourses.some((entry) => entry.id === course.id) &&
-      (associate ? true : normalizeCourseAccessScope(course.accessScope, course.audience) === "public") &&
+      (!isCampusOnlySession() || normalizeCourseAccessScope(course.accessScope, course.audience) === "public") &&
       isCourseOpenForEnrollment(course)
   );
   if (openCourses.length) {

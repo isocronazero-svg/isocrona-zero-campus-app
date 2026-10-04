@@ -16,6 +16,7 @@ for (const associated of [true, false]) {
     isAdminView: () => false,
     getCurrentAssociate: () => associated ? { annualAmount: 50 } : null,
     getCurrentMember: () => ({ name: "QA", email: "qa@example.test" }),
+    getUnreadMemberNotifications: () => [{}],
     getAssociatePortalSnapshot: () => ({ status: "Activa", firstName: "QA <texto>", associateNumber: "1" }),
     getAssociatePayments: () => [],
     getAssociateFeeHistoryRows: () => [],
@@ -30,7 +31,7 @@ for (const associated of [true, false]) {
   };
   const html = vm.runInNewContext(`${source("renderJoinView")}\nrenderJoinView();`, context);
   assert.match(html, associated ? /Solicitar cambio de ficha/ : /Tu acceso actual es solo campus/);
-  if (associated) assert.match(html, /QA &lt;texto&gt;/);
+  if (associated) { assert.match(html, /QA &lt;texto&gt;/); assert.match(html, /notice-count">1 sin leer/); }
 }
 
 const course = {

@@ -34,6 +34,7 @@ const conflictCheckedFiles = [
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
   "scripts/check-instructor-live.mjs",
+  "scripts/check-portal-feedback.mjs",
   "scripts/check-notice-attachments.mjs",
   "scripts/check-public-live-host-ui.mjs",
   "scripts/check-question-contributions.mjs",
