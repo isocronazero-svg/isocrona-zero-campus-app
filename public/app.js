@@ -1028,6 +1028,7 @@ document.addEventListener("click", async (event) => {
       activateMemberCampusMode(actionTarget.dataset.mode || "courses", {
         focusCatalog: true
       });
+      closeMobileMenu();
       render();
       return;
     }
@@ -3870,14 +3871,23 @@ document.addEventListener("submit", async (event) => {
       return;
     }
 
+    const form = event.target;
+    const button = form.querySelector('button[type="submit"]');
+    if (button.disabled) return;
     if (!window.confirm(`Vas a solicitar la inscripcion en ${course.title}. Quieres continuar?`)) {
       return;
     }
 
+    const buttonLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = "Registrando…";
+    const enrollment = {
+      amount: Number(form.querySelector("#courseEnrollmentAmount")?.value || course.enrollmentFee || 0),
+      method: form.querySelector("#courseEnrollmentMethod")?.value || "Transferencia",
+      note: form.querySelector("#courseEnrollmentNote")?.value.trim() || ""
+    };
     try {
-      syncStatus = "Registrando inscripcion...";
-      render();
-        const paymentProof = await readFileInput(document.getElementById("courseEnrollmentProof"), {
+      const paymentProof = await readFileInput(form.querySelector("#courseEnrollmentProof"), {
           maxBytes: 50_000_000,
           label: "El justificante de inscripcion"
         });
@@ -3885,10 +3895,7 @@ document.addEventListener("submit", async (event) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: Number(document.getElementById("courseEnrollmentAmount")?.value || course.enrollmentFee || 0),
-          method: document.getElementById("courseEnrollmentMethod")?.value || "Transferencia",
-          note: document.getElementById("courseEnrollmentNote")?.value.trim() || "",
-          paymentProof
+          ...enrollment, paymentProof
         })
       });
       const payload = await response.json();
@@ -3904,8 +3911,10 @@ document.addEventListener("submit", async (event) => {
       render();
     } catch (error) {
       syncStatus = error.message || "No se pudo completar la inscripcion";
-      showToast(syncStatus, "error");
-      render();
+      showToast(syncStatus, "error", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = buttonLabel;
     }
     return;
   }
@@ -5767,6 +5776,7 @@ function renderNav() {
   const effectiveNavItems = !isAdminView()
     ? [
         { id: "overview", label: "Mi aula", action: "nav", view: "overview" },
+        { id: "campus", label: "Campus", action: "open-member-campus-mode", mode: "courses", sections: CAMPUS_SECTION_LINKS.filter((section) => !campusOnlySession || section.id !== "campusSectionGroups") },
         { id: "test", label: "Zona Test", action: "nav", view: "test", sections: TEST_SECTION_LINKS },
         { id: "diplomas", label: "Mis diplomas", action: "open-member-campus-mode", mode: "diplomas" },
         { id: "join", label: campusOnlySession ? "Hazte socio" : "Mi perfil", action: "nav", view: "join" }
@@ -5778,6 +5788,9 @@ function renderNav() {
     }
     if (item.id === "diplomas") {
       return state.activeView === "campus" && campusSectionMode === "diplomas";
+    }
+    if (item.id === "campus" && !isAdminView()) {
+      return state.activeView === "campus" && campusSectionMode !== "diplomas";
     }
     return state.activeView === item.id;
   };
@@ -5798,7 +5811,7 @@ function renderNav() {
               ${escapeHtml(navLabel)}
             </button>
             ${
-              item.sections?.length && (isAdminView() || item.id === "test")
+              item.sections?.length && (isAdminView() || item.id === "test" || item.id === "campus")
                 ? `
                     <button
                       class="nav-toggle-button ${isNavGroupExpanded(item.id) ? "expanded" : ""}"
@@ -19895,6 +19908,7 @@ function isSelfMemberSession() {
 }
 
 function isCampusOnlySession() {
+  if (isAdminSession() && isSelfMemberSession()) return false;
   return !isAdminView() && Boolean(session?.memberId) && !getCurrentAssociate();
 }
 
@@ -20447,7 +20461,7 @@ function getMemberCampusAlerts(memberId) {
   const openCourses = (state.courses || []).filter(
     (course) =>
       !ownCourses.some((entry) => entry.id === course.id) &&
-      (associate ? true : normalizeCourseAccessScope(course.accessScope, course.audience) === "public") &&
+      (!isCampusOnlySession() || normalizeCourseAccessScope(course.accessScope, course.audience) === "public") &&
       isCourseOpenForEnrollment(course)
   );
   if (openCourses.length) {
