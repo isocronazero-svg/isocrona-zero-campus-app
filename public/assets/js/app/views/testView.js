@@ -791,7 +791,7 @@ function buildLiveSessionControls(session) {
   const isLastQuestion = questionNumber >= Number(session.questionCount || 0);
   const questionClosed = session.questionClosed === true;
   const timeLimitSeconds = Number(session.questionTimeLimitSeconds || 20);
-  const correctIndex = Number(currentQuestion?.correctIndex);
+  const correctIndex = Number(session.correctIndex ?? currentQuestion?.correctIndex);
   const correctAnswer =
     questionClosed && currentQuestion && Number.isInteger(correctIndex)
       ? `<p class="status-note"><strong>Respuesta correcta:</strong> ${escapeHtml(String.fromCharCode(65 + correctIndex))}. ${escapeHtml(currentQuestion.options?.[correctIndex] || "")}</p>`

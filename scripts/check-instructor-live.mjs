@@ -88,9 +88,24 @@ try {
   // The host can also participate, without granting control to ordinary members.
   const joined = await a("POST", "/api/test-zone/live/join", { guestName: "Instructor participante", code: own.code });
   assert.ok(joined.liveSession.participantId);
-  await a("POST", `${route}/${own.id}/start`, {});
-  await a("POST", `${route}/${own.id}/reveal`, {});
-  await a("POST", `${route}/${own.id}/next`, {});
+  assert.ok(!("correctIndex" in own));
+  const started = (await a("POST", `${route}/${own.id}/start`, {})).session;
+  assert.ok(!("correctIndex" in started));
+  assert.ok(!("correctIndex" in (await a("GET", route)).sessions[0]));
+  const revealed = (await a("POST", `${route}/${own.id}/reveal`, {})).session;
+  assert.equal(revealed.currentQuestionId, started.currentQuestionId);
+  assert.equal(revealed.correctIndex, 0);
+  assert.ok(!("explanation" in revealed) && !("questions" in revealed));
+  assert.equal((await a("GET", route)).sessions[0].correctIndex, 0);
+  await b("POST", `${route}/${own.id}/reveal`, {}, 403);
+  assert.ok(!(await b("GET", route)).sessions.some(s => s.id === own.id));
+  const scopedAfterReveal = await a("GET", "/api/state");
+  assert.deepEqual(scopedAfterReveal.testZoneLiveSessions, []);
+  assert.ok(scopedAfterReveal.testZoneQuestions.every(q => !("correctIndex" in q)));
+  const next = (await a("POST", `${route}/${own.id}/next`, {})).session;
+  assert.notEqual(next.currentQuestionId, revealed.currentQuestionId);
+  assert.ok(!("correctIndex" in next));
+  assert.ok(!("correctIndex" in (await a("GET", route)).sessions[0]));
   await a("POST", `${route}/${own.id}/reveal`, {});
   const finished = await a("POST", `${route}/${own.id}/finish`, {});
   assert.equal(finished.session.status, "finished");
@@ -111,5 +126,16 @@ try {
     assert.equal(ctx.canHostPublicLive("member"), host);
     assert.equal(ctx.canHostPublicLive("admin"), true);
   }
+  const testView = readFileSync(new URL("../public/assets/js/app/views/testView.js", import.meta.url), "utf8");
+  const controlsStart = testView.indexOf("function buildLiveSessionControls(");
+  const controls = testView.slice(controlsStart, testView.indexOf("\nfunction ", controlsStart + 1));
+  const audienceQuestion = { id: revealed.currentQuestionId, prompt: "Pregunta", options: ["A", "B", "C"] };
+  const ctx = { getCurrentQuestionMap: () => new Map([[audienceQuestion.id, audienceQuestion]]), escapeHtml: String };
+  vm.runInNewContext(controls, ctx);
+  assert.ok(ctx.buildLiveSessionControls(revealed).includes("Respuesta correcta:</strong> A. A"));
+  assert.ok(!ctx.buildLiveSessionControls(started).includes("Respuesta correcta:"));
+  assert.ok(!ctx.buildLiveSessionControls({ ...revealed, correctIndex: undefined }).includes("Respuesta correcta:"));
+  audienceQuestion.correctIndex = 0;
+  assert.ok(ctx.buildLiveSessionControls({ ...revealed, correctIndex: undefined }).includes("Respuesta correcta:</strong> A. A"));
   console.log("Instructor live checks passed: own rooms, participation, cross-host denial, no admin access, persistence, revocation and DB role mapping.");
 } finally { await stop(); rmSync(root, { recursive: true, force: true }); }

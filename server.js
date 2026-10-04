@@ -1178,9 +1178,17 @@ function buildTestZoneLiveLeaderboard(session) {
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
-function buildTestZoneLiveSessionAdminPayload(session) {
+function buildTestZoneLiveSessionAdminPayload(session, state) {
   const questionClosed = Number.isInteger(session?.currentQuestionIndex) ? isTestZoneLiveQuestionClosed(session) : false;
   const deadlineMs = getTestZoneLiveQuestionDeadlineMs(session);
+  const currentQuestionId = Number.isInteger(session?.currentQuestionIndex)
+    ? String((session?.questionIds || [])[session.currentQuestionIndex] || "").trim()
+    : "";
+  const revealedQuestion = questionClosed && currentQuestionId
+    ? (state?.testZoneQuestions || [])
+        .map((question, index) => normalizeTestZoneQuestionRecord(question, index))
+        .find(question => question.id === currentQuestionId)
+    : null;
   return {
     id: String(session?.id || "").trim(),
     code: String(session?.code || "").trim(),
@@ -1196,9 +1204,10 @@ function buildTestZoneLiveSessionAdminPayload(session) {
     questionTimeLimitSeconds: normalizeLiveTestQuestionTimeLimitSeconds(session?.questionTimeLimitSeconds),
     questionDeadlineAt: Number.isFinite(deadlineMs) ? new Date(deadlineMs).toISOString() : "",
     serverNow: new Date().toISOString(),
-    currentQuestionId: Number.isInteger(session?.currentQuestionIndex)
-      ? String((session?.questionIds || [])[session.currentQuestionIndex] || "").trim()
-      : "",
+    currentQuestionId,
+    ...(revealedQuestion && Number.isInteger(revealedQuestion.correctIndex)
+      ? { correctIndex: revealedQuestion.correctIndex }
+      : {}),
     answeredCount: (session?.participants || []).filter(participant =>
       session?.participantAnswers?.[participant.id]?.[(session?.questionIds || [])[session.currentQuestionIndex]]
     ).length,
@@ -5012,7 +5021,7 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         sessions: (state.testZoneLiveSessions || [])
           .filter(session => canManagePublicLive(account, session))
-          .map(buildTestZoneLiveSessionAdminPayload)
+          .map(session => buildTestZoneLiveSessionAdminPayload(session, state))
           .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
       });
       })
@@ -5039,7 +5048,7 @@ const server = http.createServer(async (req, res) => {
       const session = createTestZoneLiveSession(state, account, payload);
       writeState(state);
       publicLivePollState = null;
-      return sendJson(res, 201, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+      return sendJson(res, 201, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session, state) });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo abrir el test en vivo");
     }
@@ -5063,7 +5072,7 @@ const server = http.createServer(async (req, res) => {
       closeTestZoneLiveSession(session);
       writeState(state);
       publicLivePollState = null;
-      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session, state) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cerrar el test en vivo" });
     }
@@ -5095,7 +5104,7 @@ const server = http.createServer(async (req, res) => {
         session.participantAnswers && typeof session.participantAnswers === "object" ? session.participantAnswers : {};
       writeState(state);
       publicLivePollState = null;
-      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session, state) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo iniciar el test en vivo" });
     }
@@ -5125,7 +5134,7 @@ const server = http.createServer(async (req, res) => {
         writeState(state);
         publicLivePollState = null;
       }
-      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session, state) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cerrar y revelar la pregunta" });
     }
@@ -5162,7 +5171,7 @@ const server = http.createServer(async (req, res) => {
       session.questionStartedAt = new Date().toISOString();
       writeState(state);
       publicLivePollState = null;
-      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session, state) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo avanzar a la siguiente pregunta" });
     }
@@ -5199,7 +5208,7 @@ const server = http.createServer(async (req, res) => {
       session.finishedAt = new Date().toISOString();
       writeState(state);
       publicLivePollState = null;
-      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
+      return sendJson(res, 200, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session, state) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo finalizar el test en vivo" });
     }
