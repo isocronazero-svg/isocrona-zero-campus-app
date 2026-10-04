@@ -78,6 +78,15 @@
 .portal-ui .member-quick-links { display: grid; align-items: stretch; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .portal-ui .member-quick-links button { width: 100%; }
 .portal-ui .associate-anchor { scroll-margin-top: 90px; }
+.portal-ui #mainPanel, .portal-ui #mainPanel [id] { scroll-margin-top: 90px; }
+.portal-ui .sponsor-card { display: block; text-decoration: none; }
+.portal-ui a.sponsor-card:hover { border-color: #146c4b; }
+.portal-ui .notice-count { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; padding: 3px 8px; border-radius: 6px; background: #b42318; color: #fff; font-weight: 700; }
+.portal-ui .member-notice.is-unread { border-left: 4px solid #175cd3; background: #eff8ff; }
+.portal-ui .member-notice.is-unread.is-important { border-left-color: #b42318; background: #fff1f0; }
+.portal-ui .member-notice.is-unread .notice-status { background: #175cd3; color: #fff; }
+.portal-ui .member-notice.is-important .notice-status { background: #b42318; }
+.portal-ui .member-notice.is-read .notice-status { background: #dcfae6; color: #085d3a; }
 /* Keep sign-in in reach; secondary routes follow the form fields. */
 .portal-ui .login-screen { background: #f3f6f5; backdrop-filter: none; padding: 32px; }
 .portal-ui .login-layout { align-items: start; gap: 28px; margin-top: 66px; }

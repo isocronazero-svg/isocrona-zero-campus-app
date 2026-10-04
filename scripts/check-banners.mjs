@@ -31,13 +31,17 @@ const timers=new Map();let timerId=0;
 const media=new Map();
 const tick=()=>{const [id,fn]=timers.entries().next().value||[];assert.ok(fn,'A rotation timer should exist');timers.delete(id);fn();};
 const doc=new Node('document');doc.createElement=tag=>new Node(tag);doc.hidden=false;
-const payload={revision:1,display:{enabled:true,slots:2,intervalSeconds:6},banners:Array.from({length:10},(_,i)=>({id:String(i),enabled:true,title:`Logo ${i}`,imageUrl:png,targetUrl:i?'':'javascript:bad'}))};
+const payload={revision:1,display:{enabled:true,slots:2,intervalSeconds:6},banners:Array.from({length:10},(_,i)=>({id:String(i),enabled:true,title:`Logo ${i}`,imageUrl:png,targetUrl:i?'https://sponsor.example.test/':'javascript:bad'}))};
 try {
  Object.assign(globalThis,{document:doc,location:{origin:'https://local.test'},setTimeout:fn=>{timers.set(++timerId,fn);return timerId;},clearTimeout:id=>timers.delete(id),matchMedia:query=>{if(!media.has(query)){const value=new Node();value.matches=false;media.set(query,value);}return media.get(query);}});
  const container=new Node('section');const carousel=createBannerCarousel(container,payload);
  const grid=container.children[1],controls=container.children[0].children[1];
  const image=()=>grid.children[0].children[0].children[0];
  assert.equal(grid.children.length,2);assert.equal(image().alt,'Logo 0');assert.equal(grid.children[0].children[0].tag,'div','Unsafe links cannot become anchors');
+ assert.equal(grid.children[0].tag,'article','Unsafe destinations must not be clickable');
+ const linkedCard=grid.children[1];assert.equal(linkedCard.tag,'a');assert.equal(linkedCard.href,'https://sponsor.example.test/');
+ assert.equal(linkedCard.target,'_blank');assert.equal(linkedCard.rel,'noopener noreferrer sponsored');
+ assert.equal(linkedCard.children[1].textContent,'Logo 1','Sponsor name and image share the same link');
  const seen=new Set();for(let i=0;i<5;i++){for(const card of grid.children)seen.add(card.children[0].children[0].alt);tick();}assert.equal(seen.size,10,'All ten sponsors must rotate');
  await container.fire('mouseenter');assert.equal(timers.size,0);await container.fire('mouseleave');assert.equal(timers.size,1);
  await container.fire('focusin');assert.equal(timers.size,0);await container.fire('focusout',{relatedTarget:null});assert.equal(timers.size,1);
