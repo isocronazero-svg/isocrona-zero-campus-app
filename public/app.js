@@ -6775,7 +6775,7 @@ function renderJoinView() {
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionProfileEditor">Datos y cambios</button>
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionPaymentProof">Cuota y justificante</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Mis cursos</button>
-          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Avisos</button>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Avisos${member && getUnreadMemberNotifications(member.id).length ? ` <span class="notice-count">${getUnreadMemberNotifications(member.id).length} sin leer</span>` : ""}</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Mis diplomas</button>
         </div>
 
