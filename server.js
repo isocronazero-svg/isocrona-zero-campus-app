@@ -60,6 +60,8 @@ const {
   mapPlatformRoleToLegacyMemberRole,
   needsPasswordHashUpgrade,
   normalizeCampusAccountRole,
+  canManagePublicLive,
+  requireLiveHostAccount,
   requireAdminAccount,
   requireAdminDbUser,
   requireAuthenticatedAccount,
@@ -5001,7 +5003,7 @@ const server = http.createServer(async (req, res) => {
             error: error.message || "No se pudieron cargar los tests en vivo"
           })
       },
-      withAdmin({ readState, requireAdminAccount }, async ({ state }) => {
+      withAuth({ readState, requireAuthenticatedAccount: requireLiveHostAccount }, async ({ state, account }) => {
       ensureTestZoneState(state);
       if (expireStaleTestZoneLiveSessions(state)) {
         writeState(state);
@@ -5009,6 +5011,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         ok: true,
         sessions: (state.testZoneLiveSessions || [])
+          .filter(session => canManagePublicLive(account, session))
           .map(buildTestZoneLiveSessionAdminPayload)
           .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")))
       });
@@ -5020,11 +5023,16 @@ const server = http.createServer(async (req, res) => {
 
   if (requestUrl.pathname === "/api/test-zone/live-sessions" && req.method === "POST") {
     try {
-      const payload = await readJsonBody(req);
+      if (!requireLiveHostAccount(req, res, readState())) return;
+      const payload = await readJsonBody(req, payloadLimitBytes.liveJoin);
       const state = readState();
-      const account = requireAdminAccount(req, res, state);
+      const account = requireLiveHostAccount(req, res, state);
       if (!account) {
         return;
+      }
+      if (account.role === "instructor") {
+        if (payload.courseId) return sendJson(res, 403, { ok: false, error: "Crea la sala desde el banco de Zona Test" });
+        if (enforceRateLimit(res, `live-create:${account.id}`, 20, rateLimitHourMs)) return;
       }
       ensureTestZoneState(state);
       expireStaleTestZoneLiveSessions(state);
@@ -5033,14 +5041,14 @@ const server = http.createServer(async (req, res) => {
       publicLivePollState = null;
       return sendJson(res, 201, { ok: true, session: buildTestZoneLiveSessionAdminPayload(session) });
     } catch (error) {
-      return sendJson(res, 400, { ok: false, error: error.message || "No se pudo abrir el test en vivo" });
+      return sendJsonError(res, error, "No se pudo abrir el test en vivo");
     }
   }
 
   if (/^\/api\/test-zone\/live-sessions\/[^/]+\/close$/.test(requestUrl.pathname) && req.method === "POST") {
     try {
       const state = readState();
-      const account = requireAdminAccount(req, res, state);
+      const account = requireLiveHostAccount(req, res, state);
       if (!account) {
         return;
       }
@@ -5051,6 +5059,7 @@ const server = http.createServer(async (req, res) => {
       if (!session) {
         return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
       }
+      if (!canManagePublicLive(account, session)) return sendJson(res, 403, { ok: false, error: "Solo puedes dirigir tus propias salas" });
       closeTestZoneLiveSession(session);
       writeState(state);
       publicLivePollState = null;
@@ -5063,7 +5072,7 @@ const server = http.createServer(async (req, res) => {
   if (/^\/api\/test-zone\/live-sessions\/[^/]+\/start$/.test(requestUrl.pathname) && req.method === "POST") {
     try {
       const state = readState();
-      const account = requireAdminAccount(req, res, state);
+      const account = requireLiveHostAccount(req, res, state);
       if (!account) return;
       ensureTestZoneState(state);
       if (expireStaleTestZoneLiveSessions(state)) {
@@ -5072,6 +5081,7 @@ const server = http.createServer(async (req, res) => {
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
       const session = getTestZoneLiveSessionById(state, sessionId);
       if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
+      if (!canManagePublicLive(account, session)) return sendJson(res, 403, { ok: false, error: "Solo puedes dirigir tus propias salas" });
       if (String(session.status || "").trim() !== "lobby") {
         return sendJson(res, 409, { ok: false, error: "La sesion ya no esta en la sala de espera" });
       }
@@ -5094,7 +5104,7 @@ const server = http.createServer(async (req, res) => {
   if (/^\/api\/test-zone\/live-sessions\/[^/]+\/reveal$/.test(requestUrl.pathname) && req.method === "POST") {
     try {
       const state = readState();
-      const account = requireAdminAccount(req, res, state);
+      const account = requireLiveHostAccount(req, res, state);
       if (!account) return;
       ensureTestZoneState(state);
       if (expireStaleTestZoneLiveSessions(state)) {
@@ -5103,6 +5113,7 @@ const server = http.createServer(async (req, res) => {
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
       const session = getTestZoneLiveSessionById(state, sessionId);
       if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
+      if (!canManagePublicLive(account, session)) return sendJson(res, 403, { ok: false, error: "Solo puedes dirigir tus propias salas" });
       if (String(session.status || "").trim() !== "active") {
         return sendJson(res, 409, { ok: false, error: "El test en vivo no esta iniciado" });
       }
@@ -5123,7 +5134,7 @@ const server = http.createServer(async (req, res) => {
   if (/^\/api\/test-zone\/live-sessions\/[^/]+\/next$/.test(requestUrl.pathname) && req.method === "POST") {
     try {
       const state = readState();
-      const account = requireAdminAccount(req, res, state);
+      const account = requireLiveHostAccount(req, res, state);
       if (!account) return;
       ensureTestZoneState(state);
       if (expireStaleTestZoneLiveSessions(state)) {
@@ -5132,6 +5143,7 @@ const server = http.createServer(async (req, res) => {
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
       const session = getTestZoneLiveSessionById(state, sessionId);
       if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
+      if (!canManagePublicLive(account, session)) return sendJson(res, 403, { ok: false, error: "Solo puedes dirigir tus propias salas" });
       if (String(session.status || "").trim() !== "active") {
         return sendJson(res, 409, { ok: false, error: "El test en vivo no esta iniciado" });
       }
@@ -5159,7 +5171,7 @@ const server = http.createServer(async (req, res) => {
   if (/^\/api\/test-zone\/live-sessions\/[^/]+\/finish$/.test(requestUrl.pathname) && req.method === "POST") {
     try {
       const state = readState();
-      const account = requireAdminAccount(req, res, state);
+      const account = requireLiveHostAccount(req, res, state);
       if (!account) return;
       ensureTestZoneState(state);
       if (expireStaleTestZoneLiveSessions(state)) {
@@ -5168,6 +5180,7 @@ const server = http.createServer(async (req, res) => {
       const sessionId = decodeURIComponent(requestUrl.pathname.split("/")[4] || "");
       const session = getTestZoneLiveSessionById(state, sessionId);
       if (!session) return sendJson(res, 404, { ok: false, error: "El test en vivo no existe" });
+      if (!canManagePublicLive(account, session)) return sendJson(res, 403, { ok: false, error: "Solo puedes dirigir tus propias salas" });
       if (String(session.status || "").trim() !== "active") {
         return sendJson(res, 409, { ok: false, error: "El test en vivo no esta iniciado" });
       }

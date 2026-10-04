@@ -906,7 +906,7 @@ export function buildPublicLiveAdminMarkup() {
     <section class="test-zone-card">
       <div class="test-zone-card-head">
         <div>
-          <p class="test-zone-kicker">Administración</p>
+            <p class="test-zone-kicker">Anfitrión</p>
           <h3>Test en Vivo</h3>
           <p class="muted">Abre una sala con código, controla cada pregunta y finaliza mostrando el podio.</p>
         </div>
