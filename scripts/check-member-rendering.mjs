@@ -161,17 +161,17 @@ for (const [changes, headline] of [
 }
 console.log("Learner journey distinguishes content progress from diploma completion.");
 
-function renderEnrollment({ fee = 0, submission = null, waiting = false } = {}) {
+function renderEnrollment({ fee = 0, submission = null, waiting = false, full = false, intent = true, mode = "status", preview = false, open = true } = {}) {
   return vm.runInNewContext(`${source("renderSelectedCourse")}\nrenderSelectedCourse(course);`, {
     course: { ...course, title: "Curso QA", status: "Inscripcion abierta", capacity: 10,
       enrollmentFee: fee, enrollmentPaymentInstructions: "Transferencia QA", hours: 1 },
-    state: { selectedMemberId: "member-qa" }, learnerCourseDetailsMode: "status", learnerEnrollmentIntent: true,
-    escapeHtml, formatDate: String, isAdminView: () => false, isMemberPreviewSession: () => false,
+    state: { selectedMemberId: "member-qa" }, learnerCourseDetailsMode: mode, learnerEnrollmentIntent: intent,
+    escapeHtml, formatDate: String, isAdminView: () => false, isMemberPreviewSession: () => preview,
     normalizeCourseClass: () => "teorico", describeCourseType: () => "Curso",
     getLearnerCourseJourney: () => ({ ...emptyJourney, enrolled: Boolean(submission) && !waiting, waiting }),
     getCertificateSections: () => [], getVisibleCourseResources: () => [],
-    getCourseEnrolledCount: () => 1, isCourseOpenForEnrollment: () => true,
-    getCourseEnrollmentCall: () => ({ waitlistMode: waiting, audienceLabel: "Solo socios", statusLabel: "Plazas disponibles", ctaLabel: "Inscribirme" }),
+    getCourseEnrolledCount: () => 1, isCourseOpenForEnrollment: () => open, getPublishedLessonCount: () => 0,
+    getCourseEnrollmentCall: () => ({ waitlistMode: full, audienceLabel: "Solo socios", statusLabel: "Plazas disponibles", ctaLabel: full ? "Unirme a lista de espera" : "Inscribirme ahora" }),
     getCourseEnrollmentSubmission: () => submission, renderLearnerJourneyCard: () => "",
     getEnrollmentSubmissionStatusLabel: (status) => status, getEnrollmentSubmissionTone: () => "neutral",
     renderStoredProofLink: (proof) => proof ? '<a href="/qa-proof">Abrir justificante</a>' : ""
@@ -204,3 +204,52 @@ const proofHtml = renderEnrollment({ fee: 25, submission: { ...freeSubmission, a
 assert.match(proofHtml, /Abrir justificante/);
 assert.doesNotMatch(proofHtml, /courseEnrollmentProofUpdateForm/);
 console.log("Free enrollment omits payment requests while paid and historical submissions retain them.");
+
+for (const mode of ["overview", "sessions", "resources", "certificate", "status"]) {
+  for (const full of [false, true]) {
+    const html = renderEnrollment({ mode, intent: false, full });
+    assert.equal((html.match(/data-action="prepare-course-enrollment"/g) || []).length, 1);
+    assert.match(html, full ? /Curso completo/ : /Inscribirme ahora/);
+    if (full) assert.doesNotMatch(html, /Inscribirme ahora/);
+  }
+}
+assert.doesNotMatch(renderEnrollment(), /data-action="prepare-course-enrollment"/);
+assert.match(renderEnrollment(), /id="courseEnrollmentRequestForm" tabindex="-1"/);
+for (const options of [{ preview: true }, { open: false }, { waiting: true }, { submission: freeSubmission }]) {
+  assert.doesNotMatch(renderEnrollment(options), /data-action="prepare-course-enrollment"|id="courseEnrollmentForm"/);
+}
+assert.match(renderEnrollment({ submission: freeSubmission }), /Ya estás inscrito/);
+const enrollmentHandler = app.slice(app.indexOf('if (event.target.id === "courseEnrollmentForm"'), app.indexOf('if (event.target.id === "courseFeedbackForm"'));
+assert.doesNotMatch(enrollmentHandler, /window\.confirm/);
+assert.match(enrollmentHandler, /if \(button.disabled\) return/);
+assert.match(source("focusCourseEnrollment"), /getElementById\("courseEnrollmentRequestForm"\)/);
+assert.doesNotMatch(source("renderCompactCourseCard"), /quick-enroll-banner/);
+assert.doesNotMatch(source("renderCompactCourseBucket"), /renderQuickEnrollmentStrip/);
+
+const proofHandler = app.slice(app.indexOf('if (event.target.id === "courseEnrollmentProofUpdateForm"'), app.indexOf('if (event.target.id === "courseEnrollmentForm"'));
+const input = { files: [{ name: "qa.pdf" }] };
+const button = { disabled: false, textContent: "Enviar justificante" };
+const form = { querySelector: selector => selector.startsWith("button") ? button : selector.endsWith("Note") ? { value: "Nota QA" } : input };
+let renders = 0;
+let requests = 0;
+const context = {
+  event: { target: { id: "courseEnrollmentProofUpdateForm", ...form }, preventDefault() {} },
+  isAdminView: () => false, getSelectedCourse: () => ({ id: "qa" }), isMemberPreviewSession: () => false,
+  readFileInput: async element => { assert.equal(element, input); assert.equal(renders, 0); return { name: "qa.pdf" }; },
+  fetch: async (_, options) => { requests++; assert.deepEqual(JSON.parse(options.body), { note: "Nota QA", paymentProof: { name: "qa.pdf" } }); return { ok: false, json: async () => ({ error: "Reintentar QA" }) }; },
+  render: () => renders++, showToast() {}
+};
+await vm.runInNewContext(`(async () => {${proofHandler}})();`, context);
+assert.equal(renders, 0, "Failed upload must retain the selected file");
+assert.equal(button.disabled, false);
+button.disabled = true;
+await vm.runInNewContext(`(async () => {${proofHandler}})();`, context);
+assert.equal(requests, 1, "Ignore duplicate submission");
+console.log("Single enrollment CTA, direct form, states and proof retry checks passed.");
+const sectionRule = source("renderCourses").match(/const showCourseSection = [^;]+;/)[0];
+for (const admin of [true, false]) {
+  const visible = vm.runInNewContext(`${sectionRule} ["all", "catalog", "details", "workbench"].filter(showCourseSection);`, {
+    isAdminView: () => admin, coursesSectionMode: "all"
+  });
+  assert.deepEqual(Array.from(visible), admin ? ["all", "catalog", "details", "workbench"] : ["all"]);
+}
