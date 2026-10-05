@@ -71,6 +71,7 @@ const {
   verifyLegacyAccountPassword
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
+const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
 const { normalizeNoticeAttachments, compactNotice, createNoticesHandler, MAX_NOTICE_BODY_BYTES } = require("./server/notices");
 const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
 const { createQuestionBankImportHandler } = require("./server/question-bank-import");
@@ -9349,6 +9350,28 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
+  if (requestUrl.pathname === "/api/member/activity-certificate.pdf" && req.method === "GET") {
+    const state = readState();
+    const account = requireAuthenticatedAccount(req, res, state);
+    if (!account) return;
+    const memberId = requestUrl.searchParams.get("memberId") || account.memberId;
+    if (!memberId || !canAccessMemberResource(account, memberId)) {
+      return sendJson(res, 403, { ok: false, error: "No tienes acceso a este certificado" });
+    }
+    const model = buildActivityCertificate(state, memberId);
+    if (!model?.activities.length) {
+      return sendJson(res, 404, { ok: false, error: "Todavia no hay actividades acreditadas para este certificado" });
+    }
+    const pdf = buildPdfDocument(buildActivityCertificatePages(model, escapePdfText));
+    res.writeHead(200, {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `${requestUrl.searchParams.get("download") === "1" ? "attachment" : "inline"}; filename="certificado-actividad.pdf"`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    return res.end(pdf);
+  }
+
   const diplomaPdfMatch = requestUrl.pathname.match(/^\/api\/diplomas\/([^/]+)\/([^/]+)\.pdf$/);
   if (diplomaPdfMatch && req.method === "GET") {
     const courseId = diplomaPdfMatch[1];
@@ -16504,16 +16527,26 @@ function escapePdfText(text) {
 }
 
 function buildPdfDocument(contentStream, options = {}) {
-  const contentBuffer = Buffer.from(contentStream, "latin1");
+  const pageStreams = Array.isArray(contentStream) ? contentStream : null;
+  const contentBuffer = Buffer.from(pageStreams ? "" : contentStream, "latin1");
   const pageWidth = Number(options.pageWidth || 595);
   const pageHeight = Number(options.pageHeight || 842);
-  const objects = [
+  const objects = pageStreams ? [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Kids [${pageStreams.map((_, index) => `${4 + index * 2} 0 R`).join(" ")}] /Count ${pageStreams.length} >>`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+  ] : [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
     `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     `<< /Length ${contentBuffer.length} >>\nstream\n${contentBuffer.toString("latin1")}\nendstream`
   ];
+  for (const [index, stream] of (pageStreams || []).entries()) {
+    const buffer = Buffer.from(stream, "latin1");
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + index * 2} 0 R >>`);
+    objects.push(`<< /Length ${buffer.length} >>\nstream\n${buffer.toString("latin1")}\nendstream`);
+  }
 
   let pdf = "%PDF-1.4\n";
   const offsets = [0];
