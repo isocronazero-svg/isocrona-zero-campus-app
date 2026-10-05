@@ -14624,8 +14624,8 @@ function renderSelectedCourse(course) {
   const isPreviewMode = isMemberPreviewSession();
   const enrollmentSubmission = getCourseEnrollmentSubmission(course, state.selectedMemberId);
   const enrollmentRequiresPayment = Number(course.enrollmentFee || 0) > 0 || Number(enrollmentSubmission?.amount || 0) > 0;
-  const enrollmentNeedsProof = enrollmentRequiresPayment &&
-    (!enrollmentSubmission?.paymentProof || enrollmentSubmission?.status === "pending-proof");
+  const enrollmentNeedsProof = enrollmentSubmission?.status === "pending-proof" ||
+    (enrollmentRequiresPayment && !enrollmentSubmission?.paymentProof);
   const enrollmentHeadline = journey.enrolled
     ? journey.hasDiploma
       ? "Curso completado"
@@ -14722,7 +14722,7 @@ function renderSelectedCourse(course) {
         ? "Tu parte de inscripcion ya quedo cerrada y el resultado esta en Mis diplomas."
         : enrollmentSubmission
         ? enrollmentNeedsProof
-          ? "Aporta la transferencia para que administracion pueda validarte."
+          ? enrollmentRequiresPayment ? "Aporta la transferencia para que administracion pueda validarte." : "Administracion ha solicitado un justificante para tu inscripcion."
           : "Tu solicitud ya esta dentro del curso."
         : canEnroll
           ? enrollmentCall.waitlistMode
@@ -15046,8 +15046,8 @@ function renderSelectedCourse(course) {
                             <form id="courseEnrollmentProofUpdateForm" class="stack enrollment-proof-update-form">
                               <div class="timeline-item compact-panel">
                                 <span class="eyebrow">Justificante pendiente</span>
-                                <strong>Adjunta ahora la transferencia</strong>
-                                <p class="muted">Si ya has realizado el pago, puedes aportar el comprobante desde aqui para que administracion revise tu inscripcion.</p>
+                                <strong>${enrollmentRequiresPayment ? "Adjunta ahora la transferencia" : "Justificante solicitado por administracion"}</strong>
+                                <p class="muted">${enrollmentRequiresPayment ? "Si ya has realizado el pago, puedes aportar el comprobante desde aqui para que administracion revise tu inscripcion." : "Tu inscripcion no tiene coste. Administracion ha solicitado un documento para revisarla."}</p>
                               </div>
                               <label class="inline-field">
                                 Justificante de pago

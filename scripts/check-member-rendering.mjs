@@ -137,10 +137,11 @@ for (const waiting of [false, true]) {
   assert.match(html, /Inscripcion sin coste/);
   assert.match(html, /Nota &lt;QA&gt;/);
 }
-for (const [fee, amount] of [[25, 25], [25, 0], [0, 25]]) {
+for (const [fee, amount] of [[25, 25], [25, 0], [0, 25], [0, 0]]) {
   const html = renderEnrollment({ fee, submission: { ...freeSubmission, amount, status: "pending-proof" } });
   assert.match(html, /id="courseEnrollmentProofUpdateForm"/);
   assert.match(html, /Justificante pendiente/);
+  if (!fee && !amount) assert.match(html, /Justificante solicitado por administracion/);
 }
 const proofHtml = renderEnrollment({ fee: 25, submission: { ...freeSubmission, amount: 25, paymentProof: { name: "prueba.pdf" } } });
 assert.match(proofHtml, /Abrir justificante/);
