@@ -132,3 +132,75 @@ for (const course of [
   assert.equal(available, Math.max(0, course.capacity - (course.enrolledCount ?? course.enrolledIds.length)));
 }
 console.log("Student seat counts check passed.");
+
+const emptyJourney = {
+  enrolled: true, waiting: false, hasDiploma: false, hasDocumentId: true,
+  attendance: 0, evaluation: "Pendiente", pendingSteps: ["Asistencia pendiente"],
+  progress: { lessonsTotal: 0, blocksTotal: 0, blocksCompleted: 0, blockProgress: 0 }
+};
+const completedContent = { lessonsTotal: 1, blocksTotal: 2, blocksCompleted: 2, blockProgress: 100 };
+for (const [changes, headline] of [
+  [{}, "Aula sin contenido publicado"],
+  [{ progress: completedContent }, "Requisitos pendientes"],
+  [{ progress: completedContent, pendingSteps: [] }, "Contenido completado"],
+  [{ hasDiploma: true }, "Diploma disponible"],
+  [{ enrolled: false }, "Pendiente de inscripcion"],
+  [{ enrolled: false, waiting: true }, "Pendiente de plaza"],
+  [{ nextStep: { lessonTitle: "Leccion pendiente", moduleTitle: "Modulo" } }, "Leccion pendiente"]
+]) {
+  const html = vm.runInNewContext(`${source("renderLearnerJourneyCard")}\nrenderLearnerJourneyCard(course, "member-qa");`, {
+    course, session: { role: "member", memberId: "member-qa" }, escapeHtml,
+    getLearnerCourseJourney: () => ({ ...emptyJourney, ...changes }),
+    getCourseFinalTestStatus: () => ({ exists: false }),
+    isMemberPreviewSession: () => false
+  });
+  assert.ok(html.includes(`<strong>${headline}</strong>`), headline);
+  assert.doesNotMatch(html, /Curso completado/);
+  if (headline === "Aula sin contenido publicado") assert.match(html, /Todavia no hay contenido publicado/);
+  if (headline === "Diploma disponible") assert.match(html, /Ir a Mis diplomas/);
+}
+console.log("Learner journey distinguishes content progress from diploma completion.");
+
+function renderEnrollment({ fee = 0, submission = null, waiting = false } = {}) {
+  return vm.runInNewContext(`${source("renderSelectedCourse")}\nrenderSelectedCourse(course);`, {
+    course: { ...course, title: "Curso QA", status: "Inscripcion abierta", capacity: 10,
+      enrollmentFee: fee, enrollmentPaymentInstructions: "Transferencia QA", hours: 1 },
+    state: { selectedMemberId: "member-qa" }, learnerCourseDetailsMode: "status", learnerEnrollmentIntent: true,
+    escapeHtml, formatDate: String, isAdminView: () => false, isMemberPreviewSession: () => false,
+    normalizeCourseClass: () => "teorico", describeCourseType: () => "Curso",
+    getLearnerCourseJourney: () => ({ ...emptyJourney, enrolled: Boolean(submission) && !waiting, waiting }),
+    getCertificateSections: () => [], getVisibleCourseResources: () => [],
+    getCourseEnrolledCount: () => 1, isCourseOpenForEnrollment: () => true,
+    getCourseEnrollmentCall: () => ({ waitlistMode: waiting, audienceLabel: "Solo socios", statusLabel: "Plazas disponibles", ctaLabel: "Inscribirme" }),
+    getCourseEnrollmentSubmission: () => submission, renderLearnerJourneyCard: () => "",
+    getEnrollmentSubmissionStatusLabel: (status) => status, getEnrollmentSubmissionTone: () => "neutral",
+    renderStoredProofLink: (proof) => proof ? '<a href="/qa-proof">Abrir justificante</a>' : ""
+  });
+}
+for (const fee of [0, 25]) {
+  const html = renderEnrollment({ fee });
+  assert.match(html, /id="courseEnrollmentForm"/);
+  assert.match(html, /id="courseEnrollmentNote"/);
+  for (const id of ["courseEnrollmentAmount", "courseEnrollmentMethod", "courseEnrollmentProof"]) {
+    assert.equal(html.includes(`id="${id}"`), fee > 0, `${id} for fee ${fee}`);
+  }
+  assert.equal(html.includes("Indicaciones de pago"), fee > 0);
+  if (!fee) assert.match(html, /Confirma tu inscripcion sin coste/);
+}
+const freeSubmission = { status: "confirmed", amount: 0, method: "Transferencia", note: "Nota <QA>" };
+for (const waiting of [false, true]) {
+  const html = renderEnrollment({ submission: { ...freeSubmission, status: waiting ? "waiting" : "confirmed" }, waiting });
+  assert.doesNotMatch(html, /courseEnrollmentProofUpdateForm|Justificante pendiente|Adjunta ahora la transferencia/);
+  assert.match(html, /Inscripcion sin coste/);
+  assert.match(html, /Nota &lt;QA&gt;/);
+}
+for (const [fee, amount] of [[25, 25], [25, 0], [0, 25], [0, 0]]) {
+  const html = renderEnrollment({ fee, submission: { ...freeSubmission, amount, status: "pending-proof" } });
+  assert.match(html, /id="courseEnrollmentProofUpdateForm"/);
+  assert.match(html, /Justificante pendiente/);
+  if (!fee && !amount) assert.match(html, /Justificante solicitado por administracion/);
+}
+const proofHtml = renderEnrollment({ fee: 25, submission: { ...freeSubmission, amount: 25, paymentProof: { name: "prueba.pdf" } } });
+assert.match(proofHtml, /Abrir justificante/);
+assert.doesNotMatch(proofHtml, /courseEnrollmentProofUpdateForm/);
+console.log("Free enrollment omits payment requests while paid and historical submissions retain them.");

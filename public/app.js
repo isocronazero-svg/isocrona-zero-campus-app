@@ -3894,10 +3894,11 @@ document.addEventListener("submit", async (event) => {
       note: form.querySelector("#courseEnrollmentNote")?.value.trim() || ""
     };
     try {
-      const paymentProof = await readFileInput(form.querySelector("#courseEnrollmentProof"), {
+      const proofInput = form.querySelector("#courseEnrollmentProof");
+      const paymentProof = proofInput ? await readFileInput(proofInput, {
           maxBytes: 50_000_000,
           label: "El justificante de inscripcion"
-        });
+        }) : null;
       const response = await fetch(`/api/member/courses/${course.id}/enroll`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -10954,6 +10955,16 @@ function renderMemberDiplomas(member) {
         Ahora mismo tienes <strong>${availableDiplomas}</strong> diploma(s) disponible(s) y
         <strong>${pendingDiplomas}</strong> curso(s) pendiente(s) de cierre.
       </div>
+      <section aria-label="Certificado de actividad">
+        <h4>Certificado de actividad</h4>
+        ${availableDiplomas ? `
+          <p class="muted">${availableDiplomas} actividad(es) acreditada(s). El certificado incluye el detalle y el total de horas lectivas.</p>
+          <div class="chip-row">
+            <a class="button-link" target="_blank" rel="noopener noreferrer" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}">Ver certificado</a>
+            <a class="mini-button" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}&amp;download=1">Descargar PDF acumulado</a>
+          </div>
+        ` : `<p class="muted">El certificado acumulado estara disponible cuando tengas actividades acreditadas.</p>`}
+      </section>
       <div class="panel-stack associate-anchor" id="diplomaSectionDocuments">
         ${diplomaCards}
       </div>
@@ -14622,6 +14633,9 @@ function renderSelectedCourse(course) {
   const enrollmentCall = getCourseEnrollmentCall(course);
   const isPreviewMode = isMemberPreviewSession();
   const enrollmentSubmission = getCourseEnrollmentSubmission(course, state.selectedMemberId);
+  const enrollmentRequiresPayment = Number(course.enrollmentFee || 0) > 0 || Number(enrollmentSubmission?.amount || 0) > 0;
+  const enrollmentNeedsProof = enrollmentSubmission?.status === "pending-proof" ||
+    (enrollmentRequiresPayment && !enrollmentSubmission?.paymentProof);
   const enrollmentHeadline = journey.enrolled
     ? journey.hasDiploma
       ? "Curso completado"
@@ -14640,7 +14654,9 @@ function renderSelectedCourse(course) {
       : String(course.status || "") === "Inscripcion abierta"
         ? enrollmentCall.scheduledMode
           ? `La inscripcion de este curso se abrira el ${enrollmentCall.opensAtLabel}. Hasta entonces puedes revisar el programa y las fechas.`
-          : "La inscripcion esta abierta. Puedes confirmar ahora tu solicitud como socio y adjuntar el justificante de transferencia."
+          : enrollmentRequiresPayment
+            ? "La inscripcion esta abierta. Puedes confirmar ahora tu solicitud como socio y adjuntar el justificante de transferencia."
+            : "La inscripcion esta abierta y no tiene coste. No necesitas justificante de pago."
         : "Este curso no permite ahora mismo nuevas inscripciones directas.";
   const enrollmentPrimaryLabel = journey.enrolled
     ? journey.hasDiploma
@@ -14671,7 +14687,7 @@ function renderSelectedCourse(course) {
       : canEnroll
         ? enrollmentCall.waitlistMode
           ? "Registrar la solicitud para entrar en espera"
-          : "Confirmar la inscripcion y adjuntar justificante"
+          : enrollmentRequiresPayment ? "Confirmar la inscripcion y adjuntar justificante" : "Confirmar la inscripcion sin coste"
         : enrollmentCall.scheduledMode
           ? `Esperar a la apertura del ${enrollmentCall.opensAtLabel}`
         : "Revisar programa y fechas";
@@ -14692,7 +14708,7 @@ function renderSelectedCourse(course) {
       title: journey.hasDiploma
         ? "Curso finalizado"
         : enrollmentSubmission
-        ? !enrollmentSubmission.paymentProof || enrollmentSubmission.status === "pending-proof"
+        ? enrollmentNeedsProof
           ? "Adjuntar justificante"
           : "Solicitud registrada"
         : canEnroll
@@ -14706,7 +14722,7 @@ function renderSelectedCourse(course) {
       target: journey.hasDiploma
         ? "courseEnrollmentStatusOverview"
         : enrollmentSubmission
-        ? (!enrollmentSubmission.paymentProof || enrollmentSubmission.status === "pending-proof")
+        ? enrollmentNeedsProof
           ? "courseEnrollmentSubmissionState"
           : "courseEnrollmentSubmissionState"
         : learnerEnrollmentIntent
@@ -14715,8 +14731,8 @@ function renderSelectedCourse(course) {
       detail: journey.hasDiploma
         ? "Tu parte de inscripcion ya quedo cerrada y el resultado esta en Mis diplomas."
         : enrollmentSubmission
-        ? !enrollmentSubmission.paymentProof || enrollmentSubmission.status === "pending-proof"
-          ? "Aporta la transferencia para que administracion pueda validarte."
+        ? enrollmentNeedsProof
+          ? enrollmentRequiresPayment ? "Aporta la transferencia para que administracion pueda validarte." : "Administracion ha solicitado un justificante para tu inscripcion."
           : "Tu solicitud ya esta dentro del curso."
         : canEnroll
           ? enrollmentCall.waitlistMode
@@ -14912,7 +14928,7 @@ function renderSelectedCourse(course) {
                   </div>
                   ${
                     canEnroll
-                      ? `<p class="field-hint">La solicitud pide confirmacion final. Puedes adjuntar el justificante de la transferencia ahora o aportarlo despues.</p>`
+                      ? `<p class="field-hint">${enrollmentRequiresPayment ? "La solicitud pide confirmacion final. Puedes adjuntar el justificante de la transferencia ahora o aportarlo despues." : "Confirma tu solicitud. Este curso no requiere pago ni justificante."}</p>`
                       : ""
                   }
                   ${
@@ -14921,7 +14937,7 @@ function renderSelectedCourse(course) {
                         <div class="timeline-item compact-panel enrollment-cta-panel ${enrollmentCall.waitlistMode ? "enrollment-cta-panel-waiting" : ""}" id="courseEnrollmentQuickAction">
                           <span class="eyebrow">Solicitud rapida</span>
                           <strong>Reserva tu plaza en este curso</strong>
-                          <p class="muted">Pulsa el boton para abrir la solicitud de inscripcion, revisar plazas libres o lista de espera y adjuntar el justificante de pago por transferencia.</p>
+                          <p class="muted">${enrollmentRequiresPayment ? "Pulsa el boton para abrir la solicitud de inscripcion, revisar plazas libres o lista de espera y adjuntar el justificante de pago por transferencia." : "Confirma tu inscripcion sin coste. Si no quedan plazas, tu solicitud entrara en lista de espera."}</p>
                           <div class="chip-row compact-chip-row">
                             <button class="primary-button enrollment-call-button enrollment-call-button-strong" type="button" data-action="prepare-course-enrollment" data-course-id="${course.id}">${escapeHtml(enrollmentCall.ctaLabel)}</button>
                             <button class="ghost-button" type="button" data-action="set-learner-course-details-mode" data-mode="overview">Ver programa</button>
@@ -14952,8 +14968,8 @@ function renderSelectedCourse(course) {
                     <div class="module-head">
                       <div>
                         <p class="eyebrow">Solicitud de inscripcion</p>
-                        <h4>Confirma tu plaza y adjunta el justificante</h4>
-                        <p class="muted">Este paso funciona como una inscripcion clara: revisas el importe, compruebas si quedan plazas o entras en espera, subes el justificante y confirmas la solicitud.</p>
+                        <h4>${enrollmentRequiresPayment ? "Confirma tu plaza y adjunta el justificante" : "Confirma tu inscripcion sin coste"}</h4>
+                        <p class="muted">${enrollmentRequiresPayment ? "Este paso funciona como una inscripcion clara: revisas el importe, compruebas si quedan plazas o entras en espera, subes el justificante y confirmas la solicitud." : "No necesitas realizar ningun pago ni aportar justificante."}</p>
                       </div>
                       <div class="chip-row compact-chip-row">
                         <span class="small-chip">${course.enrollmentFee > 0 ? `${course.enrollmentFee} €` : "Sin coste"}</span>
@@ -14962,7 +14978,7 @@ function renderSelectedCourse(course) {
                       </div>
                     </div>
                     ${
-                      course.enrollmentPaymentInstructions
+                      enrollmentRequiresPayment && course.enrollmentPaymentInstructions
                         ? `<div class="timeline-item compact-panel"><span class="eyebrow">Pago por transferencia</span><strong>Indicaciones de pago</strong><p class="muted">${escapeHtml(course.enrollmentPaymentInstructions)}</p></div>`
                         : ""
                     }
@@ -14972,6 +14988,7 @@ function renderSelectedCourse(course) {
                       <p class="muted">${escapeHtml(enrollmentCall.audienceHint)}</p>
                     </div>
                     <form id="courseEnrollmentForm" class="studio-grid">
+                      ${enrollmentRequiresPayment ? `
                       <label class="inline-field">
                         Importe
                         <input id="courseEnrollmentAmount" type="number" min="0" step="0.01" value="${course.enrollmentFee || 0}" />
@@ -14982,19 +14999,22 @@ function renderSelectedCourse(course) {
                           ${["Transferencia", "Bizum", "Efectivo", "Otro"].map((method) => `<option value="${method}">${method}</option>`).join("")}
                         </select>
                       </label>
+                      ` : ""}
                       <label class="inline-field studio-full">
                         Nota para administracion
-                        <textarea id="courseEnrollmentNote" placeholder="Opcional. Ejemplo: transferencia realizada hoy a primera hora o pendiente de adjuntar justificante."></textarea>
+                        <textarea id="courseEnrollmentNote" placeholder="${enrollmentRequiresPayment ? "Opcional. Ejemplo: transferencia realizada hoy a primera hora o pendiente de adjuntar justificante." : "Opcional. Anade una observacion sobre tu inscripcion."}"></textarea>
                       </label>
+                      ${enrollmentRequiresPayment ? `
                       <label class="inline-field studio-full">
                         Justificante de pago
                         <input id="courseEnrollmentProof" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" />
                         <span class="field-hint">Puedes adjuntarlo ahora o registrar la solicitud y aportarlo despues si todavia no has completado la transferencia.</span>
                       </label>
+                      ` : ""}
                       <div class="timeline-item studio-full">
                         <span class="eyebrow">Confirmacion</span>
                         <strong>${enrollmentCall.waitlistMode ? "Entraras en lista de espera" : "Se registrara tu solicitud"}</strong>
-                        <p class="muted">Al pulsar confirmar, tu solicitud quedara registrada en el curso y el equipo podra revisar el justificante si lo has adjuntado. ${enrollmentCall.waitlistMode ? "Ahora mismo no quedan plazas libres y pasaras a lista de espera hasta que se libere una." : "Si el curso se completa despues, el sistema seguira gestionando las plazas y la espera automaticamente."}</p>
+                        <p class="muted">Al pulsar confirmar, tu solicitud quedara registrada en el curso.${enrollmentRequiresPayment ? " El equipo podra revisar el justificante si lo has adjuntado." : " No se requiere pago."} ${enrollmentCall.waitlistMode ? "Ahora mismo no quedan plazas libres y pasaras a lista de espera hasta que se libere una." : "Si el curso se completa despues, el sistema seguira gestionando las plazas y la espera automaticamente."}</p>
                       </div>
                       <div class="chip-row studio-full">
                         <button class="primary-button enrollment-call-button" type="submit">${enrollmentCall.waitlistMode ? "Confirmar lista de espera" : "Confirmar inscripcion"}</button>
@@ -15022,22 +15042,22 @@ function renderSelectedCourse(course) {
                       <h4>Tu solicitud registrada</h4>
                       <div class="validation-chip-list">
                         <span class="validation-chip ${getEnrollmentSubmissionTone(enrollmentSubmission.status)}">${escapeHtml(getEnrollmentSubmissionStatusLabel(enrollmentSubmission.status || "pending"))}</span>
-                        <span class="validation-chip neutral">${escapeHtml(enrollmentSubmission.method || "Transferencia")}</span>
+                        ${enrollmentRequiresPayment ? `<span class="validation-chip neutral">${escapeHtml(enrollmentSubmission.method || "Transferencia")}</span>` : ""}
                         <span class="validation-chip neutral">${Number(enrollmentSubmission.amount || 0)} €</span>
                       </div>
                       <p class="muted"><strong>Estado:</strong> ${escapeHtml(getEnrollmentSubmissionStatusLabel(enrollmentSubmission.status || "pending"))}</p>
-                      <p class="muted"><strong>Metodo:</strong> ${escapeHtml(enrollmentSubmission.method || "Transferencia")} | <strong>Importe:</strong> ${Number(enrollmentSubmission.amount || 0)} €</p>
+                      <p class="muted">${enrollmentRequiresPayment ? `<strong>Metodo:</strong> ${escapeHtml(enrollmentSubmission.method || "Transferencia")} | <strong>Importe:</strong> ${Number(enrollmentSubmission.amount || 0)} €` : "Inscripcion sin coste."}</p>
                       ${enrollmentSubmission.note ? `<p class="muted"><strong>Nota:</strong> ${escapeHtml(enrollmentSubmission.note)}</p>` : ""}
                       ${enrollmentSubmission.paymentProof ? `<p class="muted">Justificante adjunto: ${escapeHtml(enrollmentSubmission.paymentProof.name || "archivo")}</p>` : ""}
                       ${renderStoredProofLink(enrollmentSubmission.paymentProof, "Abrir justificante")}
                       ${
-                        !enrollmentSubmission.paymentProof || enrollmentSubmission.status === "pending-proof"
+                        enrollmentNeedsProof
                           ? `
                             <form id="courseEnrollmentProofUpdateForm" class="stack enrollment-proof-update-form">
                               <div class="timeline-item compact-panel">
                                 <span class="eyebrow">Justificante pendiente</span>
-                                <strong>Adjunta ahora la transferencia</strong>
-                                <p class="muted">Si ya has realizado el pago, puedes aportar el comprobante desde aqui para que administracion revise tu inscripcion.</p>
+                                <strong>${enrollmentRequiresPayment ? "Adjunta ahora la transferencia" : "Justificante solicitado por administracion"}</strong>
+                                <p class="muted">${enrollmentRequiresPayment ? "Si ya has realizado el pago, puedes aportar el comprobante desde aqui para que administracion revise tu inscripcion." : "Tu inscripcion no tiene coste. Administracion ha solicitado un documento para revisarla."}</p>
                               </div>
                               <label class="inline-field">
                                 Justificante de pago
@@ -18116,7 +18136,9 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
         ? escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : journey.nextStep.block.title || journey.nextStep.lessonTitle)
         : journey.nextStep?.lessonTitle
           ? escapeHtml(journey.nextStep.lessonTitle)
-          : "Curso completado";
+          : !journey.progress.lessonsTotal && !journey.progress.blocksTotal
+            ? "Aula sin contenido publicado"
+            : journey.pendingSteps.length ? "Requisitos pendientes" : "Contenido completado";
   const summaryText = journey.hasDiploma
     ? "Ya has completado los hitos del curso y tu diploma puede descargarse."
     : !journey.enrolled && !journey.waiting
@@ -18127,7 +18149,11 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
           ? "Has llegado al hito de cierre del aula. Completar el test final deja mucho mas clara tu evaluacion dentro del curso."
         : journey.nextStep
           ? `${escapeHtml(journey.nextStep.moduleTitle)} | ${escapeHtml(nextBlockMeta ? `${nextBlockMeta.actionLabel}: ${nextBlockMeta.title}` : journey.nextStep.lessonTitle)}`
-          : "No quedan bloques pendientes en el aula publicada.";
+          : !journey.progress.lessonsTotal && !journey.progress.blocksTotal
+            ? "Todavia no hay contenido publicado en este curso. Revisa las fechas y los requisitos de asistencia y evaluacion."
+            : journey.pendingSteps.length
+              ? "Revisa los requisitos pendientes de asistencia, evaluacion o documentacion antes de obtener el diploma."
+              : "No quedan bloques pendientes en el aula publicada. El diploma aun no esta disponible.";
   const progressText = `Contenido ${journey.progress.blockProgress}% | ${journey.progress.blocksCompleted}/${journey.progress.blocksTotal} bloques | Asistencia ${journey.attendance}% | Evaluacion ${escapeHtml(journey.evaluation)}`;
   const feedbackText = course.feedbackEnabled
     ? `${journey.feedbackSubmitted ? "Valoracion enviada" : course.feedbackRequiredForDiploma ? "Valoracion pendiente y requerida para el diploma" : "Valoracion pendiente"}`
