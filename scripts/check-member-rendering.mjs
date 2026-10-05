@@ -103,6 +103,25 @@ assert.match(app, /id="courseGenerateContent" type="checkbox" \/>/);
 assert.match(app, /getElementById\("courseGenerateContent"\)\?\.checked/);
 console.log("Optional course content rendering and empty editor draft checks passed.");
 
+const switchStart = app.indexOf('  if (action === "set-course-curriculum-mode") {');
+const switchEnd = app.indexOf('\n  if (action ===', switchStart + 1);
+assert.ok(switchStart >= 0 && switchEnd > switchStart);
+for (const mode of ["modules", "resources"]) {
+  const selected = { modules: [], resources: [] };
+  const edited = { modules: [{ title: "Modulo editado" }], resources: [{ label: "Documento editado", url: "https://example.test/qa" }] };
+  let renders = 0;
+  const context = {
+    action: "set-course-curriculum-mode", actionTarget: { dataset: { mode } }, courseCurriculumMode: "old",
+    getSelectedCourse: () => selected, isAdminSession: () => true, readCourseEditorDraft: () => edited,
+    render: () => { assert.deepEqual(selected, edited, "Capture the DOM draft before rerendering"); renders++; },
+    requestAnimationFrame: callback => callback(), focusCoursesWorkbench: () => {}
+  };
+  vm.runInNewContext(`(() => {${app.slice(switchStart, switchEnd)}})();`, context);
+  assert.equal(renders, 1);
+  assert.equal(context.courseCurriculumMode, mode);
+}
+console.log("Switching curriculum tabs preserves unsaved module and document fields.");
+
 // Scoped student payloads hide classmates' IDs but retain the total occupancy.
 for (const course of [
   { capacity: 12, enrolledCount: 10, enrolledIds: [] },

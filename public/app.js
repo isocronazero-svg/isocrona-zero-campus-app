@@ -1135,6 +1135,8 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "set-course-curriculum-mode") {
+    const draftCourse = getSelectedCourse();
+    if (isAdminSession() && draftCourse) Object.assign(draftCourse, readCourseEditorDraft(draftCourse));
     courseCurriculumMode = actionTarget.dataset.mode || "modules";
     render();
     requestAnimationFrame(() => focusCoursesWorkbench());
