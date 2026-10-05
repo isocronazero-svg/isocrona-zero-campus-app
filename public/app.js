@@ -1092,7 +1092,7 @@ document.addEventListener("click", async (event) => {
     if (isAdminSession() && draftCourse) Object.assign(draftCourse, readCourseEditorDraft(draftCourse));
     courseWorkbenchMode = actionTarget.dataset.mode || "overview";
     if (courseWorkbenchMode === "curriculum") {
-      courseCurriculumMode = "modules";
+      courseCurriculumMode = normalizeCourseClass(draftCourse?.courseClass) === "practico" ? "resources" : "modules";
     }
     render();
     requestAnimationFrame(() => {
@@ -1135,6 +1135,8 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "set-course-curriculum-mode") {
+    const draftCourse = getSelectedCourse();
+    if (isAdminSession() && draftCourse) Object.assign(draftCourse, readCourseEditorDraft(draftCourse));
     courseCurriculumMode = actionTarget.dataset.mode || "modules";
     render();
     requestAnimationFrame(() => focusCoursesWorkbench());
@@ -1739,6 +1741,7 @@ document.addEventListener("click", async (event) => {
       )
     );
     course.contentStatus = course.modules.length ? "outline" : course.contentStatus;
+    courseCurriculumMode = "modules";
     await persistAndRender("Modulo anadido al curso");
     return;
   }
@@ -1925,6 +1928,7 @@ document.addEventListener("click", async (event) => {
         course.resources.length
       )
     );
+    courseCurriculumMode = "resources";
     await persistAndRender("Recurso anadido al curso");
     return;
   }
@@ -4064,7 +4068,9 @@ document.addEventListener("submit", async (event) => {
       contentTemplate,
       diplomaTemplate: "Aprovechamiento"
     });
-    const blueprint = buildCourseBlueprint(draftCourse, contentTemplate);
+    const blueprint = document.getElementById("courseGenerateContent")?.checked
+      ? buildCourseBlueprint(draftCourse, contentTemplate)
+      : draftCourse;
     const coursePayload = {
       ...draftCourse,
       summary: blueprint.summary,
@@ -4319,8 +4325,8 @@ document.addEventListener("submit", async (event) => {
         contentStatus: contentStatus || "draft",
         objectives,
         sessions,
-        modules: modules.length ? modules : course.modules?.length ? course.modules : buildModulesFromSessions(sessions),
-        resources: resources.length ? resources : course.resources || [],
+        modules,
+        resources,
         materials,
         evaluationCriteria,
         certificateCity,
@@ -10504,6 +10510,9 @@ function renderCourses() {
                     </select>
                   </label>
                   <label class="inline-field studio-full">
+                    <span><input id="courseGenerateContent" type="checkbox" /> Crear modulos y tests desde la plantilla</span>
+                  </label>
+                  <label class="inline-field studio-full">
                     Area o especialidad
                     <input id="courseType" placeholder="Area o especialidad del curso" />
                   </label>
@@ -10547,10 +10556,6 @@ function renderCourses() {
                 </div>
               </div>
               <div class="course-grid">
-                <div class="timeline-item">
-                  <span class="eyebrow">Lo que genera el campus</span>
-                  <p>Resumen, objetivos, sesiones, modulos, lecciones y base de certificado para no arrancar desde cero.</p>
-                </div>
                 <div class="timeline-item">
                   <span class="eyebrow">Despues del alta</span>
                   <p>Al crear, el curso se abre en Curso activo para desarrollar contenido, recursos, sesiones, alumnado y certificado final.</p>
@@ -13454,42 +13459,42 @@ function getCourseWorkbenchChecks(course) {
   checks.push({
     key: "modules",
     label: isPracticalCourse ? "Documentacion" : "Contenido",
-    ok: isPracticalCourse ? resources.length > 0 : modules.length > 0 && getCourseLessonCount(course) > 0,
+    ok: !modules.length || getCourseLessonCount(course) > 0,
     detail:
       isPracticalCourse
         ? resources.length
           ? `${resources.length} recurso(s) preparados para el practico.`
-          : "Sube al menos una guia, dossier o documento para el alumnado."
+          : "Sin documentacion adicional (opcional)."
         : modules.length > 0 && getCourseLessonCount(course) > 0
         ? `${modules.length} modulo(s) y ${getCourseLessonCount(course)} leccion(es).`
-        : "Faltan modulos o lecciones para que el curso tenga recorrido real."
+        : modules.length ? "Completa las lecciones de los modulos creados." : "Sin modulos online (opcional)."
   });
   if (!isPracticalCourse) {
     checks.push({
       key: "sessions",
       label: "Sesiones",
-      ok: sessions.length > 0,
+      ok: true,
       detail: sessions.length
         ? `${sessions.length} sesion(es) planificadas.`
-        : "Todavia no hay sesiones de curso definidas."
+        : "Sin desglose de sesiones (opcional)."
     });
     const finalTest = getCourseFinalTestDescriptor(course, { admin: true, previewOnly: true });
     checks.push({
       key: "finalTest",
       label: "Test final",
-      ok: Boolean(finalTest),
+      ok: true,
       detail: finalTest
         ? `${finalTest.meta.title} listo como hito visible de cierre del curso.`
-        : "Conviene definir o marcar un test final para cerrar mejor la evaluacion del curso."
+        : "Sin test online (opcional). Evaluacion manual disponible."
     });
   }
   checks.push({
     key: "resources",
     label: "Biblioteca",
-    ok: resources.length > 0,
+    ok: true,
     detail: resources.length
       ? `${resources.length} recurso(s) cargados en biblioteca.`
-      : "Conviene añadir PDF, videos o enlaces al curso."
+      : "Sin documentos adicionales (opcional)."
   });
   checks.push({
     key: "certificate",
@@ -13502,10 +13507,10 @@ function getCourseWorkbenchChecks(course) {
   checks.push({
     key: "feedback",
     label: "Valoracion",
-    ok: course.feedbackEnabled !== false,
+    ok: true,
     detail: course.feedbackEnabled !== false
       ? "El cuestionario final de actividad y docentes esta activo."
-      : "Conviene activar la valoracion final para recoger feedback del alumnado."
+      : "Valoracion final desactivada (opcional)."
   });
   checks.push({
     key: "identity",
@@ -14161,7 +14166,8 @@ function renderCourseWorkbench(course) {
             <div class="chip-row">
               ${
                 isPracticalCourse
-                  ? `<button class="ghost-button" type="button" data-action="add-course-resource">Anadir documento</button>`
+                  ? `<button class="ghost-button" type="button" data-action="add-course-resource">Anadir documento</button>
+                     <button class="ghost-button" type="button" data-action="add-course-module">Anadir modulo</button>`
                   : `${Object.entries(COURSE_TEMPLATE_LABELS)
                       .map(
                         ([value, label]) => `
@@ -14175,25 +14181,19 @@ function renderCourseWorkbench(course) {
               }
             </div>
           </div>
-          ${
-            isPracticalCourse
-              ? ""
-              : `
                 <div class="chip-row compact-chip-row">
                   <button class="${activeCurriculumMode === "modules" ? "primary-button" : "ghost-button"}" type="button" data-action="set-course-curriculum-mode" data-mode="modules">Modulos y lecciones</button>
                   <button class="${activeCurriculumMode === "resources" ? "primary-button" : "ghost-button"}" type="button" data-action="set-course-curriculum-mode" data-mode="resources">Biblioteca del curso</button>
                 </div>
-              `
-          }
           <div class="studio-subgrid">
             ${
-              !isPracticalCourse && activeCurriculumMode === "modules"
+              activeCurriculumMode === "modules"
                 ? `
                   <div class="content-studio">
                     ${
                       (course.modules || []).length
                         ? course.modules.map((module, moduleIndex) => renderCourseModuleEditor(course, module, moduleIndex)).join("")
-                        : `<div class="empty-state">Todavia no hay modulos. Usa una plantilla o anade el primero manualmente.</div>`
+                        : `<div class="empty-state">Sin modulos online. Esta actividad puede realizarse de forma presencial.</div>`
                     }
                   </div>
                 `
@@ -14222,7 +14222,7 @@ function renderCourseWorkbench(course) {
                 <p class="muted">${isPracticalCourse ? `La encuesta final ${course.feedbackEnabled ? "esta activa" : "esta desactivada"} y el diploma ${course.feedbackRequiredForDiploma ? "requiere" : "no requiere"} la valoracion para emitirse.` : `${visibleResources} recurso(s) accesibles para el alumno.`}</p>
               </div>
               ${
-                isPracticalCourse || activeCurriculumMode === "resources"
+                activeCurriculumMode === "resources"
                   ? `
                     <div class="timeline-item">
                       <span class="eyebrow">Accion rapida</span>
@@ -15093,15 +15093,17 @@ function renderMemberCourseWorkspace(course, options = {}) {
   const journey = getLearnerCourseJourney(course, memberId);
   const targetMember = findMember(memberId);
   const isPracticalCourse = normalizeCourseClass(course.courseClass) === "practico";
-  const learnerModes = [{ key: isPracticalCourse ? "resources" : "roadmap", label: "Curso" }];
+  const hasPublishedModules = getLearnerCourseModules(course).length > 0;
+  const learnerModes = [{ key: hasPublishedModules ? "roadmap" : "resources", label: "Curso" }];
+  if (hasPublishedModules && getVisibleCourseResources(course, "member").length) {
+    learnerModes.push({ key: "resources", label: "Documentacion" });
+  }
   if (course.feedbackEnabled) {
     learnerModes.push({ key: "feedback", label: "Valoracion" });
   }
   const activeLearnerMode = learnerModes.some((item) => item.key === learnerCourseWorkspaceMode)
     ? learnerCourseWorkspaceMode
-    : isPracticalCourse
-      ? "resources"
-      : "roadmap";
+    : learnerModes[0].key;
   const learnerHeroText = journey.hasDiploma
     ? "Curso cerrado. Tu documento final se descarga desde Mis diplomas."
     : isPracticalCourse
@@ -16630,7 +16632,7 @@ function buildModulesFromSessions(sessions) {
 
 function normalizeCourse(course) {
   const sessions = Array.isArray(course.sessions) ? course.sessions : [];
-  const modules = Array.isArray(course.modules) && course.modules.length
+  const modules = Array.isArray(course.modules)
     ? course.modules.map((module, moduleIndex) => normalizeCourseModule(module, moduleIndex))
     : buildModulesFromSessions(sessions);
   const resources = Array.isArray(course.resources)
@@ -19150,40 +19152,40 @@ function getCoursePedagogicalReadiness(course) {
   const checks = [
     {
       label: "Modulos definidos",
-      ok: modules.length > 0,
-      detail: modules.length ? `${modules.length} modulo(s) creados` : "Todavia no hay modulos en el curso"
+      ok: true,
+      detail: modules.length ? `${modules.length} modulo(s) creados` : "Sin modulos online (opcional)"
     },
     {
       label: "Lecciones con contenido",
-      ok: lessonCount > 0 && lessonWithContentCount === lessonCount,
+      ok: !modules.length || (lessonCount > 0 && lessonWithContentCount === lessonCount),
       detail: lessonCount
         ? `${lessonWithContentCount}/${lessonCount} leccion(es) con base de contenido`
-        : "Aun no hay lecciones desarrolladas"
+        : modules.length ? "Aun no hay lecciones desarrolladas" : "Sin lecciones online (opcional)"
     },
     {
       label: "Tests de modulo",
-      ok: modules.length > 0 ? moduleTestCount > 0 : evaluationBlocks.length > 0,
+      ok: true,
       detail: moduleTestCount
         ? `${moduleTestCount} bloque(s) de evaluacion integrados`
-        : "Conviene definir al menos un test de modulo"
+        : "Sin tests de modulo (opcional)"
     },
     {
       label: "Test final",
-      ok: finalTestCount > 0 || hasFallbackFinalTest,
+      ok: true,
       detail: finalTestCount
         ? `${finalTestCount} test final marcado de forma explicita`
         : hasFallbackFinalTest
           ? "Detectado por compatibilidad con cursos anteriores"
-          : "Aun falta dejar claro el test final del curso"
+          : "Sin test final online (opcional)"
     },
     {
       label: "Valoracion final",
-      ok: hasFeedbackConfigured,
+      ok: true,
       detail: hasFeedbackConfigured
         ? course.feedbackRequiredForDiploma
           ? "Activa y requerida para cerrar diploma"
           : "Activa como cierre complementario"
-        : "La valoracion final sigue desactivada"
+        : "Valoracion final desactivada (opcional)"
     },
     {
       label: "Cierre y diploma",
@@ -19892,7 +19894,7 @@ function readCourseEditorDraft(course) {
       ? parseTextareaList(document.getElementById("editCourseObjectives").value || "")
       : course.objectives || [],
     sessions,
-    modules: modules.length ? modules : buildModulesFromSessions(sessions),
+    modules,
     resources,
     materials: document.getElementById("editCourseMaterials")
       ? parseTextareaList(document.getElementById("editCourseMaterials").value || "")

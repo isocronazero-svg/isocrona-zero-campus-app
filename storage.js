@@ -869,7 +869,7 @@ function buildModulesFromSessions(sessions) {
 
 function normalizeCourse(course) {
   const sessions = Array.isArray(course.sessions) ? course.sessions : [];
-  const modules = Array.isArray(course.modules) && course.modules.length
+  const modules = Array.isArray(course.modules)
     ? course.modules.map((module, moduleIndex) => normalizeCourseModule(module, moduleIndex))
     : buildModulesFromSessions(sessions);
   const resources = Array.isArray(course.resources)

@@ -65,6 +65,63 @@ for (const previewOnly of [true, false]) {
 }
 console.log("Member profile and course rendering check passed.");
 
+const normalizeContext = {
+  escapeHtml: Object.assign(escapeHtml, { normalizeDisplayText: value => value }),
+  normalizeCourseClass: value => value, normalizeCourseAccessScope: () => "members",
+  normalizeDateTimeLocalInput: value => value, normalizeCourseModule: value => value,
+  normalizeCourseResource: value => value, normalizeCourseQuestion: value => value,
+  buildModulesFromSessions: sessions => sessions.map(s => ({ title: s.title, lessons: [] }))
+};
+for (const [modules, expected] of [[[], 0], [undefined, 1], [[{ title: "Conservar", lessons: [] }], 1]]) {
+  const normalized = vm.runInNewContext(`${source("normalizeCourse")}\nnormalizeCourse(course);`, {
+    ...normalizeContext, course: { sessions: [{ title: "Practica" }], ...(modules === undefined ? {} : { modules }) }
+  });
+  assert.equal(normalized.modules.length, expected);
+}
+const draft = vm.runInNewContext(`${source("readCourseEditorDraft")}\nreadCourseEditorDraft(course);`, {
+  course: { modules: [], resources: [], sessions: [{ title: "Presencial" }] },
+  document: { getElementById: id => id === "courseEditForm" ? {} : null }, normalizeCourse: c => c,
+  hasCourseModuleEditors: () => false, hasCourseResourceEditors: () => false,
+  readCourseSharedTestSelection: () => ({}), readCourseTrimmedValue: (_, fallback) => fallback,
+  readCourseFieldValue: (_, fallback) => fallback, readCourseNumberValue: (_, fallback) => fallback
+});
+assert.equal(draft.modules.length, 0);
+assert.equal(draft.sessions.length, 1);
+for (const modules of [[], [{ id: "module", lessons: [] }]]) {
+  const html = vm.runInNewContext(`${source("renderMemberCourseWorkspace")}\nrenderMemberCourseWorkspace(course);`, {
+    course: { id: "course", title: "Practico", courseClass: "practico", modules, feedbackEnabled: false },
+    state: { selectedMemberId: "member" }, learnerCourseWorkspaceMode: "roadmap", escapeHtml, formatDate: String,
+    isMemberPreviewSession: () => false, getLearnerCourseJourney: () => ({ hasDiploma: false }), findMember: () => null,
+    normalizeCourseClass: v => v, getLearnerCourseModules: c => c.modules, getVisibleCourseResources: () => [{}],
+    describeCourseType: () => "Practico", renderLearnerProgressGuard: () => "",
+    renderCourseRoadmap: () => "RECORRIDO_QA", renderCourseResources: () => "DOCUMENTOS_QA"
+  });
+  assert.ok(html.includes(modules.length ? "RECORRIDO_QA" : "DOCUMENTOS_QA"));
+  if (modules.length) assert.match(html, /Documentacion/);
+}
+assert.match(app, /id="courseGenerateContent" type="checkbox" \/>/);
+assert.match(app, /getElementById\("courseGenerateContent"\)\?\.checked/);
+console.log("Optional course content rendering and empty editor draft checks passed.");
+
+const switchStart = app.indexOf('  if (action === "set-course-curriculum-mode") {');
+const switchEnd = app.indexOf('\n  if (action ===', switchStart + 1);
+assert.ok(switchStart >= 0 && switchEnd > switchStart);
+for (const mode of ["modules", "resources"]) {
+  const selected = { modules: [], resources: [] };
+  const edited = { modules: [{ title: "Modulo editado" }], resources: [{ label: "Documento editado", url: "https://example.test/qa" }] };
+  let renders = 0;
+  const context = {
+    action: "set-course-curriculum-mode", actionTarget: { dataset: { mode } }, courseCurriculumMode: "old",
+    getSelectedCourse: () => selected, isAdminSession: () => true, readCourseEditorDraft: () => edited,
+    render: () => { assert.deepEqual(selected, edited, "Capture the DOM draft before rerendering"); renders++; },
+    requestAnimationFrame: callback => callback(), focusCoursesWorkbench: () => {}
+  };
+  vm.runInNewContext(`(() => {${app.slice(switchStart, switchEnd)}})();`, context);
+  assert.equal(renders, 1);
+  assert.equal(context.courseCurriculumMode, mode);
+}
+console.log("Switching curriculum tabs preserves unsaved module and document fields.");
+
 // Scoped student payloads hide classmates' IDs but retain the total occupancy.
 for (const course of [
   { capacity: 12, enrolledCount: 10, enrolledIds: [] },
