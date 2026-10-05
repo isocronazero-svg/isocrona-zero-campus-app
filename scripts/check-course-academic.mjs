@@ -102,6 +102,12 @@ function buildSeedState() {
   const associate = seed.associates[0];
   associate.annualAmount = 0;
   seed.members.find((item) => item.id === "member-1").associateId = associate.id;
+  seed.courses.push({ ...untouchedCourse, id: "course-optional", title: "Practico sin contenido online", courseClass: "practico",
+    sessions: [{ id: "session-practical", title: "Practica presencial", duration: 3 }], modules: [], resources: [],
+    enrolledIds: ["member-1"], attendance: {}, evaluations: {}, diplomaReady: [] });
+  const legacy = { ...untouchedCourse, id: "course-legacy-sessions", sessions: [{ title: "Sesion antigua", duration: 1 }] };
+  delete legacy.modules;
+  seed.courses.push(legacy);
   return seed;
 }
 
@@ -248,6 +254,29 @@ async function main() {
     assert.equal(memberCourseUpdate.status, 403, "Un socio no puede editar cursos");
 
     await login(admin, "admin@isocronazero.org", passwords.admin);
+    const optionalPath = "/api/courses/course-optional";
+    const initialState = (await admin.request("GET", "/api/state")).body;
+    assert.deepEqual(findCourse(initialState, "course-optional").modules, []);
+    assert.ok(findCourse(initialState, "course-legacy-sessions").modules.length > 0, "Legacy sessions without a modules field still migrate");
+    const withDocument = await admin.request("PATCH", optionalPath, {
+      resources: [{ id: "doc", label: "Guia practica", url: "https://example.test/guide.pdf", visibleToMembers: true }],
+      sharedTestQuestionIds: ["shared-q1"], sharedTestPublished: true
+    });
+    assert.deepEqual(withDocument.body.course.modules, []);
+    assert.equal(withDocument.body.course.resources.length, 1);
+    assert.equal((await member.request("GET", optionalPath + "/shared-test")).status, 200, "Test works without modules");
+    await admin.request("PATCH", optionalPath, { modules: initialState.courses.find(c => c.id === "course-1").modules });
+    const withoutExtras = await admin.request("PATCH", optionalPath, {
+      modules: [], resources: [], sharedTestQuestionIds: [], sharedTestPublished: false
+    });
+    assert.deepEqual(withoutExtras.body.course.modules, []);
+    assert.deepEqual(withoutExtras.body.course.resources, []);
+    assert.ok(withoutExtras.body.course.sessions.length, "Sessions must not recreate deleted modules");
+    assert.equal((await member.request("GET", optionalPath + "/shared-test", undefined, true)).status, 403);
+    const noAutomaticDiploma = await admin.request("POST", optionalPath + "/members/member-1/diploma", undefined, true);
+    assert.equal(noAutomaticDiploma.status, 400, "Optional content must not bypass attendance and evaluation");
+    const practicalClosed = await admin.request("POST", optionalPath + "/members/member-1/close");
+    assert.ok(practicalClosed.body.course.diplomaReady.includes("member-1"), "Manual closure works without modules, documents or tests");
     const sharedEndpoint = "/api/courses/course-1/shared-test";
     assert.equal((await anonymous.request("GET", sharedEndpoint, undefined, true)).status, 401);
     assert.equal((await member.request("GET", sharedEndpoint, undefined, true)).status, 403);
@@ -487,6 +516,11 @@ async function main() {
     await login(restartedAdmin, "admin@isocronazero.org", passwords.admin);
     state = (await restartedAdmin.request("GET", "/api/state")).body;
     const persistedCourse = findCourse(state, "course-1");
+    const persistedOptional = findCourse(state, "course-optional");
+    assert.deepEqual(persistedOptional.modules, []);
+    assert.deepEqual(persistedOptional.resources, []);
+    assert.equal(persistedOptional.sharedTestPublished, false);
+    assert.ok(persistedOptional.diplomaReady.includes("member-1"));
     assert.deepEqual(persistedCourse.sharedTestQuestionIds, ["shared-q1", "shared-q2"]);
     assert.equal(persistedCourse.sharedTestPublished, true);
     assert.equal(state.testZoneQuestions.length, 3);
