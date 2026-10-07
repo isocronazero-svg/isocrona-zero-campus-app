@@ -302,6 +302,25 @@ async function main() {
     (memberQuestionsResponse.body?.questions || []).forEach(assertQuestionSafe);
 
     const questionIds = [createdQuestions[0]?.id, createdQuestions[1]?.id, createdQuestions[2]?.id];
+    const learningPath = "/api/test-zone/practice/check-answer";
+    const memberAccountId = (await memberClient.request("GET", "/api/session")).body.session.accountId;
+    const learningBody = { expectedAccountId: memberAccountId, questionId: questionIds[0], questionVersion: createdQuestions[0].revision, selectedIndex: 1 };
+    assert.equal((await anonymous.request("POST", learningPath, learningBody, { allowFailure: true })).status, 401);
+    assert.equal((await memberClient.request("POST", learningPath, { ...learningBody, expectedAccountId: "other" }, { allowFailure: true })).status, 409);
+    assert.equal((await memberClient.request("POST", learningPath, { ...learningBody, selectedIndex: null }, { allowFailure: true })).status, 400);
+    assert.equal((await memberClient.request("POST", learningPath, { ...learningBody, selectedIndex: 100 }, { allowFailure: true })).status, 400);
+    assert.equal((await memberClient.request("POST", learningPath, { ...learningBody, questionId: "missing" }, { allowFailure: true })).status, 404);
+    assert.equal((await memberClient.request("POST", learningPath, { ...learningBody, questionVersion: "missing" }, { allowFailure: true })).status, 409);
+    assert.equal((await memberClient.request("POST", learningPath, { ...learningBody, extra: "x".repeat(17000) }, { allowFailure: true })).status, 413);
+    const feedbackResponse = await memberClient.request("POST", learningPath, learningBody);
+    assert.equal(feedbackResponse.headers.get("cache-control"), "no-store");
+    assert.deepEqual(feedbackResponse.body.feedback, {
+      questionId: questionIds[0], selectedIndex: 1, correctIndex: 0, correctAnswer: "Ley 31/1995",
+      isCorrect: false, explanation: createdQuestions[0].explanation
+    });
+    assert.equal((await memberClient.request("POST", learningPath, { ...learningBody, selectedIndex: 0 })).body.feedback.isCorrect, true);
+    assert.equal((await memberClient.request("GET", "/api/test-zone/results/me")).body.results.length, 0, "Comprobar no genera intentos ni altera estadisticas");
+    (await memberClient.request("GET", "/api/test-zone/questions")).body.questions.forEach(assertQuestionSafe);
     const stateForLegacyLive = (await adminClient.request("GET", "/api/state")).body;
     const legacyLiveSession = (stateForLegacyLive.testZoneLiveSessions || []).find((session) => session.id === "legacy-active-live");
     legacyLiveSession.questionIds = questionIds.slice(0, 2);
@@ -1108,6 +1127,8 @@ async function main() {
     assert.equal(edited.prompt, "Pregunta corregida");
     assert.equal(edited.correctIndex, 1);
     assert.equal(edited.id, original.id);
+    assert.equal((await memberClient.request("POST", learningPath, learningBody)).body.feedback.correctIndex, 0, "Aprendizaje conserva la version iniciada");
+    assert.equal((await memberClient.request("POST", learningPath, { ...learningBody, questionVersion: edited.revision })).body.feedback.correctIndex, 1);
     const inFlight = await memberClient.request("POST", "/api/test-zone/results", {
       questionIds: [original.id], questionVersions: [original.revision], answers: [0], attemptId: "practice-original-version-check"
     });
@@ -1118,6 +1139,7 @@ async function main() {
     assert.equal(fresh.body.result.score, 0, "Los intentos nuevos usan la pregunta corregida");
     assert.equal((await adminClient.request("PUT", questionPath, update, { allowFailure: true })).status, 409, "Edición obsoleta rechazada");
     await adminClient.request("DELETE", questionPath, { expectedUpdatedAt: edited.updatedAt });
+    assert.equal((await memberClient.request("POST", learningPath, learningBody, { allowFailure: true })).status, 404);
     const afterRetirement = await memberClient.request("POST", "/api/test-zone/results", {
       questionIds: [original.id], questionVersions: [edited.revision], answers: [1]
     });
@@ -1201,6 +1223,17 @@ async function main() {
     assert.equal(nextAuto.answerCounts, undefined);
     for (const headers of autoHeaders) await sendAuto(headers, nextAuto.currentQuestionId, 0);
 
+    const learningAttempt = { title: "Aprendizaje", mode: "learning", source: "bank", attemptId: "learning-final-result-check", expectedAccountId: memberAccountId, questionIds: questionIds.slice(1), answers: [1, 2] };
+    const learningResult = (await memberClient.request("POST", "/api/test-zone/results", learningAttempt)).body.result;
+    assert.equal((await memberClient.request("POST", "/api/test-zone/results", learningAttempt)).body.result.id, learningResult.id);
+    assert.equal(learningResult.correctCount, 1);
+    assert.equal(learningResult.wrongCount, 1);
+    const learningHistory = (await memberClient.request("GET", "/api/test-zone/results/me")).body;
+    assert.equal(learningHistory.results.filter(result => result.id === learningResult.id).length, 1);
+    assert.equal(learningHistory.results.find(result => result.id === learningResult.id).mode, "learning");
+    assert.ok(learningHistory.failedQuestionIds.includes(questionIds[1]));
+    assert.equal((await secondMemberClient.request("GET", "/api/test-zone/results/me")).body.results.some(result => result.id === learningResult.id), false);
+
     const restartLobby = (await adminClient.request("POST", "/api/test-zone/live-sessions", { title: "Lobby persistente", questionCount: 1 })).body.session;
     const longName = "Visitante ".repeat(10);
     const restartJoin = (await guest.request("POST", "/api/test-zone/live/join", { code: restartLobby.code, guestName: longName, joinKey: "b".repeat(32) })).body.liveSession;
@@ -1234,6 +1267,8 @@ async function main() {
     assert.equal(throttledPoll.headers.get("cache-control"), "no-store");
     assert.equal((await adminClient.request("GET", reportPath)).body.reports[0].status, "resolved", "Avisos persistidos tras reinicio");
     assert.equal((await adminClient.request("GET", "/api/test-zone/questions")).body.questions.some(q => q.id === original.id), false);
+    await login(memberClient, "lucia@isocronazero.org", "bomberos123");
+    assert.equal((await memberClient.request("GET", "/api/test-zone/results/me")).body.results.find(result => result.id === learningResult.id).mode, "learning", "Aprendizaje persiste tras reiniciar");
     console.log("Test zone checks passed (timer, scoring, reports, moderation permissions, history and persistence).");
   } finally {
     server.kill("SIGTERM");

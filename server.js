@@ -4782,6 +4782,40 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (await handleRoute(req, res, requestUrl, {
+    path: "/api/test-zone/practice/check-answer", method: "POST"
+  }, withAuth({ readState, requireAuthenticatedAccount },
+    withJsonBodyLimit(payloadLimitBytes.small, async ({ body }) => {
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) return;
+      if (body.expectedAccountId !== account.id) {
+        return sendJson(res, 409, { ok: false, error: "La cuenta ha cambiado. Inicia un nuevo test." });
+      }
+      if (enforceRateLimit(res, `learning-check:${account.id}`, 120, rateLimitMinuteMs)) return;
+      const current = (state.testZoneQuestions || []).find(question => question.id === body.questionId && !question.deletedAt);
+      if (!current) return sendJson(res, 404, { ok: false, error: "Pregunta no disponible." });
+      const revision = String(body.questionVersion || "");
+      const record = revision && revision !== (current.updatedAt || current.createdAt)
+        ? (current.previousVersions || []).find(question => (question.updatedAt || question.createdAt) === revision)
+        : current;
+      if (!record) return sendJson(res, 409, { ok: false, error: "La version de la pregunta ya no esta disponible. Inicia un nuevo test." });
+      const question = normalizeTestZoneQuestionRecord(record);
+      const selectedIndex = body.selectedIndex;
+      if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= question.options.length) {
+        return sendJson(res, 400, { ok: false, error: "Selecciona una respuesta antes de comprobar." });
+      }
+      res.setHeader("Cache-Control", "no-store");
+      return sendJson(res, 200, { ok: true, feedback: {
+        questionId: question.id, selectedIndex,
+        correctIndex: question.correctIndex,
+        correctAnswer: question.options[question.correctIndex],
+        isCorrect: selectedIndex === question.correctIndex,
+        explanation: question.explanation
+      } });
+    })
+  ))) return;
+
   if (await handleQuestionMaintenance(req, res, requestUrl, {
     readState, writeState, requireAuthenticatedAccount, requireAdminAccount, readJsonBody, sendJson, sendJsonError,
     buildQuestion: buildTestZoneQuestion, adminPayload: buildTestZoneQuestionAdminPayload, generateId: generateLegacyId
