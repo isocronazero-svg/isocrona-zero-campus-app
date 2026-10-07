@@ -2967,6 +2967,15 @@ tr:last-child td {
   background: linear-gradient(90deg, var(--accent), #d8a623);
 }
 
+.certificate-document-preview {
+  display: block;
+  width: 100%;
+  height: 700px;
+  max-height: 85vh;
+  border: 1px solid var(--line);
+  background: white;
+}
+
 .diploma-card {
   background:
     linear-gradient(120deg, rgba(182, 73, 38, 0.08), rgba(255, 255, 255, 0.7)),

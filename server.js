@@ -74,6 +74,8 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
+const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
+  PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");
 const { normalizeNoticeAttachments, compactNotice, createNoticesHandler, MAX_NOTICE_BODY_BYTES } = require("./server/notices");
 const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
 const { createQuestionBankImportHandler } = require("./server/question-bank-import");
@@ -136,54 +138,6 @@ const certificateTemplateSourceDir = path.join(
   "cert-template-inspect"
 );
 
-const fallbackCertificateContentSections = [
-  {
-    title: "Fundamentos tecnicos y normativos",
-    items: [
-      "Legislacion aplicable al trabajo en altura.",
-      "Marco normativo europeo para sistemas de proteccion.",
-      "Principios fisicos del sistema de doble cuerda.",
-      "Calculo basico de altura libre y factor de caida.",
-      "Procedimientos de seguridad y planificacion de rescate."
-    ]
-  },
-  {
-    title: "Equipos de proteccion individual",
-    items: [
-      "Colocacion y ajuste correcto del arnes integral.",
-      "Uso de conectores y elementos de amarre.",
-      "Inspeccion previa, periodica y post-incidente.",
-      "Gestion y trazabilidad del material."
-    ]
-  },
-  {
-    title: "Sistemas de trabajo y anticaidas",
-    items: [
-      "Uso tecnico del descensor autofrenante.",
-      "Sistemas anticaidas moviles y absorbedores.",
-      "Instalacion correcta y test de carga.",
-      "Calculo de distancia libre de caida."
-    ]
-  },
-  {
-    title: "Anclajes y cabeceras",
-    items: [
-      "Seleccion y evaluacion de soportes estructurales.",
-      "Dispositivos de anclaje EN 795.",
-      "Cabeceras simples, dobles y ecualizables.",
-      "Gestion de angulos y reparto de cargas."
-    ]
-  },
-  {
-    title: "Tecnicas de progresion y rescate",
-    items: [
-      "Progresion vertical y horizontal por estructuras.",
-      "Uso de bloqueadores y sistemas de linea de vida.",
-      "Polipastos, maniobras de fuerza y rescate.",
-      "Simulacros operativos de rescate en altura."
-    ]
-  }
-];
 
 ensureUploadDir();
 const rateLimitMinuteMs = 60 * 1000;
@@ -10940,7 +10894,6 @@ function getCourseCertificateSections(course) {
   }
 
   const moduleSections = (course.modules || [])
-    .slice(0, 5)
     .map((module) => {
       const items = [];
       if (module.goal) {
@@ -10960,7 +10913,7 @@ function getCourseCertificateSections(course) {
 
       return {
         title: module.title || "Bloque formativo",
-        items: Array.from(new Set(items.map((item) => String(item || "").trim()).filter(Boolean))).slice(0, 5)
+        items: Array.from(new Set(items.map((item) => String(item || "").trim()).filter(Boolean)))
       };
     })
     .filter((section) => section.items.length);
@@ -10973,12 +10926,12 @@ function getCourseCertificateSections(course) {
     ? [
         {
           title: "Contenidos principales",
-          items: [...new Set((course.objectives || []).map((item) => String(item || "").trim()).filter(Boolean))].slice(0, 6)
+          items: [...new Set((course.objectives || []).map((item) => String(item || "").trim()).filter(Boolean))]
         }
       ]
     : [];
 
-  return objectiveSections.length ? objectiveSections : fallbackCertificateContentSections;
+  return objectiveSections;
 }
 
 function buildCertificateModel(state, courseId, memberId) {
@@ -11051,453 +11004,20 @@ function buildCertificateDocx(state, courseId, memberId) {
 
 function renderDiplomaHtml(state, courseId, memberId) {
   const model = buildCertificateModel(state, courseId, memberId);
-  if (!model) {
-    return null;
-  }
-
-  const {
-    course,
-    member,
-    code,
-    registryNumber,
-    verifyUrl,
-    certificateTitle,
-    documentId,
-    dateRange,
-    issueDate,
-    city,
-    sections
-  } = model;
-  const logoMarkup = fs.existsSync(certificateTemplateLogoPath)
-    ? `<div class="certificate-artwork" aria-hidden="true"></div>`
-    : `<div class="certificate-seal">${escapeHtml(state.settings.organization)}</div>`;
-
-  return `<!DOCTYPE html>
-<html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${escapeHtml(certificateTitle)} ${escapeHtml(member.name)}</title>
-    <style>
-      @page {
-        size: A4 landscape;
-        margin: 0;
-      }
-      body {
-        margin: 0;
-        padding: 12px;
-        font-family: Georgia, "Times New Roman", serif;
-        color: #2f261e;
-        background: #f4ecdf;
-      }
-      .certificate {
-        position: relative;
-        overflow: hidden;
-        max-width: 1400px;
-        margin: 0 auto;
-        min-height: calc(100vh - 44px);
-        padding: 34px 44px 26px;
-        background: linear-gradient(180deg, #fbf7f1, #f4ece1);
-        box-shadow: 0 18px 46px rgba(54, 28, 10, 0.1);
-      }
-      .certificate-artwork {
-        position: absolute;
-        inset: 0;
-        background-image: url("/api/certificate-template-logo");
-        background-position: center center;
-        background-repeat: no-repeat;
-        background-size: cover;
-        opacity: 0.26;
-        pointer-events: none;
-      }
-      .certificate-grid {
-        position: relative;
-        z-index: 1;
-        display: grid;
-        grid-template-columns: minmax(0, 1.34fr) minmax(300px, 0.66fr);
-        gap: 34px;
-        min-height: calc(100vh - 90px);
-      }
-      .certificate-main {
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        padding-top: 86px;
-      }
-      .certificate-seal {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 64px;
-        padding: 10px 16px;
-        border: 1px solid rgba(140, 49, 20, 0.18);
-        border-radius: 18px;
-        color: #8c3114;
-        font-size: 13px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        margin: 0 auto 16px;
-      }
-      .eyebrow {
-        margin: 0 0 18px;
-        text-transform: uppercase;
-        letter-spacing: 0.16em;
-        color: #8c3114;
-        font-size: 13px;
-        text-align: center;
-      }
-      h1 {
-        margin: 0 0 22px;
-        font-size: 34px;
-        text-align: center;
-        letter-spacing: 0.06em;
-      }
-      .certificate-copy {
-        text-align: center;
-      }
-      .certificate-copy p {
-        margin: 16px 0;
-        font-size: 19px;
-        line-height: 1.72;
-      }
-      .certificate-name {
-        margin: 18px 0 12px;
-        font-size: 34px;
-        font-weight: 700;
-      }
-      .certificate-course {
-        margin: 18px auto;
-        max-width: 88%;
-        font-size: 28px;
-        font-weight: 700;
-      }
-      .certificate-number {
-        margin-top: 18px;
-        font-size: 18px;
-        text-align: center;
-      }
-      .certificate-preview-flag {
-        margin: 0 auto 14px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 8px 14px;
-        border-radius: 999px;
-        border: 1px solid rgba(140, 49, 20, 0.18);
-        background: rgba(182, 73, 38, 0.08);
-        color: #8c3114;
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-      .signature {
-        margin-top: 58px;
-        text-align: center;
-        font-size: 18px;
-      }
-      .certificate-side {
-        padding-top: 16px;
-      }
-      .certificate-side h2 {
-        margin: 0 0 16px;
-        font-size: 22px;
-      }
-      .section {
-        margin-bottom: 16px;
-      }
-      .section h3 {
-        margin: 0 0 6px;
-        font-size: 17px;
-        color: #8c3114;
-      }
-      .section ul {
-        margin: 0;
-        padding-left: 18px;
-      }
-      .section li {
-        margin-bottom: 6px;
-        font-size: 14px;
-        line-height: 1.46;
-      }
-      .verify {
-        margin-top: 26px;
-        padding-top: 12px;
-        font-size: 12px;
-        color: #6d5848;
-      }
-      .print {
-        margin-top: 28px;
-        text-align: center;
-      }
-      button {
-        padding: 12px 18px;
-        border-radius: 999px;
-        border: none;
-        background: #b64926;
-        color: white;
-        cursor: pointer;
-      }
-      @media (max-width: 1000px) {
-        .certificate-grid {
-          grid-template-columns: 1fr;
-        }
-        .certificate-main {
-          padding-top: 70px;
-        }
-      }
-      @media print {
-        .print { display: none; }
-        body { padding: 0; background: white; }
-        .certificate {
-          box-shadow: none;
-          min-height: auto;
-        }
-        .certificate-artwork {
-          opacity: 0.22;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <article class="certificate">
-      <div class="certificate-grid">
-        <section class="certificate-main">
-          <div class="certificate-copy">
-            ${logoMarkup}
-            <p class="eyebrow">${escapeHtml(state.settings.organization)}</p>
-            ${model.preview ? `<div style="text-align:center;"><span class="certificate-preview-flag">Vista previa de certificado</span></div>` : ""}
-            <h1>${escapeHtml(certificateTitle)}</h1>
-            <p>La Asociacion <strong>Isocrona Zero</strong> certifica que</p>
-            <div class="certificate-name">${escapeHtml(member.name)}</div>
-            <p>con DNI/NIE <strong>${escapeHtml(documentId)}</strong></p>
-            <p>ha realizado y superado con <strong>aprovechamiento</strong> el curso</p>
-            <div class="certificate-course">${escapeHtml(course.title)}</div>
-            <p>
-              con una duracion de <strong>${course.hours} horas lectivas</strong>,
-              celebrado entre los dias <strong>${escapeHtml(dateRange)}</strong>.
-            </p>
-            <p>
-              Y para que asi conste, se expide el presente certificado a los efectos oportunos.
-            </p>
-            <p>En <strong>${escapeHtml(city)}</strong>, a <strong>${escapeHtml(issueDate)}</strong>.</p>
-            <div class="certificate-number">Certificado n.o ${escapeHtml(registryNumber)}</div>
-          </div>
-          <div class="signature">
-            <strong>Presidente</strong>
-          </div>
-        </section>
-        <aside class="certificate-side">
-          <p class="eyebrow">&nbsp;</p>
-          <h2>Contenidos formativos</h2>
-          ${sections
-            .map(
-              (section) => `
-                <section class="section">
-                  <h3>${escapeHtml(section.title)}</h3>
-                  <ul>
-                    ${section.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-                  </ul>
-                </section>
-              `
-            )
-            .join("")}
-          <div class="verify">
-            Validacion publica: <strong>${escapeHtml(verifyUrl)}</strong><br />
-            Codigo de comprobacion: <strong>${escapeHtml(code)}</strong>
-          </div>
-        </aside>
-      </div>
-      <div class="print">
-        <button onclick="window.print()">Imprimir o guardar como PDF</button>
-      </div>
-    </article>
-  </body>
-</html>`;
+  if (!model) return null;
+  const verifyUrl = buildAbsoluteCampusUrl(model.verifyUrl);
+  const pages = buildDiplomaLayout(model, state.settings || {}, verifyUrl);
+  return renderDiplomaPagesHtml(pages, model.certificateTitle, escapeHtml);
 }
 
 function buildDiplomaPdf(state, courseId, memberId) {
   const model = buildCertificateModel(state, courseId, memberId);
-  if (!model) {
-    return null;
-  }
-
-  const { course, member, code, registryNumber, certificateTitle, documentId, city, issueDate, dateRange, sections } = model;
-  const verifyUrl = buildAbsoluteCampusUrl(`/verify.html?code=${encodeURIComponent(code)}`);
-  const lines = [];
-
-  const addWrappedLines = (text, { x, y, size, maxChars, lineHeight = size + 4, align = "left", width = 0 }) => {
-    const wrapped = wrapText(text, maxChars);
-    wrapped.forEach((line, index) => {
-      let lineX = x;
-      if (align === "center" && width) {
-        lineX = x + Math.max(0, (width - line.length * (size * 0.42)) / 2);
-      }
-      lines.push({ size, x: lineX, y: y - index * lineHeight, text: line });
-    });
-    return y - wrapped.length * lineHeight;
-  };
-
-  const pageWidth = 842;
-  const pageHeight = 595;
-  const leftX = 58;
-  const leftWidth = 430;
-  const rightX = 518;
-  const rightWidth = 266;
-
-  addWrappedLines(state.settings.organization || "Asociacion Isocrona Zero", {
-    x: leftX,
-    y: 550,
-    size: 11,
-    maxChars: 38,
-    align: "center",
-    width: leftWidth
+  if (!model) return null;
+  const verifyUrl = buildAbsoluteCampusUrl(model.verifyUrl);
+  const pages = buildDiplomaLayout(model, state.settings || {}, verifyUrl);
+  return buildPdfDocument(buildDiplomaPdfStreams(pages, escapePdfText), {
+    pageWidth: DIPLOMA_PAGE_WIDTH, pageHeight: DIPLOMA_PAGE_HEIGHT
   });
-  addWrappedLines(certificateTitle, {
-    x: leftX,
-    y: 520,
-    size: 20,
-    maxChars: 24,
-    align: "center",
-    width: leftWidth
-  });
-  addWrappedLines("La Asociacion Isocrona Zero certifica que", {
-    x: leftX,
-    y: 480,
-    size: 14,
-    maxChars: 40,
-    align: "center",
-    width: leftWidth
-  });
-  addWrappedLines(member.name, {
-    x: leftX,
-    y: 448,
-    size: 22,
-    maxChars: 30,
-    align: "center",
-    width: leftWidth
-  });
-  addWrappedLines(`con DNI/NIE ${documentId}`, {
-    x: leftX,
-    y: 414,
-    size: 13,
-    maxChars: 38,
-    align: "center",
-    width: leftWidth
-  });
-  addWrappedLines("ha realizado y superado con aprovechamiento el curso", {
-    x: leftX,
-    y: 386,
-    size: 14,
-    maxChars: 42,
-    align: "center",
-    width: leftWidth
-  });
-  const courseBottom = addWrappedLines(course.title, {
-    x: leftX,
-    y: 352,
-    size: 18,
-    maxChars: 30,
-    lineHeight: 22,
-    align: "center",
-    width: leftWidth
-  });
-  addWrappedLines(`con una duracion de ${course.hours} horas lectivas, celebrado entre los dias ${dateRange}.`, {
-    x: leftX,
-    y: courseBottom - 8,
-    size: 12,
-    maxChars: 46,
-    lineHeight: 16,
-    align: "center",
-    width: leftWidth
-  });
-  addWrappedLines("Y para que asi conste, se expide el presente certificado a los efectos oportunos.", {
-    x: leftX,
-    y: 240,
-    size: 12,
-    maxChars: 48,
-    lineHeight: 16,
-    align: "center",
-    width: leftWidth
-  });
-  addWrappedLines(`En ${city}, a ${issueDate}.`, {
-    x: leftX,
-    y: 198,
-    size: 12,
-    maxChars: 42,
-    align: "center",
-    width: leftWidth
-  });
-  addWrappedLines(`Certificado n.o ${registryNumber}`, {
-    x: leftX,
-    y: 166,
-    size: 11,
-    maxChars: 32,
-    align: "center",
-    width: leftWidth
-  });
-  lines.push({
-    size: 12,
-    x: leftX + 135,
-    y: 92,
-    text: state.settings.diplomaSignerB || "Presidencia"
-  });
-  lines.push({
-    size: 10,
-    x: leftX + 120,
-    y: 76,
-    text: state.settings.diplomaSignerA || "Direccion de Formacion"
-  });
-
-  lines.push({ size: 14, x: rightX, y: 542, text: "CONTENIDOS FORMATIVOS" });
-  let contentY = 516;
-  sections.slice(0, 5).forEach((section) => {
-    if (contentY < 118) {
-      return;
-    }
-    lines.push({ size: 10, x: rightX, y: contentY, text: section.title.toUpperCase() });
-    contentY -= 16;
-    section.items.slice(0, 5).forEach((item) => {
-      wrapText(`- ${item}`, 34).forEach((line) => {
-        if (contentY < 106) {
-          return;
-        }
-        lines.push({ size: 8.6, x: rightX + 6, y: contentY, text: line });
-        contentY -= 12;
-      });
-    });
-    contentY -= 10;
-  });
-  lines.push({ size: 9, x: rightX, y: 86, text: `Codigo: ${code}` });
-  wrapText(verifyUrl, 34).slice(0, 3).forEach((line, index) => {
-    lines.push({ size: 8, x: rightX, y: 70 - index * 11, text: line });
-  });
-
-  const drawCommands = [
-    "0.72 0.29 0.15 RG",
-    "1.4 w",
-    "26 26 790 543 re S",
-    "0.93 0.89 0.82 rg",
-    "36 36 470 523 re f",
-    "0.98 0.97 0.95 rg",
-    "518 36 288 523 re f",
-    "0.6 0.45 0.31 RG",
-    "1 w",
-    "506 50 m 506 548 l S",
-    "150 102 m 370 102 l S",
-    "518 100 288 0 re S"
-  ];
-
-  const textCommands = lines
-    .map(
-      (line) =>
-        `BT /F1 ${line.size} Tf ${line.x} ${line.y} Td (${escapePdfText(line.text)}) Tj ET`
-    )
-    .join("\n");
-
-  const contentStream = `${drawCommands.join("\n")}\n${textCommands}\n`;
-  return buildPdfDocument(contentStream, { pageWidth, pageHeight });
 }
 
 function buildDiplomaCode(course, member) {
