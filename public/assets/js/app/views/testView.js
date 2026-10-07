@@ -19,7 +19,7 @@ import {
   startLiveSession,
   unmarkQuestionForReview
 } from "../modules/tests/questionService.js";
-import { evaluateTest, generateTest, saveTestResult } from "../modules/tests/testService.js";
+import { checkLearningAnswer, evaluateTest, generateTest, saveTestResult } from "../modules/tests/testService.js";
 import { getTestState, resetTestState, getTestGeneration } from "../modules/tests/testStore.js";
 import { remainingSeconds, formatDuration, correctionLabel } from "../modules/tests/practiceTiming.js";
 
@@ -40,6 +40,7 @@ const testSession = {
     topics: null,
     questionCount: 25,
     timeLimitMinutes: 30,
+    practiceMode: "exam",
     penaltyDivisor: 0
   }
 };
@@ -71,6 +72,8 @@ function buildRunTitle(filters = {}, mode = "general") {
   const parts = [];
   if (mode === "failed") {
     parts.push("Repaso de falladas");
+  } else if (mode === "learning") {
+    parts.push("Aprendizaje");
   } else {
     parts.push("Test de entrenamiento");
   }
@@ -135,6 +138,8 @@ function setActiveRun(run) {
         timeLimitSeconds,
         penaltyDivisor: testSession.filters.penaltyDivisor,
         needsFocus: true,
+        learningIndex: 0,
+        feedback: [],
         answers: Array.isArray(run.answers) ? [...run.answers] : Array.from({ length: run.questions.length }, () => null)
       }
     : null;
@@ -179,6 +184,7 @@ function captureActiveAnswers(form) {
   }
   const formData = new FormData(form);
   run.answers = run.questions.map((question, index) => {
+    if (run.mode === "learning" && (index !== run.learningIndex || run.feedback[index] || run.checking)) return run.answers[index];
     const value = formData.get(`question-${index}`);
     return value === null ? null : Number(value);
   });
@@ -358,6 +364,11 @@ function buildControlsMarkup() {
       </div>
       ${testSession.error ? `<p class="test-zone-inline-error" role="alert">${escapeHtml(testSession.error)}</p>` : ""}
       <form class="test-zone-controls" data-test-zone-controls>
+        <fieldset class="test-zone-mode-switch">
+          <legend>Modo</legend>
+          <label><input type="radio" name="practiceMode" value="exam" ${testSession.filters.practiceMode !== "learning" ? "checked" : ""} /><span>Examen</span></label>
+          <label><input type="radio" name="practiceMode" value="learning" ${testSession.filters.practiceMode === "learning" ? "checked" : ""} /><span>Aprendizaje</span></label>
+        </fieldset>
         ${renderTopicPicker(getStoredQuestions(), testSession.filters.topics)}
         ${buildFilterSelect("difficulty", testSession.filters.difficulty, difficulties)}
         <label class="test-zone-field">
@@ -390,7 +401,9 @@ function buildQuestionAttemptMarkup() {
     return "";
   }
   const markedQuestionIds = getManualReviewQuestionIds();
-  const runModeLabel = run.source === "reviewMarks" ? "marcadas para repasar" : run.mode === "failed" ? "preguntas falladas" : "test normal";
+  const learning = run.mode === "learning";
+  const checked = learning && run.feedback[run.learningIndex];
+  const runModeLabel = learning ? "aprendizaje" : run.source === "reviewMarks" ? "marcadas para repasar" : run.mode === "failed" ? "preguntas falladas" : "test normal";
   const reviewMarkToggleDisabled = run.source === "reviewMarks";
   return `
     <section class="test-zone-card">
@@ -405,7 +418,7 @@ function buildQuestionAttemptMarkup() {
           <button type="button" class="test-zone-secondary-button" data-action="cancel-active-test">Cancelar</button>
         </div>
       </div>
-      ${buildQuestionMapMarkup(run, markedQuestionIds)}
+      ${learning ? `<p class="test-zone-question-index">Pregunta ${run.learningIndex + 1} de ${run.questions.length}</p>` : buildQuestionMapMarkup(run, markedQuestionIds)}
       <div class="test-zone-attempt-status">
         <span>Tiempo restante <strong data-practice-timer role="timer">${formatDuration(remainingSeconds(run))}</strong></span>
         <span>${correctionLabel(run.penaltyDivisor)}</span>
@@ -416,6 +429,7 @@ function buildQuestionAttemptMarkup() {
         <div class="test-zone-question-list">
           ${run.questions
             .map((question, index) => {
+              if (learning && index !== run.learningIndex) return "";
               const questionId = String(question.id || "").trim();
               const marked = markedQuestionIds.has(questionId);
               return `
@@ -454,7 +468,7 @@ function buildQuestionAttemptMarkup() {
                               value="${optionIndex}"
                               data-test-zone-answer
                               data-question-index="${index}"
-                              ${run.finishedAt ? "disabled" : ""}
+                              ${run.finishedAt || (learning && (checked || run.checking)) ? "disabled" : ""}
                               ${run.answers?.[index] !== null && run.answers?.[index] !== undefined && Number(run.answers?.[index]) === optionIndex ? "checked" : ""}
                             />
                             <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
@@ -464,13 +478,22 @@ function buildQuestionAttemptMarkup() {
                       )
                       .join("")}
                   </div>
+                  ${checked ? `<div class="test-zone-learning-feedback ${checked.isCorrect ? "is-correct" : "is-wrong"}" role="status">
+                    <strong>${checked.isCorrect ? "Correcta" : "Incorrecta"}</strong>
+                    <p>Respuesta correcta: ${escapeHtml(formatAnswerOption(checked.correctIndex, checked.correctAnswer))}</p>
+                    <p>${escapeHtml(checked.explanation || "Esta pregunta no tiene explicacion disponible.")}</p>
+                  </div>` : ""}
                 </article>
               `;
             })
             .join("")}
         </div>
         <div class="test-zone-footer-actions">
-          <button type="submit" class="test-zone-primary-button" ${run.submitting ? "disabled" : ""}>${run.submitting ? "Guardando..." : run.finishedAt ? "Reintentar guardado" : "Finalizar test"}</button>
+          ${learning && !run.finishedAt && !checked
+            ? `<button type="submit" class="test-zone-primary-button" ${run.checking ? "disabled" : ""}>${run.checking ? "Comprobando..." : "Comprobar"}</button>`
+            : learning && !run.finishedAt && run.learningIndex < run.questions.length - 1
+              ? '<button type="button" class="test-zone-primary-button" data-action="next-learning-question">Siguiente</button>'
+              : `<button type="submit" class="test-zone-primary-button" ${run.submitting ? "disabled" : ""}>${run.submitting ? "Guardando..." : run.finishedAt ? "Reintentar guardado" : "Finalizar test"}</button>`}
         </div>
       </form>
     </section>
@@ -1013,6 +1036,7 @@ async function startGeneratedTest(failedOnly = false) {
   if (testSession.activeRun) throw new Error("Finaliza o cancela el test activo primero.");
   const store = getTestState();
   const onlyQuestionIds = failedOnly ? store.failedQuestionIds || [] : [];
+  const mode = failedOnly ? "failed" : testSession.filters.practiceMode === "learning" ? "learning" : "general";
   setActiveRun(
     generateTest(
       {
@@ -1025,8 +1049,8 @@ async function startGeneratedTest(failedOnly = false) {
           difficulty: testSession.filters.difficulty
         },
         onlyQuestionIds,
-        title: buildRunTitle(testSession.filters, failedOnly ? "failed" : "general"),
-        mode: failedOnly ? "failed" : "general"
+        title: buildRunTitle(testSession.filters, mode),
+        mode
       },
       testSession.role
     )
@@ -1060,6 +1084,31 @@ async function startReviewMarkedTest() {
     )
   );
   testSession.latestResult = null;
+}
+
+async function handleLearningCheck(container, form) {
+  const run = testSession.activeRun;
+  if (!run || run.mode !== "learning" || run.finishedAt || run.checking || run.feedback[run.learningIndex]) return;
+  captureActiveAnswers(form);
+  if (remainingSeconds(run) === 0) return handleAttemptSubmit(container, form);
+  if (!Number.isInteger(run.answers[run.learningIndex])) {
+    run.error = "Selecciona una respuesta antes de comprobar.";
+    await renderTestView(container, testSession.role);
+    return;
+  }
+  run.checking = true;
+  run.error = "";
+  form.querySelectorAll("input, button[type=submit]").forEach(control => { control.disabled = true; });
+  try {
+    const feedback = await checkLearningAnswer(run, run.learningIndex);
+    if (testSession.activeRun !== run || run.finishedAt) return;
+    run.feedback[run.learningIndex] = feedback;
+  } catch (error) {
+    if (testSession.activeRun === run && !run.finishedAt) run.error = error.message || "No se pudo comprobar. Vuelve a intentarlo.";
+  } finally {
+    run.checking = false;
+    if (testSession.activeRun === run && !run.finishedAt) await renderTestView(container, testSession.role);
+  }
 }
 
 async function handleAttemptSubmit(container, form) {
@@ -1193,6 +1242,15 @@ function bindActions(container) {
       renderTestView(container, testSession.role);
       return;
     }
+    if (action === "next-learning-question") {
+      const run = testSession.activeRun;
+      if (!run || run.mode !== "learning" || run.finishedAt || !run.feedback[run.learningIndex] || run.learningIndex >= run.questions.length - 1) return;
+      run.learningIndex++;
+      run.error = "";
+      run.needsFocus = true;
+      await renderTestView(container, testSession.role);
+      return;
+    }
     if (action === "start-failed-test") {
       if (testSession.activeRun) return;
       try {
@@ -1293,7 +1351,8 @@ function bindActions(container) {
     }
     const run = testSession.activeRun;
     const index = Number(target.dataset.questionIndex || -1);
-    if (!run || run.finishedAt || remainingSeconds(run) === 0 || !Number.isInteger(index) || index < 0) {
+    if (!run || run.finishedAt || remainingSeconds(run) === 0 || !Number.isInteger(index) || index < 0 ||
+        (run.mode === "learning" && (run.checking || run.feedback[index] || index !== run.learningIndex))) {
       return;
     }
     run.answers = Array.isArray(run.answers) ? run.answers : Array.from({ length: run.questions.length }, () => null);
@@ -1317,6 +1376,7 @@ function bindActions(container) {
         difficulty: String(formData.get("difficulty") || "all").trim() || "all",
         questionCount: Math.max(1, Math.min(Number(formData.get("questionCount") || 20), 100)),
         timeLimitMinutes: Number(formData.get("timeLimitMinutes") || 0),
+        practiceMode: formData.get("practiceMode") === "learning" ? "learning" : "exam",
         penaltyDivisor: Number(formData.get("penaltyDivisor") || 0)
       };
       try {
@@ -1332,6 +1392,12 @@ function bindActions(container) {
     }
 
     if (target.hasAttribute("data-test-zone-attempt")) {
+      const run = testSession.activeRun;
+      if (run?.mode === "learning" && !run.finishedAt && remainingSeconds(run) !== 0) {
+        if (!run.feedback[run.learningIndex]) await handleLearningCheck(container, target);
+        else if (run.learningIndex === run.questions.length - 1) await handleAttemptSubmit(container, target);
+        return;
+      }
       await handleAttemptSubmit(container, target);
       return;
     }

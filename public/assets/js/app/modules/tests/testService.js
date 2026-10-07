@@ -25,6 +25,20 @@ function matchesFilter(question, filters = {}) {
   return true;
 }
 
+export async function checkLearningAnswer(run, index) {
+  const question = run.questions[index];
+  const payload = await fetchJson("/api/test-zone/practice/check-answer", {
+    method: "POST",
+    body: JSON.stringify({
+      expectedAccountId: run.accountId,
+      questionId: question.id,
+      questionVersion: question.revision,
+      selectedIndex: run.answers[index]
+    })
+  });
+  return payload.feedback;
+}
+
 export function generateTest(
   {
     questions = [],
