@@ -3869,7 +3869,7 @@ document.addEventListener("submit", async (event) => {
       render();
     } catch (error) {
       syncStatus = error.message || "No se pudo adjuntar el justificante";
-      showToast(syncStatus, "error");
+      showToast(syncStatus, "error", true);
     } finally {
       button.disabled = false;
       button.textContent = buttonLabel;

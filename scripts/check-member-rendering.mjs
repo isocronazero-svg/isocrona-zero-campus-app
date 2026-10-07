@@ -237,8 +237,10 @@ const context = {
   isAdminView: () => false, getSelectedCourse: () => ({ id: "qa" }), isMemberPreviewSession: () => false,
   readFileInput: async element => { assert.equal(element, input); assert.equal(renders, 0); return { name: "qa.pdf" }; },
   fetch: async (_, options) => { requests++; assert.deepEqual(JSON.parse(options.body), { note: "Nota QA", paymentProof: { name: "qa.pdf" } }); return { ok: false, json: async () => ({ error: "Reintentar QA" }) }; },
-  render: () => renders++, showToast() {}
+  render: () => renders++, escapeHtml, toastTimer: null,
+  toastLayer: { innerHTML: "", replaceChildren() {} }, setTimeout: () => 1, clearTimeout() {}
 };
+vm.runInNewContext(source("showToast"), context);
 await vm.runInNewContext(`(async () => {${proofHandler}})();`, context);
 assert.equal(renders, 0, "Failed upload must retain the selected file");
 assert.equal(button.disabled, false);
