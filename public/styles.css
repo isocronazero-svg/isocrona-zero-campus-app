@@ -4755,6 +4755,9 @@ tr:last-child td {
   transition: border-color 160ms ease, background 160ms ease;
 }
 
+#publicLiveTestApp .test-zone-option-list[hidden] { display: none; }
+#publicLiveTestApp summary { min-height: 44px; padding: 10px 0; cursor: pointer; }
+
 .test-zone-option-row input[type="radio"] {
   width: 20px;
   height: 20px;

@@ -18,6 +18,7 @@
   let joining = false;
   let submitting = false;
   let answering = false;
+  let pendingAnswer = null;
   let requestVersion = 0;
   let pageClosed = false;
   let pollDelay = 5000;
@@ -191,7 +192,7 @@
   async function refreshLobby() {
     const liveStatus = String(state.liveSession?.status || "");
     const shouldPoll = liveStatus === "lobby" || (liveStatus === "active" && state.liveSession?.guided === true);
-    if (pollBusy || pageClosed || document.hidden || !shouldPoll) return;
+    if (pollBusy || answering || pageClosed || document.hidden || !shouldPoll) return;
     if (Date.now() < retryNotBefore) {
       scheduleLobbyRefresh();
       return;
@@ -215,6 +216,7 @@
       const previousQuestionIndex = state.liveSession?.currentQuestionIndex;
       const previousQuestionClosed = state.liveSession?.questionClosed === true;
       const previousAnswered = state.liveSession?.answered === true;
+      const previousAnswerIndex = state.liveSession?.currentAnswerIndex;
       const wasRestoring = state.liveSession?._restoring === true;
       state.liveSession = payload.liveSession;
       if (state.liveSession) state.liveSession._receivedAtMs = Date.now();
@@ -226,17 +228,22 @@
         const revealChanged = previousQuestionClosed !== (state.liveSession.questionClosed === true);
         updateStatus(
           questionChanged && previousStatus === "active"
-            ? "El administrador ha pasado a la siguiente pregunta."
+            ? "Siguiente pregunta."
             : state.liveSession.questionClosed === true
               ? "Pregunta cerrada. Ya puedes revisar la respuesta correcta."
               : state.liveSession.answered === true
-                ? "Respuesta enviada. Espera a que el administrador cierre la pregunta."
+                ? "Respuesta guardada. Puedes cambiarla mientras siga abierta."
                 : "El test está en curso.",
           "success"
         );
-        if (wasRestoring || previousStatus !== "active" || questionChanged || revealChanged || previousAnswered !== (state.liveSession.answered === true)) {
+        if (wasRestoring || previousStatus !== "active" || questionChanged || revealChanged || previousAnswered !== (state.liveSession.answered === true) || previousAnswerIndex !== state.liveSession.currentAnswerIndex) {
           render();
+          if (questionChanged || previousStatus !== "active" || revealChanged) {
+            document.getElementById("publicLiveQuestionForm")?.scrollIntoView?.({ block: "start" });
+          }
         }
+        const counts = document.getElementById("publicLiveCounts");
+        if (counts) counts.textContent = `Respuestas: ${state.liveSession.answeredCount || 0} / ${state.liveSession.activeCount || 0} conectados`;
       } else if (state.liveSession?.status === "finished") {
         stopQuestionCountdown();
         updateStatus("Test finalizado. Consulta el podio final.", "success");
@@ -284,7 +291,6 @@
             <button type="submit" class="test-zone-primary-button">Entrar al test en vivo</button>
           </div>
         </form>
-        <p id="publicLiveStatus" aria-live="polite" class="status-note ${state.tone === "error" ? "warning" : ""}">${escapeHtml(state.status)}</p>
       </section>
     `;
   }
@@ -373,7 +379,9 @@
               <p class="test-zone-kicker">Sesión activa</p>
               <h3>${escapeHtml(state.liveSession.title || "Test en vivo")}</h3>
               <p class="muted">Participante: ${escapeHtml(state.liveSession.participantName || state.guestName)}</p>
-              <p class="muted">Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(state.liveSession.questionCount)} · Tiempo: <strong id="publicLiveCountdown">${escapeHtml(remainingSeconds)} s</strong></p>
+              <p class="muted">Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(state.liveSession.questionCount)} · Tiempo: <strong id="publicLiveCountdown">${questionClosed ? "Cerrada" : `${escapeHtml(remainingSeconds)} s`}</strong></p>
+              <p class="muted" id="publicLiveCounts">Respuestas: ${escapeHtml(state.liveSession.answeredCount || 0)} / ${escapeHtml(state.liveSession.activeCount || 0)} conectados</p>
+              <p class="muted">${escapeHtml(Math.max(0, Number(state.liveSession.questionCount) - questionNumber))} preguntas restantes</p>
             </div>
           </div>
           <form id="publicLiveQuestionForm">
@@ -388,7 +396,7 @@
                   <span class="test-zone-tag">${escapeHtml(question.category || "Legislación")}</span>
                 </div>
               </div>
-              <div class="test-zone-option-list">
+              <div class="test-zone-option-list" ${questionClosed ? 'hidden' : ''}>
                 ${(question.options || [])
                   .map(
                     (option, optionIndex) => `
@@ -398,7 +406,7 @@
                           name="answerIndex"
                           value="${optionIndex}"
                           ${Number.isInteger(state.liveSession.currentAnswerIndex) && state.liveSession.currentAnswerIndex === optionIndex ? "checked" : ""}
-                          ${answered || questionLocked ? "disabled" : ""}
+                          ${questionLocked ? "disabled" : ""}
                         />
                         <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
                         <span class="test-zone-option-copy">${escapeHtml(option)}</span>
@@ -408,16 +416,17 @@
                   .join("")}
               </div>
               ${answerResult}
+              ${questionClosed && Array.isArray(state.liveSession.answerCounts) ? `<p class="muted">Respuestas: ${state.liveSession.answerCounts.map((count, index) => `${String.fromCharCode(65 + index)}: ${Number(count)}`).join(" · ")}</p>` : ""}
               ${rankingResult}
             </article>
             <div class="test-zone-footer-actions">
               ${questionClosed
-                ? '<p class="status-note">Pregunta cerrada. Espera a que el administrador continúe.</p>'
+                ? `<p class="status-note">Pregunta cerrada. ${state.liveSession.autoAdvance ? "Siguiente paso automático tras 6 segundos de resultados." : "Espera a que el anfitrión continúe."}</p>`
                 : remainingSeconds <= 0
                   ? '<p class="status-note">Tiempo agotado. Espera a que se muestre la respuesta correcta.</p>'
                   : answered
-                    ? '<p class="status-note">Respuesta enviada. Espera a que el administrador cierre la pregunta.</p>'
-                    : '<button type="submit" class="test-zone-primary-button">Enviar respuesta</button>'}
+                    ? '<p class="status-note">Respuesta guardada. Puedes cambiarla mientras siga abierta.</p>'
+                    : ''}
             </div>
           </form>
         </section>
@@ -491,7 +500,8 @@
 
   function render() {
     root.innerHTML = `
-      ${renderJoinForm()}
+      ${state.liveSession ? `<details><summary>Cambiar de sala</summary>${renderJoinForm()}</details>` : renderJoinForm()}
+      <p id="publicLiveStatus" aria-live="polite" class="status-note ${state.tone === "error" ? "warning" : ""}">${escapeHtml(state.status)}</p>
       ${renderAttempt()}
       ${renderResult()}
     `;
@@ -556,56 +566,54 @@
       scheduleLobbyRefresh();
     });
 
-    questionForm?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (
-        !state.liveSession ||
-        state.result ||
-        answering ||
-        joining ||
-        state.liveSession.answered ||
-        state.liveSession.questionClosed ||
-        getQuestionRemainingSeconds(state.liveSession) <= 0
-      ) {
-        return;
-      }
-      const formData = new FormData(questionForm);
-      const rawAnswerIndex = formData.get("answerIndex");
-      if (rawAnswerIndex === null) {
-        updateStatus("Selecciona una respuesta antes de enviarla.", "error");
-        return;
-      }
+    async function saveSelectedAnswer(event) {
+      if (event.type === "submit") event.preventDefault();
+      if (!state.liveSession || state.result || joining || state.liveSession.questionClosed ||
+          getQuestionRemainingSeconds(state.liveSession) <= 0) return;
+      const rawAnswerIndex = new FormData(questionForm).get("answerIndex");
+      if (rawAnswerIndex === null) return;
+      pendingAnswer = { questionId: state.liveSession.currentQuestionId, answerIndex: Number(rawAnswerIndex) };
+      if (answering) return;
       answering = true;
       requestVersion++;
       stopLobbyRefresh();
       pollBusy = false;
-      const button = questionForm.querySelector('button[type="submit"]');
-      if (button) button.disabled = true;
+      updateStatus("Guardando respuesta...");
       try {
-        const payload = await fetchJson(
-          `/api/test-zone/live-sessions/${encodeURIComponent(state.liveSession.id)}/answer`,
-          {
-            method: "POST",
-            headers: { "X-Live-Participant": state.liveSession.participantId },
-            body: JSON.stringify({
-              questionId: state.liveSession.currentQuestionId,
-              answerIndex: Number(rawAnswerIndex)
-            })
-          }
-        );
-        state.liveSession = payload.liveSession;
-      if (state.liveSession) state.liveSession._receivedAtMs = Date.now();
-        state.status = "Respuesta enviada. Espera a que el administrador cierre la pregunta.";
+        while (pendingAnswer && !state.liveSession.questionClosed) {
+          const answer = pendingAnswer;
+          pendingAnswer = null;
+          if (answer.questionId !== state.liveSession.currentQuestionId) break;
+          if (state.liveSession.answered && state.liveSession.currentAnswerIndex === answer.answerIndex) continue;
+          const payload = await fetchJson(
+            `/api/test-zone/live-sessions/${encodeURIComponent(state.liveSession.id)}/answer`,
+            { method: "POST", headers: { "X-Live-Participant": state.liveSession.participantId },
+              body: JSON.stringify(answer) }
+          );
+          state.liveSession = payload.liveSession;
+          state.liveSession._receivedAtMs = Date.now();
+          saveParticipant();
+        }
+        state.status = state.liveSession.questionClosed
+          ? "Pregunta cerrada. Ya puedes revisar la respuesta correcta."
+          : "Respuesta guardada. Puedes cambiarla mientras siga abierta.";
         state.tone = "success";
         render();
-        scheduleLobbyRefresh(2500);
+        if (state.liveSession.questionClosed) document.getElementById("publicLiveQuestionForm")?.scrollIntoView?.({ block: "start" });
       } catch (error) {
-        updateStatus(error.message || "No se pudo guardar la respuesta.", "error");
+        updateStatus(error.message || "No se pudo guardar la respuesta. Vuelve a tocar una opción.", "error");
       } finally {
         answering = false;
-        if (button) button.disabled = false;
+        pendingAnswer = null;
         scheduleLobbyRefresh(2500);
       }
+    }
+    questionForm?.addEventListener("submit", saveSelectedAnswer);
+    questionForm?.addEventListener("click", event => {
+      if (event.target?.name === "answerIndex") return saveSelectedAnswer(event);
+    });
+    questionForm?.addEventListener("change", event => {
+      if (event.target?.name === "answerIndex") return saveSelectedAnswer(event);
     });
 
     startQuestionCountdown();
