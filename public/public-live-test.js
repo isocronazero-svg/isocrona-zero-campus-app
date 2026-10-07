@@ -567,7 +567,7 @@
     });
 
     async function saveSelectedAnswer(event) {
-      if (event.type !== "click") event.preventDefault();
+      if (event.type === "submit") event.preventDefault();
       if (!state.liveSession || state.result || joining || state.liveSession.questionClosed ||
           getQuestionRemainingSeconds(state.liveSession) <= 0) return;
       const rawAnswerIndex = new FormData(questionForm).get("answerIndex");
@@ -610,6 +610,9 @@
     }
     questionForm?.addEventListener("submit", saveSelectedAnswer);
     questionForm?.addEventListener("click", event => {
+      if (event.target?.name === "answerIndex") return saveSelectedAnswer(event);
+    });
+    questionForm?.addEventListener("change", event => {
       if (event.target?.name === "answerIndex") return saveSelectedAnswer(event);
     });
 
