@@ -3837,10 +3837,15 @@ document.addEventListener("submit", async (event) => {
       return;
     }
 
+    const form = event.target;
+    const button = form.querySelector('button[type="submit"]');
+    if (button.disabled) return;
+    const buttonLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = "Enviando...";
+    const note = form.querySelector("#courseEnrollmentProofUpdateNote")?.value.trim() || "";
     try {
-      syncStatus = "Enviando justificante...";
-      render();
-        const paymentProof = await readFileInput(document.getElementById("courseEnrollmentProofUpdate"), {
+        const paymentProof = await readFileInput(form.querySelector("#courseEnrollmentProofUpdate"), {
           maxBytes: 50_000_000,
           label: "El justificante de inscripcion"
         });
@@ -3848,7 +3853,7 @@ document.addEventListener("submit", async (event) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          note: document.getElementById("courseEnrollmentProofUpdateNote")?.value.trim() || "",
+          note,
           paymentProof
         })
       });
@@ -3864,8 +3869,10 @@ document.addEventListener("submit", async (event) => {
       render();
     } catch (error) {
       syncStatus = error.message || "No se pudo adjuntar el justificante";
-      showToast(syncStatus, "error");
-      render();
+      showToast(syncStatus, "error", true);
+    } finally {
+      button.disabled = false;
+      button.textContent = buttonLabel;
     }
     return;
   }
@@ -3881,9 +3888,6 @@ document.addEventListener("submit", async (event) => {
     const form = event.target;
     const button = form.querySelector('button[type="submit"]');
     if (button.disabled) return;
-    if (!window.confirm(`Vas a solicitar la inscripcion en ${course.title}. Quieres continuar?`)) {
-      return;
-    }
 
     const buttonLabel = button.textContent;
     button.disabled = true;
@@ -6186,12 +6190,13 @@ function focusCourseDetails() {
 }
 
 function focusCourseEnrollment() {
-  const target = document.getElementById("courseEnrollmentPanel") || document.getElementById("courseSectionDetails");
+  const target = document.getElementById("courseEnrollmentRequestForm") || document.getElementById("courseSectionDetails");
   if (!target) {
     return;
   }
 
   target.scrollIntoView({ behavior: "smooth", block: "start" });
+  target.focus({ preventScroll: true });
 }
 
 function focusCourseDetailsSection(mode) {
@@ -10213,9 +10218,6 @@ function renderCourses() {
   const memberPrimaryCourse = !isAdminView() ? getPrimaryMemberCourse(selectedMember?.id) : null;
   const memberCatalogCourse = !isAdminView() ? selectedCourse || memberPrimaryCourse : null;
   const memberActiveCourse = !isAdminView() ? memberPrimaryCourse : null;
-  const memberCatalogIsPractical = Boolean(
-    memberCatalogCourse && normalizeCourseClass(memberCatalogCourse.courseClass) === "practico"
-  );
   const memberActiveIsPractical = Boolean(
     memberActiveCourse && normalizeCourseClass(memberActiveCourse.courseClass) === "practico"
   );
@@ -10247,7 +10249,7 @@ function renderCourses() {
     : [];
   const effectiveSelectedCourse = isAdminView() ? selectedCourse : memberCatalogCourse || memberActiveCourse;
   const learnerStudyMode = !isAdminView() && coursesSectionMode === "workbench" && Boolean(memberActiveCourse);
-  const showCourseSection = (section) => coursesSectionMode === "all" || coursesSectionMode === section;
+  const showCourseSection = (section) => (isAdminView() && coursesSectionMode === "all") || coursesSectionMode === section;
   const totalLessons = state.courses.reduce((sum, course) => sum + getCourseLessonCount(course), 0);
   const totalPublishedLessons = state.courses.reduce((sum, course) => sum + getPublishedLessonCount(course), 0);
   return `
@@ -10366,13 +10368,6 @@ function renderCourses() {
               showCourseSection("details")
                 ? `
                   <section class="mail-card associate-anchor" id="courseSectionDetails">
-                    <div class="panel-header">
-                      <div>
-                        <p class="eyebrow">Resumen del curso</p>
-                        <h4>${memberCatalogCourse ? escapeHtml(memberCatalogCourse.title) : "Selecciona un curso del catalogo"}</h4>
-                        <p class="muted">${memberCatalogIsPractical ? "Revisa documentacion, requisitos y estado de matricula antes de entrar al practico." : "Revisa programa, objetivos, sesiones, recursos y estado de matricula antes de entrar al aula."}</p>
-                      </div>
-                    </div>
                     ${memberCatalogCourse ? renderSelectedCourse(memberCatalogCourse) : `<div class="empty-state">Selecciona un curso del catalogo para ver su resumen completo y la accion de matricula.</div>`}
                   </section>
                 `
@@ -10595,7 +10590,7 @@ function renderCourses() {
       }
 
       ${
-        !isAdminView() || showCourseSection("catalog")
+        isAdminView() && showCourseSection("catalog")
           ? `
             <div class="course-list associate-anchor" id="courseSectionCatalog">
               ${
@@ -14639,7 +14634,7 @@ function renderSelectedCourse(course) {
   const enrollmentHeadline = journey.enrolled
     ? journey.hasDiploma
       ? "Curso completado"
-      : "Inscripcion confirmada"
+      : "Ya estás inscrito"
     : journey.waiting
       ? "Solicitud en espera"
       : canEnroll
@@ -14658,114 +14653,7 @@ function renderSelectedCourse(course) {
             ? "La inscripcion esta abierta. Puedes confirmar ahora tu solicitud como socio y adjuntar el justificante de transferencia."
             : "La inscripcion esta abierta y no tiene coste. No necesitas justificante de pago."
         : "Este curso no permite ahora mismo nuevas inscripciones directas.";
-  const enrollmentPrimaryLabel = journey.enrolled
-    ? journey.hasDiploma
-      ? "Ir a Mis diplomas"
-      : "Entrar al aula"
-    : journey.waiting
-      ? "Ver mi solicitud"
-      : canEnroll
-        ? enrollmentCall.ctaLabel
-        : "Ver programa";
-  const enrollmentStatusBadge = journey.enrolled
-    ? journey.hasDiploma
-      ? "Curso completado"
-      : "Dentro del curso"
-    : journey.waiting
-      ? "Pendiente"
-      : String(course.status || "") === "Inscripcion abierta"
-        ? enrollmentCall.scheduledMode
-          ? "Programada"
-          : "Abierta ahora"
-        : "Cerrada";
-  const enrollmentNextStep = journey.enrolled
-    ? journey.hasDiploma
-      ? "Descargar el diploma en Mis diplomas"
-      : "Ya puedes entrar al aula"
-    : journey.waiting
-      ? "Tu solicitud espera validacion o una plaza libre"
-      : canEnroll
-        ? enrollmentCall.waitlistMode
-          ? "Registrar la solicitud para entrar en espera"
-          : enrollmentRequiresPayment ? "Confirmar la inscripcion y adjuntar justificante" : "Confirmar la inscripcion sin coste"
-        : enrollmentCall.scheduledMode
-          ? `Esperar a la apertura del ${enrollmentCall.opensAtLabel}`
-        : "Revisar programa y fechas";
-  const enrollmentWorkflowSteps = [
-    {
-      eyebrow: "Paso 1",
-      title: "Estado y plazas",
-      mode: "status",
-      target: "courseEnrollmentStatusOverview",
-      detail: journey.enrolled
-        ? journey.hasDiploma
-          ? "Curso cerrado para ti y diploma disponible."
-          : "Ya estas dentro del curso."
-        : `${enrollmentCall.statusLabel}. ${getCourseEnrolledCount(course)}/${course.capacity} ocupadas.`
-    },
-    {
-      eyebrow: "Paso 2",
-      title: journey.hasDiploma
-        ? "Curso finalizado"
-        : enrollmentSubmission
-        ? enrollmentNeedsProof
-          ? "Adjuntar justificante"
-          : "Solicitud registrada"
-        : canEnroll
-          ? enrollmentCall.waitlistMode
-            ? "Entrar en espera"
-            : "Confirmar inscripcion"
-          : enrollmentCall.scheduledMode
-            ? "Apertura programada"
-          : "Inscripcion cerrada",
-      mode: "status",
-      target: journey.hasDiploma
-        ? "courseEnrollmentStatusOverview"
-        : enrollmentSubmission
-        ? enrollmentNeedsProof
-          ? "courseEnrollmentSubmissionState"
-          : "courseEnrollmentSubmissionState"
-        : learnerEnrollmentIntent
-          ? "courseEnrollmentRequestForm"
-          : "courseEnrollmentQuickAction",
-      detail: journey.hasDiploma
-        ? "Tu parte de inscripcion ya quedo cerrada y el resultado esta en Mis diplomas."
-        : enrollmentSubmission
-        ? enrollmentNeedsProof
-          ? enrollmentRequiresPayment ? "Aporta la transferencia para que administracion pueda validarte." : "Administracion ha solicitado un justificante para tu inscripcion."
-          : "Tu solicitud ya esta dentro del curso."
-        : canEnroll
-          ? enrollmentCall.waitlistMode
-            ? "No quedan plazas: tu solicitud quedara en cola."
-            : "Reserva tu plaza y, si procede, adjunta el pago."
-          : enrollmentCall.scheduledMode
-            ? `La inscripcion se activara el ${enrollmentCall.opensAtLabel}.`
-          : "Ahora mismo no puedes enviar solicitud."
-    },
-    {
-      eyebrow: "Paso 3",
-      title: journey.hasDiploma ? "Ir a diplomas" : journey.enrolled ? "Entrar al aula" : journey.waiting ? "Esperar validacion" : "Revisar programa",
-      mode: journey.hasDiploma ? "status" : journey.enrolled ? "status" : journey.waiting ? "status" : "overview",
-      target: journey.hasDiploma ? "courseEnrollmentStatusOverview" : journey.enrolled ? "courseEnrollmentStatusOverview" : journey.waiting ? "courseEnrollmentSubmissionState" : "courseEnrollmentProgramSummary",
-      detail: journey.hasDiploma
-        ? "El diploma ya no vive aqui: lo tienes en Mis diplomas."
-        : journey.enrolled
-          ? "Empieza por el aula y sigue la ruta del curso."
-        : journey.waiting
-          ? "Cuando te confirmen plaza, podras continuar."
-          : "Comprueba temario, sesiones y fechas antes de apuntarte."
-    },
-    {
-      eyebrow: "Paso 4",
-      title: "Despues: diplomas",
-      mode: "status",
-      target: "courseEnrollmentStatusOverview",
-      detail: journey.diplomaReady
-        ? "Tu diploma ya esta disponible en Mis diplomas."
-        : "Cuando completes el curso, el diploma aparecera en Mis diplomas."
-    }
-  ];
-    const detailModes = [
+  const detailModes = [
       { key: "overview", label: isPracticalCourse ? "Resumen" : "Programa" },
       ...(!isPracticalCourse ? [{ key: "sessions", label: "Sesiones" }] : []),
       { key: "resources", label: isPracticalCourse ? "Documentacion" : "Recursos" },
@@ -14775,24 +14663,33 @@ function renderSelectedCourse(course) {
   const activeDetailMode = detailModes.some((item) => item.key === learnerCourseDetailsMode)
     ? learnerCourseDetailsMode
     : "overview";
+  const enrollmentFormOpen = canEnroll && learnerEnrollmentIntent && activeDetailMode === "status";
 
   return `
     <div class="panel-stack">
       <div>
         <p class="eyebrow">Campus · Resumen del curso</p>
-        <h3>${course.title}</h3>
+        <h3>${escapeHtml(course.title)}</h3>
       </div>
-      <p class="muted">${course.summary}</p>
       <div class="chip-row">
         <span class="small-chip">${escapeHtml(describeCourseType(course))}</span>
         <span class="small-chip">${formatDate(course.startDate)} - ${formatDate(course.endDate)}</span>
         <span class="small-chip">${escapeHtml(course.modality || "Presencial")}</span>
         <span class="small-chip">${course.hours} h</span>
+        <span class="small-chip">${course.enrollmentFee > 0 ? `${course.enrollmentFee} €` : "Sin coste"}</span>
+        <span class="small-chip">${escapeHtml(enrollmentCall.statusLabel)}</span>
       </div>
 
-      ${renderLearnerJourneyCard(course, state.selectedMemberId, { compact: true })}
+      <div class="status-note ${journey.enrolled ? "success" : "info"}" id="courseEnrollmentStatusOverview" role="status">
+        <strong>${escapeHtml(journey.enrolled ? "Ya estás inscrito" : journey.waiting ? "Solicitud registrada: en espera" : canEnroll && enrollmentCall.waitlistMode ? "Curso completo" : enrollmentHeadline)}</strong>
+        <p>${escapeHtml(enrollmentDescription)}</p>
+        ${canEnroll && !enrollmentFormOpen ? `<button class="primary-button enrollment-call-button" type="button" data-action="prepare-course-enrollment" data-course-id="${escapeHtml(course.id)}">${escapeHtml(enrollmentCall.ctaLabel)}</button>` : ""}
+        ${(journey.enrolled || journey.waiting) && activeDetailMode !== "status" ? '<button class="ghost-button" type="button" data-action="set-learner-course-details-mode" data-mode="status">Ver inscripción</button>' : ""}
+      </div>
+      <p class="muted">${escapeHtml(course.summary || "")}</p>
+      ${journey.enrolled && !enrollmentFormOpen ? renderLearnerJourneyCard(course, state.selectedMemberId, { compact: true }) : ""}
 
-      <div class="chip-row learner-section-tabs">
+      ${!enrollmentFormOpen ? `<div class="chip-row learner-section-tabs">
         ${detailModes
           .map(
             (mode) => `
@@ -14802,14 +14699,7 @@ function renderSelectedCourse(course) {
             `
           )
           .join("")}
-      </div>
-
-      <div class="status-note info course-detail-summary-row">
-        ${journey.hasDiploma ? "Curso completado" : journey.enrolled ? "Dentro del curso" : journey.waiting ? "En espera" : canEnroll ? enrollmentCall.waitlistMode ? "Lista de espera" : "Inscripcion abierta" : "No disponible"} ·
-        Plazas: ${escapeHtml(enrollmentCall.statusLabel)} (${getCourseEnrolledCount(course)}/${course.capacity}) ·
-        Importe: ${course.enrollmentFee > 0 ? `${course.enrollmentFee} €` : "Sin coste"} ·
-        Siguiente paso: ${escapeHtml(journey.hasDiploma ? enrollmentPrimaryLabel : enrollmentSubmission ? getEnrollmentSubmissionStatusLabel(enrollmentSubmission.status) : enrollmentPrimaryLabel)}.
-      </div>
+      </div>` : ""}
 
       ${
         activeDetailMode === "overview"
@@ -14887,89 +14777,15 @@ function renderSelectedCourse(course) {
         activeDetailMode === "status"
           ? `
             <div class="panel-stack" id="courseDetailModeStatus">
-              <div class="mail-card compact-panel enrollment-hero-card" id="courseEnrollmentStatusOverview">
-                <div class="module-head">
-                  <div>
-                    <p class="eyebrow">Inscripcion del curso</p>
-                    <h4>${enrollmentHeadline}</h4>
-                    <p class="muted">${enrollmentDescription}</p>
-                  </div>
-                  ${
-                    course.status === "Inscripcion abierta"
-                      ? `
-                        <div class="chip-row">
-                          <span class="small-chip">${escapeHtml(enrollmentCall.statusLabel)}</span>
-                          <span class="small-chip">${course.enrollmentFee > 0 ? `${course.enrollmentFee} €` : "Sin coste"}</span>
-                          <span class="small-chip">${escapeHtml(enrollmentCall.audienceLabel)}</span>
-                        </div>
-                      `
-                      : ""
-                  }
-                </div>
-                  <div class="chip-row">
-                    <span class="small-chip">${escapeHtml(enrollmentStatusBadge)}</span>
-                    ${course.status === "Inscripcion abierta" ? `<span class="small-chip">${escapeHtml(enrollmentCall.helperLabel)}</span>` : ""}
-                    ${course.status === "Inscripcion abierta" ? `<span class="small-chip">${escapeHtml(enrollmentCall.occupancyLabel)}</span>` : ""}
-                  </div>
-                  ${
-                    canEnroll
-                      ? `
-                        <div class="enrollment-highlight-strip ${enrollmentCall.waitlistMode ? "enrollment-highlight-strip-waiting" : ""}">
-                          <span class="eyebrow">${escapeHtml(enrollmentCall.urgencyLabel)}</span>
-                          <strong>${escapeHtml(enrollmentCall.ctaLabel)}</strong>
-                          <span>${escapeHtml(enrollmentCall.helperLabel)}</span>
-                        </div>
-                      `
-                      : ""
-                  }
-                  <div class="chip-row enrollment-call-actions">
-                    <button class="primary-button enrollment-call-button" data-action="${journey.hasDiploma ? "set-campus-section-mode" : journey.enrolled ? "open-course-workbench-tab" : journey.waiting ? "set-learner-course-details-mode" : canEnroll ? "prepare-course-enrollment" : "set-learner-course-details-mode"}" data-course-id="${course.id}" ${journey.hasDiploma ? 'data-mode="diplomas"' : journey.enrolled ? 'data-mode="learner"' : ""} ${journey.waiting ? 'data-mode="status"' : !journey.enrolled && !canEnroll ? 'data-mode="overview"' : ""}>${enrollmentPrimaryLabel}</button>
-                    <button class="ghost-button" data-action="${journey.hasDiploma ? "set-campus-section-mode" : "set-learner-course-details-mode"}" ${journey.hasDiploma ? 'data-mode="diplomas"' : `data-mode="${journey.waiting ? "status" : "overview"}"`}>${journey.hasDiploma ? "Mis diplomas" : journey.waiting ? "Ver mi solicitud" : "Ver programa"}</button>
-                  </div>
-                  ${
-                    canEnroll
-                      ? `<p class="field-hint">${enrollmentRequiresPayment ? "La solicitud pide confirmacion final. Puedes adjuntar el justificante de la transferencia ahora o aportarlo despues." : "Confirma tu solicitud. Este curso no requiere pago ni justificante."}</p>`
-                      : ""
-                  }
-                  ${
-                    canEnroll && !learnerEnrollmentIntent
-                      ? `
-                        <div class="timeline-item compact-panel enrollment-cta-panel ${enrollmentCall.waitlistMode ? "enrollment-cta-panel-waiting" : ""}" id="courseEnrollmentQuickAction">
-                          <span class="eyebrow">Solicitud rapida</span>
-                          <strong>Reserva tu plaza en este curso</strong>
-                          <p class="muted">${enrollmentRequiresPayment ? "Pulsa el boton para abrir la solicitud de inscripcion, revisar plazas libres o lista de espera y adjuntar el justificante de pago por transferencia." : "Confirma tu inscripcion sin coste. Si no quedan plazas, tu solicitud entrara en lista de espera."}</p>
-                          <div class="chip-row compact-chip-row">
-                            <button class="primary-button enrollment-call-button enrollment-call-button-strong" type="button" data-action="prepare-course-enrollment" data-course-id="${course.id}">${escapeHtml(enrollmentCall.ctaLabel)}</button>
-                            <button class="ghost-button" type="button" data-action="set-learner-course-details-mode" data-mode="overview">Ver programa</button>
-                          </div>
-                        </div>
-                      `
-                      : ""
-                  }
-              </div>
-              <div class="table-card">
-                <table>
-                  <tbody>
-                    <tr><td>Tu estado</td><td>${journey.hasDiploma ? "Curso completado" : journey.enrolled ? "Inscrito" : journey.waiting ? "En espera" : "No inscrito"}</td></tr>
-                    <tr><td>Acceso</td><td>${escapeHtml(enrollmentCall.audienceLabel)}</td></tr>
-                    <tr><td>Plazas</td><td>${course.status === "Inscripcion abierta" ? `${escapeHtml(enrollmentCall.statusLabel)} · ${getCourseEnrolledCount(course)}/${course.capacity}` : `${getCourseEnrolledCount(course)}/${course.capacity}`}</td></tr>
-                    <tr><td>Importe</td><td>${course.enrollmentFee > 0 ? `${course.enrollmentFee} €` : "Sin coste"}</td></tr>
-                    <tr><td>Siguiente paso</td><td>${escapeHtml(enrollmentNextStep)}</td></tr>
-                    <tr><td>DNI/NIE</td><td>${journey.hasDocumentId ? "Disponible en ficha" : "Pendiente en tu ficha de socio"}</td></tr>
-                    ${enrollmentSubmission ? `<tr><td>Solicitud enviada</td><td>${escapeHtml(getEnrollmentSubmissionStatusLabel(enrollmentSubmission.status))}</td></tr>` : ""}
-                  </tbody>
-                </table>
-              </div>
-            </div>
             ${
-              canEnroll && learnerEnrollmentIntent
+              enrollmentFormOpen
                 ? `
-                  <div class="mail-card compact-panel" id="courseEnrollmentRequestForm">
+                  <div class="mail-card compact-panel" id="courseEnrollmentRequestForm" tabindex="-1">
                     <div class="module-head">
                       <div>
                         <p class="eyebrow">Solicitud de inscripcion</p>
                         <h4>${enrollmentRequiresPayment ? "Confirma tu plaza y adjunta el justificante" : "Confirma tu inscripcion sin coste"}</h4>
-                        <p class="muted">${enrollmentRequiresPayment ? "Este paso funciona como una inscripcion clara: revisas el importe, compruebas si quedan plazas o entras en espera, subes el justificante y confirmas la solicitud." : "No necesitas realizar ningun pago ni aportar justificante."}</p>
+                        <p class="muted">${enrollmentRequiresPayment ? "Puedes adjuntar el justificante ahora o aportarlo después." : "No necesitas realizar ningun pago ni aportar justificante."}</p>
                       </div>
                       <div class="chip-row compact-chip-row">
                         <span class="small-chip">${course.enrollmentFee > 0 ? `${course.enrollmentFee} €` : "Sin coste"}</span>
@@ -15078,6 +14894,7 @@ function renderSelectedCourse(course) {
                   `
                   : ""
               }
+            </div>
           `
           : ""
       }
@@ -18229,7 +18046,7 @@ function getCourseEnrollmentCall(course) {
         : seatsLeft === 1
           ? "1 plaza libre"
           : `${seatsLeft} plazas libres`,
-    ctaLabel: scheduledMode ? "Inscripcion programada" : waitlistMode ? "Apuntarme a la lista de espera" : "Inscribirme ahora",
+    ctaLabel: scheduledMode ? "Inscripcion programada" : waitlistMode ? "Unirme a lista de espera" : "Inscribirme ahora",
     panelTitle: scheduledMode ? "Apertura programada" : waitlistMode ? "Lista de espera activa" : "Inscripcion abierta",
     urgencyLabel: scheduledMode ? "Apertura programada" : waitlistMode ? "Curso completo" : seatsLeft <= 3 ? "Ultimas plazas" : "Plazas disponibles",
     helperLabel: scheduledMode
@@ -18886,24 +18703,13 @@ function renderCompactCourseCard(course, role = "member") {
   } else if (role === "member" && isWaiting) {
     courseMetaChips.push("En espera");
   } else if (role === "member" && isEnrolled) {
-    courseMetaChips.push("Dentro del curso");
+    courseMetaChips.push("Ya estás inscrito");
   } else if (role === "member" && course.status === "Inscripcion abierta") {
-    courseMetaChips.push(enrollmentCall.statusLabel);
+    courseMetaChips.push(enrollmentCall.waitlistMode ? "Curso completo" : enrollmentCall.statusLabel);
   }
 
   return `
     <article class="compact-course-card ${isEnrolled ? "compact-course-card-active" : ""}">
-      ${
-        role === "member" && String(course.status || "") === "Inscripcion abierta" && !hasDiploma && !isEnrolled && !isWaiting
-          ? `
-            <button class="quick-enroll-banner ${enrollmentCall.waitlistMode ? "quick-enroll-banner-waiting" : ""}" data-action="${canEnroll ? "prepare-course-enrollment" : "select-course"}" data-course-id="${course.id}">
-              <span class="eyebrow">${escapeHtml(enrollmentCall.panelTitle)}</span>
-              <strong>${escapeHtml(canEnroll ? enrollmentCall.ctaLabel : enrollmentCall.statusLabel)}</strong>
-              <span>${escapeHtml(enrollmentCall.statusLabel)}${course.enrollmentFee > 0 ? ` · ${course.enrollmentFee} €` : ""} · ${escapeHtml(enrollmentCall.audienceLabel)}</span>
-            </button>
-          `
-          : ""
-      }
       <div class="row-between">
         <span class="small-chip">${escapeHtml(describeCourseType(course))}</span>
         <div class="chip-row compact-chip-row">
@@ -18952,34 +18758,9 @@ function renderCompactCourseCard(course, role = "member") {
   `;
 }
 
-function renderQuickEnrollmentStrip(courses) {
-  if (!courses?.length) {
-    return "";
-  }
-
-  return `
-    <div class="quick-enrollment-strip">
-      <span class="eyebrow">Inscripcion rapida</span>
-      <div class="chip-row">
-        ${courses
-          .map(
-            (course) => `
-              <button class="ghost-button quick-enroll-chip" data-action="${isCourseOpenForEnrollment(course) ? "prepare-course-enrollment" : "select-course"}" data-course-id="${course.id}">
-                <strong>${escapeHtml(course.title)}</strong>
-                <span>${escapeHtml(getCourseEnrollmentCall(course).statusLabel)}${course.enrollmentFee > 0 ? ` · ${course.enrollmentFee} €` : ""}</span>
-              </button>
-            `
-          )
-          .join("")}
-      </div>
-    </div>
-  `;
-}
-
 function renderCompactCourseBucket(title, description, courses, options = {}) {
   const emptyMessage = options.emptyMessage || "No hay cursos en este bloque.";
   const role = options.role || "member";
-  const quickEnroll = Boolean(options.quickEnroll);
   const sectionId = options.sectionId || "";
   return `
     <section class="mail-card compact-panel course-bucket-card" ${sectionId ? `id="${sectionId}"` : ""}>
@@ -18990,7 +18771,6 @@ function renderCompactCourseBucket(title, description, courses, options = {}) {
         </div>
         <span class="small-chip">${courses.length}</span>
       </div>
-      ${quickEnroll ? renderQuickEnrollmentStrip(courses) : ""}
       ${
         courses.length
           ? `<div class="compact-course-grid">${courses.map((course) => renderCompactCourseCard(course, role)).join("")}</div>`

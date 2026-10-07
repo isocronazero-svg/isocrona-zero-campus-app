@@ -831,13 +831,14 @@ function buildLiveSessionControls(session) {
       : "";
   return `
     <p class="muted"><strong>Pregunta ${escapeHtml(questionNumber)} de ${escapeHtml(session.questionCount)}</strong> · ${questionClosed ? 'Cerrada' : `<strong data-public-live-countdown data-deadline="${escapeHtml(session.questionDeadlineAt)}" data-server-now="${escapeHtml(session.serverNow)}" data-received-at="${Date.now()}">${escapeHtml(timeLimitSeconds)} s</strong>`}</p>
-    <p class="muted">Respuestas recibidas: ${escapeHtml(Number(session.answeredCount || 0))} de ${escapeHtml((session.participants || []).length)}</p>
+    <p class="muted">Respuestas recibidas: ${escapeHtml(Number(session.answeredCount || 0))} de ${escapeHtml(Number(session.activeCount ?? (session.participants || []).length))} conectados · ${escapeHtml(Math.max(0, Number(session.questionCount) - questionNumber))} preguntas restantes</p>
     ${currentQuestion ? `<p>${escapeHtml(currentQuestion.prompt)}</p>` : ""}
     ${correctAnswer}
+    ${questionClosed && Array.isArray(session.answerCounts) ? `<p class="muted">Respuestas: ${session.answerCounts.map((count, index) => `${String.fromCharCode(65 + index)}: ${Number(count)}`).join(" · ")}</p>` : ""}
     ${provisionalRanking}
     <div class="test-zone-actions">
       <button type="button" class="test-zone-secondary-button" data-action="refresh-live-lobby">Actualizar estado</button>
-      ${!questionClosed
+      ${session.autoAdvance ? (questionClosed ? '<p class="status-note">Resultados: siguiente paso automático tras 6 segundos.</p>' : '') : !questionClosed
         ? `<button type="button" class="test-zone-primary-button" data-action="reveal-live-question" data-session-id="${escapeHtml(session.id)}">Cerrar y mostrar respuesta</button>`
         : isLastQuestion
           ? `<button type="button" class="test-zone-primary-button" data-action="finish-live-session" data-session-id="${escapeHtml(session.id)}">Finalizar y mostrar podio</button>`
@@ -1176,6 +1177,7 @@ async function handleQuestionFormSubmit(container, form) {
 export async function submitPublicLiveForm(form) {
   const formData = new FormData(form);
   await createLiveSession({
+    autoAdvance: true,
     title: String(formData.get("title") || "").trim(),
     questionCount: Number(formData.get("questionCount") || 20),
     questionTimeLimitSeconds: Number(formData.get("questionTimeLimitSeconds") || 20),

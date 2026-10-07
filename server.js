@@ -1,4 +1,6 @@
 const http = require("http");
+const { createPublicLiveFlow, answerDistribution } = require("./server/public-live-flow");
+const publicLiveFlow = createPublicLiveFlow();
 const { createQuestionContributionsHandler } = require("./server/question-contributions");
 const { randomUUID, createHash } = require("node:crypto");
 const handleQuestionMaintenance = require("./server/question-maintenance");
@@ -1081,6 +1083,8 @@ function createTestZoneLiveSession(state, account, payload = {}) {
     questionClosed: false,
     questionStartedAt: "",
     questionTimeLimitSeconds: normalizeLiveTestQuestionTimeLimitSeconds(payload.questionTimeLimitSeconds),
+    autoAdvance: payload.autoAdvance === true,
+    nextQuestionAt: "",
     participantAnswers: {},
     createdByAccountId: String(account?.id || "").trim(),
     createdByMemberId: String(account?.memberId || "").trim(),
@@ -1160,12 +1164,13 @@ function buildTestZoneLiveSessionAdminPayload(session, state) {
     questionDeadlineAt: Number.isFinite(deadlineMs) ? new Date(deadlineMs).toISOString() : "",
     serverNow: new Date().toISOString(),
     currentQuestionId,
+    autoAdvance: session.autoAdvance === true,
+    nextQuestionAt: session.nextQuestionAt || "",
+    activeCount: publicLiveFlow.progress(session).activeCount,
     ...(revealedQuestion && Number.isInteger(revealedQuestion.correctIndex)
-      ? { correctIndex: revealedQuestion.correctIndex }
+      ? { correctIndex: revealedQuestion.correctIndex, answerCounts: answerDistribution(session, revealedQuestion.options.length) }
       : {}),
-    answeredCount: (session?.participants || []).filter(participant =>
-      session?.participantAnswers?.[participant.id]?.[(session?.questionIds || [])[session.currentQuestionIndex]]
-    ).length,
+    answeredCount: publicLiveFlow.progress(session).answeredCount,
     leaderboard: questionClosed
       ? buildTestZoneLiveLeaderboard(session).map(({ rank, name, score }) => ({ rank, name, score }))
       : [],
@@ -1240,6 +1245,9 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     status: session.status,
     participantId,
     participantName: participant?.name || "",
+    autoAdvance: session.autoAdvance === true,
+    nextQuestionAt: session.nextQuestionAt || "",
+    ...publicLiveFlow.progress(session),
     finishedAt: String(session?.finishedAt || "").trim(),
     guided,
     currentQuestionIndex,
@@ -1252,6 +1260,7 @@ function buildPublicTestZoneLiveSession(state, session, participantId) {
     ...(questionClosed && currentQuestion && Number.isInteger(currentQuestion.correctIndex)
       ? {
           correctIndex: currentQuestion.correctIndex,
+          answerCounts: answerDistribution(session, currentQuestion.options.length),
           isCorrect: participantAnswer?.isCorrect === true,
           pointsAwarded: Number(participantAnswer?.pointsAwarded || 0),
           responseTimeMs: Number.isFinite(Number(participantAnswer?.responseTimeMs))
@@ -5003,8 +5012,11 @@ const server = http.createServer(async (req, res) => {
       },
       withAuth({ readState, requireAuthenticatedAccount: requireLiveHostAccount }, async ({ state, account }) => {
       ensureTestZoneState(state);
-      if (expireStaleTestZoneLiveSessions(state)) {
+      const expired = expireStaleTestZoneLiveSessions(state);
+      const advanced = (state.testZoneLiveSessions || []).map(session => publicLiveFlow.advance(session)).some(Boolean);
+      if (expired || advanced) {
         writeState(state);
+        publicLivePollState = null;
       }
       return sendJson(res, 200, {
         ok: true,
@@ -5271,6 +5283,7 @@ const server = http.createServer(async (req, res) => {
         };
         session.participants.push(participant);
       }
+      publicLiveFlow.touch(session, participant.id);
       if (expired || isNewParticipant || attachJoinKey) {
         writeState(state);
         publicLivePollState = null;
@@ -5342,10 +5355,8 @@ const server = http.createServer(async (req, res) => {
           ? session.participantAnswers[participantId]
           : {};
       const existingAnswer = session.participantAnswers[participantId][currentQuestionId];
-      if (existingAnswer && Number(existingAnswer.answerIndex) !== answerIndex) {
-        return sendJson(res, 409, { ok: false, error: "Ya has respondido esta pregunta." });
-      }
-      if (!existingAnswer) {
+      publicLiveFlow.touch(session, participantId);
+      if (!existingAnswer || Number(existingAnswer.answerIndex) !== answerIndex) {
         const answeredAtMs = Date.now();
         const questionStartedAtMs = Date.parse(String(session.questionStartedAt || ""));
         const limitMs = normalizeLiveTestQuestionTimeLimitSeconds(session.questionTimeLimitSeconds) * 1000;
@@ -5364,9 +5375,10 @@ const server = http.createServer(async (req, res) => {
           pointsAwarded,
           responseTimeMs
         };
-        if (participant && pointsAwarded > 0) {
-          participant.score = Number(participant.score || 0) + pointsAwarded;
+        if (participant) {
+          participant.score = Number(participant.score || 0) - Number(existingAnswer?.pointsAwarded || 0) + pointsAwarded;
         }
+        publicLiveFlow.advance(session);
         writeState(state);
         publicLivePollState = null;
       }
@@ -5395,13 +5407,27 @@ const server = http.createServer(async (req, res) => {
         publicLivePollState = readState();
         publicLivePollReadAt = Date.now();
       }
-      const state = publicLivePollState;
-      const session = getTestZoneLiveSessionById(state, sessionId);
+      let state = publicLivePollState;
+      let session = getTestZoneLiveSessionById(state, sessionId);
       if (!session || !["lobby", "active", "finished"].includes(session.status) || Date.parse(session.expiresAt) <= Date.now()) {
         return sendJson(res, 404, { ok: false, error: "La sesion no esta disponible o ha caducado." });
       }
       if (!(session.participants || []).some(participant => participant.id === participantId)) {
         return sendJson(res, 403, { ok: false, error: "Vuelve a entrar con tu nombre y codigo." });
+      }
+      publicLiveFlow.touch(session, participantId);
+      // Never persist the shared read cache: unrelated writes may have happened since it was loaded.
+      if (session.autoAdvance === true && publicLiveFlow.advance(structuredClone(session))) {
+        state = readState();
+        session = getTestZoneLiveSessionById(state, sessionId);
+        if (!session || !["lobby", "active", "finished"].includes(session.status) || Date.parse(session.expiresAt) <= Date.now()) {
+          return sendJson(res, 404, { ok: false, error: "La sesion no esta disponible o ha caducado." });
+        }
+        if (!(session.participants || []).some(participant => participant.id === participantId)) {
+          return sendJson(res, 403, { ok: false, error: "Vuelve a entrar con tu nombre y codigo." });
+        }
+        if (publicLiveFlow.advance(session)) writeState(state);
+        publicLivePollState = null;
       }
       return sendJson(res, 200, { ok: true, liveSession: buildPublicTestZoneLiveSession(state, session, participantId) });
     } catch (error) {

@@ -124,7 +124,6 @@ const beforeFailure = h.renders;
 h.replies.push(async () => { throw new TypeError("Failed to fetch"); });
 await form.listeners.submit({ preventDefault() {} });
 assert.equal(h.renders, beforeFailure, "A failed answer save must preserve the selected answer");
-assert.equal(form.button.disabled, false);
 assert.match(h.elements.get("publicLiveStatus").textContent, /No se pudo conectar/);
 
 h.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 1 } });
@@ -137,8 +136,9 @@ assert.equal(
   answerRequestsBefore + 1,
   "Double submit adds no duplicate answer request"
 );
-assert.match(h.markup, /Respuesta enviada/);
-assert.match(h.markup, /Espera a que el administrador cierre la pregunta/);
+assert.match(h.markup, /Respuesta guardada/);
+assert.match(h.markup, /Puedes cambiarla/);
+assert.doesNotMatch(h.markup, /Enviar respuesta|disabled/);
 assert.doesNotMatch(h.markup, /Puntos:/, "La puntuacion no se muestra antes del cierre");
 
 h.reply({
@@ -208,6 +208,29 @@ assert.doesNotMatch(h.markup, /publicLiveQuestionForm/);
 assert.equal(h.timers.size, 0, "El podio final detiene el polling");
 
 const legacy = harness();
+const rapid = harness();
+await rapid.join(active);
+const rapidForm = rapid.elements.get("publicLiveQuestionForm");
+rapidForm.values = { answerIndex: "0" };
+let releaseFirst;
+rapid.replies.push(() => new Promise(resolve => { releaseFirst = () => resolve({ ok: true, status: 200, json: async () => ({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 0 } }) }); }));
+const click = { type: "click", target: { name: "answerIndex" }, preventDefault() { throw new Error("Do not cancel the radio's default selection"); } };
+const savingRapid = rapidForm.listeners.click(click);
+await rapidForm.listeners.change({ ...click, type: "change" });
+rapidForm.values.answerIndex = "1";
+await rapidForm.listeners.click(click);
+rapid.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 1 } });
+releaseFirst();
+await savingRapid;
+assert.deepEqual(rapid.requests.filter(r => r.url.endsWith("/answer")).map(r => JSON.parse(r.options.body).answerIndex), [0, 1]);
+assert.match(rapid.markup, /value="1"\s+checked/);
+assert.doesNotMatch(rapid.markup, /Enviar respuesta|disabled/);
+const keyboardForm = rapid.elements.get("publicLiveQuestionForm");
+keyboardForm.values = { answerIndex: "0" };
+rapid.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 0 } });
+await keyboardForm.listeners.change({ ...click, type: "change" });
+assert.deepEqual(rapid.requests.filter(r => r.url.endsWith("/answer")).map(r => JSON.parse(r.options.body).answerIndex), [0, 1, 0], "Keyboard-only changes are saved without duplicating click/change pairs");
+assert.match(rapid.markup, /value="0"\s+checked/);
 await legacy.join(legacyActive);
 assert.match(legacy.markup, /publicLiveAttemptForm/, "A previous active session keeps the legacy full-attempt UI");
 assert.equal(legacy.timers.size, 0, "Legacy active sessions do not enter guided polling");
@@ -260,7 +283,7 @@ const lostConfirmation = harness();
 await lostConfirmation.join(active);
 lostConfirmation.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 1 } });
 await lostConfirmation.tick();
-assert.match(lostConfirmation.markup, /Respuesta enviada/);
+assert.match(lostConfirmation.markup, /Respuesta guardada/);
 assert.doesNotMatch(lostConfirmation.markup, />Enviar respuesta</);
 
 const savedStorage = new Map(lostConfirmation.storage);
@@ -269,7 +292,7 @@ assert.match(restored.markup, /Recuperando tu participación/);
 assert.doesNotMatch(restored.markup, /publicLiveQuestionForm/, 'No stale questions before server validation');
 restored.reply({ ok: true, liveSession: { ...active, answered: true, currentAnswerIndex: 1 } });
 await restored.tick();
-assert.match(restored.markup, /Respuesta enviada/);
+assert.match(restored.markup, /Respuesta guardada/);
 assert.equal(restored.requests[0].options.method, 'GET');
 assert.equal(restored.requests[0].options.headers['X-Live-Participant'], active.participantId);
 assert.equal(restored.requests.filter(r => r.url.endsWith('/join')).length, 0, 'Restore never rejoins');

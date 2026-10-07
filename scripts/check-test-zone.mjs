@@ -624,9 +624,14 @@ async function main() {
         { questionId: firstQuestionId, answerIndex: alternativeAnswerIndex },
         { headers: pollHeaders, allowFailure: true }
       )).status,
-      409,
-      "Una respuesta ya enviada no se puede cambiar"
+      200,
+      "La respuesta se puede cambiar mientras la pregunta siga abierta"
     );
+    const changedOpen = (await guest.request("GET", pollPath, undefined, { headers: pollHeaders })).body.liveSession;
+    assert.equal(changedOpen.currentAnswerIndex, alternativeAnswerIndex);
+    assert.equal(changedOpen.correctIndex, undefined);
+    assert.equal(changedOpen.answerCounts, undefined);
+    await guest.request("POST", answerPath, { questionId: firstQuestionId, answerIndex: firstCorrectIndex }, { headers: pollHeaders });
     await rival.request(
       "POST",
       answerPath,
@@ -1185,6 +1190,39 @@ async function main() {
     assert.equal(JSON.stringify(namesRevealed).includes('joinKey'), false, "Las claves de entrada no salen en el panel");
     assert.equal(JSON.stringify(one).includes('joinKey'), false, "Las claves no salen en payloads públicos");
 
+    const autoRoom = (await adminClient.request("POST", "/api/test-zone/live-sessions", { title: "Automatico QA", questionCount: 2, questionTimeLimitSeconds: 120, autoAdvance: true })).body.session;
+    assert.equal(autoRoom.questionCount, 2);
+    const autoPath = `/api/test-zone/live-sessions/${autoRoom.id}`;
+    const autoHeaders = [];
+    for (const guestName of ["Auto uno", "Auto dos"]) {
+      const player = (await guest.request("POST", "/api/test-zone/live/join", { code: autoRoom.code, guestName })).body.liveSession;
+      autoHeaders.push({ "X-Live-Participant": player.participantId });
+    }
+    const autoStart = (await adminClient.request("POST", autoPath + "/start", {})).body.session;
+    const autoQuestion = (await adminClient.request("GET", "/api/test-zone/questions")).body.questions.find(q => q.id === autoStart.currentQuestionId);
+    const sendAuto = async (headers, questionId, answerIndex) => (await guest.request("POST", autoPath + "/answer", { questionId, answerIndex }, { headers })).body.liveSession;
+    const wrongAuto = (autoQuestion.correctIndex + 1) % autoQuestion.options.length;
+    const openAuto = await sendAuto(autoHeaders[0], autoQuestion.id, autoQuestion.correctIndex);
+    assert.equal(openAuto.questionClosed, false);
+    assert.equal(openAuto.activeCount, 2);
+    assert.equal(openAuto.answeredCount, 1);
+    assert.equal(openAuto.correctIndex, undefined);
+    await sendAuto(autoHeaders[0], autoQuestion.id, wrongAuto);
+    const closedAuto = await sendAuto(autoHeaders[1], autoQuestion.id, autoQuestion.correctIndex);
+    assert.equal(closedAuto.questionClosed, true, "Last active answer closes immediately, before timeout");
+    assert.ok(Date.parse(closedAuto.questionDeadlineAt) > Date.now() + 60000);
+    assert.equal(closedAuto.leaderboard.find(p => p.name === "Auto uno").score, 0, "Editing subtracts old points");
+    assert.equal(closedAuto.answerCounts[wrongAuto], 1);
+    assert.equal(closedAuto.answerCounts[autoQuestion.correctIndex], 1);
+    assert.equal((await guest.request("POST", autoPath + "/answer", { questionId: autoQuestion.id, answerIndex: autoQuestion.correctIndex }, { headers: autoHeaders[0], allowFailure: true })).status, 409);
+    await delay(6100);
+    const nextAuto = (await guest.request("GET", autoPath + "/participant", undefined, { headers: autoHeaders[0] })).body.liveSession;
+    assert.equal(nextAuto.currentQuestionIndex, 1);
+    assert.equal(nextAuto.questionClosed, false);
+    assert.equal(nextAuto.correctIndex, undefined);
+    assert.equal(nextAuto.answerCounts, undefined);
+    for (const headers of autoHeaders) await sendAuto(headers, nextAuto.currentQuestionId, 0);
+
     const learningAttempt = { title: "Aprendizaje", mode: "learning", source: "bank", attemptId: "learning-final-result-check", expectedAccountId: memberAccountId, questionIds: questionIds.slice(1), answers: [1, 2] };
     const learningResult = (await memberClient.request("POST", "/api/test-zone/results", learningAttempt)).body.result;
     assert.equal((await memberClient.request("POST", "/api/test-zone/results", learningAttempt)).body.result.id, learningResult.id);
@@ -1204,6 +1242,10 @@ async function main() {
     server = startServer(port, baseUrl);
     await waitForServer(baseUrl);
     await login(adminClient, "admin@isocronazero.org", "campus123");
+    await delay(6100);
+    const finalAuto = (await guest.request("GET", autoPath + "/participant", undefined, { headers: autoHeaders[0] })).body.liveSession;
+    assert.equal(finalAuto.status, "finished", "Automatic final podium survives process restart");
+    assert.equal(finalAuto.leaderboard.length, 2);
     const restoredJoin = (await guest.request("POST", "/api/test-zone/live/join", { code: restartLobby.code, guestName: longName, joinKey: "b".repeat(32) })).body.liveSession;
     assert.equal(restoredJoin.status, "lobby", "El reinicio conserva la sala de espera");
     assert.equal(restoredJoin.participantId, restartJoin.participantId, "El reinicio conserva al participante");
