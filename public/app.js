@@ -15215,10 +15215,7 @@ function renderDiplomaPreview(course) {
     return `<div class="empty-state">Aun no hay alumno seleccionado para previsualizar.</div>`;
   }
 
-  const sections = getCertificateSections(course);
-  const city = course.certificateCity || state.settings.certificateCity || "Madrid";
   const documentId = getMemberDocumentId(previewMember);
-  const issueDate = formatDate(course.endDate || new Date().toISOString());
   const feedbackSent = Boolean(getCourseFeedbackResponse(course, previewMember.id));
   const readyForDiploma = isMemberReadyForDiploma(course, previewMember.id);
   const diplomaAlreadyGenerated = course.diplomaReady.includes(previewMember.id);
@@ -15235,7 +15232,7 @@ function renderDiplomaPreview(course) {
     <div class="panel-stack" id="diplomaPreviewPanel">
       <div>
         <p class="eyebrow">Vista previa</p>
-        <h3>Plantilla real del certificado</h3>
+        <h3>Certificado guardado: anverso y reverso</h3>
         <p class="muted">Alumno actual: <strong>${escapeHtml(previewMember.name)}</strong></p>
       </div>
       ${
@@ -15273,50 +15270,10 @@ function renderDiplomaPreview(course) {
         }
       </div>
 
-      <div class="diploma-card">
-        <div class="diploma-preview certificate-preview">
-          <div class="certificate-preview-artwork" aria-hidden="true"></div>
-          <div class="certificate-preview-grid">
-            <section class="certificate-preview-main">
-              <div class="certificate-preview-head">
-                <p class="eyebrow">${escapeHtml(state.settings.organization)}</p>
-                <h3>${escapeHtml(buildCertificateTitle(course))}</h3>
-              </div>
-              <div class="certificate-preview-copy">
-                <p>La Asociacion <strong>Isocrona Zero</strong> certifica que</p>
-                <div class="certificate-preview-name">${escapeHtml(previewMember.name)}</div>
-                <p>con DNI/NIE <strong>${escapeHtml(documentId)}</strong></p>
-                <p>ha realizado y superado con <strong>aprovechamiento</strong> el curso</p>
-                <div class="certificate-preview-course">${escapeHtml(course.title)}</div>
-                <p>con una duracion de <strong>${course.hours} horas lectivas</strong>, celebrado entre los dias <strong>${escapeHtml(formatDateRange(course.startDate, course.endDate))}</strong>.</p>
-                <p>En <strong>${escapeHtml(city)}</strong>, a <strong>${escapeHtml(issueDate)}</strong>.</p>
-              </div>
-              <div class="certificate-preview-number">Certificado n.o ${escapeHtml(buildRegistryNumber(course, previewMember))}</div>
-              <div class="signature-row">
-                <div class="signature-box">
-                  <strong>Presidente</strong>
-                </div>
-              </div>
-            </section>
-            <aside class="certificate-preview-side">
-              <p class="eyebrow">&nbsp;</p>
-              <h4>Contenidos formativos</h4>
-              ${sections
-                .map(
-                  (section) => `
-                    <div class="certificate-section-preview">
-                      <strong>${escapeHtml(section.title)}</strong>
-                      <ul>
-                        ${section.items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-                      </ul>
-                    </div>
-                  `
-                )
-                .join("")}
-            </aside>
-          </div>
-        </div>
-      </div>
+      <iframe class="certificate-document-preview"
+        title="Anverso y reverso del certificado guardado"
+        src="/api/diplomas/${encodeURIComponent(course.id)}/${encodeURIComponent(previewMember.id)}"
+        loading="lazy"></iframe>
       <a class="button-link" target="_blank" rel="noreferrer" href="/api/diplomas/${course.id}/${previewMember.id}">
         Abrir en ventana de impresion
       </a>
@@ -16224,52 +16181,6 @@ const COURSE_CLASS_LABELS = {
   "teorico-practico": "Teorico-practico",
   practico: "Practico"
 };
-
-const FALLBACK_CERTIFICATE_SECTIONS = [
-  {
-    title: "Fundamentos tecnicos y normativos",
-    items: [
-      "Legislacion aplicable al trabajo en altura.",
-      "Marco normativo europeo para sistemas de proteccion.",
-      "Principios fisicos del sistema de doble cuerda.",
-      "Calculo basico de altura libre y factor de caida."
-    ]
-  },
-  {
-    title: "Equipos de proteccion individual",
-    items: [
-      "Colocacion y ajuste correcto del arnes integral.",
-      "Uso de conectores y elementos de amarre.",
-      "Inspeccion previa, periodica y post-incidente.",
-      "Gestion y trazabilidad del material."
-    ]
-  },
-  {
-    title: "Sistemas de trabajo y anticaidas",
-    items: [
-      "Uso tecnico del descensor autofrenante.",
-      "Sistemas anticaidas moviles y absorbedores.",
-      "Instalacion correcta y test de carga.",
-      "Calculo de distancia libre de caida."
-    ]
-  },
-  {
-    title: "Anclajes y cabeceras",
-    items: [
-      "Seleccion y evaluacion de soportes estructurales.",
-      "Dispositivos de anclaje EN 795.",
-      "Cabeceras simples, dobles y ecualizables."
-    ]
-  },
-  {
-    title: "Tecnicas de progresion y rescate",
-    items: [
-      "Progresion vertical y horizontal por estructuras.",
-      "Uso de bloqueadores y sistemas de linea de vida.",
-      "Polipastos, maniobras de fuerza y rescate."
-    ]
-  }
-];
 
 const LESSON_TYPE_OPTIONS = [
   "Briefing",
@@ -19830,7 +19741,6 @@ function getCertificateSections(course) {
   }
 
   const moduleSections = (course.modules || [])
-    .slice(0, 5)
     .map((module) => {
       const items = [];
       if (module.goal) {
@@ -19850,7 +19760,7 @@ function getCertificateSections(course) {
 
       return {
         title: module.title || "Bloque formativo",
-        items: Array.from(new Set(items.map((item) => String(item || "").trim()).filter(Boolean))).slice(0, 5)
+        items: Array.from(new Set(items.map((item) => String(item || "").trim()).filter(Boolean)))
       };
     })
     .filter((section) => section.items.length);
@@ -19859,7 +19769,10 @@ function getCertificateSections(course) {
     return moduleSections;
   }
 
-  return FALLBACK_CERTIFICATE_SECTIONS;
+  return (course.objectives || []).length ? [{
+    title: "Contenidos principales",
+    items: [...new Set(course.objectives.map(item => String(item || "").trim()).filter(Boolean))]
+  }] : [];
 }
 
 function buildAssistantSummary() {
