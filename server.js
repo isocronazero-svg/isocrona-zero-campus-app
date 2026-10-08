@@ -9851,7 +9851,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     const timestamp = new Date().toISOString().replaceAll(":", "-");
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
-      "Content-Disposition": `attachment; filename="campus-backup-${timestamp}.json"`
+      "Content-Disposition": `attachment; filename="campus-backup-${timestamp}.json"`,
+      "Cache-Control": "no-store"
     });
     res.end(JSON.stringify(state, null, 2));
     return;
