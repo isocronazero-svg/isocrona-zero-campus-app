@@ -8408,6 +8408,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (requestUrl.pathname === "/api/import/associate-workbook/preview" && req.method === "POST") {
+    res.setHeader("Cache-Control", "no-store");
     const state = readState();
     const account = requireAdminAccount(req, res, state);
     if (!account) {
@@ -8428,34 +8429,44 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (requestUrl.pathname === "/api/import/associate-workbook/commit" && req.method === "POST") {
-    let state = null;
+    res.setHeader("Cache-Control", "no-store");
     try {
-      state = readState();
+      if (!requireAdminAccount(req, res, readState())) {
+        return;
+      }
+      const payload = await readJsonBodyOrDefault(req);
+      // Re-read after the body: preview validation and persistence must use one current snapshot.
+      const state = readState();
       const account = requireAdminAccount(req, res, state);
       if (!account) {
         return;
       }
 
-      const payload = await readJsonBodyOrDefault(req);
       const preview = buildLegacyAssociateImportPreview(
         state,
         payload.workbookFile ? payload : String(payload.workbookPath || legacyAssociateWorkbookPath).trim()
       );
-      const result = importLegacyAssociates(state, preview, account.name);
-      const summary = await runAutomationEngine(state);
-      recordAutomationRun(state, "Importacion socios legacy", summary);
+      if (!payload.previewToken || payload.previewToken !== preview.previewToken) {
+        return sendJson(res, 409, { ok: false, error: "El Excel o las fichas han cambiado. Analiza de nuevo antes de importar." });
+      }
+      const approvedReviewRows = payload.approvedReviewRows || [];
+      if (!Array.isArray(approvedReviewRows) || approvedReviewRows.some((rowNumber) =>
+        !preview.rows.some((row) => row.sourceRow === rowNumber && row.importStatus === "review")
+      )) {
+        return sendJson(res, 400, { ok: false, error: "La seleccion de filas para revisar no es valida." });
+      }
+      const result = importLegacyAssociates(state, preview, account.name, approvedReviewRows);
+      if (!result.importedCount) {
+        return sendJson(res, 400, { ok: false, error: "No hay filas listas o revisadas seleccionadas para importar." });
+      }
       writeState(state);
       return sendJson(res, 200, {
         ok: true,
         message: `Importados ${result.importedCount} socio(s), ${result.reviewCount} quedan para revisar y ${result.skippedCount} fila(s) se han omitido`,
         preview,
-        result,
-        summary
+        result
       });
     } catch (error) {
-      if (state) {
-        writeState(state);
-      }
       return sendJsonError(res, error, "No se pudo importar el Excel de socios");
     }
   }
@@ -10564,6 +10575,20 @@ function getLegacyAssociateWorkbookValue(row, aliases = []) {
   return "";
 }
 
+function readLegacyImportNumber(value, label, blockers) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const normalized = raw.includes(",") && raw.includes(".")
+    ? raw.replace(/\./g, "").replace(",", ".")
+    : raw.replace(",", ".");
+  const parsed = Number(normalized);
+  if (!/^\d+(?:\.\d+)?$/.test(normalized) || !Number.isFinite(parsed)) {
+    blockers.push(`${label}: valor numerico no valido`);
+    return null;
+  }
+  return parsed;
+}
+
 function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssociateWorkbookPath) {
   const workbook =
     typeof workbookSource === "string"
@@ -10571,20 +10596,27 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
       : resolveLegacyAssociateWorkbookRows(workbookSource);
   const existingAssociatesByEmail = new Map();
   const existingAssociatesByDni = new Map();
+  const ambiguousEmails = new Set();
+  const ambiguousDnis = new Set();
   (state.associates || []).forEach((item) => {
     const normalizedEmail = String(item.email || "").trim().toLowerCase();
     const normalizedDni = normalizeDniValue(item.dni);
     if (normalizedEmail) {
+      if (existingAssociatesByEmail.has(normalizedEmail)) ambiguousEmails.add(normalizedEmail);
       existingAssociatesByEmail.set(normalizedEmail, item);
     }
     if (normalizedDni) {
+      if (existingAssociatesByDni.has(normalizedDni)) ambiguousDnis.add(normalizedDni);
       existingAssociatesByDni.set(normalizedDni, item);
     }
   });
   const seenWorkbookEmails = new Set();
   const seenWorkbookDnis = new Set();
+  const seenWorkbookNumbers = new Set();
 
   const rows = (workbook.rows || []).map((row) => {
+    const notes = [];
+    const blockers = [];
     const firstName = normalizeLegacyWorkbookText(
       getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.firstName)
     );
@@ -10606,27 +10638,20 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
     const observations = normalizeLegacyWorkbookText(
       getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.observations)
     );
-    const associateNumber = Math.round(
-      parseLegacyWorkbookNumber(
-        getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.associateNumber)
-      )
+    const associateNumber = readLegacyImportNumber(
+      getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.associateNumber),
+      "Numero de socio", blockers
     );
-    const yearlyFees = {
-      "2024": parseLegacyWorkbookNumber(
-        getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.yearly2024)
-      ),
-      "2025": parseLegacyWorkbookNumber(
-        getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.yearly2025)
-      ),
-      "2026": parseLegacyWorkbookNumber(
-        getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.yearly2026)
-      ),
-      "2027": parseLegacyWorkbookNumber(
-        getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.yearly2027)
-      )
-    };
-    const notes = [];
-    const blockers = [];
+    if (associateNumber !== null && (!Number.isSafeInteger(associateNumber) || associateNumber <= 0)) {
+      blockers.push("numero de socio debe ser un entero positivo");
+    }
+    const yearlyFees = Object.fromEntries(["2024", "2025", "2026", "2027"].map((year) => [year,
+      readLegacyImportNumber(getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns[`yearly${year}`]),
+        `Cuota ${year}`, blockers)
+    ]));
+    const annualTotal = readLegacyImportNumber(
+      getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.annualTotal), "Acumulado", blockers
+    );
     const emailMatch = email ? existingAssociatesByEmail.get(email) || null : null;
     const dniMatch = dni ? existingAssociatesByDni.get(dni) || null : null;
     const matchedAssociates = [emailMatch, dniMatch].filter(Boolean);
@@ -10634,6 +10659,51 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
       (item, index, list) => list.findIndex((entry) => entry.id === item.id) === index
     );
     const existingAssociate = distinctMatchedAssociates.length === 1 ? distinctMatchedAssociates[0] : null;
+    const lastQuotaMonth = normalizeLegacyWorkbookMonth(
+      getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.lastQuotaMonth)
+    );
+    const changes = [];
+    if (ambiguousEmails.has(email) || ambiguousDnis.has(dni)) {
+      blockers.push("identidad ambigua entre fichas existentes");
+    }
+    if (associateNumber > 0) {
+      if (seenWorkbookNumbers.has(associateNumber)) blockers.push("numero de socio duplicado dentro del Excel");
+      seenWorkbookNumbers.add(associateNumber);
+      if ((state.associates || []).some((item) => Number(item.associateNumber) === associateNumber && item.id !== existingAssociate?.id)) {
+        blockers.push("numero de socio pertenece a otra ficha");
+      }
+    } else if (!existingAssociate?.associateNumber) {
+      notes.push("sin numero de socio: se asignara uno nuevo");
+    }
+    if (existingAssociate) {
+      // Existing values are authoritative. Fill gaps only; resolve discrepancies outside the import.
+      for (const [field, label, incoming] of [
+        ["firstName", "Nombre", firstName], ["lastName", "Apellidos", lastName],
+        ["email", "Email", email], ["dni", "DNI/NIE", dni], ["phone", "Telefono", phone],
+        ["service", "Servicio", service], ["lastQuotaMonth", "Mes de cuota", lastQuotaMonth],
+        ["associateNumber", "Numero de socio", associateNumber]
+      ]) {
+        if (incoming === null || incoming === "") continue;
+        const current = existingAssociate[field];
+        if (current !== null && current !== undefined && current !== "" && current !== 0) {
+          if (normalizeLegacyWorkbookText(current).toLowerCase() !== normalizeLegacyWorkbookText(incoming).toLowerCase()) {
+            blockers.push(`${label}: difiere de la ficha existente`);
+          }
+        } else {
+          changes.push({ field, label, before: current ?? "", after: incoming });
+        }
+      }
+      for (const [year, amount] of Object.entries(yearlyFees)) {
+        if (amount === null) continue;
+        const current = Number(existingAssociate.yearlyFees?.[year] || 0);
+        if (current > 0 && current !== amount) {
+          blockers.push(`Cuota ${year}: difiere del total ya registrado`);
+        } else if (current === 0 && amount > 0) {
+          changes.push({ field: `manualYearlyFees.${year}`, label: `Cuota ${year}`, before: current, after: amount });
+        }
+      }
+      if (changes.length) notes.push("completar campos vacios de ficha existente");
+    }
 
     if (!firstName) {
       blockers.push("falta nombre");
@@ -10670,14 +10740,17 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
       seenWorkbookDnis.add(dni);
     }
 
-    if (!phone) {
+    if (!phone && !existingAssociate?.phone) {
       notes.push("sin telefono");
     }
-    if (!dni) {
+    if (!dni && !existingAssociate?.dni) {
       notes.push("sin DNI/NIE");
     }
-    if (!service) {
+    if (!service && !existingAssociate?.service) {
       notes.push("sin servicio");
+    }
+    if (existingAssociate && ((!phone && existingAssociate.phone) || (!dni && existingAssociate.dni) || (!service && existingAssociate.service))) {
+      notes.push("campos vacios del Excel: se conservan los datos existentes");
     }
     if (observations) {
       notes.push(`obs.: ${observations}`);
@@ -10695,12 +10768,9 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
       service,
       observations,
       yearlyFees,
-      annualTotal: parseLegacyWorkbookNumber(
-        getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.annualTotal)
-      ),
-      lastQuotaMonth: normalizeLegacyWorkbookMonth(
-        getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.lastQuotaMonth)
-      ),
+      annualTotal,
+      lastQuotaMonth,
+      changes,
       submittedAt: parseLegacyWorkbookTimestamp(
         getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.submittedAt)
       ),
@@ -10716,6 +10786,9 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
     sourcePath: workbook.sourcePath,
     sheetName: workbook.sheetName,
     headers: workbook.headers || [],
+    previewToken: createHash("sha256").update(JSON.stringify({
+      workbook, associates: state.associates || [], settings: state.settings?.associates || {}
+    })).digest("hex"),
     rows,
     summary: {
       totalRows: rows.length,
@@ -10726,20 +10799,22 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
   };
 }
 
-function importLegacyAssociates(state, preview, actorName = "Administracion") {
+function importLegacyAssociates(state, preview, actorName = "Administracion", approvedReviewRows = []) {
   const importedAssociates = [];
   const skippedRows = [];
   let highestAssociateNumber = Math.max(
     0,
-    ...((state.associates || []).map((item) => Number(item.associateNumber || 0)))
+    Number(state.settings?.associates?.nextAssociateNumber || 1) - 1,
+    ...((state.associates || []).map((item) => Number(item.associateNumber || 0))),
+    ...(preview.rows || []).filter((row) => row.importStatus !== "blocked").map((row) => Number(row.associateNumber || 0))
   );
 
   for (const row of preview.rows || []) {
-    if (row.importStatus === "blocked") {
+    if (row.importStatus === "blocked" || (row.importStatus === "review" && !approvedReviewRows.includes(row.sourceRow))) {
       skippedRows.push({
         sourceRow: row.sourceRow,
         name: [row.firstName, row.lastName].filter(Boolean).join(" "),
-        reason: row.blockers.join(", ")
+        reason: row.importStatus === "blocked" ? row.blockers.join(", ") : "Pendiente de revision explicita"
       });
       continue;
     }
@@ -10748,7 +10823,7 @@ function importLegacyAssociates(state, preview, actorName = "Administracion") {
       ? (state.associates || []).find((item) => item.id === row.existingAssociateId)
       : null;
     const importedAssociateNumber =
-      Number(row.associateNumber || 0) > 0 ? Number(row.associateNumber) : highestAssociateNumber + 1;
+      Number(existingAssociate?.associateNumber || row.associateNumber || 0) || highestAssociateNumber + 1;
     highestAssociateNumber = Math.max(highestAssociateNumber, importedAssociateNumber);
     const observationText = String(row.observations || "");
     const status = /baja/i.test(observationText)
@@ -10766,33 +10841,18 @@ function importLegacyAssociates(state, preview, actorName = "Administracion") {
 
     if (existingAssociate) {
       existingAssociate.associateNumber = importedAssociateNumber;
-      existingAssociate.status = status;
-      existingAssociate.firstName = row.firstName;
-      existingAssociate.lastName = row.lastName;
-      existingAssociate.dni = row.dni;
-      existingAssociate.phone = row.phone;
-      existingAssociate.email = row.email;
-      existingAssociate.service = row.service;
-      existingAssociate.lastQuotaMonth = row.lastQuotaMonth;
-      existingAssociate.annualAmount = Number(state.settings?.associates?.defaultAnnualAmount || 50);
-      existingAssociate.manualYearlyFees = {
-        "2024": Number(row.yearlyFees?.["2024"] || 0),
-        "2025": Number(row.yearlyFees?.["2025"] || 0),
-        "2026": Number(row.yearlyFees?.["2026"] || 0),
-        "2027": Number(row.yearlyFees?.["2027"] || 0)
-      };
-      existingAssociate.yearlyFees = {
-        "2024": Number(row.yearlyFees?.["2024"] || 0),
-        "2025": Number(row.yearlyFees?.["2025"] || 0),
-        "2026": Number(row.yearlyFees?.["2026"] || 0),
-        "2027": Number(row.yearlyFees?.["2027"] || 0)
-      };
-      existingAssociate.observations = [existingAssociate.observations, importObservation]
-        .map((item) => String(item || "").trim())
-        .filter(Boolean)
-        .filter((item, index, list) => list.indexOf(item) === index)
-        .join(" | ");
-      syncAssociateLinkedIdentity(state, existingAssociate);
+      for (const change of row.changes || []) {
+        if (change.field.startsWith("manualYearlyFees.")) {
+          const year = change.field.split(".")[1];
+          existingAssociate.manualYearlyFees = { ...existingAssociate.manualYearlyFees, [year]: change.after };
+          existingAssociate.yearlyFees = { ...existingAssociate.yearlyFees, [year]: change.after };
+        } else {
+          existingAssociate[change.field] = change.after;
+        }
+      }
+      if (!String(existingAssociate.observations || "").includes(importObservation)) {
+        existingAssociate.observations = [existingAssociate.observations, importObservation].filter(Boolean).join(" | ");
+      }
       importedAssociates.push(existingAssociate);
       appendActivity(
         state,

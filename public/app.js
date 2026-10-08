@@ -2321,6 +2321,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "preview-associate-workbook-import" && isAdminSession()) {
+    associateWorkbookPreview = null;
     try {
         const selectedWorkbook = await readFileInput(document.getElementById("associateWorkbookFile"), {
           maxBytes: 8_000_000,
@@ -2328,6 +2329,9 @@ document.addEventListener("click", async (event) => {
         });
       if (selectedWorkbook) {
         associateWorkbookDraftFile = selectedWorkbook;
+      }
+      if (!associateWorkbookDraftFile) {
+        throw new Error("Selecciona el Excel de socios antes de analizarlo.");
       }
       syncStatus = "Analizando el Excel actual de socios...";
       associateWorkbookImportStatus = "Analizando el Excel actual de socios...";
@@ -2366,6 +2370,19 @@ document.addEventListener("click", async (event) => {
       if (selectedWorkbook) {
         associateWorkbookDraftFile = selectedWorkbook;
       }
+      if (!associateWorkbookPreview?.previewToken) {
+        throw new Error("Analiza el Excel antes de importar.");
+      }
+      const approvedReviewRows = [...document.querySelectorAll("[data-associate-workbook-review]:checked")]
+        .map((input) => Number(input.value));
+      const importCount = associateWorkbookPreview.summary.readyRows + approvedReviewRows.length;
+      if (!importCount) {
+        throw new Error("Selecciona alguna fila revisada o corrige las incidencias del Excel.");
+      }
+      if (!window.confirm(`Importar ${importCount} fila(s), incluidas ${approvedReviewRows.length} revisadas? Las filas bloqueadas o sin revisar quedaran fuera. Confirma que tienes una copia de seguridad previa.`)) {
+        return;
+      }
+      const previewToken = associateWorkbookPreview.previewToken;
       syncStatus = "Importando socios desde el Excel legacy...";
       associateWorkbookImportStatus = "Importando socios desde el Excel legacy...";
       render();
@@ -2373,7 +2390,7 @@ document.addEventListener("click", async (event) => {
       const response = await fetch("/api/import/associate-workbook/commit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workbookFile: associateWorkbookDraftFile })
+        body: JSON.stringify({ workbookFile: associateWorkbookDraftFile, previewToken, approvedReviewRows })
       });
       const payload = await readJsonResponse(
         response,
@@ -2383,7 +2400,7 @@ document.addEventListener("click", async (event) => {
         throw new Error(payload.error || "No se pudo importar el Excel de socios");
       }
 
-      associateWorkbookPreview = payload.preview || null;
+      associateWorkbookPreview = null;
       associateWorkbookDraftFile = null;
       await refreshState();
       applySessionToState();
@@ -2393,6 +2410,7 @@ document.addEventListener("click", async (event) => {
       syncStatus = payload.message || "Importacion completada";
       associateWorkbookImportStatus = syncStatus;
     } catch (error) {
+      associateWorkbookPreview = null;
       syncStatus = error.message || "No se pudo importar el Excel de socios";
       associateWorkbookImportStatus = syncStatus;
     }
@@ -7600,9 +7618,7 @@ function renderAssociates() {
     reviewRows: 0,
     blockedRows: 0
   };
-  const workbookPreviewIssues = workbookPreviewRows
-    .filter((item) => item.importStatus !== "ready")
-    .slice(0, 6);
+  const workbookPreviewIssues = workbookPreviewRows;
   const legacyImportedAssociates = state.associates.filter((item) => isLegacyImportedAssociate(item));
   const legacyReviewAssociates = legacyImportedAssociates.filter(
     (item) => item.status === "Revisar documentacion"
@@ -8079,7 +8095,7 @@ function renderAssociates() {
           </div>
           <div class="chip-row">
             <button type="button" class="ghost-button" data-action="preview-associate-workbook-import">Analizar Excel actual</button>
-            <button type="button" class="primary-button" data-action="commit-associate-workbook-import" ${associateWorkbookPreview && (workbookPreviewSummary.readyRows || workbookPreviewSummary.reviewRows) ? "" : "disabled"}>Importar socios validos</button>
+            <button type="button" class="primary-button" data-action="commit-associate-workbook-import" ${associateWorkbookPreview && (workbookPreviewSummary.readyRows || workbookPreviewSummary.reviewRows) ? "" : "disabled"}>Confirmar importacion</button>
           </div>
         </div>
         <label class="inline-field">
@@ -8089,7 +8105,7 @@ function renderAssociates() {
         <p class="muted">${
           associateWorkbookDraftFile
             ? `Archivo retenido para importacion: ${escapeHtml(associateWorkbookDraftFile.name)}`
-            : "Puedes elegir un .xlsx manualmente o dejar que el sistema use el de Descargas."
+            : "Ningun Excel seleccionado."
         }</p>
         ${
           associateWorkbookImportStatus
@@ -8100,7 +8116,7 @@ function renderAssociates() {
           ${
             associateWorkbookPreview
               ? `Origen: ${escapeHtml(associateWorkbookPreview.sourcePath || "-")} | ${workbookPreviewSummary.totalRows} fila(s), ${workbookPreviewSummary.readyRows} lista(s), ${workbookPreviewSummary.reviewRows} para revisar y ${workbookPreviewSummary.blockedRows} bloqueada(s).`
-              : "Selecciona un .xlsx si quieres usar otro fichero. Si no eliges nada, el sistema intentara leer el Excel por defecto de Descargas."
+              : "Pendiente de analizar el Excel."
           }
         </p>
         ${
@@ -8120,17 +8136,17 @@ function renderAssociates() {
                 <div class="timeline-item">
                   <span class="eyebrow">Listas</span>
                   <strong>${workbookPreviewSummary.readyRows}</strong>
-                  <p>Entrarian como socio activo sin observaciones de migracion.</p>
+                  <p>Sin incidencias detectadas. Las fichas existentes conservan su estado.</p>
                 </div>
                 <div class="timeline-item">
                   <span class="eyebrow">Para revisar</span>
                   <strong>${workbookPreviewSummary.reviewRows}</strong>
-                  <p>Se importarian con estado de revision documental.</p>
+                  <p>Pendientes de revision y seleccion individual.</p>
                 </div>
                 <div class="timeline-item">
                   <span class="eyebrow">Bloqueadas</span>
                   <strong>${workbookPreviewSummary.blockedRows}</strong>
-                  <p>No se importarian hasta corregir email, nombre o duplicados.</p>
+                  <p>Excluidas por datos invalidos, duplicados o discrepancias.</p>
                 </div>
               </div>
               ${
@@ -8145,6 +8161,7 @@ function renderAssociates() {
                             <th>Socio</th>
                             <th>Estado</th>
                             <th>Detalle</th>
+                            <th>Revision</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -8155,8 +8172,11 @@ function renderAssociates() {
                                   <td>${escapeHtml(String(item.sourceRow || "-"))}</td>
                                   <td>${escapeHtml(String(item.associateNumber || "-"))}</td>
                                   <td>${escapeHtml([item.firstName, item.lastName].filter(Boolean).join(" ") || item.email || "-")}</td>
-                                  <td>${escapeHtml(item.importStatus === "blocked" ? "Bloqueada" : "Revisar")}</td>
-                                  <td>${escapeHtml([...(item.blockers || []), ...(item.notes || [])].join(" - "))}</td>
+                                  <td>${escapeHtml(item.importStatus === "blocked" ? "Bloqueada" : item.importStatus === "review" ? "Revisar" : "Lista")}</td>
+                                  <td>${escapeHtml([...(item.blockers || []), ...(item.notes || [])].join(" - "))}
+                                    ${(item.changes || []).map((change) => `<div>${escapeHtml(change.label)}: ${escapeHtml(String(change.before ?? "") || "(vacio)")} &rarr; ${escapeHtml(String(change.after))}</div>`).join("")}
+                                  </td>
+                                  <td>${item.importStatus === "review" ? `<label><input type="checkbox" data-associate-workbook-review value="${Number(item.sourceRow)}" aria-label="Aprobar fila ${Number(item.sourceRow)}" /> Revisada</label>` : "-"}</td>
                                 </tr>
                               `
                             )
