@@ -9,6 +9,8 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { crc32 } from "node:zlib";
+import vm from "node:vm";
+import { escapeHtml } from "../public/assets/js/app/ui/formatters.js";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
 const root = mkdtempSync(path.join(os.tmpdir(), "iz-workbook-import-"));
@@ -28,6 +30,7 @@ seed.associates = [{
   status: "Baja", annualAmount: 125, joinedAt: "2024-01-02T00:00:00.000Z", lastQuotaMonth: "Junio",
   observations: "Original preserved", manualYearlyFees: { "2025": 30, "2026": 20, "2028": 70 },
   payments: [{ id: "import-payment", year: "2026", amount: 30, date: "2026-01-01" }],
+  legacyPaymentProofs: [{ url: "https://drive.google.com/file/d/seed-fixture/view", sourceSheet: "Original", sourceRow: 2 }],
   linkedAccountId: "account-2", linkedMemberId: "member-1"
 }, {
   id: "import-fill", associateNumber: 41, firstName: "Beta", lastName: "Fixture",
@@ -37,6 +40,8 @@ seed.associates = [{
   id: `ambiguous-${index}`, associateNumber: 50 + index, firstName: "Ambiguous", lastName: "Fixture",
   email: "ambiguous@example.invalid", dni: "", status: "Activa"
 }))];
+seed.accounts.find(account => account.id === "account-2").associateId = "import-fill";
+seed.members.find(member => member.id === "member-1").associateId = "import-fill";
 const seedPath = path.join(root, "seed.json");
 writeFileSync(seedPath, JSON.stringify(seed));
 const probe = net.createServer();
@@ -74,7 +79,7 @@ function zip(entries) {
 
 const headers = ["Marca temporal", "Nombre", "Apellidos", "DNI", "Tel\u00e9fono", "E-mail",
   "Servicio al que pertenece", "Justificante de pago", "2024", "2025", "2026",
-  "MES DE LA ULTIMA CUOTA", "Anual", "Observaciones", "2027", "Numero de socio"];
+  "MES DE LA ULTIMA CUOTA", "Anual", "Observaciones", "2027", "Numero de socio", "Justificante de pago 2"];
 const xmlEscape = value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 function workbook(records, { omitRowNumbers = false, duplicateRowNumbers = false } = {}) {
   const rows = [headers, ...records.map(row => headers.map(header => row[header] ?? ""))];
@@ -254,6 +259,70 @@ try {
   const afterDuplicate = await state();
   assert.equal(afterDuplicate.associates.some(item => item.email === "fixture72@example.invalid"), false);
   assert.ok(afterDuplicate.associates.some(item => item.email === "fixture73@example.invalid"));
+
+  const proof1 = "https://drive.google.com/file/d/synthetic-proof-1/view?resourcekey=synthetic-key";
+  const proof2 = "https://drive.google.com/open?id=synthetic-proof-2";
+  const proof3 = "https://drive.google.com/file/d/synthetic-proof-3/view";
+  const proofFile = workbook([
+    { ...preserveRow, "Justificante de pago": `${proof1}, ${proof2}`, "Justificante de pago 2": proof1 },
+    row(80, { "Justificante de pago": `${proof2}\n${proof3}` }),
+    { Nombre: "Beta", Apellidos: "Fixture", "E-mail": "beta@example.invalid", "Justificante de pago 2": proof3 }
+  ]);
+  const proofView = await preview(proofFile);
+  assert.ok(proofView.rows.every(item => item.importStatus === "review"), "Proof references always require explicit review");
+  assert.equal(proofView.rows[0].legacyPaymentProofs.length, 2, "Duplicate references in both columns collapse");
+  assert.equal(proofView.rows[0].legacyPaymentProofs[0].url, proof1, "Preserve Drive resource keys");
+  assert.equal(proofView.rows[2].legacyPaymentProofs[0].sourceColumn, "Justificante de pago 2");
+  const beforeProofs = await state();
+  await commit(proofFile, proofView, [], 400);
+  assert.deepEqual((await state()).associates, beforeProofs.associates);
+  await commit(proofFile, proofView, ["row-1", "row-2", "row-3"]);
+  const withProofs = await state();
+  const alphaProofs = withProofs.associates.find(item => item.id === "import-existing").legacyPaymentProofs;
+  assert.equal(alphaProofs.length, 3, "Append without replacing original references");
+  assert.deepEqual(alphaProofs[0], beforeProofs.associates.find(item => item.id === "import-existing").legacyPaymentProofs[0]);
+  assert.equal(alphaProofs[1].sourceSheet, "Listado de socios");
+  assert.equal(alphaProofs[1].sourceRow, 2);
+  assert.ok(alphaProofs[1].importedAt);
+  for (const id of ["import-existing", "import-fill"]) {
+    const old = beforeProofs.associates.find(item => item.id === id);
+    const current = withProofs.associates.find(item => item.id === id);
+    for (const key of ["payments", "manualYearlyFees", "yearlyFees", "status", "annualAmount"]) {
+      assert.deepEqual(current[key], old[key], `Proof references do not change ${key}`);
+    }
+  }
+  assert.deepEqual(withProofs.associates.find(item => item.email === "fixture80@example.invalid").payments, []);
+  assert.deepEqual(withProofs.associatePaymentSubmissions, beforeProofs.associatePaymentSubmissions);
+  await commit(proofFile, await preview(proofFile), ["row-1", "row-2", "row-3"]);
+  assert.deepEqual((await state()).associates, withProofs.associates, "Reimport adds no duplicates or changed timestamps");
+  await commit(file, await preview(file), ["row-1"]);
+  assert.deepEqual((await state()).associates.find(item => item.id === "import-existing").legacyPaymentProofs, alphaProofs, "Blank columns never delete proof references");
+
+  const unsafeRefs = ["javascript:alert(1)", "data:text/html,<script>alert(1)</script>",
+    "http://drive.google.com/file/d/test/view", "https://drive.google.com.evil.invalid/test",
+    "https://drive.google.com@evil.invalid/test", "https://user:pass@drive.google.com/test",
+    "https://drive.google.com:8443/test", "https://127.0.0.1/test", "receipt.pdf",
+    "<img src=x onerror=alert(1)>", ", ,", `${proof1}, invalid-reference`];
+  const unsafeFile = workbook(unsafeRefs.map((reference, index) => row(120 + index, { "Justificante de pago": reference })));
+  const unsafeView = await preview(unsafeFile);
+  assert.ok(unsafeView.rows.every(item => item.importStatus === "blocked"));
+  const beforeUnsafe = await state();
+  await commit(unsafeFile, unsafeView, ["row-1"], 400);
+  assert.deepEqual((await state()).associates, beforeUnsafe.associates, "Invalid references never partly import");
+
+  await request("/api/state", "", undefined, 401);
+  const scoped = (await request("/api/state", member)).data;
+  assert.deepEqual(scoped.associates.map(item => item.id), ["import-fill"]);
+  assert.equal(scoped.associates[0].legacyPaymentProofs[0].url, proof3);
+  assert.equal(JSON.stringify(scoped).includes(proof1), false, "Other member's references are not exposed");
+  await request("/api/state", member, { ...scoped, associates: [{ id: "import-existing", legacyPaymentProofs: [] }] });
+  assert.deepEqual((await state()).associates.find(item => item.id === "import-existing").legacyPaymentProofs, alphaProofs, "Member cannot modify someone else's references");
+  const staleAdminState = await state();
+  staleAdminState.associates.forEach(item => { delete item.legacyPaymentProofs; });
+  await request("/api/state", admin, staleAdminState);
+  assert.deepEqual((await state()).associates.find(item => item.id === "import-existing").legacyPaymentProofs, alphaProofs, "Old admin tabs cannot erase imported references");
+  const adminState = (await request("/api/state", admin)).data;
+  assert.deepEqual(adminState.associates.find(item => item.id === "import-existing").legacyPaymentProofs, alphaProofs);
   const expected = (await state()).associates;
   await stop(); await start(); admin = await login("admin@isocronazero.org");
   assert.deepEqual((await state()).associates, expected, "Import survives restart without losing existing data");
@@ -262,7 +331,19 @@ try {
   assert.ok(app.includes("data-associate-workbook-review"));
   assert.ok(app.includes("workbookFile: associateWorkbookDraftFile, previewToken, approvedReviewRowIds"));
   assert.ok(app.includes('value="${escapeHtml(item.previewRowId)}"'));
-  console.log("Associate workbook import check passed (synthetic XLSX, permissions, review, preservation, conflicts, restart).");
+  const renderProofs = vm.runInNewContext(app.slice(app.indexOf("function renderLegacyPaymentProofs("), app.indexOf("function renderAssociateWorkbench("))
+    + "\nrenderLegacyPaymentProofs;", { URL, escapeHtml });
+  const maliciousSource = '<img src=x onerror=alert(1)><script>alert(1)</script>';
+  const html = renderProofs([{ url: proof1, sourceSheet: maliciousSource, sourceRow: maliciousSource },
+    ...unsafeRefs.map(url => ({ url }))]);
+  assert.ok(html.includes("&lt;img"));
+  assert.equal(/<img|<script|href="javascript:|href="data:/.test(html), false);
+  assert.equal((html.match(/<a /g) || []).length, 1);
+  assert.ok(html.includes('rel="noopener noreferrer"'));
+  assert.ok(html.includes("archivos no copiados y pagos no confirmados"));
+  assert.ok(app.includes("renderLegacyPaymentProofs(item.legacyPaymentProofs)"));
+  assert.ok(app.includes("renderLegacyPaymentProofs(associate.legacyPaymentProofs)"));
+  console.log("Associate workbook import check passed (synthetic XLSX, review, additive proof references, URL safety, permissions, preservation, conflicts, restart).");
 } finally {
   await stop();
   const resolved = path.resolve(root);
