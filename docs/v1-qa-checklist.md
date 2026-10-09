@@ -1,15 +1,15 @@
 # V1 — Checklist final de QA
 
-Documento operativo para ejecutar la issue #227 después de integrar #224, #225 y #226.
+Documento operativo para ejecutar la issue #227 después de integrar #224, #225/#228 y #226/#229.
 
 Regla: esta checklist valida y corrige regresiones. No autoriza nuevas funcionalidades.
 
 ## 0. Precondiciones
 
-- [ ] `main` contiene #224.
-- [ ] `main` contiene #225.
-- [ ] `main` contiene #226.
-- [ ] App checks de `main` en verde.
+- [x] `main` contiene #224.
+- [x] `main` contiene #225 mediante PR #228.
+- [x] `main` contiene #226 mediante PR #229.
+- [x] App checks de `main` en verde tras #230 (run #304).
 - [ ] Usar datos de QA/temporales cuando una prueba pueda modificar información.
 - [ ] Anotar SHA de `main` probado.
 - [ ] Abrir consola del navegador durante los flujos principales y registrar cualquier error.
@@ -115,8 +115,8 @@ Probar cada bloque principal en aproximadamente 390 px, 768 px y 1440 px.
 
 ## 7. Test normal — modo aprendizaje
 
-- [ ] Selector Normal / Aprendizaje es claro.
-- [ ] Crear aprendizaje no altera el modo normal.
+- [ ] Selector Examen / Aprendizaje es claro.
+- [ ] Crear aprendizaje no altera el modo examen.
 - [ ] Se presenta una pregunta cada vez.
 - [ ] Antes de responder no existe `correctIndex`/explicación accesible en payload del participante.
 - [ ] Respuesta correcta muestra feedback inmediato correcto.
@@ -153,24 +153,27 @@ Probar cada bloque principal en aproximadamente 390 px, 768 px y 1440 px.
 - [ ] No se expone correcta, puntos ni leaderboard antes de cierre.
 
 ### Responder y rectificar
-- [ ] Primera respuesta queda guardada.
+- [ ] Tocar una opción guarda directamente la respuesta.
 - [ ] El participante ve cuál es su respuesta actualmente guardada.
 - [ ] Mientras la pregunta siga abierta puede cambiar A→B.
 - [ ] Cambiar respuesta sustituye la anterior y no crea doble puntuación.
 - [ ] Reenviar la misma opción es idempotente.
 - [ ] El contador `X de Y` usa participantes únicos.
+- [ ] Cambios rápidos/teclado no generan envíos duplicados ni dejan una opción antigua como válida.
 
 ### Cierre automático
 - [ ] Con 2+ participantes, responder solo uno NO cierra la pregunta.
 - [ ] Cuando responde el último participante activo, la pregunta se cierra/revela automáticamente.
-- [ ] Tras cierre aparece respuesta correcta y clasificación provisional.
+- [ ] Tras cierre aparece respuesta correcta, distribución agregada y clasificación provisional.
 - [ ] Tras cierre ya no se acepta cambiar respuesta.
-- [ ] Si no responden todos, el flujo de tiempo/cierre previsto sigue funcionando.
+- [ ] Si no responden todos, el agotamiento del tiempo cierra la pregunta según el flujo previsto.
 
-### Continuación y final
-- [ ] Host pasa explícitamente a siguiente pregunta.
+### Avance automático y final
+- [ ] En una sala nueva creada desde UI, tras revelar permanece visible el resultado aproximadamente 6 s.
+- [ ] Después de ese intervalo avanza automáticamente a la siguiente pregunta sin pulsación del anfitrión.
 - [ ] Nueva pregunta no hereda respuestas de la anterior.
-- [ ] En última pregunta, finalizar muestra podio.
+- [ ] Tras la última pregunta avanza al podio final.
+- [ ] Una sala/API legacy sin `autoAdvance` conserva el avance manual previsto.
 - [ ] Sesión finalizada no admite nuevos participantes.
 - [ ] Refrescar participante recupera posición/estado esperado sin exponer preguntas terminadas indebidamente.
 
@@ -182,7 +185,16 @@ Probar cada bloque principal en aproximadamente 390 px, 768 px y 1440 px.
 - [ ] Enlace/acción de compartir por WhatsApp funciona según implementación actual.
 - [ ] No considerar V1 bloqueada por automatización completa de publicación a una Comunidad de WhatsApp; esa integración queda fuera si sigue requiriendo proveedor externo.
 
-## 11. Regresiones técnicas
+## 11. Backup y recuperación prepublicación
+
+La PR #230 añadió pruebas automatizadas de recuperación. Para una migración real/piloto:
+
+- [ ] Export de estado admin responde con `Cache-Control: no-store`.
+- [ ] Existe copia externa autorizada del estado persistente y uploads relevantes antes de migrar datos reales.
+- [ ] Se ha hecho al menos un ensayo de recuperación aislado siguiendo `docs/BACKUP-RECOVERY.md`.
+- [ ] No confundir backups automáticos del mismo volumen con una copia externa recuperable.
+
+## 12. Regresiones técnicas
 
 Ejecutar todos los checks que formen parte de CI. Como mínimo:
 
@@ -203,9 +215,9 @@ node scripts/check-member-rendering.mjs
 - [ ] Todos los checks aplicables pasan.
 - [ ] Si un comando ya no existe, documentar el sustituto real; no inventar éxito.
 - [ ] No quedan errores de consola en flujos principales.
-- [ ] No quedan hilos de review P1/P2 sin resolver en PRs de V1.
+- [ ] No quedan hilos de review P1/P2 sin resolver en PRs que se vayan a integrar.
 
-## 12. Cierre
+## 13. Cierre
 
 Registrar:
 
