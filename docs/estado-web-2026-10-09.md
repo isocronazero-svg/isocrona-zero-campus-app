@@ -16,6 +16,8 @@ Prioridad actual:
 2. #227 QA final, corregir solo regresiones demostradas y congelar V1.
 3. Operaciones reales de datos/Railway solo con backup, dry-run y autorización explícita.
 
+Backlog abierto tras limpieza 09/10: solo #227 (V1), #134 (operación producción IVASPE), #112 (contenido) y #109 (deuda técnica V2). PR #231 sigue abierta aparte.
+
 ## 2. Bloques V1 terminados
 
 ### Cursos e inscripción
@@ -108,99 +110,117 @@ Corrección obligatoria:
 
 No fusionar #231 antes de esto.
 
-### Contrato QA
-`docs/member-import-qa.md` creado y enlazado en #231. El agente debe reutilizarlo; no rediseñar pruebas.
+### Documentos de preparación
+- `docs/member-import-qa.md`: contrato de tests técnicos; el agente debe reutilizarlo.
+- `docs/member-import-business-rules.md`: borrador de reglas a validar con secretaría antes de datos reales.
 
-### Reglas de negocio pendientes
-Confirmar con secretario: estados/bajas, prioridad portal↔Excel, número socio, cuotas 2024-2027, observaciones, altas nuevas y cuentas vinculadas.
+El borrador propone: portal autoritativo para datos no vacíos, no renumerar existentes, no cambiar estados automáticamente, no reducir pagos/cuotas existentes, no crear/sincronizar cuentas ni mandar emails durante la migración, justificantes fuera del alcance y discrepancias a revisión humana.
 
-Criterio recomendado: dato no vacío del portal no se reemplaza automáticamente por Excel.
+Pendientes de validar con secretaría: estados/bajas, prioridad portal↔Excel, número socio, significado de cuotas 2024-2027, campo anual/acumulado, fecha de alta, observaciones, altas nuevas y cuentas vinculadas.
 
 ## 5. Railway / IVASPE
 
 ### #136 — automatización Railway: CERRADA 09/10
-Auditoría confirma que ya está implementada en `main`:
-- workflow manual `Import Test Zone IVASPE to Railway`;
-- `dry_run=true` por defecto;
-- `RAILWAY_TOKEN` y `RAILWAY_SSH_PRIVATE_KEY` desde Secrets;
-- ejecución remota por `railway ssh`, no `railway run` local;
-- preflight de persistencia;
-- dry-run obligatorio antes de real;
-- validación posterior de `testZoneQuestions`;
-- `scripts/check-railway-ivaspe-workflow.mjs` integrado en `check:app` y controles para no imprimir secretos.
+Ya implementada en `main`: workflow manual, `dry_run=true`, secrets, `railway ssh`, preflight persistencia, validación posterior y check estático en `check:app`.
 
-No gastar créditos de Codex en #136.
+No gastar créditos en #136.
 
 ### #134 — importación real IVASPE en producción: ABIERTA
-Ya no es una tarea de desarrollo: es una operación/verificación de producción.
+Es una operación/verificación de producción, no desarrollo.
 
-Evidencia actual:
+Evidencia:
 - repositorio/pipeline valida 175 preguntas;
-- entre los 200 runs recientes revisados no aparece ninguna ejecución del workflow manual IVASPE;
-- sí aparecen dos ejecuciones antiguas de `Import Test Zone Temario Comun to Railway` el 25/09/2026, runs #1 y #2, ambas `failure`;
-- por tanto NO asumir que Railway contiene las 175 preguntas.
+- entre 200 runs recientes no aparece ejecución del workflow manual IVASPE;
+- dos ejecuciones antiguas de `Import Test Zone Temario Comun to Railway` (25/09, runs #1/#2) terminaron `failure`;
+- NO asumir que Railway contiene las 175 preguntas.
 
-Secuencia segura para cerrar #134 cuando se autorice:
-1. confirmar servicio, volumen y SHA desplegado;
-2. copia externa recuperable;
-3. ejecutar workflow IVASPE con `dry_run=true`;
-4. revisar salida/persistencia;
-5. autorización explícita para importación real;
-6. verificar recuento, deduplicación y filtros UI;
-7. reiniciar/redeployar y verificar persistencia;
-8. registrar evidencia y cerrar #134.
+Secuencia segura: confirmar servicio/volumen/SHA → backup externo → dry-run → revisar → autorización real → importar → verificar recuento/filtros → reiniciar/redeployar → verificar persistencia → cerrar #134.
 
-No gastar créditos en #134 salvo que se reproduzca un fallo concreto de código/infraestructura.
+No gastar créditos salvo fallo concreto reproducido.
 
 ### PR #161
-`known_hosts` antigua/desfasada. No fusionar preventivamente. Revisar solo si el workflow actual reproduce un fallo real de host-key/SSH.
+`known_hosts` antigua/desfasada. No fusionar preventivamente; solo si el workflow actual reproduce un problema real SSH/host-key.
 
-## 6. Contenido y V2 — no bloquean V1
+## 6. Contenido — #112
 
-- #111 ampliar banco de preguntas.
-- #112 continuar bloques IVASPE.
-- #109 refactor backend incremental: V2.
+#111 fue cerrada 09/10 como duplicada/sustituida por #112 para evitar dos backlogs paralelos.
 
-Hay 175 preguntas en siete CSV de 25 y pipeline preparado. No bloquea V1.
+#112 queda como único hilo de ampliación IVASPE por tandas de 25.
 
-## 7. Trabajo adelantado sin créditos el 09/10
+Estado real del repositorio: 7 CSV x 25 = 175 preguntas:
+- Incendios urbanos y estructurales: 25;
+- Incendios forestales: 25;
+- Rescate y salvamento: 25;
+- Sanitario operativo 01: 25;
+- Sanitario operativo 02: 25;
+- Riesgo químico y mercancías peligrosas: 25;
+- Material, equipos y herramientas: 25.
+
+Respecto al plan original siguen pendientes:
+- Legislación y organización — 25;
+- Mando, control y comunicaciones — 25.
+
+Sanitario ya tiene 50. Cuando se retome contenido, siguiente bloque recomendado: Legislación y organización, salvo decisión explícita distinta.
+
+No mezclar #112 con el cierre V1. La carga en Railway se controla aparte en #134.
+
+## 7. Deuda técnica V2 — #109
+
+#109 sigue abierta pero fue reencuadrada 09/10.
+
+Fases ya realizadas y que NO deben repetirse:
+- utilidades HTTP → `server/http.js`;
+- wrappers/router → `server/router-utils.js`;
+- auth/session → `server/auth.js`;
+- transporte/sanitización de estado → `server/state-transport.js`.
+
+Además ya existen módulos de notices, live, question contributions/maintenance/import, shared tests, banners, diplomas y certificados.
+
+Pendiente V2: medir dominios que siguen en `server.js` y extraer incrementalmente, especialmente socios/cuotas/documentos y lógica restante de Test Zone/live. Un dominio por PR, sin reescritura total ni cambio de framework.
+
+Fuera del sprint #227.
+
+## 8. Trabajo adelantado sin créditos el 09/10
 
 Completado:
 1. auditoría #231 + especificación P2;
 2. review de continuidad en #231;
 3. cierre #225/#226;
 4. `docs/member-import-qa.md`;
-5. separación QA automático/manual en #227;
-6. App checks #307 confirmado verde;
-7. `docs/v1-manual-qa-runbook.md`;
-8. revisión deploy Railway/README y criterio SHA productivo;
-9. auditoría #136 y cierre como completada;
-10. auditoría de Actions: workflow IVASPE sin ejecución encontrada entre 200 runs; dos runs antiguos Temario Común fallidos;
-11. #134 redefinida/documentada como operación de producción;
-12. bitácora actualizada.
+5. `docs/member-import-business-rules.md`;
+6. separación QA automático/manual en #227;
+7. App checks #307 confirmado verde;
+8. `docs/v1-manual-qa-runbook.md`;
+9. revisión deploy Railway/README y criterio SHA productivo;
+10. auditoría #136 y cierre como completada;
+11. auditoría Actions y redefinición #134 como operación productiva;
+12. auditoría contenido: #111 cerrada duplicada, #112 actualizada con 175 reales y 2 bloques pendientes;
+13. auditoría arquitectura #109 y reencuadre V2 para no repetir fases ya hechas;
+14. backlog reducido a cuatro issues abiertas con responsabilidades claras;
+15. bitácora actualizada.
 
 Siguiente trabajo sin créditos:
-- ejecutar runbook manual #227 desde móvil/escritorio y registrar resultados;
-- preparar reglas reales de migración con secretario;
-- preparar copia externa/ensayo de restauración;
-- auditar #111/#112 para separar contenido existente de contenido realmente pendiente.
+- ejecutar runbook manual #227 desde móvil/escritorio y registrar PASS/FAIL;
+- validar `docs/member-import-business-rules.md` con secretaría;
+- preparar copia externa/ensayo real de restauración cuando se autorice;
+- no empezar nuevas funciones antes de congelar V1.
 
-## 8. Próximo uso recomendado de créditos
+## 9. Próximo uso recomendado de créditos
 
-No gastar en #224, #225/#228, #226/#229 ni #136.
+No gastar en #224, #225/#228, #226/#229, #111 ni #136.
 
 Orden:
 1. corregir P2 #231 si migración prioritaria;
-2. #227: solo corregir regresiones que aparezcan en QA;
-3. backup/ensayo + operaciones reales solo con autorización;
-4. después contenido/Railway/V2.
+2. #227: solo corregir regresiones del QA;
+3. backup/ensayo + operaciones reales con autorización;
+4. después #112 / #109 / otras V2.
 
 Estimación si no aparecen regresiones serias:
 - #231: ~5–15 créditos;
 - #227: ~5–15 créditos;
 - reserva objetivo total: ~10–30 créditos.
 
-## 9. Norma de continuidad móvil / escritorio
+## 10. Norma de continuidad móvil / escritorio
 
 GitHub + esta bitácora mandan.
 
