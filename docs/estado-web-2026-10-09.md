@@ -3,177 +3,244 @@
 Repositorio: `isocronazero-svg/isocrona-zero-campus-app`.
 Portal: `https://portal.isocronazero.org`.
 
-Este documento es la referencia operativa posterior a `docs/estado-web-2026-10-06.md`.
+Este documento es la referencia operativa actual para continuar el trabajo desde cualquier chat/dispositivo. Antes de iniciar una tarea nueva hay que leer esta bitácora y revisar commits/PR posteriores.
 
-## 1. Estado de `main`
+## 1. Estado general
 
-SHA actual revisado: `94804766fe4e57538318821536fdfd31a1ce7cf6`.
+La V1 funcional está prácticamente cerrada en código.
 
-Último App checks de `main` revisado: ejecución #304, `success`.
+Último bloque funcional integrado y revisado: `94804766fe4e57538318821536fdfd31a1ce7cf6` (#230, backup/recovery).
 
-Desde la bitácora anterior se han integrado:
+Después se añadieron dos commits documentales:
+- `80170448edb5c828b6b3b385933ca5cab6d30dfc` — estado del portal 09/10.
+- `320ddf1041e04cf373fef44166a4dc897404b8ff` — checklist QA alineada con el flujo live actual.
 
-- #224 `Simplify course enrollment and preserve proof uploads` → commit `edc8dab9...`.
-- #228 `Allow live answer changes and automatic question progression` → commit `e54b9f18...`; cierra #225.
-- #229 `Add optional learning mode to personal tests` → commit `de2b1252...`; cierra #226.
-- #230 `Verify backup recovery before the member pilot` → commit `94804766...`.
+App checks #307 sobre `320ddf104...`: `success`.
 
-Por tanto, los tres bloques funcionales que se consideraban pendientes de la V1 (#224, #225 y #226) ya están integrados en `main`.
+La prioridad ya no es añadir funciones. La prioridad es cerrar #231 si se decide usar la migración de socios, ejecutar #227, corregir solo regresiones demostradas y congelar V1.
 
-## 2. Cursos e inscripción
+## 2. Bloques V1 ya terminados
 
-#224 ya está fusionada.
+### Cursos e inscripción
+
+#224 está fusionada.
 
 Resultado:
-
 - un único CTA principal de inscripción;
-- formulario directo y estados claros;
-- vista del alumno simplificada;
-- doble envío protegido;
-- el justificante y la nota permanecen montados tras un error para permitir reintento.
+- formulario directo;
+- estados claros de inscrito / pendiente / espera;
+- vista de alumno simplificada;
+- protección frente a doble envío;
+- justificante y nota permanecen disponibles para reintentar cuando hay un error.
 
-La observación P2 de la bitácora anterior quedó corregida antes del merge.
+La observación P2 que existía antes del merge quedó corregida.
 
-## 3. Test en Vivo
+### Test en Vivo
 
-#225 quedó implementada mediante PR #228.
+#225 está completada mediante PR #228 y la issue #225 se ha cerrado administrativamente el 09/10.
 
-Comportamiento V1 actual:
-
-- tocar una opción guarda la respuesta directamente;
-- se puede rectificar mientras la pregunta esté abierta;
-- la última respuesta válida sustituye a la anterior;
+Comportamiento actual:
+- tocar una opción guarda directamente;
+- puede rectificarse mientras la pregunta esté abierta;
+- la última respuesta sustituye a la anterior;
 - no se duplica puntuación;
-- cuando responden todos los participantes activos, la pregunta se cierra automáticamente;
-- también se cierra al agotarse el tiempo;
-- durante pregunta abierta no se expone solución, puntos ni ranking;
-- al cerrar se muestra corrección, distribución agregada y clasificación;
-- las salas nuevas creadas desde UI avanzan automáticamente tras 6 segundos a la siguiente pregunta o al podio final;
-- salas antiguas/API sin `autoAdvance` conservan el avance manual.
+- cierre automático cuando responden todos los participantes activos;
+- cierre por tiempo si faltan respuestas;
+- solución/puntos/ranking ocultos antes del cierre;
+- tras revelar se muestra corrección, distribución agregada y clasificación;
+- salas nuevas creadas desde UI avanzan automáticamente tras aproximadamente 6 s a la siguiente pregunta o al podio;
+- salas antiguas/API sin `autoAdvance` conservan avance manual.
 
-Nota importante: la checklist antigua decía que el anfitrión debía pulsar `Siguiente pregunta`; esto ya no es correcto para las salas nuevas V1 y debe validarse el avance automático de 6 s.
+### Test normal — Modo Aprendizaje
 
-## 4. Test normal — Modo Aprendizaje
-
-#226 quedó implementada mediante PR #229.
+#226 está completada mediante PR #229 y la issue #226 se ha cerrado administrativamente el 09/10.
 
 Resultado:
-
 - selector Examen / Aprendizaje;
-- Examen sigue siendo el modo por defecto;
-- Aprendizaje corrige pregunta por pregunta;
-- respuesta corregida queda bloqueada;
-- muestra correcta/incorrecta y explicación cuando existe;
-- no entrega `correctIndex` ni explicación en el banco inicial del socio;
-- endpoint autenticado de comprobación por pregunta con límites y `no-store`;
-- conserva marcar/desmarcar para repasar;
-- resultado final único alimenta historial, estadísticas y falladas;
-- QA sintética realizada en móvil y escritorio en la PR.
+- Examen continúa como modo por defecto;
+- Aprendizaje corrige pregunta a pregunta;
+- una respuesta ya corregida queda bloqueada;
+- feedback correcta/incorrecta y explicación cuando existe;
+- no se expone `correctIndex` ni explicación en el banco inicial del socio;
+- marcado para repasar disponible;
+- resultado final único alimenta historial, estadísticas y falladas.
 
-Riesgo residual aceptado: un intento en curso sigue en memoria de la página; recargar antes de finalizar no recupera el borrador. Los resultados finalizados y las marcas sí persisten.
+Riesgo residual aceptado: un intento de aprendizaje en curso vive en memoria de la página; recargar antes de terminar no recupera el borrador. Resultados terminados y marcas sí persisten.
 
-## 5. Backup y recuperación
+### Diplomas
 
-PR #230 ya está fusionada.
+#223 está fusionada:
+- PDF A4 horizontal anverso/reverso;
+- contraste corregido;
+- temario real, sin inventar contenido;
+- anexos cuando no cabe;
+- vista previa y PDF alineados.
 
-Se añadió:
+Los diplomas emitidos siguen protegidos frente a recalculados por el trabajo previo #155.
 
-- `Cache-Control: no-store` al export completo de estado;
-- prueba automática de restauración en un directorio aislado;
-- comprobación de usuarios/hash, cursos, documentos, justificantes, diplomas, historial y marcas;
-- control de recuperación de uploads externos;
-- `docs/BACKUP-RECOVERY.md` con procedimiento operativo.
+### Backup y recuperación
 
-Limitación importante: los backups automáticos del mismo volumen no sustituyen una copia externa. Antes de una migración real de socios sigue siendo recomendable hacer una copia externa autorizada y un ensayo de recuperación.
+#230 está fusionada:
+- export admin con `Cache-Control: no-store`;
+- prueba de restauración aislada;
+- verificación de usuarios/hash, cursos, documentos, justificantes, diplomas, historial y marcas;
+- recuperación de uploads externos comprobada;
+- procedimiento `docs/BACKUP-RECOVERY.md`.
 
-## 6. V1 funcional
+Importante: un backup automático en el mismo volumen no sustituye una copia externa recuperable. Antes de una migración real debe existir copia externa y ensayo de restauración.
 
-La V1 funcional está aproximadamente cerrada en código.
+## 3. Única issue V1 abierta: #227
 
-Única issue V1 todavía abierta:
+`V1 · QA final, regresiones y congelación de producto`.
 
-- #227 `V1 · QA final, regresiones y congelación de producto`.
+Las precondiciones funcionales ya están cumplidas. Usar `docs/v1-qa-checklist.md` como matriz obligatoria.
 
-La precondición de #227 ya se cumple porque #224, #225/#228 y #226/#229 están integradas.
+Debe validarse como mínimo:
+- autenticación/permisos;
+- admin y Modo Socio;
+- cursos/inscripción/justificante/espera/aula;
+- diplomas/PDF/verificación pública;
+- Test normal Examen y Aprendizaje;
+- falladas/marcadas/revisión/historial/estadísticas;
+- Test en Vivo completo con rectificación, cierre automático y autoavance de 6 s;
+- avisos/adjuntos/WhatsApp según implementación actual;
+- responsive aproximado 390 / 768 / 1440 px;
+- backup/recuperación antes de migraciones reales;
+- todos los checks vigentes.
 
-El siguiente bloque correcto NO es añadir funciones: es ejecutar la checklist final, corregir solo regresiones demostradas, verificar producción y congelar la V1.
+Regla de #227: no añadir funcionalidades. Solo corregir regresiones reproducibles y documentar riesgos residuales.
 
-## 7. PR abierta nueva: #231 — migración segura de socios
+## 4. PR #231 — migración segura del Excel de socios
 
-PR #231: `Protect member workbook imports from silent data loss`.
+PR: `Protect member workbook imports from silent data loss`.
 
-Estado revisado:
-
+Estado revisado el 09/10:
 - abierta;
 - `mergeable: true`;
-- App checks #305: `success`;
-- usa solo fixtures sintéticos; no ha importado el Excel real ni tocado datos productivos.
+- 4 archivos modificados;
+- 1 commit de implementación (`23b41b3...`);
+- CI de la rama estaba verde antes de la auditoría;
+- no se han importado datos reales ni tocado producción.
 
-Objetivo: que la futura importación del Excel de socios no sobrescriba silenciosamente información existente y requiera selección explícita de filas dudosas.
+Objetivo correcto de la PR:
+- conservar información ya existente;
+- solo completar huecos tras revisión;
+- no sobrescribir silenciosamente discrepancias;
+- distinguir cuota vacía de cuota 0;
+- detectar números duplicados/identidades ambiguas;
+- exigir selección individual de filas `review`;
+- usar `previewToken` para obligar a reanalizar si cambia Excel/censo;
+- no ejecutar automatizaciones durante el commit;
+- no sincronizar cuentas vinculadas durante la migración;
+- no persistir desde el `catch`.
 
-### Bloqueo actual P2
+### Auditoría manual 09/10
 
-Hay un hilo de review P2 sin resolver en `server.js`.
+Se revisaron los cuatro archivos modificados:
+- `public/app.js`;
+- `server.js`;
+- `scripts/check-associate-workbook-import.mjs`;
+- `scripts/check-app.mjs`.
 
-Problema: la aprobación de filas en estado `review` usa `sourceRow`. En un XLSX válido que omita el atributo opcional `row@r`, el parser puede asignar `sourceRow = 0` a varias filas. Aprobar una fila `0` podría aprobar todas las filas con ese mismo identificador.
+Conclusión actual: no se ha identificado otro bloqueo P1/P2 dentro del alcance revisado además del P2 ya abierto sobre identificadores de filas. No significa que la PR esté autorizada para merge: ese P2 sigue siendo bloqueante.
 
-Requisito antes de mergear:
+### P2 bloqueante — identificador de fila usado como autorización
 
-- usar un identificador de preview único por fila (ordinal inferido o ID equivalente);
-- rechazar identificadores duplicados;
-- añadir regresión con XLSX sin `row@r`;
-- repetir `check-associate-workbook-import`, `check:app` y smoke;
-- resolver el hilo P2.
+El parser obtiene `sourceRow` desde el atributo opcional `row@r`. Un XLSX válido puede omitirlo; en ese caso varias filas reciben `sourceRow = 0`.
 
-No fusionar #231 mientras ese P2 siga abierto.
+Actualmente `sourceRow` se reutiliza para:
+- valor del checkbox de aprobación;
+- `approvedReviewRows` enviado por frontend;
+- validación en backend;
+- decisión final de si una fila `review` se importa.
 
-## 8. Backlog abierto no bloqueador de V1
+Riesgo: aprobar una fila con ID `0` podría autorizar varias filas que el administrador no marcó.
 
-### Producción / Test Zone
+Corrección cerrada y registrada también como review en #231:
+1. `sourceRow` debe quedar solo para visualización/trazabilidad.
+2. Generar un `previewRowId` (o equivalente) único y estable por fila durante el preview.
+3. Usar ese ID en checkbox, API y selección aprobada.
+4. Backend debe rechazar IDs desconocidos y duplicados.
+5. Añadir fixture XLSX que omita `row@r` y demuestre que aprobar una fila no aprueba otra.
+6. Repetir:
+   - `node scripts/check-associate-workbook-import.mjs`;
+   - `npm run check:app`;
+   - `npm run smoke:campus-test`.
+7. Resolver el hilo P2 solo después de tests verdes.
 
-- #134: importar preguntas IVASPE en producción Railway si todavía no están cargadas.
+No fusionar #231 antes de esto.
+
+### Decisiones de negocio que siguen pendientes antes de importar datos reales
+
+Aunque el código quede verde, revisar con el secretario antes de migrar:
+- qué estados/bajas deben conservarse exactamente;
+- qué hacer cuando Excel y portal discrepan;
+- prioridad de número de socio;
+- tratamiento de cuotas 2024-2027;
+- observaciones heredadas;
+- altas nuevas;
+- campos de cuentas ya vinculadas.
+
+Criterio recomendado: un dato no vacío ya existente en el portal no debe ser reemplazado automáticamente por el Excel.
+
+## 5. Backlog no bloqueador de V1
+
+### Railway / IVASPE
+- #134: importar preguntas IVASPE en producción si todavía fuera necesario.
 - #136: automatización de importación IVASPE en Railway.
-- PR #161: known_hosts para Railway SSH; rama antigua/desfasada. Revisar solo si se retoma la importación remota.
+- PR #161: known_hosts para Railway SSH; antigua/desfasada. No tocar sin comprobar necesidad real.
 
 ### Contenido
-
 - #111: ampliar banco de preguntas.
-- #112: continuar bloques IVASPE. El repositorio contiene actualmente 175 preguntas en siete CSV de 25 preguntas, con pipeline de validación/importación preparado.
+- #112: continuar bloques IVASPE.
+
+El repositorio dispone de 175 preguntas en siete CSV de 25 y pipeline de validación/importación preparado. El contenido adicional no bloquea V1.
 
 ### Deuda técnica
+- #109: refactor backend incremental.
 
-- #109: refactor backend incremental. Mantener para V2 salvo regresión real.
+Mantener para V2. No mezclar con #227 ni #231 salvo necesidad real demostrada.
 
-## 9. Qué se puede adelantar sin gastar créditos de agente
+## 6. Trabajo que se puede adelantar sin créditos de agente
 
-1. Mantener esta bitácora y la checklist de QA actualizadas.
-2. Auditar manualmente PR #231 y dejar cerrada la especificación del arreglo P2 antes de pedir código.
-3. Preparar los casos de prueba exactos del XLSX de socios: fila normal, fila sin `row@r`, duplicados, discrepancias, cuotas vacías/cero, bajas y socios nuevos.
-4. Revisar con el secretario las reglas reales de migración: estados/bajas, numeración, cuotas 2024-2027, observaciones y qué campos tienen prioridad cuando Excel y portal difieren.
-5. Preparar la copia externa y el ensayo de recuperación que exige la migración real, sin tocar aún producción.
-6. Ejecutar QA manual sobre el portal publicado siguiendo `docs/v1-qa-checklist.md`, anotando solo fallos reproducibles.
-7. Limpiar backlog/documentación: actualizar #111/#112 con contenido real existente y mantener #109 fuera del sprint V1.
-8. Comprobar si #134/#136 siguen siendo necesarios antes de gastar créditos en Railway; no asumir que producción carece de preguntas sin verificarlo.
+1. Auditar y documentar #231 — en curso; alcance de corrección P2 ya cerrado.
+2. Preparar fixture/casos de prueba para la corrección de #231 antes de pedir código.
+3. Revisar reglas reales de migración con el secretario.
+4. Preparar copia externa y ensayo de restauración antes de datos reales.
+5. Ejecutar QA manual siguiendo `docs/v1-qa-checklist.md` y anotar únicamente fallos reproducibles.
+6. Verificar si #134/#136 siguen siendo necesarios antes de gastar créditos.
+7. Mantener backlog limpio y V2 separada.
 
-## 10. Próximo uso recomendado de créditos
+## 7. Próximo uso recomendado de créditos
 
-No gastarlos en #224, #225 ni #226: ya están hechos.
+No gastar créditos en #224, #225/#228 ni #226/#229: están terminados.
 
-Prioridad de gasto cuando haya cupo:
+Orden recomendado:
+1. corregir el P2 de #231 si la migración de socios sigue siendo prioritaria;
+2. ejecutar #227 y corregir solo regresiones;
+3. realizar copia/ensayo y migración real únicamente con autorización explícita;
+4. después decidir Railway/IVASPE y V2.
 
-1. corregir el P2 de #231 si la migración de socios es prioritaria;
-2. ejecutar #227 y corregir únicamente regresiones detectadas;
-3. solo después abordar Railway/IVASPE o nuevas funciones.
+Estimación orientativa restante si no aparecen regresiones serias:
+- #231: aproximadamente 5–15 créditos;
+- #227: aproximadamente 5–15 créditos.
 
-Con el estado actual, ya no hace falta reservar 45-60 créditos para cerrar las funciones V1. El consumo pendiente depende principalmente de cuántas regresiones aparezcan en #227 y de si se decide terminar #231. Si ambos salen limpios, el tramo de código restante debería ser sensiblemente menor que la estimación anterior.
+Objetivo de reserva: aproximadamente 10–30 créditos, sensiblemente por debajo de la previsión antigua de 45–60.
 
-## 11. Norma de continuidad
+## 8. Norma de continuidad móvil / escritorio
 
-Antes de iniciar una tarea de agente:
+GitHub + esta bitácora son la fuente común de verdad.
 
+Al comenzar una sesión:
 1. leer este documento;
-2. revisar commits y PR posteriores;
-3. no reimplementar #224/#228/#229;
-4. no mezclar QA V1 con refactor #109;
-5. no fusionar #231 con el P2 de identificadores de fila abierto;
-6. cualquier función nueva pasa a V2 hasta cerrar #227.
+2. revisar commits/PR posteriores;
+3. respetar decisiones ya registradas;
+4. no crear un plan paralelo desde otro dispositivo.
+
+Al terminar una sesión que cambie el estado o el plan:
+1. actualizar esta bitácora;
+2. dejar claro qué se hizo;
+3. dejar claro qué NO se debe hacer todavía;
+4. indicar el siguiente paso.
+
+No fusionar #231 con el P2 abierto. No iniciar funciones nuevas hasta cerrar #227.
