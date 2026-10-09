@@ -11,11 +11,7 @@ La V1 funcional está prácticamente cerrada en código.
 
 Último bloque funcional integrado y revisado: `94804766fe4e57538318821536fdfd31a1ce7cf6` (#230, backup/recovery).
 
-Después se añadieron dos commits documentales:
-- `80170448edb5c828b6b3b385933ca5cab6d30dfc` — estado del portal 09/10.
-- `320ddf1041e04cf373fef44166a4dc897404b8ff` — checklist QA alineada con el flujo live actual.
-
-App checks #307 sobre `320ddf104...`: `success`.
+Después se añadieron commits documentales de continuidad/QA. App checks #307 sobre `320ddf1041e04cf373fef44166a4dc897404b8ff`: `success`.
 
 La prioridad ya no es añadir funciones. La prioridad es cerrar #231 si se decide usar la migración de socios, ejecutar #227, corregir solo regresiones demostradas y congelar V1.
 
@@ -37,7 +33,7 @@ La observación P2 que existía antes del merge quedó corregida.
 
 ### Test en Vivo
 
-#225 está completada mediante PR #228 y la issue #225 se ha cerrado administrativamente el 09/10.
+#225 está completada mediante PR #228 y la issue #225 se cerró administrativamente el 09/10.
 
 Comportamiento actual:
 - tocar una opción guarda directamente;
@@ -53,7 +49,7 @@ Comportamiento actual:
 
 ### Test normal — Modo Aprendizaje
 
-#226 está completada mediante PR #229 y la issue #226 se ha cerrado administrativamente el 09/10.
+#226 está completada mediante PR #229 y la issue #226 se cerró administrativamente el 09/10.
 
 Resultado:
 - selector Examen / Aprendizaje;
@@ -170,7 +166,27 @@ Corrección cerrada y registrada también como review en #231:
 
 No fusionar #231 antes de esto.
 
-### Decisiones de negocio que siguen pendientes antes de importar datos reales
+### Matriz de QA de migración preparada
+
+Se añadió `docs/member-import-qa.md` el 09/10 y se enlazó dentro de la PR #231.
+
+La matriz deja cerrados antes de gastar créditos los casos que deberán cubrirse:
+- auth/403/401 y `no-store`;
+- `previewRowId` y XLSX sin `row@r`;
+- `previewToken` y estado obsoleto;
+- preservación de fichas existentes;
+- altas nuevas y numeración;
+- identidades duplicadas/ambiguas;
+- cuotas/pagos 2024-2027 y años externos;
+- estados/bajas/observaciones;
+- UI de preview;
+- persistencia y efectos laterales;
+- variantes del parser XLSX;
+- backup externo y condición de salida.
+
+El agente que corrija #231 debe reutilizar esta matriz, no rediseñar la estrategia de pruebas.
+
+### Decisiones de negocio pendientes antes de importar datos reales
 
 Aunque el código quede verde, revisar con el secretario antes de migrar:
 - qué estados/bajas deben conservarse exactamente;
@@ -201,15 +217,23 @@ El repositorio dispone de 175 preguntas en siete CSV de 25 y pipeline de validac
 
 Mantener para V2. No mezclar con #227 ni #231 salvo necesidad real demostrada.
 
-## 6. Trabajo que se puede adelantar sin créditos de agente
+## 6. Trabajo adelantado sin créditos de agente el 09/10
 
-1. Auditar y documentar #231 — en curso; alcance de corrección P2 ya cerrado.
-2. Preparar fixture/casos de prueba para la corrección de #231 antes de pedir código.
-3. Revisar reglas reales de migración con el secretario.
-4. Preparar copia externa y ensayo de restauración antes de datos reales.
-5. Ejecutar QA manual siguiendo `docs/v1-qa-checklist.md` y anotar únicamente fallos reproducibles.
-6. Verificar si #134/#136 siguen siendo necesarios antes de gastar créditos.
-7. Mantener backlog limpio y V2 separada.
+Completado:
+1. auditoría manual completa del diff de #231;
+2. especificación exacta del P2 de identificadores de fila;
+3. comentario/review de continuidad dentro de #231;
+4. cierre administrativo de issues #225 y #226;
+5. creación de `docs/member-import-qa.md`;
+6. enlace de esa matriz dentro de #231;
+7. actualización de esta bitácora;
+8. confirmación de App checks #307 en verde.
+
+Siguiente trabajo sin créditos posible:
+- preparar/revisar reglas reales de migración con el secretario;
+- preparar copia externa y ensayo de restauración;
+- ejecutar QA manual de #227;
+- comprobar si #134/#136 siguen siendo necesarios antes de gastar créditos.
 
 ## 7. Próximo uso recomendado de créditos
 
