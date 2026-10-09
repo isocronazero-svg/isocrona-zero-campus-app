@@ -8175,6 +8175,7 @@ function renderAssociates() {
                                   <td>${escapeHtml(item.importStatus === "blocked" ? "Bloqueada" : item.importStatus === "review" ? "Revisar" : "Lista")}</td>
                                   <td>${escapeHtml([...(item.blockers || []), ...(item.notes || [])].join(" - "))}
                                     ${(item.changes || []).map((change) => `<div>${escapeHtml(change.label)}: ${escapeHtml(String(change.before ?? "") || "(vacio)")} &rarr; ${escapeHtml(String(change.after))}</div>`).join("")}
+                                    ${renderLegacyPaymentProofs(item.legacyPaymentProofs)}
                                   </td>
                                   <td>${item.importStatus === "review" ? `<label><input type="checkbox" data-associate-workbook-review value="${escapeHtml(item.previewRowId)}" aria-label="Aprobar fila ${escapeHtml(item.previewRowId)}" /> Revisada</label>` : "-"}</td>
                                 </tr>
@@ -9001,6 +9002,29 @@ function renderAssociatesSide() {
   `;
 }
 
+function renderLegacyPaymentProofs(proofs = []) {
+  if (!Array.isArray(proofs) || !proofs.length) return "";
+  return `<section class="stack" data-legacy-payment-proofs>
+    <h4>Justificantes historicos</h4>
+    <p class="muted">Pendientes de conciliacion. Solo referencias: archivos no copiados y pagos no confirmados.</p>
+    <ul>${proofs.map((proof, index) => {
+      let href = "";
+      try {
+        const raw = String(proof?.url || "");
+        const url = new URL(raw);
+        if (!/\s/.test(raw) && url.protocol === "https:" && url.hostname === "drive.google.com" &&
+            !url.username && !url.password && !url.port) href = url.href;
+      } catch {}
+      const source = [proof?.sourceSheet, proof?.sourceColumn,
+        proof?.sourceRow ? `fila ${proof.sourceRow}` : `registro ${proof?.sourceRecord || "-"}`].filter(Boolean).join(" | ");
+      return `<li>${href
+        ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">Justificante ${index + 1} en Drive</a>`
+        : "Referencia no valida: revisar el archivo original"}
+        <span class="muted">${escapeHtml(source)}</span></li>`;
+    }).join("")}</ul>
+  </section>`;
+}
+
 function renderAssociateWorkbench(associate, campusAccount, campusMember, associatePayments, currentYear) {
   if (!associate) {
     return `<p class="muted">Selecciona un socio para editar su ficha y cuotas.</p>`;
@@ -9179,6 +9203,8 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
         <p id="associateEditSaveStatus" data-form-save-status="true" class="muted" aria-live="polite"></p>
         <button class="primary-button" type="submit">Guardar ficha de socio</button>
       </form>
+
+      ${renderLegacyPaymentProofs(associate.legacyPaymentProofs)}
 
       <div class="course-grid">
         <div class="mail-card">

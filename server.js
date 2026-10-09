@@ -6424,6 +6424,13 @@ const server = http.createServer(async (req, res) => {
           : mergeMemberScopedStateIntoFullState(currentState, payload, account);
       // Reports are written only through the scoped moderation API.
       const latestQuestionState = readState();
+      // Historical proof references are owned by the reviewed workbook import, not whole-state forms.
+      const currentProofs = new Map((latestQuestionState.associates || []).map(item => [item.id, item.legacyPaymentProofs]));
+      for (const associate of state.associates || []) {
+        const proofs = currentProofs.get(associate.id);
+        if (proofs) associate.legacyPaymentProofs = proofs;
+        else delete associate.legacyPaymentProofs;
+      }
       state.testZoneQuestionReports = latestQuestionState.testZoneQuestionReports || [];
       state.testZoneContributions = latestQuestionState.testZoneContributions || [];
       preserveBannerSettings(latestQuestionState, state);
@@ -10592,6 +10599,32 @@ function readLegacyImportNumber(value, label, blockers) {
   return parsed;
 }
 
+function readLegacyPaymentProofs(row, sheetName, sourceRecord, blockers) {
+  const proofs = [];
+  const seen = new Set();
+  for (const column of ["Justificante de pago", "Justificante de pago 2"]) {
+    const raw = String(row[column] ?? "").trim();
+    if (!raw) continue;
+    for (const reference of raw.split(/[,\r\n]+/).map(value => value.trim()).filter(Boolean)) {
+      try {
+        const url = new URL(reference);
+        if (/\s/.test(reference) || url.protocol !== "https:" || url.hostname !== "drive.google.com" ||
+            url.username || url.password || url.port) throw new Error("Invalid proof URL");
+        if (seen.has(url.href)) continue;
+        seen.add(url.href);
+        proofs.push({ url: url.href, sourceSheet: sheetName, sourceColumn: column,
+          sourceRow: Number(row.sourceRow || 0), sourceRecord });
+      } catch {
+        blockers.push(`${column}: referencia no valida; se requiere un enlace HTTPS de Google Drive`);
+      }
+    }
+    if (!raw.split(/[,\r\n]+/).some(value => value.trim())) {
+      blockers.push(`${column}: referencia vacia o no valida`);
+    }
+  }
+  return proofs;
+}
+
 function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssociateWorkbookPath) {
   const workbook =
     typeof workbookSource === "string"
@@ -10620,6 +10653,8 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
   const rows = (workbook.rows || []).map((row, index) => {
     const notes = [];
     const blockers = [];
+    const legacyPaymentProofs = readLegacyPaymentProofs(row, workbook.sheetName, index + 1, blockers);
+    if (legacyPaymentProofs.length) notes.push(`${legacyPaymentProofs.length} referencia(s) a justificantes; pendiente de conciliacion, sin confirmar pagos`);
     const firstName = normalizeLegacyWorkbookText(
       getLegacyAssociateWorkbookValue(row, normalizedLegacyAssociateWorkbookColumns.firstName)
     );
@@ -10771,6 +10806,7 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
       dni,
       service,
       observations,
+      legacyPaymentProofs,
       yearlyFees,
       annualTotal,
       lastQuotaMonth,
@@ -10846,6 +10882,17 @@ function importLegacyAssociates(state, preview, actorName = "Administracion", ap
 
     if (existingAssociate) {
       existingAssociate.associateNumber = importedAssociateNumber;
+      // References are additive evidence, never payment entries or downloaded backups.
+      if (row.legacyPaymentProofs?.length) {
+        existingAssociate.legacyPaymentProofs = existingAssociate.legacyPaymentProofs || [];
+        const urls = new Set(existingAssociate.legacyPaymentProofs.map(proof => proof.url));
+        for (const proof of row.legacyPaymentProofs) {
+          if (!urls.has(proof.url)) {
+            existingAssociate.legacyPaymentProofs.push({ ...proof, importedAt: new Date().toISOString() });
+            urls.add(proof.url);
+          }
+        }
+      }
       for (const change of row.changes || []) {
         if (change.field.startsWith("manualYearlyFees.")) {
           const year = change.field.split(".")[1];
@@ -10891,6 +10938,7 @@ function importLegacyAssociates(state, preview, actorName = "Administracion", ap
       lastQuotaMonth: row.lastQuotaMonth,
       annualAmount: Number(state.settings?.associates?.defaultAnnualAmount || 50),
       observations: importObservation,
+      legacyPaymentProofs: (row.legacyPaymentProofs || []).map(proof => ({ ...proof, importedAt: new Date().toISOString() })),
       manualYearlyFees: {
         "2024": Number(row.yearlyFees?.["2024"] || 0),
         "2025": Number(row.yearlyFees?.["2025"] || 0),
