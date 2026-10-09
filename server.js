@@ -10385,9 +10385,16 @@ function parseSharedStrings(entries) {
 
 function parseWorksheetRows(entries, entryName, sharedStrings) {
   const xml = getZipEntryText(entries, entryName);
+  let previousRowNumber = 0;
+  const seenRowNumbers = new Set();
   return [...xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)].map((rowMatch) => {
     const rowAttributes = rowMatch[1];
-    const rowNumber = Number(getXmlAttribute(rowAttributes, "r") || 0);
+    const rowNumber = Number(getXmlAttribute(rowAttributes, "r") || previousRowNumber + 1);
+    if (!Number.isSafeInteger(rowNumber) || rowNumber <= 0 || seenRowNumbers.has(rowNumber)) {
+      throw new Error("El Excel contiene numeros de fila invalidos o duplicados");
+    }
+    previousRowNumber = rowNumber;
+    seenRowNumbers.add(rowNumber);
     const cellMatches = [...rowMatch[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)];
     const cells = cellMatches.map((cellMatch) => {
       const attributes = cellMatch[1];

@@ -76,9 +76,9 @@ const headers = ["Marca temporal", "Nombre", "Apellidos", "DNI", "Tel\u00e9fono"
   "Servicio al que pertenece", "Justificante de pago", "2024", "2025", "2026",
   "MES DE LA ULTIMA CUOTA", "Anual", "Observaciones", "2027", "Numero de socio"];
 const xmlEscape = value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-function workbook(records) {
+function workbook(records, { omitRowNumbers = false, duplicateRowNumbers = false } = {}) {
   const rows = [headers, ...records.map(row => headers.map(header => row[header] ?? ""))];
-  const sheet = rows.map((row, i) => `<row r="${i + 1}">${row.map((value, j) =>
+  const sheet = rows.map((row, i) => `<row${omitRowNumbers ? "" : ` r="${duplicateRowNumbers && i > 0 ? 2 : i + 1}"`}>${row.map((value, j) =>
     `<c r="${String.fromCharCode(65 + j)}${i + 1}" t="inlineStr"><is><t>${xmlEscape(value)}</t></is></c>`
   ).join("")}</row>`).join("");
   const buffer = zip({
@@ -231,6 +231,17 @@ try {
   const paid = (await state()).associates.find(item => item.id === "import-existing");
   assert.equal(paid.manualYearlyFees["2026"], 20, "Do not count existing recorded payments twice");
   assert.equal(paid.yearlyFees["2026"], 50);
+  const noRowNumbers = workbook([row(70, { DNI: "" }), row(71, { DNI: "" })], { omitRowNumbers: true });
+  const inferred = await preview(noRowNumbers);
+  assert.deepEqual(inferred.rows.map(item => item.sourceRow), [2, 3], "Missing row@r gets unique inferred identifiers");
+  await commit(noRowNumbers, inferred, [2]);
+  const afterInferred = await state();
+  assert.ok(afterInferred.associates.some(item => item.email === "fixture70@example.invalid"));
+  assert.equal(afterInferred.associates.some(item => item.email === "fixture71@example.invalid"), false, "Unselected row remains excluded");
+  const duplicateRows = workbook([row(72), row(73)], { duplicateRowNumbers: true });
+  await request(previewRoute, admin, { workbookFile: duplicateRows }, 400);
+  await request(commitRoute, admin, { workbookFile: duplicateRows, previewToken: inferred.previewToken, approvedReviewRows: [2] }, 400);
+  assert.deepEqual((await state()).associates, afterInferred.associates, "Duplicate row identifiers cannot cause partial writes");
   const expected = (await state()).associates;
   await stop(); await start(); admin = await login("admin@isocronazero.org");
   assert.deepEqual((await state()).associates, expected, "Import survives restart without losing existing data");
