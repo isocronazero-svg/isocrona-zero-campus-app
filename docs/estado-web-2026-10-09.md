@@ -98,9 +98,21 @@ El QA manual/productivo debe concentrarse en:
 7. aviso con adjunto y compartir por WhatsApp según flujo actual;
 8. copia externa/ensayo de recuperación antes de migración real.
 
-Esta separación quedó registrada también como comentario en #227 el 09/10.
+`docs/v1-manual-qa-runbook.md` fue creado el 09/10 para convertir estos ocho bloques en un recorrido corto, ejecutable y con registro PASS/FAIL/BLOQUEADO.
+
+La separación automático/manual y el runbook quedaron registrados también como comentarios en #227.
 
 Regla: CI verde no basta para cerrar #227. Falta pasada manual/productiva. No añadir funciones durante el QA.
+
+### Criterio de producción / deploy
+
+`railway.json` define `npm start`, healthcheck `/healthz` y reinicio `ON_FAILURE`.
+
+El README exige post-deploy: `/healthz`, login admin, login socio, test, sesión live, export de estado y revisión de consola. También exige export previo, snapshot externo y rollback al commit anterior si un deploy deja el estado dudoso.
+
+Para cerrar #227 hay que registrar el SHA realmente desplegado. Que `main` tenga CI verde no demuestra por sí solo que producción esté ejecutando ese SHA.
+
+El portal público no fue accesible desde el navegador técnico de esta sesión, así que no se marca ninguna comprobación productiva como PASS sin evidencia real.
 
 ## 4. PR #231 — migración segura del Excel de socios
 
@@ -213,12 +225,15 @@ Completado:
 6. enlace de esa matriz en #231;
 7. separación QA automático vs manual en #227;
 8. confirmación App checks #307 verde;
-9. actualización de esta bitácora.
+9. creación `docs/v1-manual-qa-runbook.md`;
+10. revisión de contrato de despliegue Railway/README y criterio de SHA productivo;
+11. comentario de continuidad en #227 con el nuevo runbook;
+12. actualización de esta bitácora.
 
 Siguiente trabajo sin créditos posible:
+- ejecutar el runbook manual de #227 desde móvil/escritorio y registrar PASS/FAIL;
 - preparar reglas reales de migración con secretario;
 - preparar copia externa/ensayo de restauración;
-- ejecutar QA manual de #227;
 - comprobar si #134/#136 siguen siendo necesarios.
 
 ## 7. Próximo uso recomendado de créditos
