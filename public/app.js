@@ -2373,13 +2373,13 @@ document.addEventListener("click", async (event) => {
       if (!associateWorkbookPreview?.previewToken) {
         throw new Error("Analiza el Excel antes de importar.");
       }
-      const approvedReviewRows = [...document.querySelectorAll("[data-associate-workbook-review]:checked")]
-        .map((input) => Number(input.value));
-      const importCount = associateWorkbookPreview.summary.readyRows + approvedReviewRows.length;
+      const approvedReviewRowIds = [...document.querySelectorAll("[data-associate-workbook-review]:checked")]
+        .map((input) => input.value);
+      const importCount = associateWorkbookPreview.summary.readyRows + approvedReviewRowIds.length;
       if (!importCount) {
         throw new Error("Selecciona alguna fila revisada o corrige las incidencias del Excel.");
       }
-      if (!window.confirm(`Importar ${importCount} fila(s), incluidas ${approvedReviewRows.length} revisadas? Las filas bloqueadas o sin revisar quedaran fuera. Confirma que tienes una copia de seguridad previa.`)) {
+      if (!window.confirm(`Importar ${importCount} fila(s), incluidas ${approvedReviewRowIds.length} revisadas? Las filas bloqueadas o sin revisar quedaran fuera. Confirma que tienes una copia de seguridad previa.`)) {
         return;
       }
       const previewToken = associateWorkbookPreview.previewToken;
@@ -2390,7 +2390,7 @@ document.addEventListener("click", async (event) => {
       const response = await fetch("/api/import/associate-workbook/commit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workbookFile: associateWorkbookDraftFile, previewToken, approvedReviewRows })
+        body: JSON.stringify({ workbookFile: associateWorkbookDraftFile, previewToken, approvedReviewRowIds })
       });
       const payload = await readJsonResponse(
         response,
@@ -8169,14 +8169,14 @@ function renderAssociates() {
                             .map(
                               (item) => `
                                 <tr>
-                                  <td>${escapeHtml(String(item.sourceRow || "-"))}</td>
+                                  <td>${escapeHtml(String(item.sourceRow || item.previewRowId))}</td>
                                   <td>${escapeHtml(String(item.associateNumber || "-"))}</td>
                                   <td>${escapeHtml([item.firstName, item.lastName].filter(Boolean).join(" ") || item.email || "-")}</td>
                                   <td>${escapeHtml(item.importStatus === "blocked" ? "Bloqueada" : item.importStatus === "review" ? "Revisar" : "Lista")}</td>
                                   <td>${escapeHtml([...(item.blockers || []), ...(item.notes || [])].join(" - "))}
                                     ${(item.changes || []).map((change) => `<div>${escapeHtml(change.label)}: ${escapeHtml(String(change.before ?? "") || "(vacio)")} &rarr; ${escapeHtml(String(change.after))}</div>`).join("")}
                                   </td>
-                                  <td>${item.importStatus === "review" ? `<label><input type="checkbox" data-associate-workbook-review value="${Number(item.sourceRow)}" aria-label="Aprobar fila ${Number(item.sourceRow)}" /> Revisada</label>` : "-"}</td>
+                                  <td>${item.importStatus === "review" ? `<label><input type="checkbox" data-associate-workbook-review value="${escapeHtml(item.previewRowId)}" aria-label="Aprobar fila ${escapeHtml(item.previewRowId)}" /> Revisada</label>` : "-"}</td>
                                 </tr>
                               `
                             )

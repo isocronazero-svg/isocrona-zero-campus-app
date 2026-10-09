@@ -8449,13 +8449,16 @@ const server = http.createServer(async (req, res) => {
       if (!payload.previewToken || payload.previewToken !== preview.previewToken) {
         return sendJson(res, 409, { ok: false, error: "El Excel o las fichas han cambiado. Analiza de nuevo antes de importar." });
       }
-      const approvedReviewRows = payload.approvedReviewRows || [];
-      if (!Array.isArray(approvedReviewRows) || approvedReviewRows.some((rowNumber) =>
-        !preview.rows.some((row) => row.sourceRow === rowNumber && row.importStatus === "review")
+      const approvedReviewRowIds = payload.approvedReviewRowIds ?? [];
+      if (Object.hasOwn(payload, "approvedReviewRows") || !Array.isArray(approvedReviewRowIds) ||
+        new Set(approvedReviewRowIds).size !== approvedReviewRowIds.length ||
+        new Set(preview.rows.map((row) => row.previewRowId)).size !== preview.rows.length ||
+        approvedReviewRowIds.some((rowId) =>
+        typeof rowId !== "string" || !preview.rows.some((row) => row.previewRowId === rowId && row.importStatus === "review")
       )) {
         return sendJson(res, 400, { ok: false, error: "La seleccion de filas para revisar no es valida." });
       }
-      const result = importLegacyAssociates(state, preview, account.name, approvedReviewRows);
+      const result = importLegacyAssociates(state, preview, account.name, approvedReviewRowIds);
       if (!result.importedCount) {
         return sendJson(res, 400, { ok: false, error: "No hay filas listas o revisadas seleccionadas para importar." });
       }
@@ -10385,16 +10388,9 @@ function parseSharedStrings(entries) {
 
 function parseWorksheetRows(entries, entryName, sharedStrings) {
   const xml = getZipEntryText(entries, entryName);
-  let previousRowNumber = 0;
-  const seenRowNumbers = new Set();
   return [...xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)].map((rowMatch) => {
     const rowAttributes = rowMatch[1];
-    const rowNumber = Number(getXmlAttribute(rowAttributes, "r") || previousRowNumber + 1);
-    if (!Number.isSafeInteger(rowNumber) || rowNumber <= 0 || seenRowNumbers.has(rowNumber)) {
-      throw new Error("El Excel contiene numeros de fila invalidos o duplicados");
-    }
-    previousRowNumber = rowNumber;
-    seenRowNumbers.add(rowNumber);
+    const rowNumber = Number(getXmlAttribute(rowAttributes, "r") || 0);
     const cellMatches = [...rowMatch[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)];
     const cells = cellMatches.map((cellMatch) => {
       const attributes = cellMatch[1];
@@ -10621,7 +10617,7 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
   const seenWorkbookDnis = new Set();
   const seenWorkbookNumbers = new Set();
 
-  const rows = (workbook.rows || []).map((row) => {
+  const rows = (workbook.rows || []).map((row, index) => {
     const notes = [];
     const blockers = [];
     const firstName = normalizeLegacyWorkbookText(
@@ -10765,6 +10761,7 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
 
     const importStatus = blockers.length ? "blocked" : notes.length ? "review" : "ready";
     return {
+      previewRowId: `row-${index + 1}`,
       sourceRow: Number(row.sourceRow || 0),
       associateNumber: associateNumber > 0 ? associateNumber : 0,
       firstName,
@@ -10806,7 +10803,7 @@ function buildLegacyAssociateImportPreview(state, workbookSource = legacyAssocia
   };
 }
 
-function importLegacyAssociates(state, preview, actorName = "Administracion", approvedReviewRows = []) {
+function importLegacyAssociates(state, preview, actorName = "Administracion", approvedReviewRowIds = []) {
   const importedAssociates = [];
   const skippedRows = [];
   let highestAssociateNumber = Math.max(
@@ -10817,8 +10814,9 @@ function importLegacyAssociates(state, preview, actorName = "Administracion", ap
   );
 
   for (const row of preview.rows || []) {
-    if (row.importStatus === "blocked" || (row.importStatus === "review" && !approvedReviewRows.includes(row.sourceRow))) {
+    if (row.importStatus === "blocked" || (row.importStatus === "review" && !approvedReviewRowIds.includes(row.previewRowId))) {
       skippedRows.push({
+        previewRowId: row.previewRowId,
         sourceRow: row.sourceRow,
         name: [row.firstName, row.lastName].filter(Boolean).join(" "),
         reason: row.importStatus === "blocked" ? row.blockers.join(", ") : "Pendiente de revision explicita"

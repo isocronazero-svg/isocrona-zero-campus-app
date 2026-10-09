@@ -141,8 +141,8 @@ async function preview(file) {
   assert.equal(result.headers.get("cache-control"), "no-store");
   return result.data.preview;
 }
-async function commit(file, view, approvedReviewRows = [], status = 200) {
-  const result = await request(commitRoute, admin, { workbookFile: file, previewToken: view.previewToken, approvedReviewRows }, status);
+async function commit(file, view, approvedReviewRowIds = [], status = 200) {
+  const result = await request(commitRoute, admin, { workbookFile: file, previewToken: view.previewToken, approvedReviewRowIds }, status);
   assert.equal(result.headers.get("cache-control"), "no-store");
   return result.data;
 }
@@ -163,9 +163,12 @@ try {
   assert.equal(view.rows[0].yearlyFees["2026"], null, "Blank is not an imported zero");
   await request(commitRoute, admin, { workbookFile: file }, 409);
   await commit(file, view, [], 400);
-  await commit(file, view, [999], 400);
+  await commit(file, view, ["unknown"], 400);
+  await commit(file, view, ["row-1", "row-1"], 400);
+  await commit(file, view, [2], 400);
+  await request(commitRoute, admin, { workbookFile: file, previewToken: view.previewToken, approvedReviewRows: [2] }, 400);
   assert.deepEqual((await state()).associates, before.associates, "Rejected commits do not persist changes");
-  await commit(file, view, [2]);
+  await commit(file, view, ["row-1"]);
   let actual = await state();
   const original = before.associates.find(item => item.id === "import-existing");
   const preserved = actual.associates.find(item => item.id === original.id);
@@ -188,7 +191,7 @@ try {
   assert.equal(invalidView.rows.filter(item => item.importStatus !== "blocked").length, 1, "Only the first unused number is eligible");
   assert.ok(invalidView.rows[6].blockers.some(reason => reason.startsWith("Cuota 2025")), "An explicit zero cannot erase a paid year");
   assert.ok(invalidView.rows.at(-1).blockers.includes("identidad ambigua entre fichas existentes"));
-  await commit(invalid, invalidView, [2], 400);
+  await commit(invalid, invalidView, ["row-1"], 400);
   await commit(workbook([row(90)]), view, [], 409);
 
   const fillFile = workbook([row(40, { Nombre: "Beta", Apellidos: "Fixture", "E-mail": "beta@example.invalid",
@@ -197,7 +200,7 @@ try {
   assert.equal(fillView.rows[0].importStatus, "review");
   assert.ok(fillView.rows[0].changes.some(change => change.field === "phone"));
   assert.ok(fillView.rows[0].changes.some(change => change.field === "manualYearlyFees.2026"));
-  await commit(fillFile, fillView, [2]);
+  await commit(fillFile, fillView, ["row-1"]);
   const filled = (await state()).associates.find(item => item.id === "import-fill");
   assert.equal(filled.phone, "600000099");
   assert.equal(filled.associateNumber, 41);
@@ -210,8 +213,10 @@ try {
     row(52, { Observaciones: "Review this synthetic row" })
   ]);
   const selectionView = await preview(selectionFile);
+  assert.equal(new Set(selectionView.rows.map(item => item.previewRowId)).size, selectionView.rows.length);
+  assert.deepEqual((await preview(selectionFile)).rows.map(item => item.previewRowId), selectionView.rows.map(item => item.previewRowId), "IDs are stable for the same workbook");
   assert.deepEqual(selectionView.summary, { totalRows: 3, readyRows: 1, reviewRows: 2, blockedRows: 0 });
-  const selected = await commit(selectionFile, selectionView, [2]);
+  const selected = await commit(selectionFile, selectionView, ["row-1"]);
   assert.equal(selected.result.importedCount, 2);
   assert.equal(selected.result.skippedCount, 1);
   actual = await state();
@@ -219,7 +224,7 @@ try {
   const generatedNumber = actual.associates.find(item => item.email === "fixture50@example.invalid").associateNumber;
   assert.ok(generatedNumber > 652, "Generated numbers reserve all supplied numbers first");
   assert.equal(new Set(actual.associates.map(item => item.associateNumber)).size, actual.associates.length);
-  await commit(selectionFile, selectionView, [2], 409);
+  await commit(selectionFile, selectionView, ["row-1"], 409);
   const repeatFile = workbook([row(51, { "2026": 50 })]);
   await commit(repeatFile, await preview(repeatFile));
   const repeated = await state();
@@ -227,28 +232,36 @@ try {
   assert.equal(repeated.associates.find(item => item.email === "fixture51@example.invalid").yearlyFees["2026"], 50);
 
   const paymentFile = workbook([{ ...preserveRow, "2026": 50 }]);
-  await commit(paymentFile, await preview(paymentFile), [2]);
+  await commit(paymentFile, await preview(paymentFile), ["row-1"]);
   const paid = (await state()).associates.find(item => item.id === "import-existing");
   assert.equal(paid.manualYearlyFees["2026"], 20, "Do not count existing recorded payments twice");
   assert.equal(paid.yearlyFees["2026"], 50);
   const noRowNumbers = workbook([row(70, { DNI: "" }), row(71, { DNI: "" })], { omitRowNumbers: true });
   const inferred = await preview(noRowNumbers);
-  assert.deepEqual(inferred.rows.map(item => item.sourceRow), [2, 3], "Missing row@r gets unique inferred identifiers");
-  await commit(noRowNumbers, inferred, [2]);
+  assert.deepEqual(inferred.rows.map(item => item.sourceRow), [0, 0], "Source row is only traceability, not authorization");
+  assert.deepEqual(inferred.rows.map(item => item.previewRowId), ["row-1", "row-2"]);
+  await commit(noRowNumbers, inferred, ["row-1"]);
   const afterInferred = await state();
   assert.ok(afterInferred.associates.some(item => item.email === "fixture70@example.invalid"));
   assert.equal(afterInferred.associates.some(item => item.email === "fixture71@example.invalid"), false, "Unselected row remains excluded");
-  const duplicateRows = workbook([row(72), row(73)], { duplicateRowNumbers: true });
-  await request(previewRoute, admin, { workbookFile: duplicateRows }, 400);
-  await request(commitRoute, admin, { workbookFile: duplicateRows, previewToken: inferred.previewToken, approvedReviewRows: [2] }, 400);
-  assert.deepEqual((await state()).associates, afterInferred.associates, "Duplicate row identifiers cannot cause partial writes");
+  const duplicateRows = workbook([row(72, { DNI: "" }), row(73, { DNI: "" })], { duplicateRowNumbers: true });
+  const duplicateView = await preview(duplicateRows);
+  assert.deepEqual(duplicateView.rows.map(item => item.sourceRow), [2, 2]);
+  assert.deepEqual(duplicateView.rows.map(item => item.previewRowId), ["row-1", "row-2"]);
+  await commit(duplicateRows, duplicateView, ["row-1", "row-1"], 400);
+  assert.deepEqual((await state()).associates, afterInferred.associates, "Duplicate approval IDs cannot cause partial writes");
+  await commit(duplicateRows, duplicateView, ["row-2"]);
+  const afterDuplicate = await state();
+  assert.equal(afterDuplicate.associates.some(item => item.email === "fixture72@example.invalid"), false);
+  assert.ok(afterDuplicate.associates.some(item => item.email === "fixture73@example.invalid"));
   const expected = (await state()).associates;
   await stop(); await start(); admin = await login("admin@isocronazero.org");
   assert.deepEqual((await state()).associates, expected, "Import survives restart without losing existing data");
 
   const app = readFileSync(path.join(repo, "public/app.js"), "utf8");
   assert.ok(app.includes("data-associate-workbook-review"));
-  assert.ok(app.includes("workbookFile: associateWorkbookDraftFile, previewToken, approvedReviewRows"));
+  assert.ok(app.includes("workbookFile: associateWorkbookDraftFile, previewToken, approvedReviewRowIds"));
+  assert.ok(app.includes('value="${escapeHtml(item.previewRowId)}"'));
   console.log("Associate workbook import check passed (synthetic XLSX, permissions, review, preservation, conflicts, restart).");
 } finally {
   await stop();
