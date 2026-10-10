@@ -16,7 +16,7 @@ class Form {
   querySelectorAll() { return []; }
   hasAttribute(name) { return name === "data-test-zone-attempt"; }
 }
-const questions = [0, 1].map(index => ({ id: `q${index}`, revision: `v${index}`, prompt: `Pregunta ${index}`, options: ["A", "B"] }));
+const questions = [0, 1].map(index => ({ id: `q${index}`, revision: `v${index}`, prompt: `Pregunta ${index}`, options: ["A", "B", "C", "D"] }));
 const session = { accountId: "member", role: "member", filters: { questionCount: 2, timeLimitMinutes: 0, penaltyDivisor: 0, practiceMode: "exam" } };
 const marked = new Set();
 let renders = 0, checks = 0, saved = 0, fail = false, heldCheck, resolveCheck;
@@ -66,18 +66,30 @@ context.bindActions(container);
 const form = new Form();
 container.querySelector = selector => selector === "[data-test-zone-attempt]" ? form : null;
 const submit = () => container.onsubmit({ target: form, preventDefault() {} });
+const choose = async (index, value) => {
+  if (session.activeRun.mode === "learning") {
+    await container.onclick({ target: { closest: () => ({ form, dataset: { action: "answer-learning-question", questionIndex: String(index), optionIndex: String(value) } }) } });
+    return;
+  }
+  form.values[`question-${index}`] = String(value);
+  const input = new context.HTMLInputElement();
+  Object.assign(input, { form, value: String(value), dataset: { questionIndex: String(index) }, matches: () => true });
+  await container.onchange({ target: input });
+};
 const action = (name, questionId) => container.onclick({ target: { closest: () => ({ dataset: { action: name, questionId } }) } });
 assert.equal((context.buildQuestionAttemptMarkup().match(/<article /g) || []).length, 1);
 assert.doesNotMatch(context.buildQuestionAttemptMarkup(), /EXAM_MAP|Respuesta correcta/);
+assert.equal((context.buildQuestionAttemptMarkup().match(/data-action="answer-learning-question"/g) || []).length, 4);
+assert.doesNotMatch(context.buildQuestionAttemptMarkup(), /type="radio"/, "Learning choices are native buttons: Tab reaches all options, Enter/Space confirms");
 await submit();
 assert.match(run.error, /Selecciona/);
 assert.equal(checks, 0);
 await action("next-learning-question");
 assert.equal(run.learningIndex, 0, "Cannot skip an unchecked question");
-form.values["question-0"] = "1";
 fail = true;
-await submit();
+await choose(0, 1);
 assert.match(run.error, /Sin conexion/);
+assert.match(context.buildQuestionAttemptMarkup(), /Reintentar/);
 assert.equal(run.answers[0], 1);
 assert.equal(run.checking, false);
 fail = false;
@@ -91,12 +103,15 @@ heldCheck = false;
 assert.equal(run.feedback[0].isCorrect, false);
 assert.equal(saved, 0, "Correction is not a result submission");
 assert.match(context.buildQuestionAttemptMarkup(), /Incorrecta|Respuesta correcta/);
+assert.equal((context.buildQuestionAttemptMarkup().match(/test-zone-option-row is-correct/g) || []).length, 1);
+assert.equal((context.buildQuestionAttemptMarkup().match(/test-zone-option-row is-wrong/g) || []).length, 1);
 assert.match(context.buildQuestionAttemptMarkup(), /&lt;img/);
 assert.doesNotMatch(context.buildQuestionAttemptMarkup(), /<img/);
 assert.match(context.buildQuestionAttemptMarkup(), /disabled/);
 const changedAnswer = new context.HTMLInputElement();
 Object.assign(changedAnswer, { value: "0", dataset: { questionIndex: "0" }, matches: () => true });
-container.onchange({ target: changedAnswer });
+await container.onchange({ target: changedAnswer });
+await choose(0, 0);
 assert.equal(run.answers[0], 1, "A revealed answer cannot be changed through the input handler");
 form.values = {};
 await action("toggle-review-mark", run.questions[0].id);
@@ -105,8 +120,9 @@ assert.equal(run.answers[0], 1, "Disabled radios do not erase checked answers wh
 await action("next-learning-question");
 assert.equal(run.learningIndex, 1);
 assert.doesNotMatch(context.buildQuestionAttemptMarkup(), /Respuesta correcta/);
-form.values = { "question-1": "0" };
-await submit();
+await choose(1, 0);
+assert.equal((context.buildQuestionAttemptMarkup().match(/test-zone-option-row is-correct/g) || []).length, 1);
+assert.doesNotMatch(context.buildQuestionAttemptMarkup(), /test-zone-option-row is-wrong/);
 assert.deepEqual(Array.from(run.answers), [1, 0], "Invisible answers survive later questions");
 assert.match(context.buildQuestionAttemptMarkup(), /Finalizar test/);
 assert.match(context.buildQuestionAttemptMarkup(), /Esta pregunta no tiene explicacion disponible/);
@@ -119,9 +135,8 @@ assert.deepEqual(Array.from(session.latestResult.responses, response => response
 
 await context.startGeneratedTest();
 const timedRun = session.activeRun;
-form.values = { "question-0": "0" };
 heldCheck = true;
-const delayed = submit();
+const delayed = choose(0, 0);
 timedRun.deadline = 1;
 await context.handleAttemptSubmit(container, form);
 resolveCheck();
@@ -130,6 +145,13 @@ assert.equal(session.activeRun, null, "Late correction cannot restore a complete
 assert.equal(saved, 2);
 assert.equal(session.latestResult.timedOut, true);
 assert.equal(session.latestResult.responses[0].selectedIndex, 0, "Timeout preserves disabled pending selection");
+
+session.filters.practiceMode = "exam";
+await context.startGeneratedTest();
+const checksBeforeExam = checks;
+await choose(0, 1);
+assert.equal(checks, checksBeforeExam, "Exam selection never requests immediate correction");
+assert.doesNotMatch(context.buildQuestionAttemptMarkup(), /test-zone-option-row is-(correct|wrong)/);
 
 const originalFetch = globalThis.fetch;
 try {
