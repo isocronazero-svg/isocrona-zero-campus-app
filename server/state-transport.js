@@ -345,6 +345,7 @@ function createStateTransport(dependencies = {}) {
       testZoneResults: scopedTestZoneResults,
       testZoneReviewMarks: scopedTestZoneReviewMarks,
       testZoneLiveSessions: [],
+      testZoneLivePresets: [],
       testModules: quotaLimitedAccess ? [] : listVisibleIndependentTestModules(state, visibleTestsAccount),
       tests: quotaLimitedAccess ? [] : listVisibleIndependentTests(state, visibleTestsAccount),
       questions: [],

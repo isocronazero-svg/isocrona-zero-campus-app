@@ -936,6 +936,7 @@ export function buildPublicLiveAdminMarkup() {
         </div>
       </div>
       <form class="test-zone-live-form" data-test-zone-live-form>
+        <div class="test-zone-field-full" data-live-test-library></div>
         <label class="test-zone-field test-zone-field-full">
           <span>Título del test en vivo</span>
           <input type="text" name="title" placeholder="Ej. Simulacro abierto de legislación" />
@@ -1176,7 +1177,9 @@ async function handleQuestionFormSubmit(container, form) {
 
 export async function submitPublicLiveForm(form) {
   const formData = new FormData(form);
+  const selected = formData.get("liveQuestionIds");
   await createLiveSession({
+    ...(selected ? { questionIds: JSON.parse(selected) } : {}),
     autoAdvance: true,
     title: String(formData.get("title") || "").trim(),
     questionCount: Number(formData.get("questionCount") || 20),

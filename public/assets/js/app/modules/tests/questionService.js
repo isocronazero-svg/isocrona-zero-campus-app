@@ -178,6 +178,20 @@ export function getStoredQuestions() {
   return getQuestions();
 }
 
+export async function loadLivePresets() {
+  return (await fetchJson("/api/test-zone/live-presets")).presets || [];
+}
+
+export async function saveLivePreset(preset, id = "") {
+  return (await fetchJson(`/api/test-zone/live-presets${id ? `/${encodeURIComponent(id)}` : ""}`, {
+    method: id ? "PUT" : "POST", body: JSON.stringify(preset)
+  })).preset;
+}
+
+export async function deleteLivePreset(id) {
+  return fetchJson(`/api/test-zone/live-presets/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export function getQuestionFilters(questions = []) {
   const safeQuestions = Array.isArray(questions) ? questions : [];
   return {

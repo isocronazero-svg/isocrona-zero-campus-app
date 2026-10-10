@@ -80,6 +80,7 @@ const { normalizeNoticeAttachments, compactNotice, createNoticesHandler, MAX_NOT
 const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
 const { createQuestionBankImportHandler } = require("./server/question-bank-import");
 const { createBannerHandler, preserveBannerSettings } = require("./server/banners");
+const { selectLiveQuestions, createLiveTestLibraryHandler } = require("./server/live-test-library");
 const {
   handleRoute,
   withAdmin,
@@ -1059,10 +1060,13 @@ function createTestZoneLiveSession(state, account, payload = {}) {
     ? (state.courses || []).find((course) => course.id === String(payload.courseId))
     : null;
   if (payload.courseId && !sourceCourse) throw new Error("Curso no encontrado");
+  if (sourceCourse && payload.questionIds !== undefined) throw new Error("No mezcles preguntas seleccionadas con un curso");
   const filteredQuestions = sourceCourse
     ? sharedQuestions(state, sourceCourse.sharedTestQuestionIds || []).map(normalizeTestZoneQuestionRecord)
-    : shuffleTestZoneQuestions(filterTestZoneQuestionsForRequest(state, payload.filters || {}));
-  const requestedQuestionCount = sourceCourse ? filteredQuestions.length : Math.max(Number(payload.questionCount || 10), 1);
+    : payload.questionIds !== undefined
+      ? selectLiveQuestions(filterTestZoneQuestionsForRequest(state, {}), payload.questionIds)
+      : shuffleTestZoneQuestions(filterTestZoneQuestionsForRequest(state, payload.filters || {}));
+  const requestedQuestionCount = sourceCourse || payload.questionIds !== undefined ? filteredQuestions.length : Math.max(Number(payload.questionCount || 10), 1);
   const selectedQuestions = filteredQuestions.slice(0, requestedQuestionCount);
   if (!selectedQuestions.length) {
     throw new Error("No hay preguntas disponibles para abrir el test en vivo");
@@ -4302,9 +4306,12 @@ const handleQuestionContributions = createQuestionContributionsHandler({ readSta
 const handleBanners = createBannerHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError });
 
 const handleNotices = createNoticesHandler({ baseUrl: campusBaseUrl, readState, writeState, requireAuthenticatedAccount, requireAdminAccount, readJsonBody, sendJson, sendJsonError, appendActivity });
+const handleLiveTestLibrary = createLiveTestLibraryHandler({ readState, writeState, requireLiveHostAccount, readJsonBody, sendJson, sendJsonError,
+  availableQuestions: state => filterTestZoneQuestionsForRequest(state, {}), normalizeTime: normalizeLiveTestQuestionTimeLimitSeconds });
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  if (await handleLiveTestLibrary(req, res, requestUrl)) return;
   if (await handleCourseSharedTest(req, res, requestUrl)) return;
   if (await handleQuestionContributions(req, res, requestUrl)) return;
   if (await handleQuestionBankImport(req, res, requestUrl)) return;
@@ -6433,6 +6440,7 @@ const server = http.createServer(async (req, res) => {
       }
       state.testZoneQuestionReports = latestQuestionState.testZoneQuestionReports || [];
       state.testZoneContributions = latestQuestionState.testZoneContributions || [];
+      state.testZoneLivePresets = latestQuestionState.testZoneLivePresets || [];
       preserveBannerSettings(latestQuestionState, state);
       // Notices and file contents are changed only through their dedicated APIs.
       state.manualCampusNotices = latestQuestionState.manualCampusNotices || [];

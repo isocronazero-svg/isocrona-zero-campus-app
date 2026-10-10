@@ -1,4 +1,5 @@
 import { startPublicLiveHost, stopPublicLiveHost } from "../modules/tests/publicLiveHost.js";
+import { mountLiveTestLibrary } from "../modules/tests/liveTestLibrary.js";
 import { getTestGeneration } from "../modules/tests/testStore.js";
 import { renderTestNavigation } from "../ui/testNavigation.js";
 import { buildPublicLiveAdminMarkup, buildPublicLiveSessionsMarkup, submitPublicLiveForm } from "./testView.js";
@@ -761,6 +762,7 @@ function finalizeTestsViewRender(container) {
   stopPublicLiveHost();
   if (isAdminRole(testsViewState.role) || (testsViewState.displayMode === "live" && canHostPublicLive(testsViewState.role))) {
     if (testsViewState.displayMode === "live") {
+      mountLiveTestLibrary(container);
       startPublicLiveHost({ container, loadSessions: loadLiveSessions,
         renderSessions: buildPublicLiveSessionsMarkup, getGeneration: getTestGeneration });
     }
