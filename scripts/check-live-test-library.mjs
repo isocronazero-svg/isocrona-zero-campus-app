@@ -61,6 +61,12 @@ try {
   await start();
   const admin = await login("admin"), a = await login("instructor-a"), b = await login("instructor-b"), member = await login("member"), guest = client();
   const route = "/api/test-zone/live-presets";
+  for (const host of [admin, a]) {
+    const bank = (await host("GET", "/api/test-zone/questions")).questions;
+    assert.equal(bank.find(q => q.id === "q4").active, false, "Picker must receive the availability flag");
+    assert.equal(bank.find(q => q.id === "q1").active, true);
+    assert.ok(!bank.some(q => q.id === "q3"));
+  }
   const data = { title: "Guardado <img src=x onerror=alert(1)>", questionIds: ["q2", "q1"], questionTimeLimitSeconds: 30 };
   for (const method of ["GET", "POST", "PUT", "DELETE"]) {
     const url = route + (["PUT", "DELETE"].includes(method) ? "/invented" : "");

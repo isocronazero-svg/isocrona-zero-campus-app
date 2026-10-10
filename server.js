@@ -389,6 +389,7 @@ function buildTestZoneQuestionAudiencePayload(question) {
   return {
     id: normalized.id,
     revision: normalized.updatedAt || normalized.createdAt,
+    active: normalized.active !== false,
     prompt: normalized.prompt,
     options: normalized.options,
     part: normalized.part,
