@@ -269,6 +269,8 @@ function createStateTransport(dependencies = {}) {
           enrolledIds: isEnrolled ? [memberId] : [],
           waitingIds: isWaiting ? [memberId] : [],
           diplomaReady: hasDiploma ? [memberId] : [],
+          instructors: (course.instructors || []).filter(item => item.memberId === memberId),
+          instructorDiplomas: (course.instructorDiplomas || []).filter(item => item.memberId === memberId),
           mailsSent: mailSent ? [memberId] : [],
           attendance: ownAttendance,
           evaluations: ownEvaluations,

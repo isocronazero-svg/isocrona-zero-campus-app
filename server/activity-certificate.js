@@ -7,20 +7,27 @@ function buildActivityCertificate(state, memberId) {
   const seen = new Set();
   const activities = (state.courses || [])
     .filter((course) => {
-      if (!course.id || seen.has(course.id) || !(course.diplomaReady || []).includes(memberId)) return false;
+      if (!course.id || seen.has(course.id)) return false;
       seen.add(course.id);
       return true;
     })
-    .map((course) => {
+    .flatMap((course) => {
       const hours = Number(course.hours);
-      return {
+      const student = {
         id: course.id,
         title: String(course.title || "Actividad"),
         type: String(course.type || "Formacion"),
         startDate: course.startDate,
         endDate: course.endDate,
-        hours: Number.isFinite(hours) && hours >= 0 ? Math.round(hours * 100) / 100 : null
+        hours: Number.isFinite(hours) && hours >= 0 ? Math.round(hours * 100) / 100 : null,
+        role: "student"
       };
+      const teaching = (course.instructorDiplomas || []).find(item => item.memberId === memberId);
+      return [
+        ...((course.diplomaReady || []).includes(memberId) ? [student] : []),
+        ...(teaching ? [{ id: course.id, title: teaching.title, type: teaching.type,
+          startDate: teaching.startDate, endDate: teaching.endDate, hours: teaching.hours, role: "instructor" }] : [])
+      ];
     })
     .sort((a, b) => String(a.endDate || "").localeCompare(String(b.endDate || "")) || a.id.localeCompare(b.id));
   return {
@@ -29,7 +36,9 @@ function buildActivityCertificate(state, memberId) {
     organization: String(state.settings?.organization || "Asociacion Isocrona Zero"),
     issuedAt: new Date().toISOString(),
     activities,
-    totalHours: activities.reduce((sum, activity) => sum + Math.round((activity.hours || 0) * 100), 0) / 100
+    totalHours: activities.reduce((sum, activity) => sum + Math.round((activity.hours || 0) * 100), 0) / 100,
+    studentHours: activities.filter(item => item.role === "student").reduce((sum, item) => sum + Math.round((item.hours || 0) * 100), 0) / 100,
+    instructorHours: activities.filter(item => item.role === "instructor").reduce((sum, item) => sum + Math.round((item.hours || 0) * 100), 0) / 100
   };
 }
 
@@ -113,6 +122,7 @@ function buildActivityCertificatePages(model, escapePdfText) {
     { color: "0.32 0.32 0.32" });
 
   const activities = model.activities || [];
+  const activityTitle = activity => `${activity.role === "instructor" ? "Instructor" : "Alumno"}: ${activity.title}`;
   const columns = activities.length > 12 ? 2 : 1;
   const columnGap = 18;
   const areaX = 76;
@@ -129,7 +139,7 @@ function buildActivityCertificatePages(model, escapePdfText) {
         const subset = activities.slice(col * perColumn, (col + 1) * perColumn);
         for (const activity of subset) {
           const titleWidth = columnWidth - 58;
-          const titleLines = wrap(activity.title, titleWidth, size).length;
+          const titleLines = wrap(activityTitle(activity), titleWidth, size).length;
           used += Math.max(1, titleLines) * rowGap + 3.5;
         }
         worst = Math.max(worst, used);
@@ -152,23 +162,26 @@ function buildActivityCertificatePages(model, escapePdfText) {
       const hoursWidth = 48;
       const titleX = x + numberWidth;
       const titleWidth = columnWidth - numberWidth - hoursWidth - 4;
-      const titleLines = wrap(activity.title, titleWidth, fontSize);
+      const titleLines = wrap(activityTitle(activity), titleWidth, fontSize);
       text(`${index}.`, x, y, fontSize, { color: "0.28 0.28 0.28" });
       titleLines.forEach((part, lineIndex) => {
         text(part, titleX, y - lineIndex * rowGap, fontSize, { color: "0.10 0.10 0.10" });
       });
       text(hours, x + columnWidth - hoursWidth, y, fontSize, { color: "0.10 0.10 0.10" });
+      const separatorY = y - (titleLines.length - 1) * rowGap - fontSize * 0.5;
       y -= Math.max(1, titleLines.length) * rowGap + 3.5;
-      line(x, y + 1.5, x + columnWidth, y + 1.5, 0.35, "0.88 0.88 0.88");
+      line(x, separatorY, x + columnWidth, separatorY, 0.35, "0.88 0.88 0.88");
     });
   }
 
   line(90, 186, 505, 186, 1.1, "0.91 0.58 0.34");
   text(`TOTAL FORMACIÓN ACUMULADA: ${number(model.totalHours)} HORAS`, 132, 160, 14,
     { color: "0.12 0.12 0.12" });
-  text(`Actividades acreditadas: ${activities.length}`, 90, 136, 9, { color: "0.35 0.35 0.35" });
-  text(`Emitido el ${date(model.issuedAt)}`, 398, 136, 9, { color: "0.35 0.35 0.35" });
-  text("Las horas corresponden a la duración acreditada de cada actividad formativa.", 129, 112, 8,
+  text(`ALUMNO: ${number(model.studentHours ?? model.totalHours)} h`, 90, 138, 12);
+  text(`INSTRUCTOR: ${number(model.instructorHours)} h`, 330, 138, 12);
+  text(`Actividades acreditadas: ${activities.length}`, 90, 120, 9, { color: "0.35 0.35 0.35" });
+  text(`Emitido el ${date(model.issuedAt)}`, 398, 120, 9, { color: "0.35 0.35 0.35" });
+  text("Horas acreditadas por actividad y participacion como alumno o instructor.", 129, 102, 8,
     { color: "0.42 0.42 0.42" });
   line(90, 86, 505, 86, 0.7, "0.82 0.82 0.82");
   text("ISÓCRONA ZERO · Asociación sin ánimo de lucro", 90, 68, 7.5, { color: "0.38 0.38 0.38" });

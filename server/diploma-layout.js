@@ -139,12 +139,16 @@ function buildDiplomaLayout(model, settings, verifyUrl) {
   const nameSize = textWidth(model.member.name, 28) > 1400 ? 19 : 28;
   y = center(model.member.name, y, nameSize) + 5;
   y = center(`con DNI/NIE ${model.documentId}`, y, 11) + 10;
-  const participation = /asistencia/i.test(model.certificateTitle)
+  const participation = model.role === "instructor" ? "ha participado como instructor de Isocrona Zero en la actividad formativa"
+    : /asistencia/i.test(model.certificateTitle)
     ? "ha asistido a la actividad formativa" : "ha realizado y superado con aprovechamiento la actividad formativa";
   y = center(participation, y, 12) + 8;
   const titleSize = textWidth(model.course.title, 23) > 1400 ? 16 : 23;
   y = center(model.course.title, y, titleSize) + 10;
-  y = center(`Duraci\u00f3n: ${model.course.hours} horas lectivas. ${model.dateRange}.`, y, 11) + 8;
+  const duration = model.role === "instructor"
+    ? `Horas impartidas: ${Number(model.course.hours).toLocaleString("es-ES")} h`
+    : `Duraci\u00f3n: ${model.course.hours} horas lectivas`;
+  y = center(`${duration}. ${model.dateRange}.`, y, 11) + 8;
   y = center(`En ${model.city}, a ${model.issueDate}.`, y, 11) + 8;
   center(`Certificado n.o ${model.registryNumber}`, y, 10, 658, MUTED);
   if (y > 424) {
