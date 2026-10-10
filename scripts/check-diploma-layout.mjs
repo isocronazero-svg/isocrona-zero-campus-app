@@ -74,14 +74,16 @@ assert.equal(pdf.toString("latin1").match(/\/Subtype \/Image/g).length, 1, "Sing
 assert.equal(pdf.toString("latin1").match(/\/Template Do/g).length, 2);
 assert.match(pdf.toString("latin1"), /\/Predictor 15 \/Colors 3/);
 const expanded = buildDiplomaLayout({ ...model, sections: [{ title: "Temario completo", items: Array.from({length: 180}, (_, i) => `Contenido ${i}`) }] }, settings, url);
-assert.ok(expanded.length > 2);
-assert.ok(expanded.flat().some(item => item.text?.includes("Contenido 179")), "No silent curriculum truncation");
+assert.equal(expanded.length, 2, "El diploma nunca debe crear anexos: solo anverso y reverso");
+assert.ok(expanded[1].some(item => item.text?.includes("Contenido 179")), "No silent curriculum truncation");
+assert.ok(expanded[1].some(item => item.type === "text" && item.x > 400), "Long curriculum must use multiple columns");
 assert.ok(expanded.every(page => page.filter(item => item.type === "text").every(item => item.y < 590)));
 const empty = buildDiplomaLayout({ ...model, sections: [] }, settings, url);
 assert.ok(empty[1].some(item => item.text?.includes("No hay contenidos")));
 const html = renderDiplomaPagesHtml(layout, "Certificado", context.escapeHtml);
 assert.match(html, /aria-label="Anverso"/);
 assert.match(html, /aria-label="Reverso"/);
+assert.doesNotMatch(html, /aria-label="Anexo"/);
 assert.match(html, /break-after:page/);
 assert.match(html, /size:A4 landscape/);
 const malicious = buildDiplomaLayout({ ...model, member: {name: '<img src=x onerror="alert(1)">'}, course: {...model.course, title: "Test \u0129 (QA)"} }, settings, url);
@@ -146,7 +148,7 @@ try {
     writeFileSync(process.env.IZ_QA_DIPLOMA_OUTPUT+".pdf",pdf);
     writeFileSync(process.env.IZ_QA_DIPLOMA_OUTPUT+".html",html);
   }
-  console.log("Diploma layout checks passed (two sides, contrast, complete curriculum, safe text, preview, ownership and stable verification).");
+  console.log("Diploma layout checks passed (exactly two sides, compact multi-column curriculum, contrast, complete curriculum, safe text, preview, ownership and stable verification).");
 } finally {
   if(child&&child.exitCode===null) await new Promise(resolve=>{child.once("exit",resolve);child.kill();});
   rmSync(root,{recursive:true,force:true});
