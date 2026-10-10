@@ -184,7 +184,7 @@ function captureActiveAnswers(form) {
   }
   const formData = new FormData(form);
   run.answers = run.questions.map((question, index) => {
-    if (run.mode === "learning" && (index !== run.learningIndex || run.feedback[index] || run.checking)) return run.answers[index];
+    if (run.mode === "learning") return run.answers[index];
     const value = formData.get(`question-${index}`);
     return value === null ? null : Number(value);
   });
@@ -460,7 +460,14 @@ function buildQuestionAttemptMarkup() {
                   <div class="test-zone-option-list">
                     ${(Array.isArray(question.options) ? question.options : [])
                       .map(
-                        (option, optionIndex) => `
+                        (option, optionIndex) => learning ? `
+                          <button type="button" class="test-zone-option-row${checked ? optionIndex === checked.correctIndex ? " is-correct" : optionIndex === checked.selectedIndex ? " is-wrong" : "" : ""}"
+                            data-action="answer-learning-question" data-question-index="${index}" data-option-index="${optionIndex}"
+                            aria-pressed="${run.answers?.[index] === optionIndex}"
+                            ${run.finishedAt || checked || run.checking ? "disabled" : ""}>
+                            <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
+                            <span class="test-zone-option-copy">${escapeHtml(option)}</span>
+                          </button>` : `
                           <label class="test-zone-option-row${checked ? optionIndex === checked.correctIndex ? " is-correct" : optionIndex === checked.selectedIndex ? " is-wrong" : "" : ""}">
                             <input
                               type="radio"
@@ -478,7 +485,7 @@ function buildQuestionAttemptMarkup() {
                       )
                       .join("")}
                   </div>
-                  ${checked ? `<div class="test-zone-learning-feedback ${checked.isCorrect ? "is-correct" : "is-wrong"}" role="status">
+                  ${checked ? `<div class="test-zone-learning-feedback ${checked.isCorrect ? "is-correct" : "is-wrong"}" role="status" tabindex="-1">
                     <strong>${checked.isCorrect ? "Correcta" : "Incorrecta"}</strong>
                     <p>Respuesta correcta: ${escapeHtml(formatAnswerOption(checked.correctIndex, checked.correctAnswer))}</p>
                     <p>${escapeHtml(checked.explanation || "Esta pregunta no tiene explicacion disponible.")}</p>
@@ -1101,7 +1108,7 @@ async function handleLearningCheck(container, form) {
   run.error = "";
   const status = container.querySelector("[data-learning-check-status]");
   if (status) status.textContent = "Comprobando...";
-  form.querySelectorAll("input, button[type=submit]").forEach(control => { control.disabled = true; });
+  form.querySelectorAll("input, button[type=submit], [data-action=answer-learning-question]").forEach(control => { control.disabled = true; });
   try {
     const feedback = await checkLearningAnswer(run, run.learningIndex);
     if (testSession.activeRun !== run || run.finishedAt) return;
@@ -1110,7 +1117,10 @@ async function handleLearningCheck(container, form) {
     if (testSession.activeRun === run && !run.finishedAt) run.error = error.message || "No se pudo comprobar. Vuelve a intentarlo.";
   } finally {
     run.checking = false;
-    if (testSession.activeRun === run && !run.finishedAt) await renderTestView(container, testSession.role);
+    if (testSession.activeRun === run && !run.finishedAt) {
+      await renderTestView(container, testSession.role);
+      container.querySelector(".test-zone-learning-feedback")?.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -1126,7 +1136,7 @@ async function handleAttemptSubmit(container, form) {
   run.error = "";
   clearInterval(testSession.timerId);
   if (form) {
-    form.querySelectorAll("input, button[type=submit]").forEach(input => { input.disabled = true; });
+    form.querySelectorAll("input, button[type=submit], [data-action=answer-learning-question]").forEach(input => { input.disabled = true; });
     const status = container.querySelector("[data-practice-save-status]");
     if (status) status.textContent = "Guardando...";
   }
@@ -1206,6 +1216,16 @@ function bindActions(container) {
     }
 
     const action = String(actionTarget.dataset.action || "").trim();
+    if (action === "answer-learning-question") {
+      const run = testSession.activeRun;
+      const index = Number(actionTarget.dataset.questionIndex), value = Number(actionTarget.dataset.optionIndex);
+      if (!run || run.mode !== "learning" || run.finishedAt || run.checking || run.feedback[index] ||
+          remainingSeconds(run) === 0 || index !== run.learningIndex || !Number.isInteger(value) ||
+          value < 0 || value >= run.questions[index].options.length || actionTarget.disabled) return;
+      run.answers[index] = value;
+      await handleLearningCheck(container, actionTarget.form);
+      return;
+    }
     if (["refresh-live-lobby", "start-live-session", "reveal-live-question", "next-live-question", "finish-live-session"].includes(action)) {
       if (actionTarget.disabled) return;
       const sessionId = String(actionTarget.dataset.sessionId || "").trim();
@@ -1355,13 +1375,12 @@ function bindActions(container) {
     }
     const run = testSession.activeRun;
     const index = Number(target.dataset.questionIndex || -1);
-    if (!run || run.finishedAt || remainingSeconds(run) === 0 || !Number.isInteger(index) || index < 0 ||
+    if (!run || run.mode === "learning" || run.finishedAt || remainingSeconds(run) === 0 || !Number.isInteger(index) || index < 0 ||
         (run.mode === "learning" && (run.checking || run.feedback[index] || index !== run.learningIndex))) {
       return;
     }
     run.answers = Array.isArray(run.answers) ? run.answers : Array.from({ length: run.questions.length }, () => null);
     run.answers[index] = Number(target.value);
-    if (run.mode === "learning") await handleLearningCheck(container, target.form);
   };
 
   container.onsubmit = async (event) => {
