@@ -11,6 +11,17 @@ import { renderAdminView } from "./views/adminView.js";
 import { renderTestView, resetTestView } from "./views/testView.js";
 import { renderTestsView } from "./views/testsView.js";
 
+function ensureTestFocusStyles() {
+  if (typeof document === "undefined" || document.querySelector('link[data-test-focus-styles]')) {
+    return;
+  }
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "/assets/css/test-focus.css?v=20261010";
+  link.dataset.testFocusStyles = "true";
+  document.head.append(link);
+}
+
 export function createApp() {
   const router = createRouter();
   const apiClient = createApiClient();
@@ -47,6 +58,8 @@ export function initializeApp() {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return createApp();
   }
+
+  ensureTestFocusStyles();
 
   if (window.__IZ_FRONTEND_APP__) {
     return window.__IZ_FRONTEND_APP__;
