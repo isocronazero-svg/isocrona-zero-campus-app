@@ -184,7 +184,7 @@ function captureActiveAnswers(form) {
   }
   const formData = new FormData(form);
   run.answers = run.questions.map((question, index) => {
-    if (run.mode === "learning" && (index !== run.learningIndex || run.feedback[index] || run.checking)) return run.answers[index];
+    if (run.mode === "learning") return run.answers[index];
     const value = formData.get(`question-${index}`);
     return value === null ? null : Number(value);
   });
@@ -460,8 +460,15 @@ function buildQuestionAttemptMarkup() {
                   <div class="test-zone-option-list">
                     ${(Array.isArray(question.options) ? question.options : [])
                       .map(
-                        (option, optionIndex) => `
-                          <label class="test-zone-option-row">
+                        (option, optionIndex) => learning ? `
+                          <button type="button" class="test-zone-option-row${checked ? optionIndex === checked.correctIndex ? " is-correct" : optionIndex === checked.selectedIndex ? " is-wrong" : "" : ""}"
+                            data-action="answer-learning-question" data-question-index="${index}" data-option-index="${optionIndex}"
+                            aria-pressed="${run.answers?.[index] === optionIndex}"
+                            ${run.finishedAt || checked || run.checking ? "disabled" : ""}>
+                            <span class="test-zone-option-badge">${String.fromCharCode(65 + optionIndex)}</span>
+                            <span class="test-zone-option-copy">${escapeHtml(option)}</span>
+                          </button>` : `
+                          <label class="test-zone-option-row${checked ? optionIndex === checked.correctIndex ? " is-correct" : optionIndex === checked.selectedIndex ? " is-wrong" : "" : ""}">
                             <input
                               type="radio"
                               name="question-${index}"
@@ -478,7 +485,7 @@ function buildQuestionAttemptMarkup() {
                       )
                       .join("")}
                   </div>
-                  ${checked ? `<div class="test-zone-learning-feedback ${checked.isCorrect ? "is-correct" : "is-wrong"}" role="status">
+                  ${checked ? `<div class="test-zone-learning-feedback ${checked.isCorrect ? "is-correct" : "is-wrong"}" role="status" tabindex="-1">
                     <strong>${checked.isCorrect ? "Correcta" : "Incorrecta"}</strong>
                     <p>Respuesta correcta: ${escapeHtml(formatAnswerOption(checked.correctIndex, checked.correctAnswer))}</p>
                     <p>${escapeHtml(checked.explanation || "Esta pregunta no tiene explicacion disponible.")}</p>
@@ -490,7 +497,7 @@ function buildQuestionAttemptMarkup() {
         </div>
         <div class="test-zone-footer-actions">
           ${learning && !run.finishedAt && !checked
-            ? `<button type="submit" class="test-zone-primary-button" ${run.checking ? "disabled" : ""}>${run.checking ? "Comprobando..." : "Comprobar"}</button>`
+            ? `<span data-learning-check-status role="status">${run.checking ? "Comprobando..." : ""}</span>${run.error ? '<button type="submit" class="test-zone-primary-button">Reintentar</button>' : ""}`
             : learning && !run.finishedAt && run.learningIndex < run.questions.length - 1
               ? '<button type="button" class="test-zone-primary-button" data-action="next-learning-question">Siguiente</button>'
               : `<button type="submit" class="test-zone-primary-button" ${run.submitting ? "disabled" : ""}>${run.submitting ? "Guardando..." : run.finishedAt ? "Reintentar guardado" : "Finalizar test"}</button>`}
@@ -936,6 +943,7 @@ export function buildPublicLiveAdminMarkup() {
         </div>
       </div>
       <form class="test-zone-live-form" data-test-zone-live-form>
+        <div class="test-zone-field-full" data-live-test-library></div>
         <label class="test-zone-field test-zone-field-full">
           <span>Título del test en vivo</span>
           <input type="text" name="title" placeholder="Ej. Simulacro abierto de legislación" />
@@ -1099,7 +1107,9 @@ async function handleLearningCheck(container, form) {
   }
   run.checking = true;
   run.error = "";
-  form.querySelectorAll("input, button[type=submit]").forEach(control => { control.disabled = true; });
+  const status = container.querySelector("[data-learning-check-status]");
+  if (status) status.textContent = "Comprobando...";
+  form.querySelectorAll("input, button[type=submit], [data-action=answer-learning-question]").forEach(control => { control.disabled = true; });
   try {
     const feedback = await checkLearningAnswer(run, run.learningIndex);
     if (testSession.activeRun !== run || run.finishedAt) return;
@@ -1108,7 +1118,10 @@ async function handleLearningCheck(container, form) {
     if (testSession.activeRun === run && !run.finishedAt) run.error = error.message || "No se pudo comprobar. Vuelve a intentarlo.";
   } finally {
     run.checking = false;
-    if (testSession.activeRun === run && !run.finishedAt) await renderTestView(container, testSession.role);
+    if (testSession.activeRun === run && !run.finishedAt) {
+      await renderTestView(container, testSession.role);
+      container.querySelector(".test-zone-learning-feedback")?.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -1124,7 +1137,7 @@ async function handleAttemptSubmit(container, form) {
   run.error = "";
   clearInterval(testSession.timerId);
   if (form) {
-    form.querySelectorAll("input, button[type=submit]").forEach(input => { input.disabled = true; });
+    form.querySelectorAll("input, button[type=submit], [data-action=answer-learning-question]").forEach(input => { input.disabled = true; });
     const status = container.querySelector("[data-practice-save-status]");
     if (status) status.textContent = "Guardando...";
   }
@@ -1176,7 +1189,9 @@ async function handleQuestionFormSubmit(container, form) {
 
 export async function submitPublicLiveForm(form) {
   const formData = new FormData(form);
+  const selected = formData.get("liveQuestionIds");
   await createLiveSession({
+    ...(selected ? { questionIds: JSON.parse(selected) } : {}),
     autoAdvance: true,
     title: String(formData.get("title") || "").trim(),
     questionCount: Number(formData.get("questionCount") || 20),
@@ -1204,6 +1219,16 @@ function bindActions(container) {
     }
 
     const action = String(actionTarget.dataset.action || "").trim();
+    if (action === "answer-learning-question") {
+      const run = testSession.activeRun;
+      const index = Number(actionTarget.dataset.questionIndex), value = Number(actionTarget.dataset.optionIndex);
+      if (!run || run.mode !== "learning" || run.finishedAt || run.checking || run.feedback[index] ||
+          remainingSeconds(run) === 0 || index !== run.learningIndex || !Number.isInteger(value) ||
+          value < 0 || value >= run.questions[index].options.length || actionTarget.disabled) return;
+      run.answers[index] = value;
+      await handleLearningCheck(container, actionTarget.form);
+      return;
+    }
     if (["refresh-live-lobby", "start-live-session", "reveal-live-question", "next-live-question", "finish-live-session"].includes(action)) {
       if (actionTarget.disabled) return;
       const sessionId = String(actionTarget.dataset.sessionId || "").trim();
@@ -1337,7 +1362,7 @@ function bindActions(container) {
     }
   };
 
-  container.onchange = (event) => {
+  container.onchange = async (event) => {
     const target = event.target;
     if (changeTopicPicker(target)) { testSession.filters.topics = readTopics(target.form); return; }
     if (target instanceof HTMLSelectElement && target.name === "part") {
@@ -1353,7 +1378,7 @@ function bindActions(container) {
     }
     const run = testSession.activeRun;
     const index = Number(target.dataset.questionIndex || -1);
-    if (!run || run.finishedAt || remainingSeconds(run) === 0 || !Number.isInteger(index) || index < 0 ||
+    if (!run || run.mode === "learning" || run.finishedAt || remainingSeconds(run) === 0 || !Number.isInteger(index) || index < 0 ||
         (run.mode === "learning" && (run.checking || run.feedback[index] || index !== run.learningIndex))) {
       return;
     }

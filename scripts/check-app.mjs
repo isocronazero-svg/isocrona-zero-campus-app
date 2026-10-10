@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
   "server/certificate-template-image.js",
+  "server/live-test-library.js", "public/assets/js/app/modules/tests/liveTestLibrary.js",
   "server/diploma-layout.js",
   "server/activity-certificate.js",
   "server/notices.js", "public/aviso.js", "public/assets/js/app/ui/notices.js",
@@ -27,6 +28,7 @@ const syntaxFiles = [
 ];
 const conflictCheckedFiles = [
   "server/certificate-template-image.js",
+  "server/live-test-library.js", "public/assets/js/app/modules/tests/liveTestLibrary.js",
   "server/diploma-layout.js",
   "server/activity-certificate.js",
   "public/app.js",
@@ -41,6 +43,7 @@ const conflictCheckedFiles = [
 ];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
+  "scripts/check-live-test-library.mjs",
   "scripts/check-backup-recovery.mjs",
   "scripts/check-diploma-layout.mjs",
   "scripts/check-activity-certificate.mjs",
