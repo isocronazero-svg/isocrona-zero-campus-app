@@ -52,83 +52,76 @@ function text(page, value, x, y, size, width, color = INK, align = "left") {
   return y + lines.length * (size + 4);
 }
 
-function rule(page, x, y, width, color = RED, height = 1) {
-  page.push({ type: "rect", x, y, width, height, color });
-}
-
-function basePage(organization, label) {
-  const page = [{ type: "rect", x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT, color: "#ffffff" }];
-  rule(page, 44, 28, 754, RED, 4);
-  text(page, organization, 48, 46, 11, 616);
-  text(page, label, 674, 46, 9, 120, MUTED);
-  rule(page, 44, 556, 754, "#d7dadd");
+function basePage(label) {
+  const page = [{ type: "image", x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT }];
+  if (label === "VISTA PREVIA") text(page, label, 84, 130, 9, 150, RED);
   return page;
 }
 
 function buildDiplomaLayout(model, settings, verifyUrl) {
-  const organization = settings.organization || "Asociacion Isocrona Zero";
-  const front = basePage(organization, model.preview ? "VISTA PREVIA" : "CERTIFICADO");
-  const center = (value, y, size, width = 718, color = INK) => text(front, value, (PAGE_WIDTH - width) / 2, y, size, width, color, "center");
-  let y = center(model.certificateTitle, 91, 25, 740, RED) + 14;
-  y = center("La asociaci\u00f3n certifica que", y, 12) + 12;
+  const front = basePage(model.preview ? "VISTA PREVIA" : "CERTIFICADO");
+  const bodyStart = front.length;
+  const center = (value, y, size, width = 658, color = INK) => text(front, value, (PAGE_WIDTH - width) / 2, y, size, width, color, "center");
+  let y = center(model.certificateTitle, 158, 23, 658, RED) + 8;
+  y = center("La asociaci\u00f3n certifica que", y, 12) + 8;
   // Fit unusually long names/titles without touching the fixed signature/footer area.
   const nameSize = textWidth(model.member.name, 28) > 1400 ? 19 : 28;
-  y = center(model.member.name, y, nameSize) + 8;
-  y = center(`con DNI/NIE ${model.documentId}`, y, 11) + 17;
+  y = center(model.member.name, y, nameSize) + 5;
+  y = center(`con DNI/NIE ${model.documentId}`, y, 11) + 10;
   const participation = /asistencia/i.test(model.certificateTitle)
     ? "ha asistido a la actividad formativa" : "ha realizado y superado con aprovechamiento la actividad formativa";
   y = center(participation, y, 12) + 8;
   const titleSize = textWidth(model.course.title, 23) > 1400 ? 16 : 23;
-  y = center(model.course.title, y, titleSize) + 12;
+  y = center(model.course.title, y, titleSize) + 10;
   y = center(`Duraci\u00f3n: ${model.course.hours} horas lectivas. ${model.dateRange}.`, y, 11) + 8;
   y = center(`En ${model.city}, a ${model.issueDate}.`, y, 11) + 8;
-  center(`Certificado n.o ${model.registryNumber}`, y, 10, 718, MUTED);
-  if (y > 448) {
+  center(`Certificado n.o ${model.registryNumber}`, y, 10, 658, MUTED);
+  if (y > 424) {
     // Compress only the variable body for exceptionally long metadata, never truncate it.
-    const scale = (436 - 91) / (y + 14 - 91);
-    for (const item of front.slice(5)) if (item.type === "text") {
-      item.y = 91 + (item.y - 91) * scale;
+    const scale = (438 - 158) / (y + 14 - 158);
+    for (const item of front.slice(bodyStart)) if (item.type === "text") {
+      item.y = 158 + (item.y - 158) * scale;
       item.size *= scale;
       item.x = (PAGE_WIDTH - textWidth(item.text, item.size)) / 2;
     }
   }
-  for (const [index, signer] of [settings.diplomaSignerA || "Direccion de Formacion", settings.diplomaSignerB || "Presidencia"].entries()) {
-    const x = 110 + index * 342;
-    rule(front, x, 498, 280, MUTED);
-    text(front, signer, x, 509, 10, 280, INK, "center");
+  for (const [value, top] of [[settings.diplomaSignerA || "Direccion de Formacion", 452], [settings.diplomaSignerB || "Presidencia", 570]]) {
+    const size = Math.min(10, 5600 / Math.max(1, textWidth(value, 10)));
+    text(front, value, 141, top, size, 560, INK, "center");
   }
   const pages = [front];
   let back;
   let cursor;
   const newBack = () => {
-    back = basePage(organization, pages.length === 1 ? "REVERSO" : "ANEXO");
+    back = basePage(pages.length === 1 ? "REVERSO" : "ANEXO");
     pages.push(back);
-    cursor = text(back, "CONTENIDOS FORMATIVOS", 48, 88, 21, 746, RED) + 10;
-    cursor = text(back, model.course.title, 48, cursor, 13, 746) + 12;
+    cursor = text(back, "CONTENIDOS FORMATIVOS", 84, 158, 21, 658, RED) + 10;
+    // A compact repeated heading leaves space for long curricula on every page.
+    cursor = text(back, model.course.title, 84, cursor, 12, 658) + 10;
   };
   newBack();
   const sections = model.sections.length ? model.sections : [{ title: "Programa del curso", items: ["No hay contenidos formativos detallados registrados para esta actividad."] }];
   for (const section of sections) {
-    if (cursor > 420) newBack();
-    for (const line of wrap(section.title, 746, 12)) {
-      if (cursor > 464) newBack();
-      text(back, line, 48, cursor, 12, 746, RED); cursor += 18;
+    if (cursor > 396) newBack();
+    for (const line of wrap(section.title, 658, 12)) {
+      if (cursor > 428) newBack();
+      text(back, line, 84, cursor, 12, 658, RED); cursor += 18;
     }
     for (const item of section.items) {
-      for (const line of wrap(`- ${item}`, 730, 11)) {
-        if (cursor > 464) newBack();
-        text(back, line, 60, cursor, 11, 730); cursor += 15;
+      for (const line of wrap(`- ${item}`, 646, 11)) {
+        if (cursor > 428) newBack();
+        text(back, line, 96, cursor, 11, 646); cursor += 15;
       }
     }
     cursor += 9;
   }
   pages.forEach((page, index) => {
     if (index > 0) {
-      text(page, `Certificado n.o ${model.registryNumber} | ${model.member.name}`, 48, 499, 9, 746, MUTED);
-      text(page, `C\u00f3digo de verificaci\u00f3n: ${model.code}`, 48, 523, 9, 746);
-      text(page, verifyUrl, 48, 539, 8, 746, MUTED);
+      text(page, `Certificado n.o ${model.registryNumber}`, 84, 452, 9, 658, MUTED);
+      text(page, `C\u00f3digo de verificaci\u00f3n: ${model.code}`, 84, 468, 9, 658);
+      text(page, verifyUrl, 84, 484, 8, 658, MUTED);
     }
-    text(page, `${index + 1} / ${pages.length}`, 738, 570, 9, 60, MUTED);
+    text(page, `${index + 1} / ${pages.length}`, 738, 579, 9, 60, MUTED);
   });
   return pages;
 }
@@ -136,6 +129,7 @@ function buildDiplomaLayout(model, settings, verifyUrl) {
 function buildDiplomaPdfStreams(pages, escapePdfText) {
   const rgb = hex => [1, 3, 5].map(i => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(4)).join(" ");
   return pages.map(page => page.map(item => {
+    if (item.type === "image") return `q ${item.width} 0 0 ${item.height} ${item.x} ${PAGE_HEIGHT - item.y - item.height} cm /Template Do Q`;
     const fill = `${rgb(item.color)} rg`;
     return item.type === "rect"
       ? `${fill}\n${item.x} ${PAGE_HEIGHT - item.y - item.height} ${item.width} ${item.height} re f`
@@ -144,7 +138,9 @@ function buildDiplomaPdfStreams(pages, escapePdfText) {
 }
 
 function renderDiplomaPagesHtml(pages, title, escapeHtml) {
-  const markup = pages.map((page, index) => `<section class="diploma-page" aria-label="${index === 0 ? "Anverso" : index === 1 ? "Reverso" : "Anexo"}"><div class="sheet">${page.map(item => item.type === "rect"
+  const markup = pages.map((page, index) => `<section class="diploma-page" aria-label="${index === 0 ? "Anverso" : index === 1 ? "Reverso" : "Anexo"}"><div class="sheet">${page.map(item => item.type === "image"
+    ? `<img src="/api/certificate-template-logo" alt="Plantilla institucional Isocrona Zero" style="position:absolute;left:${item.x}pt;top:${item.y}pt;width:${item.width}pt;height:${item.height}pt" />`
+    : item.type === "rect"
     ? `<span aria-hidden="true" style="position:absolute;left:${item.x}pt;top:${item.y}pt;width:${item.width}pt;height:${item.height}pt;background:${item.color}"></span>`
     : `<span style="position:absolute;left:${item.x}pt;top:${item.y}pt;font-size:${item.size}pt;color:${item.color};white-space:pre">${escapeHtml(item.text)}</span>`).join("")}</div></section>`).join("");
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title>
