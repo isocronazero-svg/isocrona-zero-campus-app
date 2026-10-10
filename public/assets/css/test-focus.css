@@ -1,0 +1,149 @@
+/* Focus mode for active personal tests: keep only the question, its metadata,
+   answers, remaining time and the two question actions. */
+
+.test-section-nav:has(+ .test-zone-view [data-test-zone-attempt]) {
+  display: none;
+}
+
+.test-zone-view:has([data-test-zone-attempt]) > * {
+  display: none;
+}
+
+.test-zone-view:has([data-test-zone-attempt]) > .test-zone-card:has(> [data-test-zone-attempt]) {
+  display: block;
+  padding-top: 14px;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) > .test-zone-card-head,
+.test-zone-card:has(> [data-test-zone-attempt]) > .test-zone-question-map {
+  display: none;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) > .test-zone-attempt-status {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) > .test-zone-attempt-status > span:not(:first-child) {
+  display: none;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) > .test-zone-attempt-status > span:first-child {
+  font-size: 0.9rem;
+  color: var(--muted-strong, #52473b);
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) [data-practice-timer] {
+  font-size: 1.05rem;
+  color: var(--text, #211b15);
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-list {
+  gap: 14px;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 12px;
+  padding: 16px;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head {
+  display: contents;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > div:first-child,
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > .test-zone-tag-row,
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-option-list,
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-learning-feedback {
+  grid-column: 1 / -1;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-index {
+  margin: 0;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head h4 {
+  margin: 0;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > .test-zone-tag-row {
+  margin: 0;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > .test-zone-review-toggle {
+  grid-column: 1;
+  justify-self: start;
+  min-width: 0;
+  margin: 0;
+  font-size: 0;
+  white-space: nowrap;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > .test-zone-review-toggle::after {
+  content: "Guardar pregunta";
+  font-size: 0.86rem;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > .test-zone-review-toggle.is-active::after {
+  content: "Guardada";
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-card > .test-zone-question-head + .test-zone-actions {
+  grid-column: 2;
+  align-self: center;
+  justify-self: end;
+  margin: 0;
+  gap: 8px;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-card > .test-zone-question-head + .test-zone-actions .test-zone-secondary-button {
+  white-space: nowrap;
+}
+
+.test-zone-card:has(> [data-test-zone-attempt]) .test-zone-option-list {
+  margin-top: 2px;
+}
+
+@media (max-width: 520px) {
+  .test-zone-view:has([data-test-zone-attempt]) {
+    gap: 8px;
+  }
+
+  .test-zone-view:has([data-test-zone-attempt]) > .test-zone-card:has(> [data-test-zone-attempt]) {
+    padding: 10px;
+  }
+
+  .test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-card {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > .test-zone-review-toggle,
+  .test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-card > .test-zone-question-head + .test-zone-actions .test-zone-secondary-button {
+    padding-inline: 10px;
+    min-height: 38px;
+    font-size: 0.82rem;
+  }
+
+  .test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > .test-zone-review-toggle {
+    font-size: 0;
+  }
+
+  .test-zone-card:has(> [data-test-zone-attempt]) .test-zone-question-head > .test-zone-review-toggle::after {
+    font-size: 0.82rem;
+  }
+}
