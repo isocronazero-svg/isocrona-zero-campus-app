@@ -4802,6 +4802,22 @@ tr:last-child td {
   outline-offset: 3px;
 }
 
+.test-zone-option-row.is-correct,
+.test-zone-option-row.is-correct:has(input:checked) {
+  color: #14532d;
+  background: #dcfce7;
+  border-color: #15803d;
+  box-shadow: inset 4px 0 0 #15803d;
+}
+
+.test-zone-option-row.is-wrong,
+.test-zone-option-row.is-wrong:has(input:checked) {
+  color: #7f1d1d;
+  background: #fee2e2;
+  border-color: #dc2626;
+  box-shadow: inset 4px 0 0 #dc2626;
+}
+
 .test-zone-option-copy {
   line-height: 1.4;
   min-width: 0;

@@ -461,7 +461,7 @@ function buildQuestionAttemptMarkup() {
                     ${(Array.isArray(question.options) ? question.options : [])
                       .map(
                         (option, optionIndex) => `
-                          <label class="test-zone-option-row">
+                          <label class="test-zone-option-row${checked ? optionIndex === checked.correctIndex ? " is-correct" : optionIndex === checked.selectedIndex ? " is-wrong" : "" : ""}">
                             <input
                               type="radio"
                               name="question-${index}"
@@ -490,7 +490,7 @@ function buildQuestionAttemptMarkup() {
         </div>
         <div class="test-zone-footer-actions">
           ${learning && !run.finishedAt && !checked
-            ? `<button type="submit" class="test-zone-primary-button" ${run.checking ? "disabled" : ""}>${run.checking ? "Comprobando..." : "Comprobar"}</button>`
+            ? `<span data-learning-check-status role="status">${run.checking ? "Comprobando..." : ""}</span>${run.error ? '<button type="submit" class="test-zone-primary-button">Reintentar</button>' : ""}`
             : learning && !run.finishedAt && run.learningIndex < run.questions.length - 1
               ? '<button type="button" class="test-zone-primary-button" data-action="next-learning-question">Siguiente</button>'
               : `<button type="submit" class="test-zone-primary-button" ${run.submitting ? "disabled" : ""}>${run.submitting ? "Guardando..." : run.finishedAt ? "Reintentar guardado" : "Finalizar test"}</button>`}
@@ -1099,6 +1099,8 @@ async function handleLearningCheck(container, form) {
   }
   run.checking = true;
   run.error = "";
+  const status = container.querySelector("[data-learning-check-status]");
+  if (status) status.textContent = "Comprobando...";
   form.querySelectorAll("input, button[type=submit]").forEach(control => { control.disabled = true; });
   try {
     const feedback = await checkLearningAnswer(run, run.learningIndex);
@@ -1337,7 +1339,7 @@ function bindActions(container) {
     }
   };
 
-  container.onchange = (event) => {
+  container.onchange = async (event) => {
     const target = event.target;
     if (changeTopicPicker(target)) { testSession.filters.topics = readTopics(target.form); return; }
     if (target instanceof HTMLSelectElement && target.name === "part") {
@@ -1359,6 +1361,7 @@ function bindActions(container) {
     }
     run.answers = Array.isArray(run.answers) ? run.answers : Array.from({ length: run.questions.length }, () => null);
     run.answers[index] = Number(target.value);
+    if (run.mode === "learning") await handleLearningCheck(container, target.form);
   };
 
   container.onsubmit = async (event) => {
