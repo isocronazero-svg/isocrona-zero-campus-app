@@ -85,7 +85,10 @@ function buildDiplomaLayout(model, settings, verifyUrl) {
       item.x = (PAGE_WIDTH - textWidth(item.text, item.size)) / 2;
     }
   }
-  text(front, "Presidente", 301, 570, 9, 240, INK, "center");
+  for (const [value, top] of [[settings.diplomaSignerA || "Direccion de Formacion", 452], [settings.diplomaSignerB || "Presidencia", 570]]) {
+    const size = Math.min(10, 5600 / Math.max(1, textWidth(value, 10)));
+    text(front, value, 141, top, size, 560, INK, "center");
+  }
   const pages = [front];
   let back;
   let cursor;

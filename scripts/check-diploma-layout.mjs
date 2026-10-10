@@ -49,6 +49,11 @@ assert.ok(layout.every(page => page[0].type === "image"));
 assert.ok(!layout[0].some(item => item.text === "CONTENIDOS FORMATIVOS"));
 assert.ok(layout[1].some(item => item.text === "CONTENIDOS FORMATIVOS"));
 assert.ok(layout[0].some(item => item.text === model.member.name));
+assert.ok(layout[0].some(item => item.text === settings.diplomaSignerA));
+assert.ok(layout[0].some(item => item.text === settings.diplomaSignerB));
+const customSigners = buildDiplomaLayout(model, { diplomaSignerA: "Formacion QA - Responsable", diplomaSignerB: "Presidencia QA - Firmante" }, url);
+assert.ok(customSigners[0].some(item => item.text === "Formacion QA - Responsable"));
+assert.ok(customSigners[0].some(item => item.text === "Presidencia QA - Firmante"));
 assert.ok(layout[1].some(item => item.text?.includes(model.code)));
 for (const page of layout) for (const item of page) {
   assert.ok(item.x >= 0 && item.x < 842 && item.y >= 0 && item.y < 595, JSON.stringify(item));
