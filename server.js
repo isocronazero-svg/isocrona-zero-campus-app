@@ -74,6 +74,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
+const { validateCourseInstructors, issueInstructorDiplomas, listInstructorDiplomas, getInstructorDiplomaRecord } = require("./server/course-instructors");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
   PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");
@@ -4260,7 +4261,11 @@ function getPreviewCertificateRecord(state, courseId, memberId) {
   };
 }
 
-function canAccessDiplomaRecord(state, account, courseId, memberId) {
+function canAccessDiplomaRecord(state, account, courseId, memberId, role = "student") {
+  if (role === "instructor") {
+    return (account.role === "admin" || account.memberId === memberId) &&
+      Boolean(getInstructorDiplomaRecord(state, courseId, memberId));
+  }
   if (account.role === "admin") {
     return Boolean(
       getDiplomaRecord(state, courseId, memberId) || getPreviewCertificateRecord(state, courseId, memberId)
@@ -6473,7 +6478,11 @@ const server = http.createServer(async (req, res) => {
         }
       }
       restoreTransportSanitizedSecrets(currentState, state);
-      preserveIssuedDiplomasByCourse(currentState, state);
+      preserveIssuedDiplomasByCourse(latestQuestionState, state);
+      for (const course of state.courses || []) {
+        validateCourseInstructors(state, course);
+        if (account.role === "admin") issueInstructorDiplomas(state, course);
+      }
       let summary = null;
 
       if (state.settings?.automation?.autoRunOnSave !== false) {
@@ -8696,6 +8705,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
       const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
       const course = { ...normalizeCourseMutationPayload(payload, null), ...courseTestConfig(state, payload) };
+      validateCourseInstructors(state, course);
       if ((state.courses || []).some((item) => item.id === course.id)) {
         return sendJson(res, 409, { ok: false, error: "Ya existe un curso con ese identificador" });
       }
@@ -8733,6 +8743,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       const previousCourse = state.courses[courseIndex];
       const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
       const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
+      validateCourseInstructors(state, course);
       state.courses[courseIndex] = course;
       state.selectedCourseId = course.id;
       state.activeView = "campus";
@@ -9407,7 +9418,12 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     if (!model?.activities.length) {
       return sendJson(res, 404, { ok: false, error: "Todavia no hay actividades acreditadas para este certificado" });
     }
-    const pdf = buildPdfDocument(buildActivityCertificatePages(model, escapePdfText));
+    let pdf;
+    try {
+      pdf = buildPdfDocument(buildActivityCertificatePages(model, escapePdfText));
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo generar el certificado acumulado", 422);
+    }
     res.writeHead(200, {
       "Content-Type": "application/pdf",
       "Content-Disposition": `${requestUrl.searchParams.get("download") === "1" ? "attachment" : "inline"}; filename="certificado-actividad.pdf"`,
@@ -9419,6 +9435,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
   const diplomaPdfMatch = requestUrl.pathname.match(/^\/api\/diplomas\/([^/]+)\/([^/]+)\.pdf$/);
   if (diplomaPdfMatch && req.method === "GET") {
+    const role = requestUrl.searchParams.get("role") === "instructor" ? "instructor" : "student";
     const courseId = diplomaPdfMatch[1];
     const memberId = diplomaPdfMatch[2];
     const state = readState();
@@ -9426,10 +9443,10 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     if (!account) {
       return;
     }
-    if (!canAccessDiplomaRecord(state, account, courseId, memberId)) {
+    if (!canAccessDiplomaRecord(state, account, courseId, memberId, role)) {
       return sendJson(res, 403, { ok: false, error: "No tienes acceso a este diploma" });
     }
-    const pdf = buildDiplomaPdf(state, courseId, memberId);
+    const pdf = buildDiplomaPdf(state, courseId, memberId, role);
 
     if (!pdf) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
@@ -9439,7 +9456,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
     res.writeHead(200, {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${sanitizeFilename(`diploma-${courseId}-${memberId}`)}.pdf"`
+      "Content-Disposition": `attachment; filename="${sanitizeFilename(`diploma-${role === "instructor" ? "instructor-" : ""}${courseId}-${memberId}`)}.pdf"`,
+      "Cache-Control": "private, no-store"
     });
     res.end(pdf);
     return;
@@ -9482,6 +9500,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
   const diplomaMatch = requestUrl.pathname.match(/^\/api\/diplomas\/([^/]+)\/([^/]+)$/);
   if (diplomaMatch && req.method === "GET") {
+    const role = requestUrl.searchParams.get("role") === "instructor" ? "instructor" : "student";
     const courseId = diplomaMatch[1];
     const memberId = diplomaMatch[2];
     const state = readState();
@@ -9489,10 +9508,10 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     if (!account) {
       return;
     }
-    if (!canAccessDiplomaRecord(state, account, courseId, memberId)) {
+    if (!canAccessDiplomaRecord(state, account, courseId, memberId, role)) {
       return sendJson(res, 403, { ok: false, error: "No tienes acceso a este diploma" });
     }
-    const html = renderDiplomaHtml(state, courseId, memberId);
+    const html = renderDiplomaHtml(state, courseId, memberId, role);
 
     if (!html) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
@@ -9500,7 +9519,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       return;
     }
 
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store" });
     res.end(html);
     return;
   }
@@ -9517,7 +9536,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       diploma: {
         code: diploma.code,
         memberName: diploma.member.name,
-        courseTitle: diploma.course.title,
+        courseTitle: diploma.role === "instructor" ? `Instructor de Isocrona Zero: ${diploma.course.title}` : diploma.course.title,
         courseType: diploma.course.type,
         endDate: diploma.course.endDate,
         hours: diploma.course.hours
@@ -9535,7 +9554,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       return;
     }
 
-    const pdf = buildDiplomaPdf(state, diploma.course.id, diploma.member.id);
+    const pdf = buildDiplomaPdf(state, diploma.course.id, diploma.member.id, diploma.role);
     if (!pdf) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Diploma no encontrado");
@@ -11092,8 +11111,9 @@ function getCourseCertificateSections(course) {
   return objectiveSections;
 }
 
-function buildCertificateModel(state, courseId, memberId) {
-  const diploma = getDiplomaRecord(state, courseId, memberId) || getPreviewCertificateRecord(state, courseId, memberId);
+function buildCertificateModel(state, courseId, memberId, role = "student") {
+  const diploma = role === "instructor" ? getInstructorDiplomaRecord(state, courseId, memberId)
+    : getDiplomaRecord(state, courseId, memberId) || getPreviewCertificateRecord(state, courseId, memberId);
   if (!diploma) {
     return null;
   }
@@ -11109,10 +11129,11 @@ function buildCertificateModel(state, courseId, memberId) {
     code,
     registryNumber,
     verifyUrl,
-    certificateTitle: buildCertificateTitle(course),
+    certificateTitle: role === "instructor" ? "DIPLOMA DE INSTRUCTOR" : buildCertificateTitle(course),
+    role,
     documentId: getMemberDocumentId(state, member),
     dateRange: formatDateRange(course.startDate, course.endDate),
-    issueDate: formatDate(course.endDate || new Date().toISOString()),
+    issueDate: formatDate(diploma.issuedAt || course.endDate || new Date().toISOString()),
     city,
     sections: getCourseCertificateSections(course),
     preview: Boolean(diploma.preview)
@@ -11160,16 +11181,16 @@ function buildCertificateDocx(state, courseId, memberId) {
   return buildZipArchive(files);
 }
 
-function renderDiplomaHtml(state, courseId, memberId) {
-  const model = buildCertificateModel(state, courseId, memberId);
+function renderDiplomaHtml(state, courseId, memberId, role = "student") {
+  const model = buildCertificateModel(state, courseId, memberId, role);
   if (!model) return null;
   const verifyUrl = buildAbsoluteCampusUrl(model.verifyUrl);
   const pages = buildDiplomaLayout(model, state.settings || {}, verifyUrl);
   return renderDiplomaPagesHtml(pages, model.certificateTitle, escapeHtml);
 }
 
-function buildDiplomaPdf(state, courseId, memberId) {
-  const model = buildCertificateModel(state, courseId, memberId);
+function buildDiplomaPdf(state, courseId, memberId, role = "student") {
+  const model = buildCertificateModel(state, courseId, memberId, role);
   if (!model) return null;
   const verifyUrl = buildAbsoluteCampusUrl(model.verifyUrl);
   const pages = buildDiplomaLayout(model, state.settings || {}, verifyUrl);
@@ -11215,7 +11236,8 @@ function listDiplomas(state) {
 }
 
 function findDiplomaByCode(state, code) {
-  return listDiplomas(state).find((item) => item.code === code) || null;
+  return listDiplomas(state).find((item) => item.code === code) ||
+    listInstructorDiplomas(state).find(item => item.code === code) || null;
 }
 
 function getDiplomaRecord(state, courseId, memberId) {
@@ -13220,6 +13242,7 @@ function applyCourseAcademicChanges(course, memberId, changes) {
 }
 
 async function runCourseAcademicAutomation(state, reason) {
+  for (const course of state.courses || []) issueInstructorDiplomas(state, course);
   if (state.settings?.automation?.autoRunOnSave === false) {
     return null;
   }
@@ -13280,6 +13303,7 @@ function normalizeCourseMutationPayload(payload, existingCourse = null) {
     accessScope: normalizeCourseAccessScope(readString("accessScope", "members"), audience),
     enrollmentOpensAt: readString("enrollmentOpensAt"),
     coordinator: readString("coordinator"),
+    instructors: Object.prototype.hasOwnProperty.call(source, "instructors") ? source.instructors : fallback.instructors || [],
     contentTemplate: readString("contentTemplate", "operativo") || "operativo",
     objectives: readArray("objectives"),
     sessions: readArray("sessions"),
@@ -13588,6 +13612,8 @@ async function runAutomationEngine(state, options = {}) {
         `Cierre automatico del curso ${course.title}`
       );
     }
+
+    if (!detectOnly) issueInstructorDiplomas(state, course);
 
     if (course.status === "Cierre pendiente" && enrolledIds.length && closedEvaluations === enrolledIds.length) {
       pushAutomationItem(state, {
@@ -14042,11 +14068,14 @@ function preserveIssuedDiplomasByCourse(currentState, nextState) {
   nextState.courses.forEach((course) => {
     const courseId = String(course?.id || "").trim();
     const previousCourse = previousCoursesById.get(courseId);
+    // Whole-state clients cannot rewrite issued teaching hours or codes.
+    course.instructorDiplomas = (previousCourse?.instructorDiplomas || []).map(item => ({ ...item }));
     if (!courseId || !previousCourse) {
       return;
     }
 
     course.diplomaReady = mergeDiplomaReadyIds(previousCourse.diplomaReady, course.diplomaReady);
+    if (course.instructors === undefined) course.instructors = (previousCourse.instructors || []).map(item => ({ ...item }));
   });
 }
 

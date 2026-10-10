@@ -23,6 +23,7 @@ import { buildDefaultCampusGroups } from "./assets/js/app/campus/defaultGroups.j
 import { clearCampusDraft, getCampusDraftStorageKey } from "./assets/js/app/storage/localStorage.js";
 
 import { renderCourseSharedTestEditor, readCourseSharedTestSelection } from "./assets/js/app/campus/sharedTests.js";
+import { renderCourseInstructors, readCourseInstructors, handleCourseInstructorAction, renderInstructorDiplomas } from "./assets/js/app/campus/instructors.js";
 
 const SESSION_KEY = "iz-campus-session";
 const VIEW_ROLE_KEY = "iz-campus-view-role";
@@ -705,6 +706,10 @@ document.addEventListener("click", async (event) => {
   event.preventDefault();
 
   const action = actionTarget.dataset.action;
+  if (["add-course-instructor", "remove-course-instructor"].includes(action)) {
+    if (isAdminView()) handleCourseInstructorAction(actionTarget, state);
+    return;
+  }
   const courseId = actionTarget.dataset.courseId;
   const memberId = actionTarget.dataset.memberId;
   let shouldPersist = false;
@@ -4084,6 +4089,7 @@ document.addEventListener("submit", async (event) => {
       hours,
       capacity,
       coordinator,
+      instructors: readCourseInstructors("courseInstructors"),
       audience,
       accessScope,
       enrollmentOpensAt,
@@ -4343,6 +4349,7 @@ document.addEventListener("submit", async (event) => {
         accessScope,
         enrollmentOpensAt,
         coordinator,
+        instructors: readCourseInstructors("editCourseInstructors", course.instructors || []),
         contentTemplate: contentTemplate || inferCourseTemplate(course),
         contentStatus: contentStatus || "draft",
         objectives,
@@ -5887,7 +5894,8 @@ function renderMetrics() {
     const currentMember = getCurrentMember();
     const currentAssociate = getCurrentAssociate();
     const enrolledCourses = state.courses.filter((course) => course.enrolledIds.includes(currentMember?.id)).length;
-    const availableDiplomas = state.courses.filter((course) => course.diplomaReady.includes(currentMember?.id)).length;
+    const availableDiplomas = state.courses.reduce((sum, course) => sum + Number(course.diplomaReady.includes(currentMember?.id)) +
+      Number((course.instructorDiplomas || []).some(item => item.memberId === currentMember?.id)), 0);
     const averageProgress = enrolledCourses
       ? Math.round(
           state.courses
@@ -10577,6 +10585,7 @@ function renderCourses() {
                     Coordinacion o instructor responsable
                     <input id="courseCoordinator" placeholder="Coordinacion o instructor responsable" />
                   </label>
+                  ${renderCourseInstructors(state, {}, "courseInstructors")}
                   <label class="inline-field">
                     Publico objetivo
                     <input id="courseAudience" placeholder="Publico objetivo del curso" />
@@ -10905,7 +10914,9 @@ function renderMemberDiplomas(member) {
     (course) =>
       course.enrolledIds.includes(member.id) ||
       course.waitingIds.includes(member.id) ||
-      course.diplomaReady.includes(member.id)
+      course.diplomaReady.includes(member.id) ||
+      (course.instructors || []).some(item => item.memberId === member.id) ||
+      (course.instructorDiplomas || []).some(item => item.memberId === member.id)
   );
 
   if (!memberCourses.length) {
@@ -10924,6 +10935,7 @@ function renderMemberDiplomas(member) {
   }
 
   const diplomaCards = memberCourses
+    .filter(course => course.enrolledIds.includes(member.id) || course.waitingIds.includes(member.id) || course.diplomaReady.includes(member.id))
     .map((course) => {
       const journey = getLearnerCourseJourney(course, member.id);
       const pendingReasons = getLearnerPendingDiplomaReasons(course, journey);
@@ -10980,8 +10992,14 @@ function renderMemberDiplomas(member) {
     })
     .join("");
 
-  const availableDiplomas = memberCourses.filter((course) => course.diplomaReady.includes(member.id)).length;
-  const pendingDiplomas = memberCourses.length - availableDiplomas;
+  const instructorCards = memberCourses.map(course => renderInstructorDiplomas(course, state.members, member.id)).join("");
+  const studentDiplomas = memberCourses.filter(course => course.diplomaReady.includes(member.id)).length;
+  const instructorDiplomas = memberCourses.filter(course => (course.instructorDiplomas || []).some(item => item.memberId === member.id)).length;
+  const availableDiplomas = studentDiplomas + instructorDiplomas;
+  const pendingDiplomas = memberCourses.filter(course =>
+    ((course.enrolledIds.includes(member.id) || course.waitingIds.includes(member.id)) && !course.diplomaReady.includes(member.id)) ||
+    ((course.instructors || []).some(item => item.memberId === member.id) &&
+      !(course.instructorDiplomas || []).some(item => item.memberId === member.id))).length;
 
   return `
     <div class="panel-stack">
@@ -10999,7 +11017,7 @@ function renderMemberDiplomas(member) {
       <section aria-label="Certificado de actividad">
         <h4>Certificado de actividad</h4>
         ${availableDiplomas ? `
-          <p class="muted">${availableDiplomas} actividad(es) acreditada(s). El certificado incluye el detalle y el total de horas lectivas.</p>
+          <p class="muted">${studentDiplomas} diploma(s) de alumno y ${instructorDiplomas} de instructor. Horas acumuladas por separado en una misma hoja.</p>
           <div class="chip-row">
             <a class="button-link" target="_blank" rel="noopener noreferrer" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}">Ver certificado</a>
             <a class="mini-button" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}&amp;download=1">Descargar PDF acumulado</a>
@@ -11008,6 +11026,7 @@ function renderMemberDiplomas(member) {
       </section>
       <div class="panel-stack associate-anchor" id="diplomaSectionDocuments">
         ${diplomaCards}
+        ${instructorCards}
       </div>
     </div>
   `;
@@ -11073,6 +11092,8 @@ function renderDiplomas(course) {
       ${
         isAdminView()
           ? `
+            ${renderInstructorDiplomas(course, state.members)}
+            <h4>Diplomas del alumnado</h4>
             <div class="metrics-grid metrics-grid-inline metrics-grid-summary">
               <article class="metric-card compact-card">
                 <p class="eyebrow">Listos para emitir</p>
@@ -14152,6 +14173,7 @@ function renderCourseWorkbench(course) {
               Coordinacion o docente responsable
               <input id="editCourseCoordinator" value="${escapeHtml(course.coordinator || "")}" />
             </label>
+            ${renderCourseInstructors(state, course, "editCourseInstructors")}
             <label class="inline-field studio-full">
               Indicaciones de pago / transferencia
               <textarea id="editCourseEnrollmentInstructions" placeholder="IBAN, concepto, plazo o cualquier indicacion util para la inscripcion.">${escapeHtml(course.enrollmentPaymentInstructions || "")}</textarea>
@@ -15154,10 +15176,16 @@ function renderMemberDiplomaSidebar(member) {
     (course) =>
       course.enrolledIds.includes(member.id) ||
       course.waitingIds.includes(member.id) ||
-      course.diplomaReady.includes(member.id)
+      course.diplomaReady.includes(member.id) ||
+      (course.instructors || []).some(item => item.memberId === member.id) ||
+      (course.instructorDiplomas || []).some(item => item.memberId === member.id)
   );
-  const readyCount = memberCourses.filter((course) => course.diplomaReady.includes(member.id)).length;
-  const pendingCount = memberCourses.filter((course) => !course.diplomaReady.includes(member.id)).length;
+  const readyCount = memberCourses.reduce((sum, course) => sum + Number(course.diplomaReady.includes(member.id)) +
+    Number((course.instructorDiplomas || []).some(item => item.memberId === member.id)), 0);
+  const pendingCount = memberCourses.filter(course =>
+    ((course.enrolledIds.includes(member.id) || course.waitingIds.includes(member.id)) && !course.diplomaReady.includes(member.id)) ||
+    ((course.instructors || []).some(item => item.memberId === member.id) &&
+      !(course.instructorDiplomas || []).some(item => item.memberId === member.id))).length;
 
   return `
     <div class="mail-card">
@@ -19625,6 +19653,7 @@ function readCourseEditorDraft(course) {
     ),
     audience: readCourseTrimmedValue("editCourseAudience", course.audience || "Socios y voluntariado operativo"),
     coordinator: readCourseTrimmedValue("editCourseCoordinator", course.coordinator || ""),
+    instructors: readCourseInstructors("editCourseInstructors", course.instructors || []),
     contentTemplate: readCourseFieldValue("editCourseTemplate", course.contentTemplate),
     contentStatus: readCourseFieldValue("editCourseContentStatus", course.contentStatus),
     objectives: document.getElementById("editCourseObjectives")
@@ -19826,7 +19855,8 @@ function buildAssistantSummary() {
     const member = getCurrentMember();
     const associate = getCurrentAssociate();
     const activeCourses = state.courses.filter((course) => course.enrolledIds.includes(member?.id)).length;
-    const diplomas = state.courses.filter((course) => course.diplomaReady.includes(member?.id)).length;
+    const diplomas = state.courses.reduce((sum, course) => sum + Number(course.diplomaReady.includes(member?.id)) +
+      Number((course.instructorDiplomas || []).some(item => item.memberId === member?.id)), 0);
     const primaryCourse = getPrimaryMemberCourse(member?.id);
     const nextStep = primaryCourse ? getLearnerCourseJourney(primaryCourse, member?.id).nextStep : null;
     const averageProgress = activeCourses

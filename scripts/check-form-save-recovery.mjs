@@ -65,6 +65,7 @@ function fixture(id = "courseEditForm") {
     buildCourseBlueprint: () => ({}),
     inferCourseTemplate: () => "operativo",
     readCourseSharedTestSelection: () => ({ sharedTestQuestionIds: [], sharedTestPublished: false }),
+    readCourseInstructors: (_, fallback = []) => fallback,
     normalizeCourseAccessScope: () => "members",
     normalizeDateTimeLocalInput: (value) => value,
     readCourseTrimmedValue: () => "Curso editado",

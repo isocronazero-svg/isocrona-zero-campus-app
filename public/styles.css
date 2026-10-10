@@ -5146,3 +5146,11 @@ input[type="file"][name="attachments"] { width: 100%; min-width: 0; box-sizing: 
 .live-library-question input, .live-library-toggle input { flex: 0 0 auto; width: 18px; height: 18px; }
 .test-zone-option-row[data-action="answer-learning-question"] { width: 100%; font: inherit; text-align: left; grid-template-columns: 34px minmax(0, 1fr); }
 .test-zone-option-row[data-action="answer-learning-question"]:focus-visible { outline: 3px solid #0369a1; outline-offset: 3px; }
+.course-instructors { min-width: 0; margin: 0; border: 1px solid #d4d4d4; padding: 12px; }
+.table-card.instructor-diploma-card { border-radius: 8px; padding: 16px; }
+.table-card.instructor-diploma-card::after { display: none; }
+.course-instructor-row { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto; gap: 12px; align-items: end; margin-bottom: 12px; }
+.course-instructor-row select, .course-instructor-row input { min-width: 0; width: 100%; }
+@media (max-width: 600px) {
+  .course-instructor-row { grid-template-columns: minmax(0, 1fr); }
+}
