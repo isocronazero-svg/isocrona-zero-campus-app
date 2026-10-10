@@ -58,6 +58,77 @@ function basePage(label) {
   return page;
 }
 
+function tryCurriculumLayout(sections, { columns, size }, top, bottom) {
+  const totalWidth = 658;
+  const gap = columns === 2 ? 24 : 16;
+  const columnWidth = (totalWidth - gap * (columns - 1)) / columns;
+  const sectionSize = size + Math.min(1.4, Math.max(0.7, size * 0.14));
+  const sectionLineHeight = sectionSize + Math.max(1, size * 0.2);
+  const itemLineHeight = size + Math.max(0.8, size * 0.18);
+  const sectionGap = Math.max(2, size * 0.55);
+  const itemIndent = Math.max(4, size * 0.8);
+  const items = [];
+  let column = 0;
+  let cursor = top;
+
+  const moveColumn = () => {
+    column += 1;
+    cursor = top;
+    return column < columns;
+  };
+  const xForColumn = () => 84 + column * (columnWidth + gap);
+  const pushLine = (line, lineSize, lineHeight, color, indent = 0) => {
+    if (cursor + lineHeight > bottom && !moveColumn()) return false;
+    items.push({ type: "text", text: line, x: xForColumn() + indent, y: cursor,
+      size: lineSize, color });
+    cursor += lineHeight;
+    return true;
+  };
+
+  for (const section of sections) {
+    if (cursor > top) cursor += sectionGap;
+    if (cursor + sectionLineHeight > bottom && !moveColumn()) return null;
+    for (const line of wrap(section.title, columnWidth, sectionSize)) {
+      if (!pushLine(line, sectionSize, sectionLineHeight, RED)) return null;
+    }
+    cursor += Math.max(1, size * 0.25);
+    for (const item of section.items) {
+      for (const line of wrap(`- ${item}`, columnWidth - itemIndent, size)) {
+        if (!pushLine(line, size, itemLineHeight, INK, itemIndent)) return null;
+      }
+    }
+  }
+  return items;
+}
+
+function buildCurriculumBack(model, verifyUrl) {
+  const back = basePage("REVERSO");
+  let cursor = text(back, "CONTENIDOS FORMATIVOS", 84, 158, 18, 658, RED) + 4;
+  cursor = text(back, model.course.title, 84, cursor, 10, 658) + 2;
+  const top = cursor;
+  const bottom = 452;
+  const sections = model.sections.length
+    ? model.sections
+    : [{ title: "Programa del curso", items: ["No hay contenidos formativos detallados registrados para esta actividad."] }];
+  const configurations = [
+    ...[9, 8.5, 8, 7.5, 7, 6.5, 6].map(size => ({ columns: 2, size })),
+    ...[7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.5, 3].map(size => ({ columns: 3, size }))
+  ];
+  let curriculum = null;
+  for (const configuration of configurations) {
+    curriculum = tryCurriculumLayout(sections, configuration, top, bottom);
+    if (curriculum) break;
+  }
+  if (!curriculum) {
+    throw new Error("El contenido del curso no cabe en el reverso del diploma incluso con maquetacion compacta");
+  }
+  back.push(...curriculum);
+  text(back, `Certificado n.o ${model.registryNumber}`, 84, 466, 8, 658, MUTED);
+  text(back, `C\u00f3digo de verificaci\u00f3n: ${model.code}`, 84, 480, 8, 658);
+  text(back, verifyUrl, 84, 494, 7, 658, MUTED);
+  return back;
+}
+
 function buildDiplomaLayout(model, settings, verifyUrl) {
   const front = basePage(model.preview ? "VISTA PREVIA" : "CERTIFICADO");
   const bodyStart = front.length;
@@ -89,39 +160,10 @@ function buildDiplomaLayout(model, settings, verifyUrl) {
     const size = Math.min(10, 5600 / Math.max(1, textWidth(value, 10)));
     text(front, value, 141, top, size, 560, INK, "center");
   }
-  const pages = [front];
-  let back;
-  let cursor;
-  const newBack = () => {
-    back = basePage(pages.length === 1 ? "REVERSO" : "ANEXO");
-    pages.push(back);
-    cursor = text(back, "CONTENIDOS FORMATIVOS", 84, 158, 21, 658, RED) + 10;
-    // A compact repeated heading leaves space for long curricula on every page.
-    cursor = text(back, model.course.title, 84, cursor, 12, 658) + 10;
-  };
-  newBack();
-  const sections = model.sections.length ? model.sections : [{ title: "Programa del curso", items: ["No hay contenidos formativos detallados registrados para esta actividad."] }];
-  for (const section of sections) {
-    if (cursor > 396) newBack();
-    for (const line of wrap(section.title, 658, 12)) {
-      if (cursor > 428) newBack();
-      text(back, line, 84, cursor, 12, 658, RED); cursor += 18;
-    }
-    for (const item of section.items) {
-      for (const line of wrap(`- ${item}`, 646, 11)) {
-        if (cursor > 428) newBack();
-        text(back, line, 96, cursor, 11, 646); cursor += 15;
-      }
-    }
-    cursor += 9;
-  }
+
+  const pages = [front, buildCurriculumBack(model, verifyUrl)];
   pages.forEach((page, index) => {
-    if (index > 0) {
-      text(page, `Certificado n.o ${model.registryNumber}`, 84, 452, 9, 658, MUTED);
-      text(page, `C\u00f3digo de verificaci\u00f3n: ${model.code}`, 84, 468, 9, 658);
-      text(page, verifyUrl, 84, 484, 8, 658, MUTED);
-    }
-    text(page, `${index + 1} / ${pages.length}`, 738, 579, 9, 60, MUTED);
+    text(page, `${index + 1} / 2`, 738, 579, 9, 60, MUTED);
   });
   return pages;
 }
@@ -138,7 +180,7 @@ function buildDiplomaPdfStreams(pages, escapePdfText) {
 }
 
 function renderDiplomaPagesHtml(pages, title, escapeHtml) {
-  const markup = pages.map((page, index) => `<section class="diploma-page" aria-label="${index === 0 ? "Anverso" : index === 1 ? "Reverso" : "Anexo"}"><div class="sheet">${page.map(item => item.type === "image"
+  const markup = pages.map((page, index) => `<section class="diploma-page" aria-label="${index === 0 ? "Anverso" : "Reverso"}"><div class="sheet">${page.map(item => item.type === "image"
     ? `<img src="/api/certificate-template-logo" alt="Plantilla institucional Isocrona Zero" style="position:absolute;left:${item.x}pt;top:${item.y}pt;width:${item.width}pt;height:${item.height}pt" />`
     : item.type === "rect"
     ? `<span aria-hidden="true" style="position:absolute;left:${item.x}pt;top:${item.y}pt;width:${item.width}pt;height:${item.height}pt;background:${item.color}"></span>`
