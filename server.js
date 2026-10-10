@@ -74,6 +74,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
+const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
   PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");
 const { normalizeNoticeAttachments, compactNotice, createNoticesHandler, MAX_NOTICE_BODY_BYTES } = require("./server/notices");
@@ -11164,7 +11165,8 @@ function buildDiplomaPdf(state, courseId, memberId) {
   const verifyUrl = buildAbsoluteCampusUrl(model.verifyUrl);
   const pages = buildDiplomaLayout(model, state.settings || {}, verifyUrl);
   return buildPdfDocument(buildDiplomaPdfStreams(pages, escapePdfText), {
-    pageWidth: DIPLOMA_PAGE_WIDTH, pageHeight: DIPLOMA_PAGE_HEIGHT
+    pageWidth: DIPLOMA_PAGE_WIDTH, pageHeight: DIPLOMA_PAGE_HEIGHT,
+    backgroundImage: getCertificateTemplateImage()
   });
 }
 
@@ -16222,6 +16224,8 @@ function escapePdfText(text) {
 
 function buildPdfDocument(contentStream, options = {}) {
   const pageStreams = Array.isArray(contentStream) ? contentStream : null;
+  const imageId = pageStreams && options.backgroundImage ? 4 + pageStreams.length * 2 : 0;
+  const imageResource = imageId ? ` /XObject << /Template ${imageId} 0 R >>` : "";
   const contentBuffer = Buffer.from(pageStreams ? "" : contentStream, "latin1");
   const pageWidth = Number(options.pageWidth || 595);
   const pageHeight = Number(options.pageHeight || 842);
@@ -16238,9 +16242,10 @@ function buildPdfDocument(contentStream, options = {}) {
   ];
   for (const [index, stream] of (pageStreams || []).entries()) {
     const buffer = Buffer.from(stream, "latin1");
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + index * 2} 0 R >>`);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >>${imageResource} >> /Contents ${5 + index * 2} 0 R >>`);
     objects.push(`<< /Length ${buffer.length} >>\nstream\n${buffer.toString("latin1")}\nendstream`);
   }
+  if (imageId) objects.push(options.backgroundImage);
 
   let pdf = "%PDF-1.4\n";
   const offsets = [0];

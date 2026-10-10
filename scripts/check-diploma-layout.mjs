@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,13 @@ import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml } = require("../server/diploma-layout");
+const { buildTemplateImageObject, getCertificateTemplateImage } = require("../server/certificate-template-image");
+const template = readFileSync(new URL("../data/cert-template-inspect/word/media/image1.png", import.meta.url));
+assert.equal(createHash("sha256").update(template).digest("hex"), "cc4da1b16174ff0e539196861ad38605dd3741bed99322ee00e3b2c6b5ae7597", "Original institutional artwork unchanged");
+assert.throws(() => buildTemplateImageObject(Buffer.from("not a PNG")));
+assert.throws(() => buildTemplateImageObject(template.subarray(0, 80)));
+const unsupported = Buffer.from(template); unsupported[25] = 6;
+assert.throws(() => buildTemplateImageObject(unsupported));
 const repo = fileURLToPath(new URL("..", import.meta.url));
 const source = readFileSync(new URL("../server.js", import.meta.url), "utf8");
 const extract = name => {
@@ -38,6 +45,7 @@ const model = { course: { title: "Rescate en Ascensores", hours: 24 }, member: {
 const url = "https://example.test/verify.html?code=" + model.code;
 const layout = buildDiplomaLayout(model, settings, url);
 assert.equal(layout.length, 2);
+assert.ok(layout.every(page => page[0].type === "image"));
 assert.ok(!layout[0].some(item => item.text === "CONTENIDOS FORMATIVOS"));
 assert.ok(layout[1].some(item => item.text === "CONTENIDOS FORMATIVOS"));
 assert.ok(layout[0].some(item => item.text === model.member.name));
@@ -55,8 +63,11 @@ for (const stream of streams) {
     assert.ok(!line.includes("undefined"));
   }
 }
-const pdf = context.buildPdfDocument(streams, { pageWidth: 842, pageHeight: 595 });
+const pdf = context.buildPdfDocument(streams, { pageWidth: 842, pageHeight: 595, backgroundImage: getCertificateTemplateImage() });
 assert.match(pdf.toString("latin1"), /\/Count 2\b/);
+assert.equal(pdf.toString("latin1").match(/\/Subtype \/Image/g).length, 1, "Single image object shared by both pages");
+assert.equal(pdf.toString("latin1").match(/\/Template Do/g).length, 2);
+assert.match(pdf.toString("latin1"), /\/Predictor 15 \/Colors 3/);
 const expanded = buildDiplomaLayout({ ...model, sections: [{ title: "Temario completo", items: Array.from({length: 180}, (_, i) => `Contenido ${i}`) }] }, settings, url);
 assert.ok(expanded.length > 2);
 assert.ok(expanded.flat().some(item => item.text?.includes("Contenido 179")), "No silent curriculum truncation");
@@ -70,7 +81,8 @@ assert.match(html, /break-after:page/);
 assert.match(html, /size:A4 landscape/);
 const malicious = buildDiplomaLayout({ ...model, member: {name: '<img src=x onerror="alert(1)">'}, course: {...model.course, title: "Test \u0129 (QA)"} }, settings, url);
 const maliciousHtml = renderDiplomaPagesHtml(malicious, "<script>bad</script>", context.escapeHtml);
-assert.ok(!maliciousHtml.includes("<img"));
+assert.equal((maliciousHtml.match(/<img /g) || []).length, malicious.length, "Only the fixed institutional background is an image");
+assert.ok(!maliciousHtml.includes('<img src=x'));
 assert.ok(maliciousHtml.includes("&lt;img"));
 assert.ok(!maliciousHtml.includes("<script>bad"));
 assert.ok(buildDiplomaPdfStreams(malicious, context.escapePdfText).join("").includes("Test ? \\(QA\\)"));
@@ -111,6 +123,7 @@ try {
     assert.equal(r.status,200);
     const data=Buffer.from(await r.arrayBuffer());
     assert.match(data.toString("latin1"),/\/Count 2\b/);
+    assert.match(data.toString("latin1"),/\/Subtype \/Image/);
     assert.match(data.toString("latin1"),/Rescate en Ascensores/);
   }
   const view=await fetch(base+route,{headers:{Cookie:member}});
