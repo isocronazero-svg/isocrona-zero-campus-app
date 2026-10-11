@@ -138,15 +138,15 @@ function buildDiplomaLayout(model, settings, verifyUrl) {
   // Fit unusually long names/titles without touching the fixed signature/footer area.
   const nameSize = textWidth(model.member.name, 28) > 1400 ? 19 : 28;
   y = center(model.member.name, y, nameSize) + 5;
-  y = center(`con DNI/NIE ${model.documentId}`, y, 11) + 10;
-  const participation = /asistencia/i.test(model.certificateTitle)
+  if (model.documentId || model.kind !== "instructor") y = center(`con DNI/NIE ${model.documentId}`, y, 11) + 10;
+  const participation = model.kind === "instructor" ? "ha participado como INSTRUCTOR/A en la actividad formativa" : /asistencia/i.test(model.certificateTitle)
     ? "ha asistido a la actividad formativa" : "ha realizado y superado con aprovechamiento la actividad formativa";
   y = center(participation, y, 12) + 8;
   const titleSize = textWidth(model.course.title, 23) > 1400 ? 16 : 23;
   y = center(model.course.title, y, titleSize) + 10;
   y = center(`Duraci\u00f3n: ${model.course.hours} horas lectivas. ${model.dateRange}.`, y, 11) + 8;
   y = center(`En ${model.city}, a ${model.issueDate}.`, y, 11) + 8;
-  center(`Certificado n.o ${model.registryNumber}`, y, 10, 658, MUTED);
+  if (model.kind !== "instructor") center(`Certificado n.o ${model.registryNumber}`, y, 10, 658, MUTED);
   if (y > 424) {
     // Compress only the variable body for exceptionally long metadata, never truncate it.
     const scale = (438 - 158) / (y + 14 - 158);
@@ -161,6 +161,7 @@ function buildDiplomaLayout(model, settings, verifyUrl) {
     text(front, value, 141, top, size, 560, INK, "center");
   }
 
+  if (model.kind === "instructor") return [front];
   const pages = [front, buildCurriculumBack(model, verifyUrl)];
   pages.forEach((page, index) => {
     text(page, `${index + 1} / 2`, 738, 579, 9, 60, MUTED);

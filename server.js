@@ -1,3 +1,4 @@
+const { validateInstructorAssociateIds, canDownloadInstructorCertificate, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const http = require("http");
 const { createPublicLiveFlow, answerDistribution } = require("./server/public-live-flow");
 const publicLiveFlow = createPublicLiveFlow();
@@ -3782,6 +3783,11 @@ function deleteAssociateFromState(state, context) {
   const applicationIds = new Set(context.applications.map((application) => application.id));
 
   state.associates = (state.associates || []).filter((associate) => associate.id !== associateId);
+  for (const course of state.courses || []) {
+    if (Array.isArray(course.instructorAssociateIds)) {
+      course.instructorAssociateIds = course.instructorAssociateIds.filter(id => id !== associateId);
+    }
+  }
   state.associateProfileRequests = (state.associateProfileRequests || []).filter(
     (request) => request.associateId !== associateId && request.socio_id !== associateId
   );
@@ -6474,6 +6480,14 @@ const server = http.createServer(async (req, res) => {
       }
       restoreTransportSanitizedSecrets(currentState, state);
       preserveIssuedDiplomasByCourse(currentState, state);
+      // Instructor identities are owned by the admin course API, not stale whole-state forms.
+      for (const course of state.courses || []) {
+        if (Object.prototype.hasOwnProperty.call(course, "instructorAssociateIds")) {
+          validateInstructorAssociateIds(latestQuestionState, course.instructorAssociateIds);
+        }
+        const current = (latestQuestionState.courses || []).find(c => c.id === course.id);
+        course.instructorAssociateIds = current ? [...(current.instructorAssociateIds || [])] : [];
+      }
       let summary = null;
 
       if (state.settings?.automation?.autoRunOnSave !== false) {
@@ -8695,7 +8709,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
-      const course = { ...normalizeCourseMutationPayload(payload, null), ...courseTestConfig(state, payload) };
+      const course = { ...normalizeCourseMutationPayload(payload, null), ...courseInstructorConfig(state, payload), ...courseTestConfig(state, payload) };
       if ((state.courses || []).some((item) => item.id === course.id)) {
         return sendJson(res, 409, { ok: false, error: "Ya existe un curso con ese identificador" });
       }
@@ -8732,7 +8746,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
       const previousCourse = state.courses[courseIndex];
       const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
-      const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
+      const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...courseInstructorConfig(state, payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
       state.courses[courseIndex] = course;
       state.selectedCourseId = course.id;
       state.activeView = "campus";
@@ -9392,6 +9406,39 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         writeState(state);
       }
       return sendJson(res, 500, { ok: false, error: error.message || "No se pudo reenviar" });
+    }
+  }
+
+  const instructorPdfMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/instructors\/([^/]+)\.pdf$/);
+  if (instructorPdfMatch && req.method === "GET") {
+    const state = readState();
+    const account = requireAuthenticatedAccount(req, res, state);
+    if (!account) return;
+    try {
+    const courseId = decodeURIComponent(instructorPdfMatch[1]);
+    const associateId = decodeURIComponent(instructorPdfMatch[2]);
+    if (!canDownloadInstructorCertificate(state, account, associateId)) {
+      return sendJson(res, 403, { ok: false, error: "No tienes acceso a este certificado de instructor" });
+    }
+    const course = (state.courses || []).find(c => c.id === courseId);
+    const model = buildInstructorCertificateModel(state, courseId, associateId, {
+      dateRange: course ? formatDateRange(course.startDate, course.endDate) : "",
+      issueDate: formatDate(new Date().toISOString())
+    });
+    if (!model) return sendJson(res, 404, { ok: false, error: "Instructor no vinculado a este curso" });
+    const pages = buildDiplomaLayout(model, state.settings || {}, "");
+    const pdf = buildPdfDocument(buildDiplomaPdfStreams(pages, escapePdfText), {
+      pageWidth: DIPLOMA_PAGE_WIDTH, pageHeight: DIPLOMA_PAGE_HEIGHT,
+      backgroundImage: getCertificateTemplateImage()
+    });
+    res.writeHead(200, {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${sanitizeFilename(`instructor-${courseId}-${associateId}`)}.pdf"`,
+      "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"
+    });
+    return res.end(pdf);
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo generar el certificado de instructor");
     }
   }
 
@@ -13226,6 +13273,14 @@ async function runCourseAcademicAutomation(state, reason) {
   const summary = await runAutomationEngine(state);
   recordAutomationRun(state, reason, summary);
   return summary;
+}
+
+function courseInstructorConfig(state, payload, existingCourse = null) {
+  const source = payload?.course && typeof payload.course === "object" ? payload.course : payload || {};
+  const ids = Object.prototype.hasOwnProperty.call(source, "instructorAssociateIds")
+    ? validateInstructorAssociateIds(state, source.instructorAssociateIds)
+    : [...(existingCourse?.instructorAssociateIds || [])];
+  return { instructorAssociateIds: ids };
 }
 
 function normalizeCourseMutationPayload(payload, existingCourse = null) {

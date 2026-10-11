@@ -69,6 +69,7 @@ function fixture(id = "courseEditForm") {
     normalizeDateTimeLocalInput: (value) => value,
     readCourseTrimmedValue: () => "Curso editado",
     readCourseFieldValue: () => "Valor",
+    readInstructorSelection: () => [],
     readCourseNumberValue: () => 10,
     hasCourseModuleEditors: () => false,
     hasCourseResourceEditors: () => false,

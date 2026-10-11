@@ -220,6 +220,17 @@ Estimación si no aparecen regresiones serias:
 - #227: ~5–15 créditos;
 - reserva objetivo total: ~10–30 créditos.
 
+## Actualización 11/10/2026 — #242 (rama independiente)
+
+Esta bitácora sigue vigente; los apartados del 09/10 son histórico. Base revisada: main `4e4dc00ce6bfdc4a92a653a7b9b0f534fa245473`; #231–#239 ya integrados. Alcance autorizado: primero #241, después #242, sin otras funcionalidades ni operaciones reales de datos.
+
+#241 propuesta en PR #243, SHA `272677944da456f4c8ec55a8fa4b431ba6a14473`: ISO UTC para nuevas aperturas, legacy Europe/Madrid, UI local y rechazo de horas inexistentes de marzo. P2 automático corregido, regresión y check:app/smoke locales verdes; revisar CI nuevo y QA productivo antes de merge.
+
+#242: selector de uno o varios instructores desde fichas `associates`, guarda `instructorAssociateIds`. Socio normal y admin con ficha son elegibles; cuenta admin sin ficha no. Coordinación libre queda informativa, sin conversión automática. Backend valida IDs, protege asignaciones de guardados globales obsoletos y retira el vínculo al eliminar una ficha. PDF específico INSTRUCTOR/A con nombre/apellidos/DNI de la ficha actual, curso, fechas, duración del curso, plantilla y firmantes institucionales. Descarga privada solo administración o propio socio. No modifica diplomaReady, inscripción, diplomas de alumnado ni acumulado de formación recibida.
+
+Validación local: check:app completo PASS, regresión de certificados integrada y smoke:campus-test PASS con servidor/datos sintéticos aislados. Revisión propia P1/P2: sin hallazgos pendientes. La duración indicada es la del curso; el modelo actual no registra horas individuales impartidas. No se inventan esas horas.
+QA manual pendiente: selector múltiple en móvil/escritorio; alta/edición/persistencia; dos PDFs con plantilla y firmantes reales; descargas desde socio y administración; acumulado sin horas de docencia. No marcar producción PASS ni cerrar #227 solo por CI. No se han tocado datos reales ni hecho migraciones. Mantener un PR por tema, ambos con base main, sin fusionar con pruebas rojas.
+
 ## 10. Norma de continuidad móvil / escritorio
 
 GitHub + esta bitácora mandan.
