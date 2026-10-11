@@ -1,4 +1,6 @@
-﻿import {
+import "./enrollment-time.js";
+const EnrollmentTime = globalThis.EnrollmentTime;
+import {
   ASSOCIATE_SECTION_LINKS,
   CAMPUS_SECTION_LINKS,
   TEST_SECTION_LINKS,
@@ -4065,7 +4067,13 @@ document.addEventListener("submit", async (event) => {
     const coordinator = document.getElementById("courseCoordinator").value.trim();
     const audience = document.getElementById("courseAudience").value.trim();
     const accessScope = normalizeCourseAccessScope(document.getElementById("courseAccessScope")?.value, audience);
-    const enrollmentOpensAt = normalizeDateTimeLocalInput(document.getElementById("courseEnrollmentOpensAt")?.value || "");
+    let enrollmentOpensAt;
+    try {
+      enrollmentOpensAt = EnrollmentTime.fromLocalInput(document.getElementById("courseEnrollmentOpensAt")?.value || "");
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
     const contentTemplate = document.getElementById("courseTemplate").value || "operativo";
 
     if (!title || !courseClass || !type || !startDate || !endDate || !hours || !capacity) {
@@ -4288,9 +4296,15 @@ document.addEventListener("submit", async (event) => {
       readCourseFieldValue("editCourseAccessScope", course.accessScope || "members"),
       audience
     );
-    const enrollmentOpensAt = normalizeDateTimeLocalInput(
-      readCourseFieldValue("editCourseEnrollmentOpensAt", course.enrollmentOpensAt || "")
-    );
+    let enrollmentOpensAt;
+    try {
+      enrollmentOpensAt = EnrollmentTime.fromLocalInput(
+        readCourseFieldValue("editCourseEnrollmentOpensAt", EnrollmentTime.localInput(course.enrollmentOpensAt))
+      );
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
     const coordinator = readCourseTrimmedValue("editCourseCoordinator", course.coordinator || "");
     const contentTemplate = readCourseFieldValue("editCourseTemplate", course.contentTemplate || inferCourseTemplate(course));
     const contentStatus = readCourseFieldValue("editCourseContentStatus", course.contentStatus || "draft");
@@ -14145,7 +14159,7 @@ function renderCourseWorkbench(course) {
             </label>
             <label class="inline-field studio-full">
               Apertura de inscripcion
-              <input id="editCourseEnrollmentOpensAt" type="datetime-local" value="${escapeHtml(normalizeDateTimeLocalInput(course.enrollmentOpensAt || ""))}" />
+              <input id="editCourseEnrollmentOpensAt" type="datetime-local" value="${escapeHtml(EnrollmentTime.localInput(course.enrollmentOpensAt))}" />
               <span class="field-hint">Programa aqui la fecha y hora en la que la inscripcion quedara activa. Hasta entonces el curso puede mostrarse, pero no dejara inscribirse.</span>
             </label>
             <label class="inline-field studio-full">
@@ -16459,7 +16473,7 @@ function normalizeCourse(course) {
       course.accessScope || course.enrollmentScope || course.visibility,
       course.audience || ""
     ),
-    enrollmentOpensAt: normalizeDateTimeLocalInput(course.enrollmentOpensAt || ""),
+    enrollmentOpensAt: String(course.enrollmentOpensAt || "").trim(),
     coordinator: escapeHtml.normalizeDisplayText(course.coordinator || ""),
     contentTemplate: course.contentTemplate || "operativo",
     objectives: Array.isArray(course.objectives) ? course.objectives.map((item) => escapeHtml.normalizeDisplayText(item)) : [],
@@ -18037,12 +18051,7 @@ function getCourseSeatsLeft(course) {
 }
 
 function getCourseEnrollmentOpensAtTimestamp(course) {
-  const raw = String(course?.enrollmentOpensAt || "").trim();
-  if (!raw) {
-    return null;
-  }
-  const timestamp = new Date(raw).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
+  return EnrollmentTime.timestamp(course?.enrollmentOpensAt);
 }
 
 function hasCourseScheduledEnrollment(course) {
@@ -18056,7 +18065,8 @@ function isCourseEnrollmentWindowOpen(course) {
 
 function getCourseEnrollmentOpensAtLabel(course) {
   const raw = String(course?.enrollmentOpensAt || "").trim();
-  return raw ? formatDateTime(raw) : "";
+  const time = EnrollmentTime.timestamp(raw);
+  return time === null ? "" : formatDateTime(new Date(time).toISOString());
 }
 
 function isCourseOpenForEnrollment(course) {

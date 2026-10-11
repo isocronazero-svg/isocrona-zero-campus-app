@@ -1,3 +1,4 @@
+const EnrollmentTime = require("./public/enrollment-time.js");
 const http = require("http");
 const { createPublicLiveFlow, answerDistribution } = require("./server/public-live-flow");
 const publicLiveFlow = createPublicLiveFlow();
@@ -3346,12 +3347,7 @@ function isCoursePublicAccess(course) {
 }
 
 function getCourseEnrollmentOpensAtTimestamp(course) {
-  const raw = String(course?.enrollmentOpensAt || "").trim();
-  if (!raw) {
-    return null;
-  }
-  const timestamp = new Date(raw).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
+  return EnrollmentTime.timestamp(course?.enrollmentOpensAt);
 }
 
 function isCourseEnrollmentWindowOpen(course, nowValue = Date.now()) {
@@ -3373,7 +3369,8 @@ function formatCourseEnrollmentOpensAt(course) {
   if (!raw) {
     return "";
   }
-  return new Date(raw).toLocaleString("es-ES", {
+  return new Date(EnrollmentTime.timestamp(raw)).toLocaleString("es-ES", {
+    timeZone: "Europe/Madrid",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -13278,7 +13275,7 @@ function normalizeCourseMutationPayload(payload, existingCourse = null) {
     modality: readString("modality", "Presencial") || "Presencial",
     audience: audience || "Socios y voluntariado operativo",
     accessScope: normalizeCourseAccessScope(readString("accessScope", "members"), audience),
-    enrollmentOpensAt: readString("enrollmentOpensAt"),
+    enrollmentOpensAt: EnrollmentTime.canonical(readString("enrollmentOpensAt")),
     coordinator: readString("coordinator"),
     contentTemplate: readString("contentTemplate", "operativo") || "operativo",
     objectives: readArray("objectives"),
