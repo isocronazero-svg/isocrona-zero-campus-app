@@ -4976,10 +4976,22 @@ function normalizeState(data) {
 }
 
 async function persistCourseEditorAndRender(course, successMessage) {
-  // Save the complete course once, then reload server-owned automation/outbox state.
+  // Send editor fields only; learner records remain server-owned and can be much larger.
+  const fields = [
+    "title", "courseClass", "type", "status", "startDate", "endDate", "hours", "capacity",
+    "diplomaTemplate", "summary", "modality", "enrollmentFee", "enrollmentPaymentInstructions",
+    "audience", "accessScope", "enrollmentOpensAt", "coordinator", "instructorAssociateIds",
+    "contentTemplate", "contentStatus", "objectives", "sessions", "modules", "resources",
+    "materials", "evaluationCriteria", "certificateCity", "certificateContents",
+    "feedbackEnabled", "feedbackRequiredForDiploma", "feedbackTeachers",
+    "sharedTestQuestionIds", "sharedTestPublished"
+  ];
+  const payload = Object.fromEntries(fields.filter(key => Object.prototype.hasOwnProperty.call(course, key))
+    .map(key => [key, course[key]]));
+  // A single PATCH followed by GET avoids posting an obsolete automation/outbox snapshot.
   return invokeJsonAction(
     `/api/courses/${encodeURIComponent(course.id)}`,
-    course,
+    payload,
     successMessage,
     "PATCH",
     document.getElementById("courseEditForm")

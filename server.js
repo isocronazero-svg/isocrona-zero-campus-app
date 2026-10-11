@@ -4199,22 +4199,22 @@ function registerPublicCampusAccount(state, payload) {
 }
 
 function findAssociateForAccount(state, account, member) {
+  const associates = state.associates || [];
   const associateId = member?.associateId || account?.associateId || "";
+  if (associateId) return associates.find(associate => associate.id === associateId) || null;
+  const linkedAssociate = associates.find(associate => account?.id && associate.linkedAccountId === account.id) ||
+    associates.find(associate => member?.id && associate.linkedMemberId === member.id);
+  if (linkedAssociate) return linkedAssociate;
+  // Legacy matching is a fallback only; ambiguous identities must not grant access.
   const memberEmail = String(member?.email || account?.email || "").trim().toLowerCase();
   const memberName = String(member?.name || account?.name || "").trim().toLowerCase();
-  return (
-    (state.associates || []).find(
-      (associate) =>
-        associate.id === associateId ||
-        associate.linkedMemberId === member?.id ||
-        associate.linkedAccountId === account?.id ||
-        (memberEmail && String(associate.email || "").trim().toLowerCase() === memberEmail) ||
-        (memberName &&
-          `${String(associate.firstName || "").trim()} ${String(associate.lastName || "").trim()}`
-            .trim()
-            .toLowerCase() === memberName)
-    ) || null
-  );
+  const emailMatches = associates.filter(associate => memberEmail &&
+    String(associate.email || "").trim().toLowerCase() === memberEmail);
+  if (emailMatches.length) return emailMatches.length === 1 ? emailMatches[0] : null;
+  const nameMatches = associates.filter(associate => memberName &&
+    `${String(associate.firstName || "").trim()} ${String(associate.lastName || "").trim()}`
+      .trim().toLowerCase() === memberName);
+  return nameMatches.length === 1 ? nameMatches[0] : null;
 }
 
 function resolveAssociateForAuthenticatedAccount(state, account) {
@@ -6481,9 +6481,6 @@ const server = http.createServer(async (req, res) => {
       // Instructor identities are owned by the admin course API, not stale whole-state forms.
       for (const course of state.courses || []) {
         const current = (latestQuestionState.courses || []).find(c => c.id === course.id);
-        if (Object.prototype.hasOwnProperty.call(course, "instructorAssociateIds")) {
-          validateInstructorAssociateIds(latestQuestionState, course.instructorAssociateIds, current?.instructorAssociateIds || []);
-        }
         course.instructorAssociateIds = current ? [...(current.instructorAssociateIds || [])] : [];
       }
       for (const associate of latestQuestionState.associates || []) {

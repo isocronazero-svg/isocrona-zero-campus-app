@@ -31,9 +31,11 @@ function canDownloadInstructorCertificate(state, account, associateId, resolvedA
   const associate = (state.associates || []).find(a => a.id === associateId);
   if (!associate || !account) return false;
   if (account.role === "admin") return true;
-  if (resolvedAssociate?.id === associate.id) return true;
-  return account.associateId === associate.id ||
-    Boolean(associate.linkedAccountId && associate.linkedAccountId === account.id) ||
+  const member = (state.members || []).find(item => item.id === account.memberId);
+  const explicitId = member?.associateId || account.associateId;
+  if (explicitId) return explicitId === associate.id;
+  if (resolvedAssociate) return resolvedAssociate.id === associate.id;
+  return Boolean(associate.linkedAccountId && associate.linkedAccountId === account.id) ||
     Boolean(account.memberId && (associate.linkedMemberId === account.memberId ||
       (state.members || []).some(m => m.id === account.memberId && m.associateId === associate.id)));
 }
