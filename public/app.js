@@ -4981,7 +4981,7 @@ async function persistCourseEditorAndRender(course, successMessage) {
     "title", "courseClass", "type", "status", "startDate", "endDate", "hours", "capacity",
     "diplomaTemplate", "summary", "modality", "enrollmentFee", "enrollmentPaymentInstructions",
     "audience", "accessScope", "enrollmentOpensAt", "coordinator", "instructorAssociateIds",
-    "contentTemplate", "contentStatus", "objectives", "sessions", "modules", "resources",
+    "contentTemplate", "contentStatus", "objectives", "sessions", "modules", "resources", "questionBank",
     "materials", "evaluationCriteria", "certificateCity", "certificateContents",
     "feedbackEnabled", "feedbackRequiredForDiploma", "feedbackTeachers",
     "sharedTestQuestionIds", "sharedTestPublished"

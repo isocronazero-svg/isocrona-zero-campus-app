@@ -287,6 +287,11 @@ try {
   ]) {
     const latest=await (await request('/api/state',editorAdmin)).json();
     const contextState=latest.state || latest;
+    const draftCourse=contextState.courses.find(c=>c.id===course.id);
+    if(!draftCourse.modules.length)draftCourse.modules.push({id:'qa-draft-module',title:'QA borrador',lessons:[]});
+    const bankPrompt=`QA banco ${actionIndex}`;
+    draftCourse.modules[0].lessons=[{id:'qa-draft-lesson',blocks:[{type:'evaluation',
+      questions:[{id:'qa-source-question',prompt:bankPrompt,options:['A','B'],correctIndex:0}]}]}];
     const errors=[];const mutations=[];
     const form={dataset:{},elements:[],getAttribute:()=>null,setAttribute:()=>{},removeAttribute:()=>{},querySelector:()=>({})};
     const previousModules=contextState.courses.find(c=>c.id===course.id).modules.length;
@@ -301,6 +306,7 @@ try {
       buildCourseBlueprint:()=>({modules:[{id:'qa-module',title:action,lessons:[]}]}),applyBlueprintToCourse:(c,b)=>Object.assign(c,b),
       inferCourseTemplate:()=> 'operativo',getCourseTemplateLabel:v=>v,addActivity:()=>{},
       normalizeCourseModule:m=>m,courseCurriculumMode:'',render:()=>{},
+      normalizeCourseQuestion:q=>q,getCourseQuestionFingerprint:q=>q.prompt,
       showToast:(message,kind)=>{if(kind==='error')errors.push(message);},
       readJsonResponse:response=>response.json(),
       fetch:(url,options)=>{mutations.push([url,options.method]);return request(url,editorAdmin,JSON.parse(options.body),options.method);},
@@ -312,7 +318,17 @@ try {
     const from=app.indexOf(`  if (action === "${action}" && isAdminSession()) {`);
     const to=app.indexOf('\n  if (',from+1);
     assert.ok(from>=0 && to>from,action);
-    vm.runInContext(helpers+draftReader+jsonAction+persistence+`\nglobalThis.runAction = async () => { ${app.slice(from,to)} };`,context);
+    const bankFrom=app.indexOf('  if (action === "save-question-to-bank" && isAdminSession()) {');
+    const bankTo=app.indexOf('\n  if (',bankFrom+1);
+    vm.runInContext(helpers+draftReader+jsonAction+persistence+`
+      globalThis.saveBankDraft = async () => { ${app.slice(bankFrom,bankTo)} };
+      globalThis.runAction = async () => { ${app.slice(from,to)} };`,context);
+    context.action='save-question-to-bank';
+    context.actionTarget={dataset:{moduleIndex:'0',lessonIndex:'0',blockIndex:'0',questionId:'qa-source-question'}};
+    await context.saveBankDraft();
+    assert.ok(context.getSelectedCourse().questionBank.some(q=>q.prompt===bankPrompt));
+    assert.equal(mutations.length,0,'Save-to-bank is still only a local draft');
+    context.action=action;context.actionTarget={dataset:{}};
     await context.runAction();
     assert.deepEqual(mutations,[[`/api/courses/${course.id}`,'PATCH']],'One mutation/automation per editor action');
     if(selectedIds.includes('missing')){
@@ -324,6 +340,7 @@ try {
       const savedState=persisted.state || persisted;
       const savedCourse=savedState.courses.find(c=>c.id===course.id);
       assert.deepEqual(savedCourse.contentProgress,academicProgress,'Server-owned academic data is untouched');
+      assert.ok(savedCourse.questionBank.some(q=>q.prompt===bankPrompt),'Edited question bank survives subaction/refetch');
       assert.deepEqual(savedCourse.instructorAssociateIds,selectedIds,action);
       assert.equal(savedCourse.modules.length,action==='add-course-module'?previousModules+1:1,'Subaction content is persisted');
       assert.equal(savedState.emailOutbox.length,1,'Delivery record survives the editor save');
