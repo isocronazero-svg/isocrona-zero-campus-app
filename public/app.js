@@ -4976,23 +4976,14 @@ function normalizeState(data) {
 }
 
 async function persistCourseEditorAndRender(course, successMessage) {
-  try {
-    // The course API owns instructor assignments; whole-state saves preserve its last value.
-    const response = await fetch(`/api/courses/${encodeURIComponent(course.id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instructorAssociateIds: course.instructorAssociateIds || [] })
-    });
-    const payload = await readJsonResponse(response, "No se pudo guardar la seleccion de instructores");
-    if (!response.ok || payload.ok === false) {
-      throw new Error(payload.error || "No se pudo guardar la seleccion de instructores");
-    }
-    await persistAndRender(successMessage);
-  } catch (error) {
-    syncStatus = error.message || "No se pudo guardar la seleccion de instructores";
-    showToast(syncStatus, "error");
-    render();
-  }
+  // Save the complete course once, then reload server-owned automation/outbox state.
+  return invokeJsonAction(
+    `/api/courses/${encodeURIComponent(course.id)}`,
+    course,
+    successMessage,
+    "PATCH",
+    document.getElementById("courseEditForm")
+  );
 }
 
 async function persistAndRender(successMessage) {
@@ -5356,11 +5347,12 @@ function getAssociateDeletionImpactSummary(associate) {
   );
   const linkedCourses = (state.courses || []).filter(
     (course) =>
-      linkedMemberId &&
-      ((course.enrolledIds || []).includes(linkedMemberId) ||
-        (course.waitingIds || []).includes(linkedMemberId) ||
-        (course.diplomaReady || []).includes(linkedMemberId) ||
-        (course.enrollmentSubmissions || []).some((submission) => submission.memberId === linkedMemberId))
+      (course.instructorAssociateIds || []).includes(associate.id) ||
+      (linkedMemberId &&
+        ((course.enrolledIds || []).includes(linkedMemberId) ||
+          (course.waitingIds || []).includes(linkedMemberId) ||
+          (course.diplomaReady || []).includes(linkedMemberId) ||
+          (course.enrollmentSubmissions || []).some((submission) => submission.memberId === linkedMemberId)))
   );
   const diplomas = linkedCourses.filter((course) => (course.diplomaReady || []).includes(linkedMemberId));
   const requests =

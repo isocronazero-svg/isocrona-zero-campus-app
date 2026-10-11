@@ -1,15 +1,27 @@
 // Certifiable identities are association records, never campus names or coordinator text.
-function validateInstructorAssociateIds(state, ids) {
+function hasInstructorName(associate) {
+  return [associate?.firstName, associate?.lastName].some(value => String(value || "").trim());
+}
+
+function validateInstructorAssociateUpdate(state, associateId, nextAssociate) {
+  const previous = (state.associates || []).find(a => a.id === associateId);
+  const nameChanged = ["firstName", "lastName"].some(key =>
+    String(previous?.[key] || "").trim() !== String(nextAssociate?.[key] || "").trim());
+  if (nameChanged && !hasInstructorName(nextAssociate) &&
+      (state.courses || []).some(course => (course.instructorAssociateIds || []).includes(associateId))) {
+    throw new Error("No puedes borrar el nombre de un socio asignado como instructor. Introduce un nombre valido.");
+  }
+}
+
+function validateInstructorAssociateIds(state, ids, existingIds = []) {
   if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => typeof id !== "string" || !id)) {
     throw new Error("Selecciona instructores desde las fichas de socios existentes");
   }
   if (new Set(ids).size !== ids.length || ids.some(id => !(state.associates || []).some(a => a.id === id))) {
     throw new Error("Todos los instructores deben tener una ficha de socio existente");
   }
-  if (ids.some(id => {
-    const associate = state.associates.find(a => a.id === id);
-    return ![associate.firstName, associate.lastName].some(value => String(value || "").trim());
-  })) {
+  // Existing incomplete records must not block unrelated course edits.
+  if (ids.some(id => !existingIds.includes(id) && !hasInstructorName(state.associates.find(a => a.id === id)))) {
     throw new Error("Completa el nombre del socio antes de asignarlo como instructor");
   }
   return [...ids];
@@ -48,4 +60,4 @@ function buildInstructorCertificateModel(state, courseId, associateId, dates) {
   };
 }
 
-module.exports = { validateInstructorAssociateIds, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel };
+module.exports = { validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel };

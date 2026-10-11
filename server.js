@@ -75,7 +75,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
-const { validateInstructorAssociateIds, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
+const { validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
   PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");
@@ -3685,7 +3685,8 @@ function getAssociateDeletionContext(state, associateId) {
   const linkedAdminAccounts = linkedAccounts.filter((account) => account.role === "admin");
   const adminAccounts = (state.accounts || []).filter((account) => account.role === "admin");
   const courseLinks = (state.courses || [])
-    .filter((course) => linkedMemberId && isMemberLinkedToCourse(course, linkedMemberId))
+    .filter((course) => (course.instructorAssociateIds || []).includes(associate.id) ||
+      (linkedMemberId && isMemberLinkedToCourse(course, linkedMemberId)))
     .map((course) => ({
       id: course.id,
       title: course.title || course.id,
@@ -6479,11 +6480,15 @@ const server = http.createServer(async (req, res) => {
       preserveIssuedDiplomasByCourse(currentState, state);
       // Instructor identities are owned by the admin course API, not stale whole-state forms.
       for (const course of state.courses || []) {
-        if (Object.prototype.hasOwnProperty.call(course, "instructorAssociateIds")) {
-          validateInstructorAssociateIds(latestQuestionState, course.instructorAssociateIds);
-        }
         const current = (latestQuestionState.courses || []).find(c => c.id === course.id);
+        if (Object.prototype.hasOwnProperty.call(course, "instructorAssociateIds")) {
+          validateInstructorAssociateIds(latestQuestionState, course.instructorAssociateIds, current?.instructorAssociateIds || []);
+        }
         course.instructorAssociateIds = current ? [...(current.instructorAssociateIds || [])] : [];
+      }
+      for (const associate of latestQuestionState.associates || []) {
+        validateInstructorAssociateUpdate(latestQuestionState, associate.id,
+          (state.associates || []).find(item => item.id === associate.id));
       }
       let summary = null;
 
@@ -7704,6 +7709,7 @@ const server = http.createServer(async (req, res) => {
         ensureUniqueAssociateIdentityEmail(state, associate, email);
       }
 
+      validateInstructorAssociateUpdate(state, associate.id, payload);
       associate.associateNumber = associateNumber;
       associate.status = String(payload.status || associate.status || "Revisar documentacion").trim();
       associate.firstName = String(payload.firstName || "").trim();
@@ -13280,7 +13286,7 @@ async function runCourseAcademicAutomation(state, reason) {
 function courseInstructorConfig(state, payload, existingCourse = null) {
   const source = payload?.course && typeof payload.course === "object" ? payload.course : payload || {};
   const ids = Object.prototype.hasOwnProperty.call(source, "instructorAssociateIds")
-    ? validateInstructorAssociateIds(state, source.instructorAssociateIds)
+    ? validateInstructorAssociateIds(state, source.instructorAssociateIds, existingCourse?.instructorAssociateIds || [])
     : [...(existingCourse?.instructorAssociateIds || [])];
   return { instructorAssociateIds: ids };
 }
