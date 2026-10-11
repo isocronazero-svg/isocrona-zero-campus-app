@@ -4067,7 +4067,13 @@ document.addEventListener("submit", async (event) => {
     const coordinator = document.getElementById("courseCoordinator").value.trim();
     const audience = document.getElementById("courseAudience").value.trim();
     const accessScope = normalizeCourseAccessScope(document.getElementById("courseAccessScope")?.value, audience);
-    const enrollmentOpensAt = EnrollmentTime.fromLocalInput(document.getElementById("courseEnrollmentOpensAt")?.value || "");
+    let enrollmentOpensAt;
+    try {
+      enrollmentOpensAt = EnrollmentTime.fromLocalInput(document.getElementById("courseEnrollmentOpensAt")?.value || "");
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
     const contentTemplate = document.getElementById("courseTemplate").value || "operativo";
 
     if (!title || !courseClass || !type || !startDate || !endDate || !hours || !capacity) {
@@ -4290,9 +4296,15 @@ document.addEventListener("submit", async (event) => {
       readCourseFieldValue("editCourseAccessScope", course.accessScope || "members"),
       audience
     );
-    const enrollmentOpensAt = EnrollmentTime.fromLocalInput(
-      readCourseFieldValue("editCourseEnrollmentOpensAt", EnrollmentTime.localInput(course.enrollmentOpensAt))
-    );
+    let enrollmentOpensAt;
+    try {
+      enrollmentOpensAt = EnrollmentTime.fromLocalInput(
+        readCourseFieldValue("editCourseEnrollmentOpensAt", EnrollmentTime.localInput(course.enrollmentOpensAt))
+      );
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
     const coordinator = readCourseTrimmedValue("editCourseCoordinator", course.coordinator || "");
     const contentTemplate = readCourseFieldValue("editCourseTemplate", course.contentTemplate || inferCourseTemplate(course));
     const contentStatus = readCourseFieldValue("editCourseContentStatus", course.contentStatus || "draft");

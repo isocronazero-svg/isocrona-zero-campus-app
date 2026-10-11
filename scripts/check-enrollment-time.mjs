@@ -47,3 +47,8 @@ context.payload.enrollmentOpensAt = '';
 assert.equal(vm.runInContext('normalizeCourseMutationPayload(payload).enrollmentOpensAt', context), '');
 context.payload.enrollmentOpensAt = 'invalid';
 assert.throws(() => vm.runInContext('normalizeCourseMutationPayload(payload)', context), /fecha/);
+
+process.env.TZ = "Europe/Madrid";
+assert.throws(() => time.fromLocalInput("2026-03-29T02:30"), /hora local no existe/);
+assert.equal(time.fromLocalInput("2026-03-29T03:30"), "2026-03-29T01:30:00.000Z");
+assert.throws(() => time.fromLocalInput("2026-02-30T22:26"), /fecha/);
