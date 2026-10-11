@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
+  "server/instructor-certificate.js",
   "server/certificate-template-image.js",
   "server/live-test-library.js", "public/assets/js/app/modules/tests/liveTestLibrary.js",
   "server/diploma-layout.js",
@@ -27,6 +28,7 @@ const syntaxFiles = [
   "storage.js"
 ];
 const conflictCheckedFiles = [
+  "server/instructor-certificate.js",
   "server/certificate-template-image.js",
   "server/live-test-library.js", "public/assets/js/app/modules/tests/liveTestLibrary.js",
   "server/diploma-layout.js",
@@ -43,6 +45,7 @@ const conflictCheckedFiles = [
 ];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
+  "scripts/check-enrollment-time.mjs",
   "scripts/check-live-test-library.mjs",
   "scripts/check-backup-recovery.mjs",
   "scripts/check-diploma-layout.mjs",

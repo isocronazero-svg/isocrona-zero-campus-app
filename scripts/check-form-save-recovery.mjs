@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createRequire } from "node:module";
+const EnrollmentTime = createRequire(import.meta.url)("../public/enrollment-time.js");
 
 // Exercise the shipped helper and submit handler, without bootstrapping a real campus.
 const source = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
@@ -45,6 +47,7 @@ function fixture(id = "courseEditForm") {
   const requests = [];
   const toasts = [];
   const context = vm.createContext({
+    EnrollmentTime,
     console, Response, structuredClone,
     document: {
       getElementById: (name) => fields.get(name) || null,
@@ -68,7 +71,7 @@ function fixture(id = "courseEditForm") {
     normalizeCourseAccessScope: () => "members",
     normalizeDateTimeLocalInput: (value) => value,
     readCourseTrimmedValue: () => "Curso editado",
-    readCourseFieldValue: () => "Valor",
+    readCourseFieldValue: (field) => field === "editCourseEnrollmentOpensAt" ? "2026-10-10T22:26" : "Valor",
     readCourseNumberValue: () => 10,
     hasCourseModuleEditors: () => false,
     hasCourseResourceEditors: () => false,

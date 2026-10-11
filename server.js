@@ -1,3 +1,4 @@
+const EnrollmentTime = require("./public/enrollment-time.js");
 const http = require("http");
 const { createPublicLiveFlow, answerDistribution } = require("./server/public-live-flow");
 const publicLiveFlow = createPublicLiveFlow();
@@ -74,7 +75,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
-const { validateInstructorAssociateIds, canDownloadInstructorCertificate, buildInstructorCertificateModel } = require("./server/instructor-certificate");
+const { validateInstructorAssociateIds, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
   PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");
@@ -3347,12 +3348,7 @@ function isCoursePublicAccess(course) {
 }
 
 function getCourseEnrollmentOpensAtTimestamp(course) {
-  const raw = String(course?.enrollmentOpensAt || "").trim();
-  if (!raw) {
-    return null;
-  }
-  const timestamp = new Date(raw).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
+  return EnrollmentTime.timestamp(course?.enrollmentOpensAt);
 }
 
 function isCourseEnrollmentWindowOpen(course, nowValue = Date.now()) {
@@ -3374,7 +3370,8 @@ function formatCourseEnrollmentOpensAt(course) {
   if (!raw) {
     return "";
   }
-  return new Date(raw).toLocaleString("es-ES", {
+  return new Date(EnrollmentTime.timestamp(raw)).toLocaleString("es-ES", {
+    timeZone: "Europe/Madrid",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -9417,10 +9414,15 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     try {
     const courseId = decodeURIComponent(instructorPdfMatch[1]);
     const associateId = decodeURIComponent(instructorPdfMatch[2]);
-    if (!canDownloadInstructorCertificate(state, account, associateId)) {
+    const hasMember = (state.members || []).some(member => member.id === account.memberId);
+    const ownAssociate = hasMember ? resolveAssociateForAuthenticatedAccount(state, account) : null;
+    if (!canDownloadInstructorCertificate(state, account, associateId, ownAssociate)) {
       return sendJson(res, 403, { ok: false, error: "No tienes acceso a este certificado de instructor" });
     }
     const course = (state.courses || []).find(c => c.id === courseId);
+    if (course && (course.instructorAssociateIds || []).includes(associateId) && !isInstructorCertificateAvailable(course)) {
+      return sendJson(res, 409, { ok: false, error: "El certificado de instructor estara disponible cuando el curso haya terminado y este cerrado" });
+    }
     const model = buildInstructorCertificateModel(state, courseId, associateId, {
       dateRange: course ? formatDateRange(course.startDate, course.endDate) : "",
       issueDate: formatDate(new Date().toISOString())
@@ -13333,7 +13335,7 @@ function normalizeCourseMutationPayload(payload, existingCourse = null) {
     modality: readString("modality", "Presencial") || "Presencial",
     audience: audience || "Socios y voluntariado operativo",
     accessScope: normalizeCourseAccessScope(readString("accessScope", "members"), audience),
-    enrollmentOpensAt: readString("enrollmentOpensAt"),
+    enrollmentOpensAt: EnrollmentTime.canonical(readString("enrollmentOpensAt")),
     coordinator: readString("coordinator"),
     contentTemplate: readString("contentTemplate", "operativo") || "operativo",
     objectives: readArray("objectives"),

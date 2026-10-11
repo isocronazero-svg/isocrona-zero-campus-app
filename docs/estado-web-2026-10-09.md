@@ -7,6 +7,8 @@ Este documento es la referencia operativa para continuar desde cualquier chat/di
 
 ## 1. Estado general
 
+**Continuidad actualizada el 11/10/2026:** ver la ultima seccion de este documento. Los estados de PR de los apartados anteriores son historicos, no una cola de trabajo vigente.
+
 La V1 funcional está prácticamente cerrada en código.
 
 Último bloque funcional integrado y revisado: `94804766fe4e57538318821536fdfd31a1ce7cf6` (#230, backup/recovery). Después se añadieron commits documentales de continuidad/QA. App checks #307 sobre `320ddf1041e04cf373fef44166a4dc897404b8ff`: `success`.
@@ -240,3 +242,114 @@ Al comenzar: leer documento, revisar commits/PR posteriores, respetar decisiones
 Al terminar una sesión que cambie estado/plan: actualizar bitácora, indicar qué se hizo, qué NO hacer y siguiente paso.
 
 No fusionar #231 con P2 abierto. No iniciar funciones nuevas hasta cerrar #227.
+## Actualización 11/10/2026 — #241
+
+Esta bitácora sigue vigente; sus apartados del 09/10 quedan como histórico.
+Base revisada: main `4e4dc00ce6bfdc4a92a653a7b9b0f534fa245473`.
+#231–#239 ya están integrados según commits y #227. Prioridad autorizada: #241 y después #242, un PR por tema, sin otras funcionalidades ni datos reales.
+
+#241: nuevas aperturas guardadas como ISO UTC; control datetime-local mantiene hora local del navegador. Legacy sin offset se interpreta explícitamente en Europe/Madrid, independientemente de TZ del proceso. Backend conserva la decisión final. No se ejecuta migración. Hora repetida de otoño: primera ocurrencia; hora inexistente de primavera: rechazada al guardar.
+Validación: regresión automática integrada en check:app (tres TZ, invierno/verano, límites 22:25/22:26/22:31, vacío, ISO/offset, normalización backend y retorno UI). Smoke ejecutado con servidor y datos de demostración aislados.
+QA manual pendiente: curso de prueba en producción, alta/edición mostrando misma hora, rechazo antes de apertura y aceptación desde la hora exacta. No marcar producción PASS ni cerrar #227 por pruebas locales. Revisar P1/P2 y CI antes de cualquier merge.
+
+## Actualización operativa 11/10/2026 — #241, #242 y nuevo #245
+
+### #241 — apertura de inscripción por zona horaria
+- PR #243 fusionada en `main`.
+- Merge de referencia: `dbb6d274823bdcf11f4016c91cdf6fd21c6ab80e`.
+- Objetivo resuelto en código: nuevas fechas canónicas con zona/UTC, `datetime-local` conserva hora local, legacy sin offset se interpreta como `Europe/Madrid`, backend autoridad final.
+- Queda QA manual en producción: crear curso con apertura a 3–5 minutos vista, comprobar rechazo antes y aceptación desde el minuto exacto; verificar también edición mostrando la hora local configurada.
+- No cerrar #241 como validada en producción hasta ese PASS manual.
+
+### #242 / PR #244 — certificados de instructor vinculados a socios
+Estado actual: PR #244 abierta, rama `feat/242-instructor-certificates`, último head revisado `8212798e8d563722332839c4d64325d28f5bdc4b`.
+
+Decisiones de negocio cerradas:
+- Instructor certificable = persona con ficha de socio (`associates`), sea socio normal o personal de administración.
+- Admin sin ficha de socio NO es certificable.
+- Selección por IDs estables (`instructorAssociateIds`), nunca por nombre libre.
+- `course.coordinator` puede mantenerse solo como texto legacy/informativo; no crea identidad certificable.
+- Uno o varios instructores por curso.
+- Certificado específico de `INSTRUCTOR/A`, separado del diploma del alumno.
+- Datos personales del certificado se resuelven desde la ficha del socio.
+- Las horas impartidas NO se suman al certificado acumulado de formación recibida.
+- No mezclar con `diplomaReady` de alumnado.
+
+Bloqueos de review que deben quedar corregidos antes de merge:
+1. P1: no se puede generar/mostrar/descargar certificado de instructor antes de que el curso esté finalizado/cerrado. Backend debe rechazar incluso URL directa y también a admin.
+2. P2: cambios de instructores no pueden perderse al usar subacciones del editor (`Generar estructura`, `Aplicar plantilla`, `Añadir módulo`, etc.). No usar `/api/state` como bypass de validación.
+
+Instrucción ya enviada a Codex en PR #244: incorporar `main` actual con #241, corregir ambos findings, añadir regresiones, ejecutar `npm run check:app` + `npm run smoke:campus-test`, responder/resolver threads solo con tests verdes y solicitar nueva review. No mergear con P1/P2 pendientes.
+
+QA manual pendiente tras merge de #244:
+- selector múltiple móvil/escritorio;
+- admin con ficha y socio normal seleccionables; admin sin ficha no;
+- persistencia tras editar y usar subacciones;
+- dos instructores => dos certificados independientes;
+- permisos de descarga admin/instructor;
+- curso no finalizado => certificado bloqueado;
+- curso finalizado => certificado disponible;
+- docencia no aumenta horas de formación acumulada.
+
+### #245 — Gestión presencial de asistencia y cierre de alumnos por instructor/admin
+Issue creada: `#245 Gestión presencial de asistencia y cierre de alumnos por instructor/admin`.
+
+Motivo: para jornadas/cursos presenciales sin test, trabajo ni contenido online obligatorio, el backend ya dispone de `attendance`, `evaluations`, `diplomaReady` y cierre académico manual, pero falta una operativa clara para que instructor/admin valide quién asistió al terminar la jornada.
+
+Dependencia: implementar sobre `main` una vez #244 esté fusionada, para reutilizar `instructorAssociateIds` y no duplicar identidad/permisos de instructor.
+
+Flujo objetivo UX, prioritario en móvil:
+- sección `Asistencia y certificación` dentro del curso;
+- listado compacto de inscritos con nombre, nº de socio si existe, asistencia, evaluación/estado y diploma;
+- acción `Asistió` => en curso puramente presencial sin evaluación adicional: 100% + `Apto`;
+- acción `No asistió` => 0% + `No apto`;
+- ajuste manual de porcentaje/evaluación cuando existan otros requisitos;
+- cierre/validación por alumno usando la lógica backend existente;
+- solo sin blockers se añade a `diplomaReady`;
+- no asistente / `No apto` nunca obtiene diploma;
+- cursos con test/trabajo/contenido obligatorio siguen respetando esos blockers; asistencia sola no los puentea;
+- diploma ya emitido no se retira automáticamente por cambios posteriores, manteniendo comportamiento actual.
+
+Permisos #245:
+- admin: cualquier curso;
+- instructor asignado por `instructorAssociateIds`: solo su curso;
+- instructor no asignado: 403;
+- alumno: solo lectura de su estado, nunca puede modificarse/cerrarse a sí mismo;
+- lista de espera nunca se modifica;
+- backend autoridad final.
+
+Tests mínimos #245:
+- admin marca asistió/no asistió y cierra alumno;
+- instructor asignado puede hacerlo en su curso y no en otro;
+- alumno no puede modificar/cerrar;
+- waiting rechazado;
+- jornada presencial sin extras + asistió => cierre y diploma;
+- no asistió => no diploma;
+- requisito adicional pendiente => cierre bloqueado aunque asistencia 100%;
+- acciones masivas, si se añaden, no tocan espera ni expedientes incorrectos;
+- `diplomaReady` y certificado acumulado solo reflejan cierres válidos.
+
+Validación #245: PR específica, `npm run check:app`, `npm run smoke:campus-test`, revisión P1/P2, QA móvil/escritorio. No datos reales ni migraciones.
+
+### Orden de trabajo vigente
+1. Terminar #244 y corregir P1/P2.
+2. Re-review #244; si verde y sin findings, fusionar.
+3. Hacer QA manual de #242 en producción.
+4. Implementar #245 en PR separada sobre `main` ya con #244.
+5. QA manual de asistencia/cierre desde móvil como instructor y como admin.
+6. Actualizar #227 + esta bitácora con SHA final, CI, deploy y PASS/pendientes.
+7. Mantener #241 pendiente solo de su QA manual de hora exacta hasta validarlo.
+
+### Regla de continuidad reforzada
+GitHub + esta bitácora son la fuente común para móvil, escritorio y Codex. Antes de continuar cualquier tarea: leer esta sección y revisar commits/PR posteriores. No crear un plan paralelo. Si cambia estado, dependencias o siguiente paso, actualizar esta bitácora en la misma sesión.
+
+## Continuacion local 11/10/2026: correcciones de #244 y criterio del acumulado
+
+- Base incorporada: main `5565d78`, incluida #241/`dbb6d27`, sin reescribir su correccion horaria. Se actualiza la PR #244 existente, no se crea otra ni se fusiona.
+- P1 corregido: generacion y enlaces docentes solo con estado real `Cerrado` y fecha fin valida alcanzada. Planificacion, inscripcion abierta, curso activo, cierre pendiente y fechas futuras/vacias quedan bloqueados; URL directa devuelve 409 tambien a admin. Sin usar diplomaReady de alumnos.
+- P2 corregido: subacciones del editor guardan primero los IDs docentes con PATCH /api/courses/:id, con validacion backend, y despues el resto del estado. No se elimina la proteccion contra guardados obsoletos de /api/state. Si falla la seleccion, no se envia el estado y se conserva el borrador.
+- Compatibilidad legacy: descargas y enlaces reconocen el socio resuelto por las funciones canonicas del portal, sin conceder acceso a terceros ni a cuentas sin vinculo. Nombre vacio rechazado al asignar. DNI/NIE sigue opcional conforme a #242 ("si esta registrado"); aclarar este punto en la review, no imponer obligatoriedad nueva silenciosamente.
+- QA sintetica: regresiones API/UI de cierre, permisos, legacy, seleccion multiple, Generar estructura/Aplicar plantilla/Anadir modulo y rechazo de IDs invalidos. Smoke 14 rutas y check:app PASS. Movil 390 y escritorio 1440 revisados sin errores de consola; corregido recorte del editor mediante CSS acotado. Ningun dato productivo modificado; QA de produccion pendiente.
+- Decision directa del usuario en esta conversacion: **una sola hoja acumulada con horas de alumno y de instructor y dos totales separados**. No sumar docencia a formacion recibida. Sustituye el criterio anterior que excluia docencia del documento acumulado; esta correccion de #244 aun no implementa esa ampliacion.
+- Existe PR #240 (`codex/instructor-diplomas-hours`, `fd9b8e4`) con otra implementacion docente basada en miembros campus. No fusionar #240 y #244 juntas: modelos incompatibles. Conservar #240 como referencia para reutilizar el acumulado y la proteccion de emisiones sobre el modelo associates de #244 en un PR incremental; no perder trabajo ni crear dos fuentes de identidad.
+- Siguiente: CI/re-review de #244; revisar todos los findings antes de solicitar autorizacion de merge. Despues, certificado acumulado separado por rol y #245 en PRs independientes. #241 sigue pendiente de QA horaria productiva. No se autoriza merge/despliegue ni operaciones reales por esta entrada.

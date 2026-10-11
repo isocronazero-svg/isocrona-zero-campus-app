@@ -1,4 +1,6 @@
-﻿import {
+import "./enrollment-time.js";
+const EnrollmentTime = globalThis.EnrollmentTime;
+import {
   ASSOCIATE_SECTION_LINKS,
   CAMPUS_SECTION_LINKS,
   TEST_SECTION_LINKS,
@@ -1668,7 +1670,7 @@ document.addEventListener("click", async (event) => {
     const blueprint = buildCourseBlueprint(course, actionTarget.dataset.template || course.contentTemplate);
     applyBlueprintToCourse(course, blueprint);
     addActivity("admin", session.name, `Ha generado la estructura base del curso ${course.title}`);
-    await persistAndRender("Estructura base del curso generada");
+    await persistCourseEditorAndRender(course, "Estructura base del curso generada");
     return;
   }
 
@@ -1683,7 +1685,7 @@ document.addEventListener("click", async (event) => {
     const blueprint = buildCourseBlueprint(course, template);
     applyBlueprintToCourse(course, blueprint);
     addActivity("admin", session.name, `Ha aplicado la plantilla ${getCourseTemplateLabel(template)} a ${course.title}`);
-    await persistAndRender(`Plantilla ${getCourseTemplateLabel(template)} aplicada`);
+    await persistCourseEditorAndRender(course, `Plantilla ${getCourseTemplateLabel(template)} aplicada`);
     return;
   }
 
@@ -1742,7 +1744,7 @@ document.addEventListener("click", async (event) => {
     );
     course.contentStatus = course.modules.length ? "outline" : course.contentStatus;
     courseCurriculumMode = "modules";
-    await persistAndRender("Modulo anadido al curso");
+    await persistCourseEditorAndRender(course, "Modulo anadido al curso");
     return;
   }
 
@@ -1755,7 +1757,7 @@ document.addEventListener("click", async (event) => {
 
     Object.assign(course, readCourseEditorDraft(course));
     course.modules.splice(moduleIndex, 1);
-    await persistAndRender("Modulo eliminado del curso");
+    await persistCourseEditorAndRender(course, "Modulo eliminado del curso");
     return;
   }
 
@@ -1789,7 +1791,7 @@ document.addEventListener("click", async (event) => {
         module.lessons.length
       )
     );
-    await persistAndRender("Leccion anadida al modulo");
+    await persistCourseEditorAndRender(course, "Leccion anadida al modulo");
     return;
   }
 
@@ -1816,7 +1818,7 @@ document.addEventListener("click", async (event) => {
       )
     );
     addActivity("admin", session.name, `Ha generado el pack editorial del curso ${course.title}`);
-    await persistAndRender("Pack editorial generado para el curso");
+    await persistCourseEditorAndRender(course, "Pack editorial generado para el curso");
     return;
   }
 
@@ -1836,7 +1838,7 @@ document.addEventListener("click", async (event) => {
     }
 
     applyLessonScaffold(course, module, lesson);
-    await persistAndRender("Leccion enriquecida con contenido base");
+    await persistCourseEditorAndRender(course, "Leccion enriquecida con contenido base");
     return;
   }
 
@@ -1859,7 +1861,7 @@ document.addEventListener("click", async (event) => {
     if (course.contentStatus === "draft") {
       course.contentStatus = "outline";
     }
-    await persistAndRender("Leccion marcada como publicada");
+    await persistCourseEditorAndRender(course, "Leccion marcada como publicada");
     return;
   }
 
@@ -1929,7 +1931,7 @@ document.addEventListener("click", async (event) => {
       )
     );
     courseCurriculumMode = "resources";
-    await persistAndRender("Recurso anadido al curso");
+    await persistCourseEditorAndRender(course, "Recurso anadido al curso");
     return;
   }
 
@@ -1942,7 +1944,7 @@ document.addEventListener("click", async (event) => {
 
     Object.assign(course, readCourseEditorDraft(course));
     course.resources.splice(resourceIndex, 1);
-    await persistAndRender("Recurso eliminado del curso");
+    await persistCourseEditorAndRender(course, "Recurso eliminado del curso");
     return;
   }
 
@@ -1969,7 +1971,7 @@ document.addEventListener("click", async (event) => {
     });
 
     course.resources = merged.map((resource, resourceIndex) => normalizeCourseResource(resource, resourceIndex));
-    await persistAndRender("Biblioteca del curso sincronizada con las lecciones");
+    await persistCourseEditorAndRender(course, "Biblioteca del curso sincronizada con las lecciones");
     return;
   }
 
@@ -1984,7 +1986,7 @@ document.addEventListener("click", async (event) => {
     }
 
     module.lessons.splice(lessonIndex, 1);
-    await persistAndRender("Leccion eliminada del modulo");
+    await persistCourseEditorAndRender(course, "Leccion eliminada del modulo");
     return;
   }
 
@@ -2015,7 +2017,7 @@ document.addEventListener("click", async (event) => {
         lesson.blocks.length
       )
     );
-    await persistAndRender("Bloque anadido a la leccion");
+    await persistCourseEditorAndRender(course, "Bloque anadido a la leccion");
     return;
   }
 
@@ -2035,7 +2037,7 @@ document.addEventListener("click", async (event) => {
     }
 
     lesson.blocks.splice(blockIndex, 1);
-    await persistAndRender("Bloque eliminado de la leccion");
+    await persistCourseEditorAndRender(course, "Bloque eliminado de la leccion");
     return;
   }
 
@@ -4066,7 +4068,13 @@ document.addEventListener("submit", async (event) => {
     const instructorAssociateIds = readInstructorSelection("courseInstructors");
     const audience = document.getElementById("courseAudience").value.trim();
     const accessScope = normalizeCourseAccessScope(document.getElementById("courseAccessScope")?.value, audience);
-    const enrollmentOpensAt = normalizeDateTimeLocalInput(document.getElementById("courseEnrollmentOpensAt")?.value || "");
+    let enrollmentOpensAt;
+    try {
+      enrollmentOpensAt = EnrollmentTime.fromLocalInput(document.getElementById("courseEnrollmentOpensAt")?.value || "");
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
     const contentTemplate = document.getElementById("courseTemplate").value || "operativo";
 
     if (!title || !courseClass || !type || !startDate || !endDate || !hours || !capacity) {
@@ -4290,9 +4298,15 @@ document.addEventListener("submit", async (event) => {
       readCourseFieldValue("editCourseAccessScope", course.accessScope || "members"),
       audience
     );
-    const enrollmentOpensAt = normalizeDateTimeLocalInput(
-      readCourseFieldValue("editCourseEnrollmentOpensAt", course.enrollmentOpensAt || "")
-    );
+    let enrollmentOpensAt;
+    try {
+      enrollmentOpensAt = EnrollmentTime.fromLocalInput(
+        readCourseFieldValue("editCourseEnrollmentOpensAt", EnrollmentTime.localInput(course.enrollmentOpensAt))
+      );
+    } catch (error) {
+      showToast(error.message);
+      return;
+    }
     const coordinator = readCourseTrimmedValue("editCourseCoordinator", course.coordinator || "");
     const contentTemplate = readCourseFieldValue("editCourseTemplate", course.contentTemplate || inferCourseTemplate(course));
     const contentStatus = readCourseFieldValue("editCourseContentStatus", course.contentStatus || "draft");
@@ -4959,6 +4973,26 @@ function normalizeState(data) {
     nextState.selectedAssociateId = nextState.associates[0].id;
   }
   return nextState;
+}
+
+async function persistCourseEditorAndRender(course, successMessage) {
+  try {
+    // The course API owns instructor assignments; whole-state saves preserve its last value.
+    const response = await fetch(`/api/courses/${encodeURIComponent(course.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instructorAssociateIds: course.instructorAssociateIds || [] })
+    });
+    const payload = await readJsonResponse(response, "No se pudo guardar la seleccion de instructores");
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.error || "No se pudo guardar la seleccion de instructores");
+    }
+    await persistAndRender(successMessage);
+  } catch (error) {
+    syncStatus = error.message || "No se pudo guardar la seleccion de instructores";
+    showToast(syncStatus, "error");
+    render();
+  }
 }
 
 async function persistAndRender(successMessage) {
@@ -10915,9 +10949,14 @@ function readInstructorSelection(id, fallback = []) {
 }
 
 function renderInstructorCertificates(course, ownMember = null) {
+  const end = String(course.endDate || "");
+  if (course.status !== "Cerrado" || !/^\d{4}-\d{2}-\d{2}$/.test(end) ||
+      !Number.isFinite(Date.parse(end)) || new Date(end).toISOString().slice(0, 10) !== end ||
+      end > new Date().toISOString().slice(0, 10)) return "";
+  const ownAssociate = ownMember ? getCurrentAssociate() : null;
   const instructors = (course.instructorAssociateIds || [])
     .map(id => (state.associates || []).find(a => a.id === id)).filter(Boolean)
-    .filter(a => !ownMember || a.id === ownMember.associateId || a.linkedMemberId === ownMember.id ||
+    .filter(a => !ownMember || a.id === ownAssociate?.id || a.id === ownMember.associateId || a.linkedMemberId === ownMember.id ||
       (state.accounts || []).some(account => account.memberId === ownMember.id &&
         (account.associateId === a.id || (a.linkedAccountId && a.linkedAccountId === account.id))));
   if (!instructors.length) return "";
@@ -14180,7 +14219,7 @@ function renderCourseWorkbench(course) {
             </label>
             <label class="inline-field studio-full">
               Apertura de inscripcion
-              <input id="editCourseEnrollmentOpensAt" type="datetime-local" value="${escapeHtml(normalizeDateTimeLocalInput(course.enrollmentOpensAt || ""))}" />
+              <input id="editCourseEnrollmentOpensAt" type="datetime-local" value="${escapeHtml(EnrollmentTime.localInput(course.enrollmentOpensAt))}" />
               <span class="field-hint">Programa aqui la fecha y hora en la que la inscripcion quedara activa. Hasta entonces el curso puede mostrarse, pero no dejara inscribirse.</span>
             </label>
             <label class="inline-field studio-full">
@@ -16496,7 +16535,7 @@ function normalizeCourse(course) {
       course.accessScope || course.enrollmentScope || course.visibility,
       course.audience || ""
     ),
-    enrollmentOpensAt: normalizeDateTimeLocalInput(course.enrollmentOpensAt || ""),
+    enrollmentOpensAt: String(course.enrollmentOpensAt || "").trim(),
     coordinator: escapeHtml.normalizeDisplayText(course.coordinator || ""),
     instructorAssociateIds: Array.isArray(course.instructorAssociateIds) ? [...course.instructorAssociateIds] : [],
     contentTemplate: course.contentTemplate || "operativo",
@@ -18075,12 +18114,7 @@ function getCourseSeatsLeft(course) {
 }
 
 function getCourseEnrollmentOpensAtTimestamp(course) {
-  const raw = String(course?.enrollmentOpensAt || "").trim();
-  if (!raw) {
-    return null;
-  }
-  const timestamp = new Date(raw).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
+  return EnrollmentTime.timestamp(course?.enrollmentOpensAt);
 }
 
 function hasCourseScheduledEnrollment(course) {
@@ -18094,7 +18128,8 @@ function isCourseEnrollmentWindowOpen(course) {
 
 function getCourseEnrollmentOpensAtLabel(course) {
   const raw = String(course?.enrollmentOpensAt || "").trim();
-  return raw ? formatDateTime(raw) : "";
+  const time = EnrollmentTime.timestamp(raw);
+  return time === null ? "" : formatDateTime(new Date(time).toISOString());
 }
 
 function isCourseOpenForEnrollment(course) {
