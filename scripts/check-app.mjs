@@ -43,6 +43,7 @@ const conflictCheckedFiles = [
 ];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
+  "scripts/check-enrollment-time.mjs",
   "scripts/check-live-test-library.mjs",
   "scripts/check-backup-recovery.mjs",
   "scripts/check-diploma-layout.mjs",

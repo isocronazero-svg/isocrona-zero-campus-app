@@ -229,3 +229,12 @@ Al comenzar: leer documento, revisar commits/PR posteriores, respetar decisiones
 Al terminar una sesión que cambie estado/plan: actualizar bitácora, indicar qué se hizo, qué NO hacer y siguiente paso.
 
 No fusionar #231 con P2 abierto. No iniciar funciones nuevas hasta cerrar #227.
+## Actualización 11/10/2026 — #241
+
+Esta bitácora sigue vigente; sus apartados del 09/10 quedan como histórico.
+Base revisada: main `4e4dc00ce6bfdc4a92a653a7b9b0f534fa245473`.
+#231–#239 ya están integrados según commits y #227. Prioridad autorizada: #241 y después #242, un PR por tema, sin otras funcionalidades ni datos reales.
+
+#241: nuevas aperturas guardadas como ISO UTC; control datetime-local mantiene hora local del navegador. Legacy sin offset se interpreta explícitamente en Europe/Madrid, independientemente de TZ del proceso. Backend conserva la decisión final. No se ejecuta migración. Hora repetida de otoño: primera ocurrencia; hora inexistente de primavera: rechazada al guardar.
+Validación: regresión automática integrada en check:app (tres TZ, invierno/verano, límites 22:25/22:26/22:31, vacío, ISO/offset, normalización backend y retorno UI). Smoke ejecutado con servidor y datos de demostración aislados.
+QA manual pendiente: curso de prueba en producción, alta/edición mostrando misma hora, rechazo antes de apertura y aceptación desde la hora exacta. No marcar producción PASS ni cerrar #227 por pruebas locales. Revisar P1/P2 y CI antes de cualquier merge.
