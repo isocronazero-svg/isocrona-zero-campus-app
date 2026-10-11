@@ -1,4 +1,3 @@
-const { validateInstructorAssociateIds, canDownloadInstructorCertificate, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const http = require("http");
 const { createPublicLiveFlow, answerDistribution } = require("./server/public-live-flow");
 const publicLiveFlow = createPublicLiveFlow();
@@ -75,6 +74,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
+const { validateInstructorAssociateIds, canDownloadInstructorCertificate, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
   PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");

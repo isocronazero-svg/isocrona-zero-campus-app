@@ -43,7 +43,6 @@ const conflictCheckedFiles = [
 ];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
-  "scripts/check-instructor-certificates.mjs",
   "scripts/check-live-test-library.mjs",
   "scripts/check-backup-recovery.mjs",
   "scripts/check-diploma-layout.mjs",
@@ -89,6 +88,7 @@ const extraCheckScripts = [
   "scripts/check-test-zone-ivaspe-csv-files.mjs",
   "scripts/check-test-zone-ivaspe-dry-run.mjs",
   "scripts/check-test-zone-normalizer.mjs",
+  "scripts/check-instructor-certificates.mjs",
   "scripts/check-form-save-recovery.mjs"
 ];
 const associateActionContracts = [
