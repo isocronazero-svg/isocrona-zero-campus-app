@@ -264,6 +264,21 @@ for (const title of ["Accidentes de tráfico", "Rescate vertical", "RIT", "Incen
   assert.equal(f.form.resets, 1);
 }
 
+// Editing an unrelated field keeps fractional hours in the actual PATCH handler.
+for (const hours of [0.5, 6.5]) {
+  const f = fixture("courseEditForm");
+  f.context.getSelectedCourse = () => ({ id: "fractional-day", title: "RIT", hours });
+  f.context.readCourseNumberValue = (id) => id === "editCourseHours" ? hours : 10;
+  f.context.readCourseTrimmedValue = () => "Titulo editado";
+  await f.context.submit({ target: f.form, preventDefault() {} });
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].url, "/api/courses/fractional-day");
+  assert.equal(f.requests[0].method, "PATCH");
+  const payload = JSON.parse(f.requests[0].body);
+  assert.equal(payload.title, "Titulo editado");
+  assert.equal(payload.hours, hours);
+}
+
 // Non-form actions retain their existing refresh and rendering behavior.
 {
   const f = fixture();

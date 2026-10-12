@@ -361,10 +361,11 @@ async function main() {
       "Riesgos Tecnológicos", "Rescate en ríos", "GOM"
     ].entries()) {
       const id = `course-intensive-${index + 1}`;
+      const hours = index === 0 ? 0.5 : 6.5;
       const createdIntensive = await admin.request("POST", createCourseEndpoint, {
         course: {
           id, title, courseClass: "practico", type: "Jornada intensiva", status: "Planificacion",
-          startDate: "2026-11-15", endDate: "2026-11-15", hours: 6, capacity: 16,
+          startDate: "2026-11-15", endDate: "2026-11-15", hours, capacity: 16,
           modality: "Presencial", diplomaTemplate: "Aprovechamiento", accessScope: "members"
         }
       });
@@ -372,8 +373,10 @@ async function main() {
       assert.equal(createdIntensive.body.course.startDate, createdIntensive.body.course.endDate);
       const reloaded = (await admin.request("GET", "/api/state")).body.courses.find((course) => course.id === id);
       assert.equal(reloaded?.title, title, `Debe persistir la jornada ${title}`);
+      assert.equal(reloaded?.hours, hours);
       const edited = await admin.request("PATCH", `/api/courses/${id}`, { title });
       assert.equal(edited.body.course.title, title, `Debe poder editar la jornada ${title}`);
+      assert.equal(edited.body.course.hours, hours, "Editar otro campo no redondea horas");
     }
 
     assert.equal((await admin.request("POST", createCourseEndpoint, { course: {

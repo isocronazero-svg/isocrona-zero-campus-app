@@ -14232,7 +14232,7 @@ function renderCourseWorkbench(course) {
             </label>
             <label class="inline-field">
               Horas
-              <input id="editCourseHours" type="number" min="1" value="${course.hours}" />
+              <input id="editCourseHours" type="number" min="0.1" step="0.1" value="${course.hours}" />
             </label>
             <label class="inline-field">
               Plazas

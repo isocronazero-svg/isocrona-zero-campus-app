@@ -33,6 +33,14 @@ assert.match(server, /Number\.isInteger\(capacity\)/);
 assert.match(server, /endDate < startDate/);
 assert.match(styles, /@media \(max-width: 480px\)[\s\S]+#courseForm \.studio-grid/);
 
+// Native browser validation must accept the same fractional hours on both forms.
+for (const id of ["courseHours", "editCourseHours"]) {
+  const input = app.match(new RegExp(`<input id="${id}"[^>]*>`))?.[0];
+  assert.ok(input, `Missing hours input ${id}`);
+  assert.match(input, /min="0\.1"/, `${id} must accept durations below one hour`);
+  assert.match(input, /step="0\.1"/, `${id} must allow editing 6.5 hours unchanged`);
+}
+
 const mode = { value: "intensive" };
 const sections = ["course", "intensive"].map(courseMode => ({
   dataset: { courseMode }, hidden: false, controls: [{ value: "draft", disabled: false }],
