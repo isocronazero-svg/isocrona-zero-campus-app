@@ -3475,6 +3475,11 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.id === "courseCreationMode") {
+    syncCourseCreationMode(event.target.form);
+    return;
+  }
+
   if (event.target.id === "campusGroupResourceFilter") {
     campusGroupResourceFilter = event.target.value || "all";
     render();
@@ -4057,27 +4062,40 @@ document.addEventListener("submit", async (event) => {
 
   if (event.target.id === "courseForm" && isAdminSession()) {
     event.preventDefault();
-    const title = document.getElementById("courseTitle").value.trim();
-    const courseClass = document.getElementById("courseClass").value;
-    const type = document.getElementById("courseType").value.trim();
-    const startDate = document.getElementById("courseStart").value;
-    const endDate = document.getElementById("courseEnd").value;
+    const intensive = document.getElementById("courseCreationMode")?.value === "intensive";
+    const title = (intensive ? document.getElementById("intensiveDayTitle") : document.getElementById("courseTitle")).value.trim();
+    const courseClass = intensive ? "practico" : document.getElementById("courseClass").value;
+    const type = intensive ? "Jornada intensiva" : document.getElementById("courseType").value.trim();
+    const startDate = (intensive ? document.getElementById("intensiveDayDate") : document.getElementById("courseStart")).value;
+    const endDate = intensive ? startDate : document.getElementById("courseEnd").value;
     const hours = Number(document.getElementById("courseHours").value);
     const capacity = Number(document.getElementById("courseCapacity").value);
-    const coordinator = document.getElementById("courseCoordinator").value.trim();
-    const instructorAssociateIds = readInstructorSelection("courseInstructors");
-    const audience = document.getElementById("courseAudience").value.trim();
+    const coordinator = intensive ? "" : document.getElementById("courseCoordinator").value.trim();
+    const instructorAssociateIds = intensive ? [] : readInstructorSelection("courseInstructors");
+    const audience = intensive ? "" : document.getElementById("courseAudience").value.trim();
     const accessScope = normalizeCourseAccessScope(document.getElementById("courseAccessScope")?.value, audience);
     let enrollmentOpensAt;
     try {
       enrollmentOpensAt = EnrollmentTime.fromLocalInput(document.getElementById("courseEnrollmentOpensAt")?.value || "");
     } catch (error) {
-      showToast(error.message);
+      setFormSaveStatus(event.target, error.message, true);
+      showToast(error.message, "error", true);
       return;
     }
-    const contentTemplate = document.getElementById("courseTemplate").value || "operativo";
+    const contentTemplate = intensive ? "intensivo" : document.getElementById("courseTemplate").value || "operativo";
 
-    if (!title || !courseClass || !type || !startDate || !endDate || !hours || !capacity) {
+    const validationErrors = [];
+    if (!title) validationErrors.push(intensive ? "Selecciona el nombre de la jornada" : "Indica el nombre del curso");
+    if (!courseClass) validationErrors.push("Selecciona la clase del curso");
+    if (!type) validationErrors.push("Indica el área o especialidad");
+    if (!startDate || !endDate) validationErrors.push(intensive ? "Indica la fecha de la jornada" : "Indica las fechas de inicio y fin");
+    if (startDate && endDate && endDate < startDate) validationErrors.push("La fecha fin no puede ser anterior a la fecha de inicio");
+    if (!Number.isFinite(hours) || hours <= 0) validationErrors.push("Las horas deben ser mayores que cero");
+    if (!Number.isInteger(capacity) || capacity <= 0) validationErrors.push("Las plazas deben ser un número entero mayor que cero");
+    if (validationErrors.length) {
+      const message = validationErrors.join(". ");
+      setFormSaveStatus(event.target, `${message}. Los datos introducidos se conservan.`, true);
+      showToast(message, "error", true);
       return;
     }
 
@@ -4100,13 +4118,14 @@ document.addEventListener("submit", async (event) => {
       contentTemplate,
       diplomaTemplate: "Aprovechamiento"
     });
-    const blueprint = document.getElementById("courseGenerateContent")?.checked
+    if (intensive) draftCourse.modality = "Presencial";
+    const blueprint = !intensive && document.getElementById("courseGenerateContent")?.checked
       ? buildCourseBlueprint(draftCourse, contentTemplate)
       : draftCourse;
     const coursePayload = {
       ...draftCourse,
       summary: blueprint.summary,
-      modality: blueprint.modality,
+      modality: intensive ? "Presencial" : blueprint.modality,
       audience: blueprint.audience,
       accessScope,
       objectives: blueprint.objectives,
@@ -10565,17 +10584,35 @@ function renderCourses() {
                     <span class="small-chip">Plantillas docentes</span>
                   </div>
                 </div>
-                <div class="chip-row compact-chip-row">
+                <div class="chip-row compact-chip-row" data-course-mode="course">
                   <button class="mini-button" type="button" data-action="apply-course-starter" data-preset="ventilation">Cargar ejemplo: Ventilacion</button>
                   <button class="mini-button" type="button" data-action="apply-course-starter" data-preset="vertical">Cargar ejemplo: Rescate vertical</button>
                 </div>
-                ${renderCourseTemplateShowcase("operativo")}
+                <div data-course-mode="course">${renderCourseTemplateShowcase("operativo")}</div>
                 <div class="studio-grid">
                   <label class="inline-field studio-full">
+                    Tipo de alta
+                    <select id="courseCreationMode">
+                      <option value="course">Curso normal</option>
+                      <option value="intensive">Jornada intensiva</option>
+                    </select>
+                  </label>
+                  <label class="inline-field studio-full" data-course-mode="intensive" hidden>
+                    Nombre de la jornada
+                    <select id="intensiveDayTitle">
+                      <option value="">Selecciona una opción</option>
+                      ${INTENSIVE_DAY_TITLES.map((title) => `<option value="${escapeHtml(title)}">${escapeHtml(title)}</option>`).join("")}
+                    </select>
+                  </label>
+                  <label class="inline-field" data-course-mode="intensive" hidden>
+                    Fecha
+                    <input id="intensiveDayDate" type="date" />
+                  </label>
+                  <label class="inline-field studio-full" data-course-mode="course">
                     Nombre del curso
                     <input id="courseTitle" placeholder="Nombre del curso" />
                   </label>
-                  <label class="inline-field">
+                  <label class="inline-field" data-course-mode="course">
                     Clase del curso
                     <select id="courseClass">
                       ${Object.entries(COURSE_CLASS_LABELS)
@@ -10583,7 +10620,7 @@ function renderCourses() {
                         .join("")}
                     </select>
                   </label>
-                  <label class="inline-field">
+                  <label class="inline-field" data-course-mode="course">
                     Plantilla de contenido
                     <select id="courseTemplate">
                       ${Object.entries(COURSE_TEMPLATE_LABELS)
@@ -10591,35 +10628,35 @@ function renderCourses() {
                         .join("")}
                     </select>
                   </label>
-                  <label class="inline-field studio-full">
+                  <label class="inline-field studio-full" data-course-mode="course">
                     <span><input id="courseGenerateContent" type="checkbox" /> Crear modulos y tests desde la plantilla</span>
                   </label>
-                  <label class="inline-field studio-full">
+                  <label class="inline-field studio-full" data-course-mode="course">
                     Area o especialidad
                     <input id="courseType" placeholder="Area o especialidad del curso" />
                   </label>
-                  <label class="inline-field">
+                  <label class="inline-field" data-course-mode="course">
                     Fecha inicio
                     <input id="courseStart" type="date" />
                   </label>
-                  <label class="inline-field">
+                  <label class="inline-field" data-course-mode="course">
                     Fecha fin
                     <input id="courseEnd" type="date" />
                   </label>
                   <label class="inline-field">
                     Horas
-                    <input id="courseHours" type="number" min="1" placeholder="Horas" />
+                    <input id="courseHours" type="number" min="0.1" step="0.1" placeholder="Horas" />
                   </label>
                   <label class="inline-field">
                     Plazas
-                    <input id="courseCapacity" type="number" min="1" placeholder="Plazas" />
+                    <input id="courseCapacity" type="number" min="1" step="1" placeholder="Plazas" />
                   </label>
-                  <label class="inline-field">
+                  <label class="inline-field" data-course-mode="course">
                     Coordinación informativa (no certificable)
                     <input id="courseCoordinator" placeholder="Texto informativo" />
                   </label>
-                  ${renderInstructorSelector("courseInstructors")}
-                  <label class="inline-field">
+                  <div class="studio-full" data-course-mode="course">${renderInstructorSelector("courseInstructors")}</div>
+                  <label class="inline-field" data-course-mode="course">
                     Publico objetivo
                     <input id="courseAudience" placeholder="Publico objetivo del curso" />
                   </label>
@@ -14195,7 +14232,7 @@ function renderCourseWorkbench(course) {
             </label>
             <label class="inline-field">
               Horas
-              <input id="editCourseHours" type="number" min="1" value="${course.hours}" />
+              <input id="editCourseHours" type="number" min="0.1" step="0.1" value="${course.hours}" />
             </label>
             <label class="inline-field">
               Plazas
@@ -16301,6 +16338,28 @@ const COURSE_TEMPLATE_LABELS = {
   reciclaje: "Reciclaje express",
   intensivo: "Jornada intensiva"
 };
+
+const INTENSIVE_DAY_TITLES = [
+  "Accidentes de tráfico",
+  "Rescate vertical",
+  "RIT",
+  "Incendios Estructurales",
+  "Riesgos Tecnológicos",
+  "Rescate en ríos",
+  "GOM"
+];
+
+function syncCourseCreationMode(form = document.getElementById("courseForm")) {
+  if (!form) return;
+  const intensive = document.getElementById("courseCreationMode")?.value === "intensive";
+  form.dataset.creationMode = intensive ? "intensive" : "course";
+  form.querySelectorAll("[data-course-mode]").forEach((section) => {
+    section.hidden = section.dataset.courseMode !== (intensive ? "intensive" : "course");
+    section.querySelectorAll("input, select, textarea, button").forEach((control) => {
+      control.disabled = section.hidden;
+    });
+  });
+}
 
 const COURSE_CLASS_LABELS = {
   teorico: "Teorico",

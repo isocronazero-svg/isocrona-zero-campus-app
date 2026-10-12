@@ -189,7 +189,7 @@ for (const id of ["memberImportForm", "courseImportForm", "associatePaymentForm"
   for (const [name, value] of Object.entries({
     associatePaymentDate: "2026-09-23", associatePaymentAmount: "50", associatePaymentYear: "2026",
     associatePaymentMethod: "Transferencia", associatePaymentNote: "Nota que debe conservarse",
-    courseTitle: "Curso nuevo", courseClass: "practico", courseType: "Practica", courseStart: "2026-10-01",
+    courseCreationMode: "course", intensiveDayTitle: "", intensiveDayDate: "", courseTitle: "Curso nuevo", courseClass: "practico", courseType: "Practica", courseStart: "2026-10-01",
     courseEnd: "2026-10-02", courseHours: "8", courseCapacity: "12", courseCoordinator: "Coordinacion",
     courseAudience: "Socios", courseAccessScope: "members", courseEnrollmentOpensAt: "", courseTemplate: "operativo"
   })) f.field(name, value);
@@ -207,6 +207,76 @@ for (const id of ["memberImportForm", "courseImportForm", "associatePaymentForm"
   assert.ok(f.context.renderCount > 0);
   if (id === "memberImportForm") assert.equal(f.context.membersSectionMode, "directory");
   if (id === "courseImportForm") assert.equal(f.context.coursesSectionMode, "catalog");
+}
+
+// Invalid intensive-day submissions show an actionable error and keep the draft untouched.
+{
+  const f = fixture("courseForm");
+  for (const [name, value] of Object.entries({
+    courseCreationMode: "intensive", intensiveDayTitle: "RIT", intensiveDayDate: "",
+    courseTitle: "", courseClass: "", courseType: "", courseStart: "", courseEnd: "",
+    courseHours: "0", courseCapacity: "2.5", courseCoordinator: "", courseAudience: "",
+    courseAccessScope: "members", courseEnrollmentOpensAt: "", courseTemplate: "operativo"
+  })) f.field(name, value);
+  await f.context.submit({ target: f.form, preventDefault() {} });
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.form.resets, 0);
+  assert.equal(f.context.renderCount, 0);
+  assert.equal(f.context.document.getElementById("intensiveDayTitle").value, "RIT");
+  assert.match(f.form.status.textContent, /fecha de la jornada/);
+  assert.match(f.form.status.textContent, /horas deben ser mayores/);
+  assert.match(f.form.status.textContent, /plazas deben ser un número entero/);
+}
+
+// Exercise the real intensive submit, including stale values from normal-course mode.
+for (const title of ["Accidentes de tráfico", "Rescate vertical", "RIT", "Incendios Estructurales",
+  "Riesgos Tecnológicos", "Rescate en ríos", "GOM"]) {
+  const f = fixture("courseForm");
+  for (const [name, value] of Object.entries({
+    courseCreationMode: "intensive", intensiveDayTitle: title, intensiveDayDate: "2026-11-15",
+    courseTitle: "Borrador de curso", courseClass: "teorico", courseType: "Otra especialidad",
+    courseStart: "2026-11-01", courseEnd: "2026-11-04", courseHours: "6.5", courseCapacity: "16",
+    courseCoordinator: "Texto previo", courseAudience: "Otro publico", courseAccessScope: "members",
+    courseEnrollmentOpensAt: "", courseTemplate: "operativo"
+  })) f.field(name, value);
+  f.field("courseGenerateContent", "on", true, "checkbox").checked = true;
+  f.context.readInstructorSelection = () => ["hidden-instructor"];
+  f.context.buildCourseBlueprint = () => { throw new Error("Intensive day must not generate hidden content"); };
+  await f.context.submit({ target: f.form, preventDefault() {} });
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].url, "/api/courses");
+  assert.equal(f.requests[0].method, "POST");
+  const { course } = JSON.parse(f.requests[0].body);
+  assert.equal(course.title, title);
+  assert.equal(course.startDate, "2026-11-15");
+  assert.equal(course.endDate, course.startDate);
+  assert.equal(course.courseClass, "practico");
+  assert.equal(course.type, "Jornada intensiva");
+  assert.equal(course.status, "Planificacion");
+  assert.equal(course.modality, "Presencial");
+  assert.equal(course.diplomaTemplate, "Aprovechamiento");
+  assert.equal(course.contentTemplate, "intensivo");
+  assert.equal(course.hours, 6.5);
+  assert.equal(course.capacity, 16);
+  assert.equal(course.coordinator, "");
+  assert.equal(course.audience, "");
+  assert.deepEqual(course.instructorAssociateIds, []);
+  assert.equal(f.form.resets, 1);
+}
+
+// Editing an unrelated field keeps fractional hours in the actual PATCH handler.
+for (const hours of [0.5, 6.5]) {
+  const f = fixture("courseEditForm");
+  f.context.getSelectedCourse = () => ({ id: "fractional-day", title: "RIT", hours });
+  f.context.readCourseNumberValue = (id) => id === "editCourseHours" ? hours : 10;
+  f.context.readCourseTrimmedValue = () => "Titulo editado";
+  await f.context.submit({ target: f.form, preventDefault() {} });
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].url, "/api/courses/fractional-day");
+  assert.equal(f.requests[0].method, "PATCH");
+  const payload = JSON.parse(f.requests[0].body);
+  assert.equal(payload.title, "Titulo editado");
+  assert.equal(payload.hours, hours);
 }
 
 // Non-form actions retain their existing refresh and rendering behavior.

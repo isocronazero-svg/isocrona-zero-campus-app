@@ -63,7 +63,7 @@ No fusionar #240 junto a este modelo; queda solo como referencia histórica.
 
 ## 4. #246 — jornadas intensivas: guardado y formulario simplificado
 
-**Tarea activa y principal cuello de botella.**
+**PR #250 abierta: codigo implementado, checks locales/CI verdes y re-review sin problemas importantes. Sin merge.**
 
 Problema real reproducido: al crear una jornada, parecía que no se guardaba.
 
@@ -101,7 +101,19 @@ Tests mínimos:
 - jornada de un día persiste mismo inicio/fin;
 - curso normal no regresa.
 
-### Estado operativo real de #246 al cambiar a Desktop
+### Recuperacion en Desktop (12/10)
+
+- Base actual `a0770b0f8fc552bcdcdbd363af2e261c3eafcb1d`, incluye #244 fusionada y el handoff movil completo.
+- Patch del comentario #6125783195 recuperado y publicado en [PR #250](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/250). Rama local `codex/fix-intensive-day-creation`, remota `issue-246-jornadas-intensivas`; codigo `594fcd35fe6f3115facf89d299e15dea716198e0` (alta inicial `ae3d212`). No recrear patch ni abrir otra PR.
+- Reproduccion red/green: submit incompleto no creaba mensaje de estado; ahora muestra causas y conserva borrador. Jornada deriva fechas/defaults y guarda por POST /api/courses. Validacion backend de plazas enteras y orden de fechas.
+- Corregido adicionalmente el cambio de modo: campos ocultos deshabilitados, borrador normal conservado al volver y jornada no hereda instructores/contenido/coordinador ocultos. Error de apertura horaria conserva formulario. Sin implementar #249/#247/#245/#248.
+- Node 24.14.0 (>=22): check:app completo, check:course-academic, check:form-save-recovery y smoke 14 rutas PASS. Check intensive-days incluido en suite; alta/recarga/edicion API de los siete nombres y handlers reales probados.
+- P1 detectado por review corregido: editCourseHours tambien usa min=0.1/step=0.1. Regresion red/green sobre atributos nativos, handler PATCH real y API preservan 6.5/0.5 al editar otro campo. Suite completa y smoke repetidos PASS; [App checks #371 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38289141481). Hilo respondido/resuelto solo tras tests y CI verdes.
+- QA navegador sintetico: 1440/390 px sin overflow, errores visibles, jornada y curso normal se crean/recargan/editan, cambiar de modo conserva borrador. Nueva QA del P1: crear RIT6.5, cambiar solo titulo, recargar =>6.5; guardar0.5 y recargar =>0.5, validez nativa OK. Sin errores de consola ni datos reales. Capturas/logs locales en Gestion, no versionados.
+- Re-review sobre `594fcd3` terminada sin problemas importantes ([comentario 6129958339](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/250#issuecomment-6129958339)); ningun hilo P1/P2 abierto. #227 registra HEAD documental y CI finales. Siguiente: comprobar CI final y pedir autorizacion antes de merge; solo despues #249.
+- No merge ni despliegue desde Desktop; no se interpreta el orden propuesto como permiso de fusionar. QA productiva pendiente tras autorizacion e integracion.
+
+### Handoff anterior (conservado como referencia)
 
 Codex llegó a recrear dos veces la implementación, pero sus commits locales no quedaron publicados en GitHub por limitaciones del entorno de ejecución. No considerar `cceffab`, `bd9bce4` ni `010085265deddeb2672b3e46e49b080f0f8f8a70` como commits remotos: sirven solo como referencias de trabajo previo.
 
