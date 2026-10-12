@@ -75,6 +75,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
+const { validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
   PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");
@@ -3684,7 +3685,8 @@ function getAssociateDeletionContext(state, associateId) {
   const linkedAdminAccounts = linkedAccounts.filter((account) => account.role === "admin");
   const adminAccounts = (state.accounts || []).filter((account) => account.role === "admin");
   const courseLinks = (state.courses || [])
-    .filter((course) => linkedMemberId && isMemberLinkedToCourse(course, linkedMemberId))
+    .filter((course) => (course.instructorAssociateIds || []).includes(associate.id) ||
+      (linkedMemberId && isMemberLinkedToCourse(course, linkedMemberId)))
     .map((course) => ({
       id: course.id,
       title: course.title || course.id,
@@ -3779,6 +3781,11 @@ function deleteAssociateFromState(state, context) {
   const applicationIds = new Set(context.applications.map((application) => application.id));
 
   state.associates = (state.associates || []).filter((associate) => associate.id !== associateId);
+  for (const course of state.courses || []) {
+    if (Array.isArray(course.instructorAssociateIds)) {
+      course.instructorAssociateIds = course.instructorAssociateIds.filter(id => id !== associateId);
+    }
+  }
   state.associateProfileRequests = (state.associateProfileRequests || []).filter(
     (request) => request.associateId !== associateId && request.socio_id !== associateId
   );
@@ -4192,22 +4199,26 @@ function registerPublicCampusAccount(state, payload) {
 }
 
 function findAssociateForAccount(state, account, member) {
+  const associates = state.associates || [];
   const associateId = member?.associateId || account?.associateId || "";
+  if (associateId) return associates.find(associate => associate.id === associateId) || null;
+  const linkedAssociate = associates.find(associate => account?.id && associate.linkedAccountId === account.id) ||
+    associates.find(associate => member?.id && associate.linkedMemberId === member.id);
+  if (linkedAssociate) return linkedAssociate;
+  // Self-registered campus/DB names are not proof of association membership.
+  // Existing legacy members retain campus provenance when migrated to DB auth.
+  if (!member || account?.source === "public-campus" ||
+      !["", "campus", "associate", "manual-admin"].includes(String(member.source || ""))) return null;
+  // Legacy matching is a fallback only; ambiguous identities must not grant access.
   const memberEmail = String(member?.email || account?.email || "").trim().toLowerCase();
   const memberName = String(member?.name || account?.name || "").trim().toLowerCase();
-  return (
-    (state.associates || []).find(
-      (associate) =>
-        associate.id === associateId ||
-        associate.linkedMemberId === member?.id ||
-        associate.linkedAccountId === account?.id ||
-        (memberEmail && String(associate.email || "").trim().toLowerCase() === memberEmail) ||
-        (memberName &&
-          `${String(associate.firstName || "").trim()} ${String(associate.lastName || "").trim()}`
-            .trim()
-            .toLowerCase() === memberName)
-    ) || null
-  );
+  const emailMatches = associates.filter(associate => memberEmail &&
+    String(associate.email || "").trim().toLowerCase() === memberEmail);
+  if (emailMatches.length) return emailMatches.length === 1 ? emailMatches[0] : null;
+  const nameMatches = associates.filter(associate => memberName &&
+    `${String(associate.firstName || "").trim()} ${String(associate.lastName || "").trim()}`
+      .trim().toLowerCase() === memberName);
+  return nameMatches.length === 1 ? nameMatches[0] : null;
 }
 
 function resolveAssociateForAuthenticatedAccount(state, account) {
@@ -6471,6 +6482,15 @@ const server = http.createServer(async (req, res) => {
       }
       restoreTransportSanitizedSecrets(currentState, state);
       preserveIssuedDiplomasByCourse(currentState, state);
+      // Instructor identities are owned by the admin course API, not stale whole-state forms.
+      for (const course of state.courses || []) {
+        const current = (latestQuestionState.courses || []).find(c => c.id === course.id);
+        course.instructorAssociateIds = current ? [...(current.instructorAssociateIds || [])] : [];
+      }
+      for (const associate of latestQuestionState.associates || []) {
+        validateInstructorAssociateUpdate(latestQuestionState, associate.id,
+          (state.associates || []).find(item => item.id === associate.id));
+      }
       let summary = null;
 
       if (state.settings?.automation?.autoRunOnSave !== false) {
@@ -7690,6 +7710,7 @@ const server = http.createServer(async (req, res) => {
         ensureUniqueAssociateIdentityEmail(state, associate, email);
       }
 
+      validateInstructorAssociateUpdate(state, associate.id, payload);
       associate.associateNumber = associateNumber;
       associate.status = String(payload.status || associate.status || "Revisar documentacion").trim();
       associate.firstName = String(payload.firstName || "").trim();
@@ -8692,7 +8713,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
-      const course = { ...normalizeCourseMutationPayload(payload, null), ...courseTestConfig(state, payload) };
+      const course = { ...normalizeCourseMutationPayload(payload, null), ...courseInstructorConfig(state, payload), ...courseTestConfig(state, payload) };
       if ((state.courses || []).some((item) => item.id === course.id)) {
         return sendJson(res, 409, { ok: false, error: "Ya existe un curso con ese identificador" });
       }
@@ -8729,7 +8750,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
       const previousCourse = state.courses[courseIndex];
       const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
-      const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
+      const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...courseInstructorConfig(state, payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
       state.courses[courseIndex] = course;
       state.selectedCourseId = course.id;
       state.activeView = "campus";
@@ -9389,6 +9410,44 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         writeState(state);
       }
       return sendJson(res, 500, { ok: false, error: error.message || "No se pudo reenviar" });
+    }
+  }
+
+  const instructorPdfMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/instructors\/([^/]+)\.pdf$/);
+  if (instructorPdfMatch && req.method === "GET") {
+    const state = readState();
+    const account = requireAuthenticatedAccount(req, res, state);
+    if (!account) return;
+    try {
+    const courseId = decodeURIComponent(instructorPdfMatch[1]);
+    const associateId = decodeURIComponent(instructorPdfMatch[2]);
+    const hasMember = (state.members || []).some(member => member.id === account.memberId);
+    const ownAssociate = hasMember ? resolveAssociateForAuthenticatedAccount(state, account) : null;
+    if (!canDownloadInstructorCertificate(state, account, associateId, ownAssociate)) {
+      return sendJson(res, 403, { ok: false, error: "No tienes acceso a este certificado de instructor" });
+    }
+    const course = (state.courses || []).find(c => c.id === courseId);
+    if (course && (course.instructorAssociateIds || []).includes(associateId) && !isInstructorCertificateAvailable(course)) {
+      return sendJson(res, 409, { ok: false, error: "El certificado de instructor estara disponible cuando el curso haya terminado y este cerrado" });
+    }
+    const model = buildInstructorCertificateModel(state, courseId, associateId, {
+      dateRange: course ? formatDateRange(course.startDate, course.endDate) : "",
+      issueDate: formatDate(new Date().toISOString())
+    });
+    if (!model) return sendJson(res, 404, { ok: false, error: "Instructor no vinculado a este curso" });
+    const pages = buildDiplomaLayout(model, state.settings || {}, "");
+    const pdf = buildPdfDocument(buildDiplomaPdfStreams(pages, escapePdfText), {
+      pageWidth: DIPLOMA_PAGE_WIDTH, pageHeight: DIPLOMA_PAGE_HEIGHT,
+      backgroundImage: getCertificateTemplateImage()
+    });
+    res.writeHead(200, {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${sanitizeFilename(`instructor-${courseId}-${associateId}`)}.pdf"`,
+      "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"
+    });
+    return res.end(pdf);
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo generar el certificado de instructor");
     }
   }
 
@@ -13223,6 +13282,14 @@ async function runCourseAcademicAutomation(state, reason) {
   const summary = await runAutomationEngine(state);
   recordAutomationRun(state, reason, summary);
   return summary;
+}
+
+function courseInstructorConfig(state, payload, existingCourse = null) {
+  const source = payload?.course && typeof payload.course === "object" ? payload.course : payload || {};
+  const ids = Object.prototype.hasOwnProperty.call(source, "instructorAssociateIds")
+    ? validateInstructorAssociateIds(state, source.instructorAssociateIds, existingCourse?.instructorAssociateIds || [])
+    : [...(existingCourse?.instructorAssociateIds || [])];
+  return { instructorAssociateIds: ids };
 }
 
 function normalizeCourseMutationPayload(payload, existingCourse = null) {

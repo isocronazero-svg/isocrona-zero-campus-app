@@ -82,6 +82,7 @@ const draft = vm.runInNewContext(`${source("readCourseEditorDraft")}\nreadCourse
   course: { modules: [], resources: [], sessions: [{ title: "Presencial" }] },
   document: { getElementById: id => id === "courseEditForm" ? {} : null }, normalizeCourse: c => c,
   hasCourseModuleEditors: () => false, hasCourseResourceEditors: () => false,
+  readInstructorSelection: (_, fallback) => fallback || [],
   readCourseSharedTestSelection: () => ({}), readCourseTrimmedValue: (_, fallback) => fallback,
   readCourseFieldValue: (_, fallback) => fallback, readCourseNumberValue: (_, fallback) => fallback
 });

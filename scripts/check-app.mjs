@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
+  "server/instructor-certificate.js",
   "server/certificate-template-image.js",
   "server/live-test-library.js", "public/assets/js/app/modules/tests/liveTestLibrary.js",
   "server/diploma-layout.js",
@@ -27,6 +28,7 @@ const syntaxFiles = [
   "storage.js"
 ];
 const conflictCheckedFiles = [
+  "server/instructor-certificate.js",
   "server/certificate-template-image.js",
   "server/live-test-library.js", "public/assets/js/app/modules/tests/liveTestLibrary.js",
   "server/diploma-layout.js",
@@ -89,6 +91,7 @@ const extraCheckScripts = [
   "scripts/check-test-zone-ivaspe-csv-files.mjs",
   "scripts/check-test-zone-ivaspe-dry-run.mjs",
   "scripts/check-test-zone-normalizer.mjs",
+  "scripts/check-instructor-certificates.mjs",
   "scripts/check-form-save-recovery.mjs"
 ];
 const associateActionContracts = [

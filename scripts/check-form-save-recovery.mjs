@@ -77,6 +77,7 @@ function fixture(id = "courseEditForm") {
     hasCourseResourceEditors: () => false,
     buildModulesFromSessions: () => [],
     requestAnimationFrame: () => {},
+    readInstructorSelection: () => [],
     syncStatus: "",
     membersSectionMode: "import",
     coursesSectionMode: "import",

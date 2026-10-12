@@ -7,6 +7,8 @@ Este documento es la referencia operativa para continuar desde cualquier chat/di
 
 ## 1. Estado general
 
+**Continuidad actualizada el 11/10/2026:** ver la ultima seccion de este documento. Los estados de PR de los apartados anteriores son historicos, no una cola de trabajo vigente.
+
 La V1 funcional está prácticamente cerrada en código.
 
 Último bloque funcional integrado y revisado: `94804766fe4e57538318821536fdfd31a1ce7cf6` (#230, backup/recovery). Después se añadieron commits documentales de continuidad/QA. App checks #307 sobre `320ddf1041e04cf373fef44166a4dc897404b8ff`: `success`.
@@ -220,6 +222,17 @@ Estimación si no aparecen regresiones serias:
 - #227: ~5–15 créditos;
 - reserva objetivo total: ~10–30 créditos.
 
+## Actualización 11/10/2026 — #242 (rama independiente)
+
+Esta bitácora sigue vigente; los apartados del 09/10 son histórico. Base revisada: main `4e4dc00ce6bfdc4a92a653a7b9b0f534fa245473`; #231–#239 ya integrados. Alcance autorizado: primero #241, después #242, sin otras funcionalidades ni operaciones reales de datos.
+
+#241 propuesta en PR #243, SHA `272677944da456f4c8ec55a8fa4b431ba6a14473`: ISO UTC para nuevas aperturas, legacy Europe/Madrid, UI local y rechazo de horas inexistentes de marzo. P2 automático corregido, regresión y check:app/smoke locales verdes; revisar CI nuevo y QA productivo antes de merge.
+
+#242: selector de uno o varios instructores desde fichas `associates`, guarda `instructorAssociateIds`. Socio normal y admin con ficha son elegibles; cuenta admin sin ficha no. Coordinación libre queda informativa, sin conversión automática. Backend valida IDs, protege asignaciones de guardados globales obsoletos y retira el vínculo al eliminar una ficha. PDF específico INSTRUCTOR/A con nombre/apellidos/DNI de la ficha actual, curso, fechas, duración del curso, plantilla y firmantes institucionales. Descarga privada solo administración o propio socio. No modifica diplomaReady, inscripción, diplomas de alumnado ni acumulado de formación recibida.
+
+Validación local: check:app completo PASS, regresión de certificados integrada y smoke:campus-test PASS con servidor/datos sintéticos aislados. Revisión propia P1/P2: sin hallazgos pendientes. La duración indicada es la del curso; el modelo actual no registra horas individuales impartidas. No se inventan esas horas.
+QA manual pendiente: selector múltiple en móvil/escritorio; alta/edición/persistencia; dos PDFs con plantilla y firmantes reales; descargas desde socio y administración; acumulado sin horas de docencia. No marcar producción PASS ni cerrar #227 solo por CI. No se han tocado datos reales ni hecho migraciones. Mantener un PR por tema, ambos con base main, sin fusionar con pruebas rojas.
+
 ## 10. Norma de continuidad móvil / escritorio
 
 GitHub + esta bitácora mandan.
@@ -329,3 +342,19 @@ Validación #245: PR específica, `npm run check:app`, `npm run smoke:campus-tes
 
 ### Regla de continuidad reforzada
 GitHub + esta bitácora son la fuente común para móvil, escritorio y Codex. Antes de continuar cualquier tarea: leer esta sección y revisar commits/PR posteriores. No crear un plan paralelo. Si cambia estado, dependencias o siguiente paso, actualizar esta bitácora en la misma sesión.
+
+## Continuacion 11-12/10/2026: correcciones de #244 y criterio del acumulado
+
+- Base incorporada: main `5565d78`, incluida #241/`dbb6d27`, sin reescribir su correccion horaria. Se actualiza la PR #244 existente, no se crea otra ni se fusiona.
+- P1 corregido: generacion y enlaces docentes solo con estado real `Cerrado` y fecha fin valida ya superada (`endDate < today`, como diplomas existentes). Tambien se bloquea TODO el ultimo dia del curso, hasta su final. Planificacion, inscripcion abierta, curso activo, cierre pendiente y fechas futuras/vacias/invalidas bloqueados; URL directa devuelve 409 tambien a admin. Sin usar diplomaReady de alumnos.
+- P1 corregido en `01f7acb47661453a64d1932de74d511b97311ca3`: subacciones del editor guardan contenido e instructores en UN PATCH del curso, seguido solo de GET para refrescar. Sustituye el doble guardado anterior de `dffdaab`, que podia perder el outbox y duplicar envios. /api/state mantiene la proteccion de instructorAssociateIds frente a estados obsoletos. invokeJsonAction conserva borrador y bloqueo de reenvio si falla el refresco de un guardado confirmado.
+- P2 identidad: backend rechaza 400 antes de persistir si editar una ficha asignada deja su nombre vacio; /api/state tambien valida ese cambio. Renombrar a otro nombre valido mantiene su PDF. Socios no asignados conservan reglas anteriores; asignaciones historicas incompletas no bloquean guardados ajenos. DNI/NIE sigue opcional conforme a #242, confirmado por el propietario; no migraciones ni desvinculacion automatica.
+- P2 legacy: transporte usa el socio resuelto canonicamente para que curso privado y ficha propia lleguen al render del certificado. Tests por email/nombre, aislamiento de terceros y cuentas sin miembro. P2 borrado: dialogo y backend cuentan docencia aunque no haya expediente de alumno; requiere confirmacion explicita (409 sin force) antes de eliminar el vinculo.
+- Ultima correccion de codigo: `bb1dfa231c6b8eb4d8d74cfa91f0879659f90217`. Re-review detecto homonimos legacy que podian imponerse a vinculos explicitos e IDs docentes borrados que bloqueaban guardados obsoletos. Resolver prioriza ID/vinculos, rechaza fallback ambiguo o ID explicito huerfano, y /api/state descarta IDs docentes entrantes antes de usar los actuales. Banco de preguntas tambien corregido: questionBank forma parte del payload editable y no desaparece al refrescar.
+- Validacion de `bb1dfa2`: check:app completo PASS, smoke 14 rutas PASS, regresion instructor y scoping PASS. API real + sumidero SMTP local: una mutacion/automatizacion por subaccion, un solo envio, outbox sent estable con attemptCount=1 y seleccion/contenido persistidos. PATCH solo campos del editor: expediente sintetico de 600 KB preservado en servidor, sin 413 ni cambio de limites. Tests red/green: save-question-to-bank antes de tres subacciones conserva banco; fin=hoy bloquea API admin/socio, modelo y UI hasta 23:59:59.999, siguiente dia habilita. Homonimos => PDF ajeno 403 y DNI no expuesto; propio 200; ID docente borrado en seleccion obsoleta => guardado 200 sin reponer vinculo.
+- CI: [App checks #358 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38207614596) sobre codigo `bb1dfa2`; #356/#357 tambien PASS para versiones anteriores. Esta entrada documental no cambia codigo; #227 registra HEAD y CI finales.
+- Review: nueve hilos respondidos/resueltos con tests locales y CI verdes; nueva `@codex review` solicitada sobre `bb1dfa2` (comentario 6118266724). Comprobar su respuesta y el estado vivo de hilos antes de autorizar merge, no confundir ausencia temporal de comentarios con aprobacion. Sin merge, despliegue ni datos/correos reales; #245 sigue bloqueada por #244.
+- QA pendiente: prueba humana final movil/escritorio de selector/subacciones/banco, error al borrar nombre, confirmacion de borrado, socio legacy, certificados de dos instructores y limite del ultimo dia tras merge autorizado. QA visual anterior de `dffdaab` a 390/1440 PASS no equivale a validar produccion de este SHA. Servidor sintetico detenido; portal real intacto. [#227](https://github.com/isocronazero-svg/isocrona-zero-campus-app/issues/227#issuecomment-6118271435) recoge SHA final/CI y pendientes.
+- Decision directa del usuario en esta conversacion: **una sola hoja acumulada con horas de alumno y de instructor y dos totales separados**. No sumar docencia a formacion recibida. Sustituye el criterio anterior que excluia docencia del documento acumulado; esta correccion de #244 aun no implementa esa ampliacion.
+- Existe PR #240 (`codex/instructor-diplomas-hours`, `fd9b8e4`) con otra implementacion docente basada en miembros campus. No fusionar #240 y #244 juntas: modelos incompatibles. Conservar #240 como referencia para reutilizar el acumulado y la proteccion de emisiones sobre el modelo associates de #244 en un PR incremental; no perder trabajo ni crear dos fuentes de identidad.
+- Siguiente: CI/re-review de #244; revisar todos los findings antes de solicitar autorizacion de merge. Despues, certificado acumulado separado por rol y #245 en PRs independientes. #241 sigue pendiente de QA horaria productiva. No se autoriza merge/despliegue ni operaciones reales por esta entrada.

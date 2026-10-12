@@ -212,11 +212,13 @@ function createStateTransport(dependencies = {}) {
         associateId: scopedMember?.associateId || targetAccount?.associateId || "",
         name: scopedMember?.name || "", email: scopedMember?.email || "" };
     }
-    const associateId = scopedMember?.associateId || account.associateId || "";
+    const scopedAssociate = scopedMember
+      ? findAssociateForAccount(state, account, scopedMember)
+      : (state.associates || []).find(item => item.id === account.associateId) || null;
+    const associateId = scopedMember?.associateId || account.associateId || scopedAssociate?.id || "";
     const memberEmail = String(scopedMember?.email || account.email || "").toLowerCase();
     const ownAdminLearning = account.role === "admin" && memberId === account.memberId;
     const campusOnlyAccess = !associateId && !ownAdminLearning;
-    const scopedAssociate = findAssociateForAccount(state, account, scopedMember);
     const quotaLimitedAccess = !campusOnlyAccess && isAssociateAccessLimitedByQuota(scopedAssociate);
     const memberOwnedCourseIds = quotaLimitedAccess
       ? new Set()

@@ -1670,7 +1670,7 @@ document.addEventListener("click", async (event) => {
     const blueprint = buildCourseBlueprint(course, actionTarget.dataset.template || course.contentTemplate);
     applyBlueprintToCourse(course, blueprint);
     addActivity("admin", session.name, `Ha generado la estructura base del curso ${course.title}`);
-    await persistAndRender("Estructura base del curso generada");
+    await persistCourseEditorAndRender(course, "Estructura base del curso generada");
     return;
   }
 
@@ -1685,7 +1685,7 @@ document.addEventListener("click", async (event) => {
     const blueprint = buildCourseBlueprint(course, template);
     applyBlueprintToCourse(course, blueprint);
     addActivity("admin", session.name, `Ha aplicado la plantilla ${getCourseTemplateLabel(template)} a ${course.title}`);
-    await persistAndRender(`Plantilla ${getCourseTemplateLabel(template)} aplicada`);
+    await persistCourseEditorAndRender(course, `Plantilla ${getCourseTemplateLabel(template)} aplicada`);
     return;
   }
 
@@ -1744,7 +1744,7 @@ document.addEventListener("click", async (event) => {
     );
     course.contentStatus = course.modules.length ? "outline" : course.contentStatus;
     courseCurriculumMode = "modules";
-    await persistAndRender("Modulo anadido al curso");
+    await persistCourseEditorAndRender(course, "Modulo anadido al curso");
     return;
   }
 
@@ -1757,7 +1757,7 @@ document.addEventListener("click", async (event) => {
 
     Object.assign(course, readCourseEditorDraft(course));
     course.modules.splice(moduleIndex, 1);
-    await persistAndRender("Modulo eliminado del curso");
+    await persistCourseEditorAndRender(course, "Modulo eliminado del curso");
     return;
   }
 
@@ -1791,7 +1791,7 @@ document.addEventListener("click", async (event) => {
         module.lessons.length
       )
     );
-    await persistAndRender("Leccion anadida al modulo");
+    await persistCourseEditorAndRender(course, "Leccion anadida al modulo");
     return;
   }
 
@@ -1818,7 +1818,7 @@ document.addEventListener("click", async (event) => {
       )
     );
     addActivity("admin", session.name, `Ha generado el pack editorial del curso ${course.title}`);
-    await persistAndRender("Pack editorial generado para el curso");
+    await persistCourseEditorAndRender(course, "Pack editorial generado para el curso");
     return;
   }
 
@@ -1838,7 +1838,7 @@ document.addEventListener("click", async (event) => {
     }
 
     applyLessonScaffold(course, module, lesson);
-    await persistAndRender("Leccion enriquecida con contenido base");
+    await persistCourseEditorAndRender(course, "Leccion enriquecida con contenido base");
     return;
   }
 
@@ -1861,7 +1861,7 @@ document.addEventListener("click", async (event) => {
     if (course.contentStatus === "draft") {
       course.contentStatus = "outline";
     }
-    await persistAndRender("Leccion marcada como publicada");
+    await persistCourseEditorAndRender(course, "Leccion marcada como publicada");
     return;
   }
 
@@ -1931,7 +1931,7 @@ document.addEventListener("click", async (event) => {
       )
     );
     courseCurriculumMode = "resources";
-    await persistAndRender("Recurso anadido al curso");
+    await persistCourseEditorAndRender(course, "Recurso anadido al curso");
     return;
   }
 
@@ -1944,7 +1944,7 @@ document.addEventListener("click", async (event) => {
 
     Object.assign(course, readCourseEditorDraft(course));
     course.resources.splice(resourceIndex, 1);
-    await persistAndRender("Recurso eliminado del curso");
+    await persistCourseEditorAndRender(course, "Recurso eliminado del curso");
     return;
   }
 
@@ -1971,7 +1971,7 @@ document.addEventListener("click", async (event) => {
     });
 
     course.resources = merged.map((resource, resourceIndex) => normalizeCourseResource(resource, resourceIndex));
-    await persistAndRender("Biblioteca del curso sincronizada con las lecciones");
+    await persistCourseEditorAndRender(course, "Biblioteca del curso sincronizada con las lecciones");
     return;
   }
 
@@ -1986,7 +1986,7 @@ document.addEventListener("click", async (event) => {
     }
 
     module.lessons.splice(lessonIndex, 1);
-    await persistAndRender("Leccion eliminada del modulo");
+    await persistCourseEditorAndRender(course, "Leccion eliminada del modulo");
     return;
   }
 
@@ -2017,7 +2017,7 @@ document.addEventListener("click", async (event) => {
         lesson.blocks.length
       )
     );
-    await persistAndRender("Bloque anadido a la leccion");
+    await persistCourseEditorAndRender(course, "Bloque anadido a la leccion");
     return;
   }
 
@@ -2037,7 +2037,7 @@ document.addEventListener("click", async (event) => {
     }
 
     lesson.blocks.splice(blockIndex, 1);
-    await persistAndRender("Bloque eliminado de la leccion");
+    await persistCourseEditorAndRender(course, "Bloque eliminado de la leccion");
     return;
   }
 
@@ -4065,6 +4065,7 @@ document.addEventListener("submit", async (event) => {
     const hours = Number(document.getElementById("courseHours").value);
     const capacity = Number(document.getElementById("courseCapacity").value);
     const coordinator = document.getElementById("courseCoordinator").value.trim();
+    const instructorAssociateIds = readInstructorSelection("courseInstructors");
     const audience = document.getElementById("courseAudience").value.trim();
     const accessScope = normalizeCourseAccessScope(document.getElementById("courseAccessScope")?.value, audience);
     let enrollmentOpensAt;
@@ -4092,6 +4093,7 @@ document.addEventListener("submit", async (event) => {
       hours,
       capacity,
       coordinator,
+      instructorAssociateIds,
       audience,
       accessScope,
       enrollmentOpensAt,
@@ -4357,6 +4359,7 @@ document.addEventListener("submit", async (event) => {
         accessScope,
         enrollmentOpensAt,
         coordinator,
+        instructorAssociateIds: readInstructorSelection("editCourseInstructors", course.instructorAssociateIds),
         contentTemplate: contentTemplate || inferCourseTemplate(course),
         contentStatus: contentStatus || "draft",
         objectives,
@@ -4972,6 +4975,29 @@ function normalizeState(data) {
   return nextState;
 }
 
+async function persistCourseEditorAndRender(course, successMessage) {
+  // Send editor fields only; learner records remain server-owned and can be much larger.
+  const fields = [
+    "title", "courseClass", "type", "status", "startDate", "endDate", "hours", "capacity",
+    "diplomaTemplate", "summary", "modality", "enrollmentFee", "enrollmentPaymentInstructions",
+    "audience", "accessScope", "enrollmentOpensAt", "coordinator", "instructorAssociateIds",
+    "contentTemplate", "contentStatus", "objectives", "sessions", "modules", "resources", "questionBank",
+    "materials", "evaluationCriteria", "certificateCity", "certificateContents",
+    "feedbackEnabled", "feedbackRequiredForDiploma", "feedbackTeachers",
+    "sharedTestQuestionIds", "sharedTestPublished"
+  ];
+  const payload = Object.fromEntries(fields.filter(key => Object.prototype.hasOwnProperty.call(course, key))
+    .map(key => [key, course[key]]));
+  // A single PATCH followed by GET avoids posting an obsolete automation/outbox snapshot.
+  return invokeJsonAction(
+    `/api/courses/${encodeURIComponent(course.id)}`,
+    payload,
+    successMessage,
+    "PATCH",
+    document.getElementById("courseEditForm")
+  );
+}
+
 async function persistAndRender(successMessage) {
   syncStatus = "Guardando cambios...";
   render();
@@ -5333,11 +5359,12 @@ function getAssociateDeletionImpactSummary(associate) {
   );
   const linkedCourses = (state.courses || []).filter(
     (course) =>
-      linkedMemberId &&
-      ((course.enrolledIds || []).includes(linkedMemberId) ||
-        (course.waitingIds || []).includes(linkedMemberId) ||
-        (course.diplomaReady || []).includes(linkedMemberId) ||
-        (course.enrollmentSubmissions || []).some((submission) => submission.memberId === linkedMemberId))
+      (course.instructorAssociateIds || []).includes(associate.id) ||
+      (linkedMemberId &&
+        ((course.enrolledIds || []).includes(linkedMemberId) ||
+          (course.waitingIds || []).includes(linkedMemberId) ||
+          (course.diplomaReady || []).includes(linkedMemberId) ||
+          (course.enrollmentSubmissions || []).some((submission) => submission.memberId === linkedMemberId)))
   );
   const diplomas = linkedCourses.filter((course) => (course.diplomaReady || []).includes(linkedMemberId));
   const requests =
@@ -10588,9 +10615,10 @@ function renderCourses() {
                     <input id="courseCapacity" type="number" min="1" placeholder="Plazas" />
                   </label>
                   <label class="inline-field">
-                    Coordinacion o instructor responsable
-                    <input id="courseCoordinator" placeholder="Coordinacion o instructor responsable" />
+                    Coordinación informativa (no certificable)
+                    <input id="courseCoordinator" placeholder="Texto informativo" />
                   </label>
+                  ${renderInstructorSelector("courseInstructors")}
                   <label class="inline-field">
                     Publico objetivo
                     <input id="courseAudience" placeholder="Publico objetivo del curso" />
@@ -10910,6 +10938,38 @@ function getLearnerPendingDiplomaReasons(course, memberJourney) {
   ];
 }
 
+function renderInstructorSelector(id, selectedIds = []) {
+  const selected = new Set(selectedIds || []);
+  return `<label class="inline-field studio-full">Instructores certificables (socios)
+    <select id="${id}" multiple size="5" aria-label="Instructores certificables">
+      ${(state.associates || []).map(a => `<option value="${escapeHtml(a.id)}" ${selected.has(a.id) ? "selected" : ""}>${escapeHtml([a.firstName, a.lastName].filter(Boolean).join(" "))}${a.associateNumber ? ` · Socio nº ${escapeHtml(String(a.associateNumber))}` : ""}</option>`).join("")}
+    </select><span class="field-hint">Puedes seleccionar varios socios. En ordenador, usa Ctrl o Cmd para añadir personas. La docencia no suma horas de formación recibida.</span>
+  </label>`;
+}
+
+function readInstructorSelection(id, fallback = []) {
+  const control = document.getElementById(id);
+  return control ? Array.from(control.selectedOptions || [], option => option.value) : [...(fallback || [])];
+}
+
+function renderInstructorCertificates(course, ownMember = null) {
+  const end = String(course.endDate || "");
+  if (course.status !== "Cerrado" || !/^\d{4}-\d{2}-\d{2}$/.test(end) ||
+      !Number.isFinite(Date.parse(end)) || new Date(end).toISOString().slice(0, 10) !== end ||
+      end >= new Date().toISOString().slice(0, 10)) return "";
+  const ownAssociate = ownMember ? getCurrentAssociate() : null;
+  const instructors = (course.instructorAssociateIds || [])
+    .map(id => (state.associates || []).find(a => a.id === id)).filter(Boolean)
+    .filter(a => !ownMember || a.id === ownAssociate?.id || a.id === ownMember.associateId || a.linkedMemberId === ownMember.id ||
+      (state.accounts || []).some(account => account.memberId === ownMember.id &&
+        (account.associateId === a.id || (a.linkedAccountId && a.linkedAccountId === account.id))));
+  if (!instructors.length) return "";
+  return `<section class="table-card" aria-label="Certificados de instructor">
+    <h4>Certificados de instructor/a</h4><p class="muted">${escapeHtml(course.title)} · Docencia, separada de los diplomas del alumnado y del total de formación recibida.</p>
+    <div class="chip-row">${instructors.map(a => `<a class="mini-button" href="/api/courses/${encodeURIComponent(course.id)}/instructors/${encodeURIComponent(a.id)}.pdf">Descargar · ${escapeHtml([a.firstName, a.lastName].filter(Boolean).join(" "))}</a>`).join("")}</div>
+  </section>`;
+}
+
 function renderMemberDiplomas(member) {
   if (!member) {
     return `<div class="empty-state">No hay persona activa para consultar tus diplomas.</div>`;
@@ -10922,6 +10982,7 @@ function renderMemberDiplomas(member) {
       course.diplomaReady.includes(member.id)
   );
 
+  const teachingCertificates = state.courses.map(course => renderInstructorCertificates(course, member)).join("");
   if (!memberCourses.length) {
     return `
       <div class="panel-stack">
@@ -10933,6 +10994,7 @@ function renderMemberDiplomas(member) {
           </div>
         </div>
         <div class="empty-state">Todavia no hay diplomas ni cursos asociados a tu ficha.</div>
+        ${teachingCertificates}
       </div>
     `;
   }
@@ -11022,6 +11084,7 @@ function renderMemberDiplomas(member) {
       </section>
       <div class="panel-stack associate-anchor" id="diplomaSectionDocuments">
         ${diplomaCards}
+        ${teachingCertificates}
       </div>
     </div>
   `;
@@ -11064,6 +11127,7 @@ function renderDiplomas(course) {
 
   return `
     <div class="panel-stack">
+      ${isAdminView() ? renderInstructorCertificates(course) : ""}
       <div class="panel-header associate-anchor" id="diplomaSectionActions">
         <div>
           <p class="eyebrow">Campus · Diplomas</p>
@@ -14163,9 +14227,10 @@ function renderCourseWorkbench(course) {
               <span class="field-hint">Programa aqui la fecha y hora en la que la inscripcion quedara activa. Hasta entonces el curso puede mostrarse, pero no dejara inscribirse.</span>
             </label>
             <label class="inline-field studio-full">
-              Coordinacion o docente responsable
+              Coordinación informativa (no certificable)
               <input id="editCourseCoordinator" value="${escapeHtml(course.coordinator || "")}" />
             </label>
+            ${renderInstructorSelector("editCourseInstructors", course.instructorAssociateIds)}
             <label class="inline-field studio-full">
               Indicaciones de pago / transferencia
               <textarea id="editCourseEnrollmentInstructions" placeholder="IBAN, concepto, plazo o cualquier indicacion util para la inscripcion.">${escapeHtml(course.enrollmentPaymentInstructions || "")}</textarea>
@@ -14518,6 +14583,7 @@ function renderCourseWorkbench(course) {
           showWorkbenchSection("certificate")
             ? `
         <div class="content-module" id="courseCertificatePanel">
+          ${renderInstructorCertificates(course)}
           <div class="module-head">
             <div>
               <p class="eyebrow">Certificado final</p>
@@ -16475,6 +16541,7 @@ function normalizeCourse(course) {
     ),
     enrollmentOpensAt: String(course.enrollmentOpensAt || "").trim(),
     coordinator: escapeHtml.normalizeDisplayText(course.coordinator || ""),
+    instructorAssociateIds: Array.isArray(course.instructorAssociateIds) ? [...course.instructorAssociateIds] : [],
     contentTemplate: course.contentTemplate || "operativo",
     objectives: Array.isArray(course.objectives) ? course.objectives.map((item) => escapeHtml.normalizeDisplayText(item)) : [],
     sessions,
@@ -19635,6 +19702,7 @@ function readCourseEditorDraft(course) {
     ),
     audience: readCourseTrimmedValue("editCourseAudience", course.audience || "Socios y voluntariado operativo"),
     coordinator: readCourseTrimmedValue("editCourseCoordinator", course.coordinator || ""),
+    instructorAssociateIds: readInstructorSelection("editCourseInstructors", course.instructorAssociateIds),
     contentTemplate: readCourseFieldValue("editCourseTemplate", course.contentTemplate),
     contentStatus: readCourseFieldValue("editCourseContentStatus", course.contentStatus),
     objectives: document.getElementById("editCourseObjectives")

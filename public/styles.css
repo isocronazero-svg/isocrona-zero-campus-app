@@ -2732,6 +2732,21 @@ a {
   grid-column: 1 / -1;
 }
 
+#courseSectionWorkbench > .panel-stack,
+#courseEditForm {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#courseEditForm,
+#courseEditForm .content-module,
+#courseEditForm .inline-field,
+#courseEditForm input,
+#courseEditForm select,
+#courseEditForm textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .lesson-roadmap {
   display: grid;
   gap: 10px;
