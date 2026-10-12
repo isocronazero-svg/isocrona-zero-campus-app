@@ -78,7 +78,11 @@ Objetivo:
 - añadir flag estable tipo `instructorEnabled` en ficha de socio;
 - solo `instructorEnabled=true` aparece en selector de cursos/jornadas;
 - backend rechaza IDs de socios no habilitados;
-- permitir varios instructores;
+- permitir cualquier número razonable de instructores por curso/jornada: 1, 2, 3 o más, sin límite artificial de dos;
+- UX con botón/control `Añadir instructor`, no dos campos fijos;
+- mostrar lista de instructores añadidos con acción `Quitar` individual;
+- evitar duplicados del mismo instructor;
+- recarga/edición debe conservar toda la selección;
 - preservar relaciones históricas sin borrarlas silenciosamente;
 - identidad/certificado sigue resolviéndose desde la ficha de socio.
 
@@ -105,7 +109,9 @@ Dependencia: consolidar #244 y, para el modelo definitivo de permisos docentes, 
 
 ## 6. Issue #246 — creación de jornadas intensivas
 
-Problema reproducido por el usuario el 12/10: al intentar crear una jornada desde la web, el formulario no se guardó. Hay que reproducir y encontrar la causa real; no asumirla.
+Problema reproducido por el usuario el 12/10: al intentar crear una jornada desde la web, el formulario no se guardó.
+
+Hallazgo adelantado: el submit actual hace `return` silencioso si falta título, clase, tipo, fecha inicio, fecha fin, horas o plazas. Eso puede hacer parecer que “no se guarda” sin mostrar causa. #246 debe convertir esos fallos en validación visible y conservar el borrador.
 
 Issue: #246 `Jornadas intensivas · corregir guardado y añadir nombres predeterminados`.
 
@@ -155,22 +161,41 @@ Diseño decidido:
 
 Dependencias: #245 para saber con fiabilidad quién asistió/cerró como alumno y #247 para separar claramente rol docente de alumno.
 
-## 8. Orden de trabajo actualizado
+## 8. Issue #249 — cierre automático de inscripciones
+
+Nueva regla de negocio confirmada el 12/10:
+si una inscripción abre, por ejemplo, el día 10 y el curso/jornada es el día 12, no puede seguir abierta el día 13.
+
+Issue: #249 `Inscripciones · cierre automático por fecha/hora y fin de disponibilidad`.
+
+Diseño decidido:
+- añadir `enrollmentClosesAt` opcional en alta/edición;
+- si se configura, desde ese instante se rechazan nuevas inscripciones;
+- si no se configura, cierre automático por defecto al comenzar el día del curso (`startDate` a las 00:00 Europe/Madrid mientras no exista hora específica de inicio);
+- nunca permitir inscripciones nuevas después del comienzo aunque `course.status` siga obsoleto como `Inscripcion abierta`;
+- backend autoridad final; UI debe ocultar CTA y mostrar `Inscripción cerrada`;
+- validar `enrollmentOpensAt < enrollmentClosesAt <= inicio del curso`;
+- reutilizar las reglas horarias de #241 para UTC/Europe-Madrid/DST;
+- no confundir ventana de inscripción con estado académico del curso;
+- no romper reintento de justificante ni expedientes ya creados.
+
+## 9. Orden de trabajo actualizado
 
 Orden operativo recomendado y autorizado:
 
 1. **Cerrar #244**: refrescar review threads, confirmar que no queda P1/P2 abierto con código pendiente, CI verde y mergeable; después fusionar.
 2. **Actualizar #227 + esta bitácora** con SHA de merge de #244 y QA pendiente.
-3. **#246**: reproducir y corregir el fallo de guardado de jornadas + selector de nombres predeterminados. Es una regresión de uso real y debe ir antes de añadir más complejidad.
-4. **#247**: habilitación explícita de socios como instructores y selector filtrado.
-5. **#245**: asistencia presencial/cierre académico por admin e instructor asignado.
-6. **#248**: histórico de jornadas realizadas como alumno, ranking de prioridad y exportación.
-7. QA manual móvil/escritorio del circuito completo: crear jornada → asignar instructores → inscripción → asistencia/cierre → diploma alumno/instructor → histórico/prioridad.
-8. Actualizar #227 y bitácora tras cada merge significativo.
+3. **#246**: reproducir y corregir el fallo de guardado de jornadas + selector de nombres predeterminados.
+4. **#249**: cierre automático/configurable de inscripciones, aprovechando inmediatamente la base horaria de #241.
+5. **#247**: habilitación explícita de socios como instructores + `Añadir instructor` sin límite artificial de dos.
+6. **#245**: asistencia presencial/cierre académico por admin e instructor asignado.
+7. **#248**: histórico de jornadas realizadas como alumno, ranking de prioridad y exportación.
+8. QA manual móvil/escritorio del circuito completo: crear jornada → apertura/cierre de inscripción → asignar varios instructores → inscripción → asistencia/cierre → diploma alumno/instructor → histórico/prioridad.
+9. Actualizar #227 y bitácora tras cada merge significativo o cambio de plan.
 
-No mezclar estas cuatro issues nuevas en una sola PR. Un tema por PR para poder revisar y revertir con seguridad.
+No mezclar estas issues en una sola PR. Un tema por PR para poder revisar y revertir con seguridad.
 
-## 9. Criterios comunes de validación para #246–#248 y #245
+## 10. Criterios comunes de validación para #245–#249
 
 Cada PR debe:
 - ejecutar `npm run check:app`;
@@ -183,17 +208,17 @@ Cada PR debe:
 - comprobar móvil ~390 px y escritorio;
 - registrar QA productiva pendiente sin inventar PASS.
 
-## 10. Producción / Railway
+## 11. Producción / Railway
 
 El portal activo corresponde al contexto Railway `zealous-warmth - isocrona-zero-campus-test`, pese al nombre interno. Existe un segundo contexto Railway `outstanding-wholeness - isocrona-zero-campus` paralelo/legado que genera ruido y no debe confundirse con el portal activo.
 
 No afirmar despliegue productivo solo porque CI esté verde. Tras cada merge relevante comprobar el estado del servicio activo y hacer QA manual de la funcionalidad afectada.
 
-## 11. Otros pendientes que siguen separados
+## 12. Otros pendientes que siguen separados
 
 - #227: QA final/regresiones/congelación.
 - #134: importación/verificación real de 175 preguntas IVASPE en producción; operación, no desarrollo ordinario.
 - #112: ampliación de contenido IVASPE.
 - #109: deuda técnica V2, extracción incremental de dominios de `server.js`.
 
-No mezclar esos trabajos con #244–#248 salvo necesidad demostrada.
+No mezclar esos trabajos con #244–#249 salvo necesidad demostrada.
