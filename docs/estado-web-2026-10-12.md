@@ -16,6 +16,8 @@ Antes de tocar código:
 
 No tocar datos reales, migraciones o importaciones productivas sin backup externo recuperable, dry-run y autorización explícita.
 
+Regla de eficiencia añadida el 12/10: si una PR funcional está esperando integrar `main`, agrupar actualizaciones documentales para no mover `main` repetidamente y volver a dejar la PR atrás. Se puede registrar pretrabajo temporalmente en issues/#227 y consolidarlo en esta bitácora tras el merge significativo.
+
 ## 2. #241 — zona horaria de apertura de inscripción
 
 Fusionado en `main` mediante `dbb6d274823bdcf11f4016c91cdf6fd21c6ab80e`.
@@ -32,29 +34,36 @@ Pendiente: QA manual productiva con apertura a pocos minutos vista.
 
 ## 3. #242 / PR #244 — certificados de instructor
 
-PR #244: `Certificados de instructor vinculados a fichas de socios (#242)`.
+**Fusionado en `main` el 12/10.**
 
-Estado comprobado el 12/10:
-- abierta;
-- head `33ff4393b4f2ac11e1d3cbda2dbed0d52b0ad0e3`;
-- App checks #360: success;
-- todos los review threads P1/P2 están resueltos;
-- GitHub muestra `mergeable: false` porque `main` ha seguido avanzando con documentación/bitácora mientras la rama sigue basada en `5565d78...`.
+Merge squash final: `6f92d69ff46adb7121a6f09810c1f1e6e866ff8d`.
+Head validado antes de merge: `a10a16ff0bcf9d93da33be9b4d41f3b066a843d6`.
+App checks #366: `success`.
+Todos los review threads P1/P2 estaban resueltos antes de fusionar.
 
-Codex recibió la instrucción en comentario #6119148620 de actualizar la rama con `main`, resolver solo integración, repetir `npm run check:app` + `npm run smoke:campus-test`, comprobar que no reaparece P1/P2 y dejar la PR lista para merge. No añadir #245–#249 a #244.
-
-Modelo que debe conservarse:
+Modelo integrado:
 - identidad docente por `instructorAssociateIds`;
-- varios instructores;
+- uno o varios instructores;
 - sin nombres libres como identidad certificable;
 - certificado docente privado;
 - DNI/NIE opcional si consta;
 - solo disponible cuando el curso está `Cerrado` y la fecha fin ya ha pasado completamente;
-- no mezclar con `diplomaReady` del alumnado.
+- backend/UI bloquean emisión anticipada;
+- no mezclar con `diplomaReady` del alumnado;
+- protección frente a identidad legacy insegura, snapshots obsoletos y dobles automatizaciones;
+- borrar un socio usado como instructor exige confirmación/force y muestra impacto.
 
-No fusionar #240 junto a #244.
+QA productiva pendiente:
+- selector/edición de varios instructores;
+- descarga PDF desde admin y desde el propio instructor;
+- permisos laterales;
+- curso cerrado hoy sigue bloqueado hasta el día siguiente.
+
+No fusionar #240 junto a este modelo; queda solo como referencia histórica.
 
 ## 4. #246 — jornadas intensivas: guardado y formulario simplificado
+
+**Siguiente tarea activa.**
 
 Problema real reproducido: al crear una jornada, parecía que no se guardaba.
 
@@ -81,20 +90,18 @@ Diseño funcional cerrado en comentario #6119278505:
 - diploma por defecto `Aprovechamiento`;
 - no pedir texto libre duplicado para clase/tipo;
 - coordinador libre no acredita docencia;
-- instructores se añadirán después mediante #247;
+- instructores se añadirán mediante #247;
 - horas > 0 y plazas > 0 con error claro;
 - cursos normales mantienen su flujo actual;
 - móvil ~390 px y escritorio.
 
-Tests a preparar:
+Tests mínimos:
 - los 7 nombres crean, recargan y editan correctamente;
 - campo obligatorio ausente muestra error y conserva formulario;
 - jornada de un día persiste mismo inicio/fin;
 - curso normal no regresa.
 
 ## 5. #249 — cierre automático/configurable de inscripciones
-
-Issue: `Inscripciones · cierre automático por fecha/hora y fin de disponibilidad`.
 
 Regla de negocio:
 - una jornada del día 12 no puede seguir aceptando inscripciones el día 13;
@@ -116,7 +123,7 @@ Pretrabajo:
 Solo los socios expresamente habilitados deben aparecer como instructores.
 
 Diseño cerrado:
-- añadir booleano estable `instructorEnabled` en ficha de socio;
+- booleano estable `instructorEnabled` en ficha de socio;
 - backend rechaza nuevas asignaciones de socios no habilitados;
 - históricos no se borran al deshabilitar;
 - un curso/jornada puede tener 1, 2, 3, 4 o más instructores, sin límite artificial de dos;
@@ -126,20 +133,20 @@ Diseño cerrado:
 - recarga conserva toda la selección;
 - cada instructor conserva certificado independiente cuando corresponda.
 
-Comentario técnico: #6119194061.
-
-Puntos de implementación previstos tras #244:
+Puntos de implementación sobre el `main` ya fusionado de #244:
 - normalización/persistencia de `associates`;
 - edición administrativa de ficha de socio;
 - validación del PATCH de associate;
 - selector de alta/edición de curso basado en `instructorAssociateIds`;
 - regresiones de 1, 2, 3 y 4 instructores.
 
+Comentario técnico: #6119194061.
+
 ## 7. #245 — asistencia presencial y cierre de alumnos
 
 Objetivo: que admin/instructor pueda terminar una jornada presencial marcando quién asistió y habilitando el diploma solo a quien corresponda.
 
-La arquitectura necesaria ya existe:
+Arquitectura existente a reutilizar:
 - `PATCH /api/courses/:courseId/academic` para asistencia/evaluación;
 - `POST /api/courses/:courseId/members/:memberId/close` para cierre académico individual.
 
@@ -154,40 +161,39 @@ UX objetivo:
 - admin: cualquier curso;
 - instructor asignado: solo sus cursos;
 - alumno: solo lectura de su estado;
-- cursos con test/trabajo mantienen sus requisitos.
+- cursos con test/trabajo mantienen requisitos.
 
 Comentario técnico: #6119188550.
 
 ## 8. #248 — histórico de jornadas y prioridad por menor participación
 
-Regla: se da prioridad a quien menos veces haya participado como alumno en jornadas.
+Regla: prioridad a quien menos veces haya participado como alumno en jornadas.
 
 Diseño:
 - vista web principal + exportación CSV/XLSX;
-- no guardar un contador manual tipo `timesAttended`;
+- no guardar contador manual `timesAttended`;
 - derivarlo de la verdad académica existente;
-- preferencia: contar jornadas cerradas/validadas donde el alumno está realmente completado (`diplomaReady` o cierre equivalente consolidado por #245);
+- contar jornadas cerradas/validadas donde el alumno realmente completó la actividad (`diplomaReady` o cierre equivalente consolidado por #245);
 - deduplicar por `course.id + memberId`;
 - no contar lista de espera, anulados, no asistió, no apto ni actividad solo como instructor;
 - ordenar ascendente para mostrar primero a quien menos oportunidades ha tenido;
 - búsqueda por nombre/nº socio;
-- mostrar indicador de prioridad en solicitudes/inscritos;
-- V1 informa: administración decide las plazas, no adjudicación automática.
+- indicador de prioridad en solicitudes/inscritos;
+- V1 informa: administración decide plazas, sin adjudicación automática.
 
-La misma función agregadora debe alimentar pantalla y exportación para evitar discrepancias.
+La misma función agregadora debe alimentar pantalla y exportación.
 
 Comentario técnico: #6119191402.
 
 ## 9. Orden operativo actual
 
-1. Cerrar integración de #244 con `main`, repetir checks y fusionar solo cuando vuelva a estar mergeable y sin P1/P2.
-2. Actualizar #227 + esta bitácora con SHA de merge y QA pendiente.
-3. #246 — corregir guardado y formulario simplificado de jornadas.
-4. #249 — cierre automático/configurable de inscripción.
-5. #247 — `instructorEnabled` + `Añadir instructor` múltiple.
-6. #245 — asistencia presencial/cierre por admin e instructor.
-7. #248 — histórico/ranking/exportación.
-8. QA circuito completo: crear jornada → ventana de inscripción → varios instructores → inscripción → asistencia/cierre → diploma alumno/instructor → histórico/prioridad.
+1. **#246** — corregir guardado y formulario simplificado de jornadas.
+2. **#249** — cierre automático/configurable de inscripción.
+3. **#247** — `instructorEnabled` + `Añadir instructor` múltiple.
+4. **#245** — asistencia presencial/cierre por admin e instructor.
+5. **#248** — histórico/ranking/exportación.
+6. QA circuito completo: crear jornada → ventana de inscripción → varios instructores → inscripción → asistencia/cierre → diploma alumno/instructor → histórico/prioridad.
+7. QA productiva pendiente de #241 y #244 dentro del recorrido final.
 
 Un tema por PR. No mezclar estas issues.
 
@@ -217,4 +223,4 @@ CI verde no equivale a despliegue ni QA productiva.
 - #112 — ampliación contenido IVASPE;
 - #109 — deuda técnica V2.
 
-No mezclar estos trabajos con #244–#249 salvo necesidad demostrada.
+No mezclar estos trabajos con #245–#249 salvo necesidad demostrada.
