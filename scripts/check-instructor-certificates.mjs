@@ -22,6 +22,12 @@ for (const id of ['namesake','linkednamesake','ambiguous','dangling']) {
     associateId:id==='namesake'?'namesake-own':id==='dangling'?'missing-associate':''});
 }
 seed.members = seed.accounts.map(a => ({ id:a.memberId, name:a.name, email:a.email, associateId:a.associateId }));
+// A DB-migrated legacy member retains its server-owned campus provenance.
+seed.accounts.find(a=>a.id==='legacyname').source='postgres';
+seed.members.find(m=>m.id==='legacyname').source='campus';
+seed.accounts.push({id:'freshdb',name:'Legacy Email',email:'freshdb@example.test',password,role:'member',
+  memberId:'freshdb',associateId:'',source:'postgres'});
+seed.members.push({id:'freshdb',name:'Legacy Email',email:'freshdb@example.test',associateId:'',source:'postgres'});
 seed.associates = [{ id:'socio-one', firstName:'Normal', lastName:'Docente Uno', dni:'12345678Z', associateNumber:1, email:'member@example.test', linkedMemberId:'member',linkedAccountId:'member' },
   { id:'socio-two', firstName:'Admin', lastName:'Docente Dos', dni:'87654321X', associateNumber:2, email:'adminwith@example.test', linkedMemberId:'adminwith',linkedAccountId:'adminwith' }];
 seed.associates.push({ id:'legacy-email',firstName:'Legacy Email',email:'legacyemail@example.test' },
@@ -140,6 +146,27 @@ try {
   let ready=false;for(let i=0;i<100;i++){try{if((await request('/healthz')).ok){ready=true;break;}}catch{}await delay(100);}
   assert.ok(ready,logs);
   const admin=await login('admin'),member=await login('member'),other=await login('other'),instructor=await login('instructor'),adminwith=await login('adminwith');
+  const registered=await request('/api/public-campus/register','',{
+    firstName:'Admin',lastName:'Docente Dos',email:'public-impostor@example.test',password,
+    source:'campus',associateId:'socio-two',role:'admin'
+  },'POST');
+  assert.equal(registered.status,200);
+  const publicCookie=registered.headers.get('set-cookie').split(';')[0];
+  assert.equal((await request('/api/courses/course-teaching/instructors/socio-two.pdf',publicCookie)).status,403,
+    'Public signup cannot claim another instructor by display name');
+  const publicPayload=await (await request('/api/state',publicCookie)).json();
+  const publicState=publicPayload.state || publicPayload;
+  assert.equal(publicState.associates.length,0,'No instructor identity/DNI in public campus state');
+  assert.ok(!publicState.courses.some(c=>c.id==='course-teaching'),'No member-only course access via name');
+  assert.equal(publicState.members[0].source,'public-campus');
+  publicState.members[0].source='campus';
+  publicState.accounts[0].source='';
+  assert.equal((await request('/api/state',publicCookie,publicState,'POST')).status,200);
+  assert.equal((await request('/api/courses/course-teaching/instructors/socio-two.pdf',publicCookie)).status,403,
+    'Member state save cannot forge trusted legacy provenance');
+  const freshDbCookie=await login('freshdb');
+  assert.equal((await request('/api/courses/course-legacy-owners/instructors/legacy-email.pdf',freshDbCookie)).status,403,
+    'New DB-origin account is not a migrated legacy identity');
   for (const id of ['namesake','linkednamesake','ambiguous','dangling']) {
     const cookie=await login(id);
     assert.equal((await request('/api/courses/course-teaching/instructors/socio-one.pdf',cookie)).status,403,

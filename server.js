@@ -4205,6 +4205,10 @@ function findAssociateForAccount(state, account, member) {
   const linkedAssociate = associates.find(associate => account?.id && associate.linkedAccountId === account.id) ||
     associates.find(associate => member?.id && associate.linkedMemberId === member.id);
   if (linkedAssociate) return linkedAssociate;
+  // Self-registered campus/DB names are not proof of association membership.
+  // Existing legacy members retain campus provenance when migrated to DB auth.
+  if (!member || account?.source === "public-campus" ||
+      !["", "campus", "associate", "manual-admin"].includes(String(member.source || ""))) return null;
   // Legacy matching is a fallback only; ambiguous identities must not grant access.
   const memberEmail = String(member?.email || account?.email || "").trim().toLowerCase();
   const memberName = String(member?.name || account?.name || "").trim().toLowerCase();
