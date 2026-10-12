@@ -237,3 +237,39 @@ Siguiente trabajo que puede adelantarse sin interferir con #244:
 - localizar todos los puntos de alta/edición/normalización de `associates` que necesitarán `instructorEnabled` en #247;
 - preparar matrices de tests sintéticos para #245/#247/#248/#249;
 - no abrir implementación funcional sobre la rama de #244 hasta que quede integrada en `main`.
+
+## 14. Pretrabajo técnico adicional — 12/10
+
+Avances realizados después del bloque anterior:
+
+### #245 — asistencia presencial
+- localizado `PATCH /api/courses/:courseId/academic` como endpoint existente para asistencia/evaluación;
+- localizado `POST /api/courses/:courseId/members/:memberId/close` como cierre académico individual;
+- decisión: reutilizar ambos endpoints y la lógica existente de blockers, no crear un segundo modelo ni guardar por `/api/state`;
+- el trabajo real será añadir la pantalla `Asistencia y certificación` y extender permisos al instructor asignado solo para su curso;
+- comentario técnico registrado en #245: #6119188550.
+
+### #247 — instructores habilitados
+- diseño fijado: `instructorEnabled` en ficha de socio, validación backend y selector filtrado;
+- históricos conservan asignación aunque después se deshabilite al socio para nuevas actividades;
+- selector dinámico `Añadir instructor`, sin límite artificial de dos y sin duplicados;
+- probar 1, 2, 3 y 4 instructores, recarga y quitar uno sin afectar al resto;
+- comentario técnico registrado en #247: #6119194061.
+
+### #248 — histórico/prioridad
+- decisión técnica: no persistir contador manual tipo `timesAttended`;
+- derivar la vista desde la verdad académica existente, preferentemente `diplomaReady`/cierre válido de jornadas, deduplicando por `course.id + memberId`;
+- la misma función agregadora debe alimentar pantalla y exportación CSV/XLSX para evitar discrepancias;
+- comentario técnico registrado en #248: #6119191402.
+
+### #249 — cierre de inscripción
+- reutilizar `EnrollmentTime` y ampliar `isCourseEnrollmentWindowOpen`, sin introducir un segundo reloj;
+- añadir `enrollmentClosesAt`, cierre implícito por `startDate 00:00 Europe/Madrid` y comprobación backend en inscripción real;
+- ampliar `check-enrollment-time.mjs` y regresiones de state/UI/form existentes;
+- comentario técnico registrado en #249: #6119196324.
+
+### #244 — estado de integración
+- todos los review threads P1/P2 están resueltos y el CI del head `33ff439...` fue verde;
+- actualmente GitHub muestra `mergeable: false` porque la base de `main` avanzó con documentación/bitácora mientras la rama sigue basada en `5565d78...`;
+- Codex ya tiene instrucción de actualizar la rama con `main` sin añadir nuevas funcionalidades y volver a ejecutar tests;
+- no fusionar hasta que la rama vuelva a ser mergeable y los checks del nuevo head estén verdes.
