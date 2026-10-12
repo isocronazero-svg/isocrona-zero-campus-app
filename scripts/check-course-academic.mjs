@@ -356,6 +356,35 @@ async function main() {
     assert.deepEqual(createdCourse.body?.course?.diplomaReady, []);
     assert.deepEqual(createdCourse.body?.course?.attendance, {});
 
+    for (const [index, title] of [
+      "Accidentes de tráfico", "Rescate vertical", "RIT", "Incendios Estructurales",
+      "Riesgos Tecnológicos", "Rescate en ríos", "GOM"
+    ].entries()) {
+      const id = `course-intensive-${index + 1}`;
+      const createdIntensive = await admin.request("POST", createCourseEndpoint, {
+        course: {
+          id, title, courseClass: "practico", type: "Jornada intensiva", status: "Planificacion",
+          startDate: "2026-11-15", endDate: "2026-11-15", hours: 6, capacity: 16,
+          modality: "Presencial", diplomaTemplate: "Aprovechamiento", accessScope: "members"
+        }
+      });
+      assert.equal(createdIntensive.status, 201, `Debe crear la jornada ${title}`);
+      assert.equal(createdIntensive.body.course.startDate, createdIntensive.body.course.endDate);
+      const reloaded = (await admin.request("GET", "/api/state")).body.courses.find((course) => course.id === id);
+      assert.equal(reloaded?.title, title, `Debe persistir la jornada ${title}`);
+      const edited = await admin.request("PATCH", `/api/courses/${id}`, { title });
+      assert.equal(edited.body.course.title, title, `Debe poder editar la jornada ${title}`);
+    }
+
+    assert.equal((await admin.request("POST", createCourseEndpoint, { course: {
+      title: "Jornada con plazas fraccionarias", type: "Jornada intensiva", startDate: "2026-11-15",
+      endDate: "2026-11-15", hours: 6, capacity: 2.5
+    } }, true)).status, 400);
+    assert.equal((await admin.request("POST", createCourseEndpoint, { course: {
+      title: "Jornada con fechas incoherentes", type: "Jornada intensiva", startDate: "2026-11-16",
+      endDate: "2026-11-15", hours: 6, capacity: 10
+    } }, true)).status, 400);
+
     const updatedCourse = await admin.request("PATCH", updateCourseEndpoint, {
       id: "course-hijack",
       title: "Curso editado por endpoint",

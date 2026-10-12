@@ -13319,8 +13319,11 @@ function normalizeCourseMutationPayload(payload, existingCourse = null) {
   if (!title || !type || !startDate || !endDate || !Number.isFinite(hours) || hours <= 0) {
     throw new Error("Indica titulo, tipo, fechas y horas validas para el curso");
   }
-  if (!Number.isFinite(capacity) || capacity <= 0) {
-    throw new Error("La capacidad del curso debe ser mayor que cero");
+  if (!Number.isInteger(capacity) || capacity <= 0) {
+    throw new Error("La capacidad del curso debe ser un número entero mayor que cero");
+  }
+  if (endDate < startDate) {
+    throw new Error("La fecha fin no puede ser anterior a la fecha de inicio");
   }
 
   const requestedId = readString("id");

@@ -63,7 +63,7 @@ No fusionar #240 junto a este modelo; queda solo como referencia histórica.
 
 ## 4. #246 — jornadas intensivas: guardado y formulario simplificado
 
-**Tarea activa y principal cuello de botella.**
+**Tarea activa: implementada y verificada en Desktop; pendiente de PR/CI/review.**
 
 Problema real reproducido: al crear una jornada, parecía que no se guardaba.
 
@@ -101,7 +101,17 @@ Tests mínimos:
 - jornada de un día persiste mismo inicio/fin;
 - curso normal no regresa.
 
-### Estado operativo real de #246 al cambiar a Desktop
+### Recuperacion en Desktop (12/10)
+
+- Base actual `a0770b0f8fc552bcdcdbd363af2e261c3eafcb1d`, incluye #244 fusionada y el handoff movil completo.
+- Patch del comentario #6125783195 recuperado y revisado. Rama local `codex/fix-intensive-day-creation`; publicacion prevista sobre la remota existente `issue-246-jornadas-intensivas`, sin crear un segundo desarrollo.
+- Reproduccion red/green: submit incompleto no creaba mensaje de estado; ahora muestra causas y conserva borrador. Jornada deriva fechas/defaults y guarda por POST /api/courses. Validacion backend de plazas enteras y orden de fechas.
+- Corregido adicionalmente el cambio de modo: campos ocultos deshabilitados, borrador normal conservado al volver y jornada no hereda instructores/contenido/coordinador ocultos. Error de apertura horaria conserva formulario. Sin implementar #249/#247/#245/#248.
+- Node 24.14.0 (>=22): check:app completo, check:course-academic, check:form-save-recovery y smoke 14 rutas PASS. Check intensive-days incluido en suite; alta/recarga/edicion API de los siete nombres y handlers reales probados.
+- QA navegador sintetico: 1440/390 px sin overflow, errores visibles, alta de Rescate en rios con 6.5 horas, recarga y edicion a 7 horas; curso normal y cambio de modo conservan borrador. Sin errores de consola ni datos reales. CI/review y SHA/PR finales se registraran en #227 y esta entrada.
+- No merge ni despliegue desde Desktop; no se interpreta el orden propuesto como permiso de fusionar. QA productiva pendiente tras autorizacion e integracion.
+
+### Handoff anterior (conservado como referencia)
 
 Codex llegó a recrear dos veces la implementación, pero sus commits locales no quedaron publicados en GitHub por limitaciones del entorno de ejecución. No considerar `cceffab`, `bd9bce4` ni `010085265deddeb2672b3e46e49b080f0f8f8a70` como commits remotos: sirven solo como referencias de trabajo previo.
 
