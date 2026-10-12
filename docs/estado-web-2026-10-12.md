@@ -63,7 +63,7 @@ No fusionar #240 junto a este modelo; queda solo como referencia histórica.
 
 ## 4. #246 — jornadas intensivas: guardado y formulario simplificado
 
-**Siguiente tarea activa.**
+**Tarea activa y principal cuello de botella.**
 
 Problema real reproducido: al crear una jornada, parecía que no se guardaba.
 
@@ -101,6 +101,34 @@ Tests mínimos:
 - jornada de un día persiste mismo inicio/fin;
 - curso normal no regresa.
 
+### Estado operativo real de #246 al cambiar a Desktop
+
+Codex llegó a recrear dos veces la implementación, pero sus commits locales no quedaron publicados en GitHub por limitaciones del entorno de ejecución. No considerar `cceffab`, `bd9bce4` ni `010085265deddeb2672b3e46e49b080f0f8f8a70` como commits remotos: sirven solo como referencias de trabajo previo.
+
+El material útil sí quedó preservado:
+- comentario de recuperación completo: **#6125783195**;
+- base exacta del patch: `31c8bf5065668a20173ebc6bc8140e7523bc1fb0`;
+- archivos afectados: `package.json`, `public/app.js`, `public/styles.css`, `scripts/check-app.mjs`, `scripts/check-course-academic.mjs`, `scripts/check-form-save-recovery.mjs`, `server.js` y nuevo `scripts/check-intensive-days.mjs`;
+- checks que Codex consiguió pasar durante la reconstrucción: `check:intensive-days`, `check:frontend-syntax`, `check:form-save-recovery` y `git diff --check`;
+- `check:app` y `smoke:campus-test` quedaron sin validación completa en su entorno por Node 20 / ausencia de `node:sqlite`.
+
+Rama remota creada desde este chat:
+- `issue-246-jornadas-intensivas`;
+- creada sobre `31c8bf5065668a20173ebc6bc8140e7523bc1fb0`;
+- en el momento de este handoff **no contiene aún el patch funcional** y no existe PR válida de #246.
+
+Siguiente paso recomendado desde Desktop:
+1. recuperar/aplicar el patch del comentario #6125783195 sobre `issue-246-jornadas-intensivas` o recrear exactamente ese alcance directamente en la rama;
+2. no añadir #249/#247/#245/#248;
+3. ejecutar con Node 22: `npm run check:intensive-days`, `npm run check:form-save-recovery`, `npm run check:app`, `npm run smoke:campus-test`;
+4. revisar diff y hacer `git diff --check`;
+5. push de la rama y abrir PR específica de #246;
+6. pedir `@codex review` y corregir cualquier P1/P2;
+7. solo después fusionar;
+8. tras el merge, actualizar #227 y esta bitácora y pasar a #249.
+
+Importante: esta actualización documental hace avanzar `main` después de crear la rama #246. La rama puede quedarse un commit documental por detrás; no es un conflicto funcional. Antes de mergear #246, sincronizar con el `main` vigente preservando esta bitácora.
+
 ## 5. #249 — cierre automático/configurable de inscripciones
 
 Regla de negocio:
@@ -113,10 +141,14 @@ Regla de negocio:
 - UI muestra `Inscripción cerrada` y elimina CTA;
 - no romper reintentos de justificante ni expedientes ya existentes.
 
-Pretrabajo:
+Pretrabajo ya cerrado:
 - reutilizar `EnrollmentTime` y ampliar `isCourseEnrollmentWindowOpen`;
 - ampliar `scripts/check-enrollment-time.mjs`;
-- comentario técnico #6119196324.
+- cubrir invierno/verano, frontera exacta, cierre implícito, DST y POST directo tras cierre;
+- comentario técnico inicial #6119196324;
+- matriz adicional de pruebas y reglas documentada en la issue el 12/10.
+
+No empezar implementación funcional hasta cerrar #246.
 
 ## 6. #247 — socios habilitados como instructores
 
@@ -124,8 +156,10 @@ Solo los socios expresamente habilitados deben aparecer como instructores.
 
 Diseño cerrado:
 - booleano estable `instructorEnabled` en ficha de socio;
+- default `false` para no habilitar accidentalmente a socios existentes;
 - backend rechaza nuevas asignaciones de socios no habilitados;
 - históricos no se borran al deshabilitar;
+- deshabilitar afecta solo a nuevas asignaciones, no a relaciones/certificados históricos;
 - un curso/jornada puede tener 1, 2, 3, 4 o más instructores, sin límite artificial de dos;
 - UI con selector + botón `Añadir instructor`;
 - lista/chips de seleccionados con `Quitar` individual;
@@ -138,9 +172,10 @@ Puntos de implementación sobre el `main` ya fusionado de #244:
 - edición administrativa de ficha de socio;
 - validación del PATCH de associate;
 - selector de alta/edición de curso basado en `instructorAssociateIds`;
-- regresiones de 1, 2, 3 y 4 instructores.
+- regresiones de 1, 2, 3 y 4 instructores;
+- histórico preservado al deshabilitar.
 
-Comentario técnico: #6119194061.
+Comentario técnico: #6119194061 + ampliación de matriz el 12/10.
 
 ## 7. #245 — asistencia presencial y cierre de alumnos
 
@@ -163,6 +198,14 @@ UX objetivo:
 - alumno: solo lectura de su estado;
 - cursos con test/trabajo mantienen requisitos.
 
+Permisos a cubrir:
+- admin global;
+- instructor asignado vía `instructorAssociateIds` solo en su curso;
+- otro instructor no puede editar/cerrar;
+- estudiante no puede autoeditarse aunque manipule petición.
+
+Idempotencia: repetir asistencia/cierre no debe duplicar diploma/emisión ni romper el expediente.
+
 Comentario técnico: #6119188550.
 
 ## 8. #248 — histórico de jornadas y prioridad por menor participación
@@ -176,6 +219,7 @@ Diseño:
 - contar jornadas cerradas/validadas donde el alumno realmente completó la actividad (`diplomaReady` o cierre equivalente consolidado por #245);
 - deduplicar por `course.id + memberId`;
 - no contar lista de espera, anulados, no asistió, no apto ni actividad solo como instructor;
+- no contar cursos normales;
 - ordenar ascendente para mostrar primero a quien menos oportunidades ha tenido;
 - búsqueda por nombre/nº socio;
 - indicador de prioridad en solicitudes/inscritos;
@@ -187,7 +231,7 @@ Comentario técnico: #6119191402.
 
 ## 9. Orden operativo actual
 
-1. **#246** — corregir guardado y formulario simplificado de jornadas.
+1. **Materializar y cerrar #246** — patch → rama → PR → Node 22 → review P1/P2 → merge.
 2. **#249** — cierre automático/configurable de inscripción.
 3. **#247** — `instructorEnabled` + `Añadir instructor` múltiple.
 4. **#245** — asistencia presencial/cierre por admin e instructor.
@@ -224,3 +268,26 @@ CI verde no equivale a despliegue ni QA productiva.
 - #109 — deuda técnica V2.
 
 No mezclar estos trabajos con #245–#249 salvo necesidad demostrada.
+
+## 13. Handoff móvil → Desktop — 12/10/2026
+
+Último `main` comprobado antes de esta actualización documental: `31c8bf5065668a20173ebc6bc8140e7523bc1fb0`.
+
+Trabajo completado en esta sesión móvil:
+- #244 desbloqueada, sincronizada, CI verde y fusionada como `6f92d69ff46adb7121a6f09810c1f1e6e866ff8d`;
+- #245 preparado técnicamente reutilizando endpoints académicos/cierre existentes;
+- #247 preparado con `instructorEnabled`, múltiples instructores sin límite artificial e históricos preservados;
+- #248 preparado sin contador manual, derivando participación de cierre académico válido;
+- #249 preparado reutilizando `EnrollmentTime` y con cierre explícito/implícito definido;
+- #246 especificado e implementado varias veces por Codex en workspace temporal; patch completo preservado en issue #246 comentario #6125783195;
+- rama remota `issue-246-jornadas-intensivas` creada en GitHub sobre la base exacta del patch;
+- #227 actualizado durante la sesión con el estado y bloqueos.
+
+Qué falta al retomar desde Desktop:
+- **primero #246**: aplicar/recrear patch en la rama remota, pasar suite completa Node 22, push, PR, review P1/P2 y merge;
+- después continuar exactamente en este orden: #249 → #247 → #245 → #248;
+- no iniciar implementación paralela de varias issues;
+- tras cada merge significativo, actualizar #227 y esta bitácora;
+- hacer QA productiva solo después de deploy real y no confundir CI con producción.
+
+Si Desktop encuentra cambios posteriores en `main`, PRs o issues, prevalece el estado más nuevo de GitHub; actualizar esta bitácora antes de continuar si cambia el plan.
