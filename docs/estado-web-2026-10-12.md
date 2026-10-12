@@ -222,3 +222,18 @@ No afirmar despliegue productivo solo porque CI esté verde. Tras cada merge rel
 - #109: deuda técnica V2, extracción incremental de dominios de `server.js`.
 
 No mezclar esos trabajos con #244–#249 salvo necesidad demostrada.
+
+## 13. Avances técnicos adelantados — 12/10
+
+Sin tocar datos reales ni mezclar funcionalidades en PRs, se ha adelantado lo siguiente:
+
+- #246: confirmado en `public/app.js` que el alta de curso/jornada puede abortar silenciosamente si falta cualquiera de los campos obligatorios actuales. La creación ya usa `POST /api/courses`; no hace falta volver a `/api/state`. Se dejó comentario técnico #6119136350 con plan de validación visible, conservación de borrador y ampliación de `check-form-save-recovery`.
+- #249: localizado `scripts/check-enrollment-time.mjs` como base natural para ampliar apertura+cierre, y confirmada la existencia de `settings.automation.autoAdvanceCourseStatus`; el bloqueo temporal de nuevas inscripciones debe ser independiente de esa automatización. Se dejó comentario técnico #6119134143.
+- #244: App checks #360 del head `33ff439...` está verde y todos los review threads P1/P2 están ya resueltos. Tras avanzar `main` con documentación, GitHub pasó a mostrar la PR como `mergeable: false`; se pidió a Codex en comentario #6119148620 actualizar la rama con `main` actual `b2404c50da8f17673adddf71aba7044a39874541`, resolver solo integración, repetir `check:app` + smoke y dejarla lista para merge sin introducir #245–#249.
+
+Siguiente trabajo que puede adelantarse sin interferir con #244:
+- localizar y documentar endpoints/permisos exactos que reutilizará #245 para asistencia/cierre;
+- definir el cálculo derivado y la consulta del ranking de #248 sin crear contador manual;
+- localizar todos los puntos de alta/edición/normalización de `associates` que necesitarán `instructorEnabled` en #247;
+- preparar matrices de tests sintéticos para #245/#247/#248/#249;
+- no abrir implementación funcional sobre la rama de #244 hasta que quede integrada en `main`.
