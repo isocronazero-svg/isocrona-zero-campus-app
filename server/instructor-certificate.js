@@ -43,7 +43,7 @@ function canDownloadInstructorCertificate(state, account, associateId, resolvedA
 function isInstructorCertificateAvailable(course, today = new Date().toISOString().slice(0, 10)) {
   const end = String(course?.endDate || "");
   return course?.status === "Cerrado" && /^\d{4}-\d{2}-\d{2}$/.test(end) &&
-    Number.isFinite(Date.parse(end)) && new Date(end).toISOString().slice(0, 10) === end && end <= today;
+    Number.isFinite(Date.parse(end)) && new Date(end).toISOString().slice(0, 10) === end && end < today;
 }
 
 function buildInstructorCertificateModel(state, courseId, associateId, dates) {

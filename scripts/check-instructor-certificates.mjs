@@ -37,7 +37,8 @@ const course = { id:'course-teaching', title:'Curso docencia QA', type:'Curso', 
   coordinator:'Persona legacy no certificable', instructorAssociateIds:['socio-one','socio-two'], enrolledIds:[], waitingIds:[], diplomaReady:[], modules:[], attendance:{}, evaluations:{} };
 const blockedCourses = ['Planificacion','Inscripcion abierta','En curso','Cierre pendiente'].map((status,i) =>
   ({...course,id:`course-blocked-${i}`,status}));
-blockedCourses.push({...course,id:'course-future',endDate:'2999-01-01'}, {...course,id:'course-no-date',endDate:''});
+blockedCourses.push({...course,id:'course-future',endDate:'2999-01-01'}, {...course,id:'course-no-date',endDate:''},
+  {...course,id:'course-ends-today',endDate:new Date().toISOString().slice(0,10)});
 seed.courses = [course, { ...course,id:'course-legacy',instructorAssociateIds:[] },
   {...course,id:'course-legacy-owners',accessScope:'members',instructorAssociateIds:['legacy-email','legacy-name']},
   {...course,id:'course-namesakes',instructorAssociateIds:['namesake-own','linkednamesake-own']},
@@ -57,6 +58,9 @@ for (const blocked of blockedCourses) {
   assert.equal(buildInstructorCertificateModel(seed,blocked.id,'socio-one',dates),null);
 }
 assert.equal(isInstructorCertificateAvailable({...course,endDate:'2026-02-31'}),false);
+assert.equal(isInstructorCertificateAvailable(course,'2026-10-01'),false);
+assert.equal(isInstructorCertificateAvailable(course,'2026-10-02'),false,'The entire final day is still blocked');
+assert.equal(isInstructorCertificateAvailable(course,'2026-10-03'),true,'Available only after the final day');
 assert.equal(buildActivityCertificate(seed,'member').totalHours,0);
 assert.equal(buildActivityCertificate(seed,'member').activities.length,0);
 const layout = buildDiplomaLayout(model,seed.settings,'');
@@ -90,6 +94,12 @@ for (const blocked of blockedCourses) {
   assert.equal(vm.runInContext('renderInstructorCertificates(blocked)',ui),'');
   assert.equal(vm.runInContext('renderInstructorCertificates(blocked,member)',ui),'');
 }
+ui.Date=class extends Date {constructor(...args){super(...(args.length?args:['2026-10-02T23:59:59.999Z']));}};
+assert.equal(vm.runInContext('renderInstructorCertificates(course)',ui),'');
+assert.equal(vm.runInContext('renderInstructorCertificates(course,member)',ui),'');
+ui.Date=class extends Date {constructor(...args){super(...(args.length?args:['2026-10-03T00:00:00.000Z']));}};
+assert.match(vm.runInContext('renderInstructorCertificates(course,member)',ui),/socio-one.pdf/);
+delete ui.Date;
 ui.course=seed.courses.find(c=>c.id==='course-legacy-owners');
 ui.getCurrentAssociate=()=>seed.associates.find(a=>a.id==='legacy-email');
 ui.member=seed.members.find(m=>m.id==='legacyemail');
