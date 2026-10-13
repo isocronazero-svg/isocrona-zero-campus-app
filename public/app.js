@@ -1560,7 +1560,9 @@ document.addEventListener("click", async (event) => {
     learnerCourseDetailsMode = "status";
     learnerEnrollmentIntent = true;
     expandedNavViews.add("campus");
-    syncStatus = "Inscripcion abierta para este curso";
+    const course = state.courses.find(item => item.id === courseId);
+    syncStatus = course && isCourseOpenForEnrollment(course)
+      ? "Inscripcion abierta para este curso" : "Inscripción no disponible";
     render();
       requestAnimationFrame(() => focusCourseEnrollment());
       return;
@@ -4075,8 +4077,11 @@ document.addEventListener("submit", async (event) => {
     const audience = intensive ? "" : document.getElementById("courseAudience").value.trim();
     const accessScope = normalizeCourseAccessScope(document.getElementById("courseAccessScope")?.value, audience);
     let enrollmentOpensAt;
+    let enrollmentClosesAt;
     try {
       enrollmentOpensAt = EnrollmentTime.fromLocalInput(document.getElementById("courseEnrollmentOpensAt")?.value || "");
+      enrollmentClosesAt = EnrollmentTime.fromLocalInput(document.getElementById("courseEnrollmentClosesAt")?.value || "", "cierre");
+      if (startDate) EnrollmentTime.validateCourseWindow({ startDate, enrollmentOpensAt, enrollmentClosesAt });
     } catch (error) {
       setFormSaveStatus(event.target, error.message, true);
       showToast(error.message, "error", true);
@@ -4115,6 +4120,7 @@ document.addEventListener("submit", async (event) => {
       audience,
       accessScope,
       enrollmentOpensAt,
+      enrollmentClosesAt,
       contentTemplate,
       diplomaTemplate: "Aprovechamiento"
     });
@@ -4318,12 +4324,18 @@ document.addEventListener("submit", async (event) => {
       audience
     );
     let enrollmentOpensAt;
+    let enrollmentClosesAt;
     try {
       enrollmentOpensAt = EnrollmentTime.fromLocalInput(
         readCourseFieldValue("editCourseEnrollmentOpensAt", EnrollmentTime.localInput(course.enrollmentOpensAt))
       );
+      enrollmentClosesAt = EnrollmentTime.fromLocalInput(
+        readCourseFieldValue("editCourseEnrollmentClosesAt", EnrollmentTime.localInput(course.enrollmentClosesAt)), "cierre"
+      );
+      EnrollmentTime.validateCourseWindow({ startDate, enrollmentOpensAt, enrollmentClosesAt }, course);
     } catch (error) {
-      showToast(error.message);
+      setFormSaveStatus(event.target, error.message, true);
+      showToast(error.message, "error", true);
       return;
     }
     const coordinator = readCourseTrimmedValue("editCourseCoordinator", course.coordinator || "");
@@ -4377,6 +4389,7 @@ document.addEventListener("submit", async (event) => {
         audience: audience || "Socios y voluntariado operativo",
         accessScope,
         enrollmentOpensAt,
+        enrollmentClosesAt,
         coordinator,
         instructorAssociateIds: readInstructorSelection("editCourseInstructors", course.instructorAssociateIds),
         contentTemplate: contentTemplate || inferCourseTemplate(course),
@@ -4999,7 +5012,7 @@ async function persistCourseEditorAndRender(course, successMessage) {
   const fields = [
     "title", "courseClass", "type", "status", "startDate", "endDate", "hours", "capacity",
     "diplomaTemplate", "summary", "modality", "enrollmentFee", "enrollmentPaymentInstructions",
-    "audience", "accessScope", "enrollmentOpensAt", "coordinator", "instructorAssociateIds",
+    "audience", "accessScope", "enrollmentOpensAt", "enrollmentClosesAt", "coordinator", "instructorAssociateIds",
     "contentTemplate", "contentStatus", "objectives", "sessions", "modules", "resources", "questionBank",
     "materials", "evaluationCriteria", "certificateCity", "certificateContents",
     "feedbackEnabled", "feedbackRequiredForDiploma", "feedbackTeachers",
@@ -5725,7 +5738,7 @@ function renderPublicCampusCourseList() {
             ${Number(course.enrollmentFee || 0) > 0 ? `<span>${formatCurrency(course.enrollmentFee)}</span>` : `<span>Sin coste</span>`}
           </div>
           <span class="eyebrow">${escapeHtml(enrollmentCall.helperLabel || "Accede creando tu cuenta solo campus o entrando con tu usuario actual.")}</span>
-          <a class="inline-button button-link" href="#publicCampusRegisterForm">Quiero apuntarme</a>
+          ${isCourseOpenForEnrollment(course) ? '<a class="inline-button button-link" href="#publicCampusRegisterForm">Quiero apuntarme</a>' : ""}
         </article>
       `;
     })
@@ -10673,6 +10686,11 @@ function renderCourses() {
                     <input id="courseEnrollmentOpensAt" type="datetime-local" />
                     <span class="field-hint">Si lo dejas vacio, podras abrir la inscripcion en cuanto el curso pase a "Inscripcion abierta". Si lo rellenas, el curso sera visible pero no aceptara solicitudes hasta esa fecha y hora.</span>
                   </label>
+                  <label class="inline-field studio-full">
+                    Cierre de inscripciones
+                    <input id="courseEnrollmentClosesAt" type="datetime-local" />
+                    <span class="field-hint">Sin cierre indicado, la inscripción termina a las 00:00 (Europe/Madrid) del día de inicio del curso.</span>
+                  </label>
                 </div>
               </div>
               <div class="course-grid">
@@ -14264,6 +14282,11 @@ function renderCourseWorkbench(course) {
               <span class="field-hint">Programa aqui la fecha y hora en la que la inscripcion quedara activa. Hasta entonces el curso puede mostrarse, pero no dejara inscribirse.</span>
             </label>
             <label class="inline-field studio-full">
+              Cierre de inscripciones
+              <input id="editCourseEnrollmentClosesAt" type="datetime-local" value="${escapeHtml(EnrollmentTime.localInput(course.enrollmentClosesAt))}" />
+              <span class="field-hint">Sin cierre indicado, la inscripción termina a las 00:00 (Europe/Madrid) del día de inicio del curso.</span>
+            </label>
+            <label class="inline-field studio-full">
               Coordinación informativa (no certificable)
               <input id="editCourseCoordinator" value="${escapeHtml(course.coordinator || "")}" />
             </label>
@@ -14802,7 +14825,7 @@ function renderSelectedCourse(course) {
       ? "Solicitud en espera"
       : canEnroll
         ? "Inscribete en este curso"
-        : "Inscripcion no disponible";
+        : enrollmentCall.closedMode ? "Inscripción cerrada" : "Inscripcion no disponible";
   const enrollmentDescription = journey.enrolled
     ? journey.hasDiploma
       ? "Has completado el curso y tu diploma ya esta disponible en Mis diplomas."
@@ -14810,7 +14833,9 @@ function renderSelectedCourse(course) {
     : journey.waiting
       ? "Tu solicitud ya esta registrada y esta pendiente de plaza o validacion administrativa."
       : String(course.status || "") === "Inscripcion abierta"
-        ? enrollmentCall.scheduledMode
+        ? enrollmentCall.closedMode
+          ? "La inscripción está cerrada. No se admiten nuevas solicitudes."
+          : enrollmentCall.scheduledMode
           ? `La inscripcion de este curso se abrira el ${enrollmentCall.opensAtLabel}. Hasta entonces puedes revisar el programa y las fechas.`
           : enrollmentRequiresPayment
             ? "La inscripcion esta abierta. Puedes confirmar ahora tu solicitud como socio y adjuntar el justificante de transferencia."
@@ -14952,7 +14977,7 @@ function renderSelectedCourse(course) {
                       </div>
                       <div class="chip-row compact-chip-row">
                         <span class="small-chip">${course.enrollmentFee > 0 ? `${course.enrollmentFee} €` : "Sin coste"}</span>
-                        <span class="small-chip">${escapeHtml(course.status)}</span>
+                        <span class="small-chip">${escapeHtml(enrollmentCall.closedMode ? "Inscripción cerrada" : course.status)}</span>
                         <span class="small-chip">${escapeHtml(enrollmentCall.statusLabel)}</span>
                       </div>
                     </div>
@@ -15615,7 +15640,8 @@ function renderCourseCard(course, role) {
   const isWaiting = currentMemberId && course.waitingIds.includes(currentMemberId);
 
   fragment.querySelector('[data-slot="type"]').textContent = describeCourseType(course);
-  fragment.querySelector('[data-slot="status"]').textContent = course.status;
+  fragment.querySelector('[data-slot="status"]').textContent = role === "member" && EnrollmentTime.courseWindowState(course) === "closed"
+    ? "Inscripción cerrada" : course.status;
   fragment.querySelector('[data-slot="title"]').textContent = course.title;
   fragment.querySelector('[data-slot="summary"]').textContent = [
     course.summary,
@@ -15654,7 +15680,7 @@ function renderCourseCard(course, role) {
               : `
                 <span class="small-chip">${escapeHtml(enrollmentCall.statusLabel)}</span>
                 <span class="small-chip">${escapeHtml(enrollmentCall.audienceLabel)}</span>
-                <button class="primary-button" data-action="prepare-course-enrollment" data-course-id="${course.id}">${escapeHtml(enrollmentCall.ctaLabel)}</button>
+                ${isCourseOpenForEnrollment(course) ? `<button class="primary-button" data-action="prepare-course-enrollment" data-course-id="${course.id}">${escapeHtml(enrollmentCall.ctaLabel)}</button>` : ""}
               `
         : `
           <button class="ghost-button" data-action="nav" data-view="operations" data-course-id="${course.id}">Operativa</button>
@@ -16599,6 +16625,7 @@ function normalizeCourse(course) {
       course.audience || ""
     ),
     enrollmentOpensAt: String(course.enrollmentOpensAt || "").trim(),
+    enrollmentClosesAt: String(course.enrollmentClosesAt || "").trim(),
     coordinator: escapeHtml.normalizeDisplayText(course.coordinator || ""),
     instructorAssociateIds: Array.isArray(course.instructorAssociateIds) ? [...course.instructorAssociateIds] : [],
     contentTemplate: course.contentTemplate || "operativo",
@@ -17857,6 +17884,7 @@ function getMemberCourseBuckets(memberId) {
   const enrollmentOpenCourses = state.courses.filter(
     (course) =>
       course.status === "Inscripcion abierta" &&
+      EnrollmentTime.courseWindowState(course) !== "closed" &&
       !course.diplomaReady.includes(memberId) &&
       !course.enrolledIds.includes(memberId) &&
       !course.waitingIds.includes(memberId)
@@ -17869,7 +17897,7 @@ function getMemberCourseBuckets(memberId) {
       !course.enrolledIds.includes(memberId) &&
       !course.waitingIds.includes(memberId) &&
       !isClosed &&
-      course.status !== "Inscripcion abierta" &&
+      (course.status !== "Inscripcion abierta" || EnrollmentTime.courseWindowState(course) === "closed") &&
       Boolean(startDate && startDate >= now)
     );
   });
@@ -18113,7 +18141,7 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
       <div class="chip-row">
         <button class="primary-button" type="button" data-action="${journey.hasDiploma ? "set-campus-section-mode" : journey.enrolled ? "open-course-workbench-tab" : "select-course"}" ${journey.hasDiploma ? 'data-mode="diplomas"' : `data-course-id="${course.id}" ${journey.enrolled ? 'data-mode="learner"' : ""}`}>${journey.hasDiploma ? "Ir a Mis diplomas" : journey.enrolled ? "Entrar al aula" : journey.waiting ? "Ver estado de matricula" : "Ver curso"}</button>
         ${
-          !journey.enrolled && !journey.waiting && String(course.status || "") === "Inscripcion abierta" && !isMemberPreviewSession()
+          !journey.enrolled && !journey.waiting && String(course.status || "") === "Inscripcion abierta" && EnrollmentTime.courseWindowState(course) !== "closed" && !isMemberPreviewSession()
             ? `<button class="ghost-button" type="button" data-action="${isCourseOpenForEnrollment(course) ? "prepare-course-enrollment" : "select-course"}" data-course-id="${course.id}">${escapeHtml(isCourseOpenForEnrollment(course) ? getCourseEnrollmentCall(course).ctaLabel : "Ver apertura")}</button>`
             : ""
         }
@@ -18185,8 +18213,7 @@ function hasCourseScheduledEnrollment(course) {
 }
 
 function isCourseEnrollmentWindowOpen(course) {
-  const timestamp = getCourseEnrollmentOpensAtTimestamp(course);
-  return timestamp === null || timestamp <= Date.now();
+  return EnrollmentTime.courseWindowState(course) === "open";
 }
 
 function getCourseEnrollmentOpensAtLabel(course) {
@@ -18201,7 +18228,9 @@ function isCourseOpenForEnrollment(course) {
 
 function getCourseEnrollmentCall(course) {
   const seatsLeft = getCourseSeatsLeft(course);
-  const scheduledMode = String(course?.status || "") === "Inscripcion abierta" && !isCourseEnrollmentWindowOpen(course);
+  const windowState = EnrollmentTime.courseWindowState(course);
+  const scheduledMode = String(course?.status || "") === "Inscripcion abierta" && windowState === "future";
+  const closedMode = windowState === "closed";
   const waitlistMode = isCourseOpenForEnrollment(course) && seatsLeft <= 0;
   const enrolledCount = getCourseEnrolledCount(course);
   const waitingCount = getCourseWaitingCount(course);
@@ -18215,23 +18244,26 @@ function getCourseEnrollmentCall(course) {
   return {
     seatsLeft,
     scheduledMode,
+    closedMode,
     waitlistMode,
     enrolledCount,
     waitingCount,
     audienceLabel,
     audienceHint,
     opensAtLabel,
-    statusLabel: scheduledMode
+    statusLabel: closedMode ? "Inscripción cerrada" : scheduledMode
       ? `Abre el ${opensAtLabel}`
       : waitlistMode
         ? "Lista de espera"
         : seatsLeft === 1
           ? "1 plaza libre"
           : `${seatsLeft} plazas libres`,
-    ctaLabel: scheduledMode ? "Inscripcion programada" : waitlistMode ? "Unirme a lista de espera" : "Inscribirme ahora",
-    panelTitle: scheduledMode ? "Apertura programada" : waitlistMode ? "Lista de espera activa" : "Inscripcion abierta",
-    urgencyLabel: scheduledMode ? "Apertura programada" : waitlistMode ? "Curso completo" : seatsLeft <= 3 ? "Ultimas plazas" : "Plazas disponibles",
-    helperLabel: scheduledMode
+    ctaLabel: closedMode ? "Inscripción cerrada" : scheduledMode ? "Inscripcion programada" : waitlistMode ? "Unirme a lista de espera" : "Inscribirme ahora",
+    panelTitle: closedMode ? "Inscripción cerrada" : scheduledMode ? "Apertura programada" : waitlistMode ? "Lista de espera activa" : "Inscripcion abierta",
+    urgencyLabel: closedMode ? "Inscripción cerrada" : scheduledMode ? "Apertura programada" : waitlistMode ? "Curso completo" : seatsLeft <= 3 ? "Ultimas plazas" : "Plazas disponibles",
+    helperLabel: closedMode
+      ? "La inscripción está cerrada. No se admiten nuevas solicitudes."
+      : scheduledMode
       ? `La inscripcion se abrira el ${opensAtLabel}. Hasta entonces el curso seguira visible, pero no aceptara solicitudes.`
       : waitlistMode
         ? "Si el curso esta completo, tu solicitud queda en espera y se mueve automaticamente cuando se libera una plaza."
@@ -18896,7 +18928,7 @@ function renderCompactCourseCard(course, role = "member") {
         <span class="small-chip">${escapeHtml(describeCourseType(course))}</span>
         <div class="chip-row compact-chip-row">
           <span class="small-chip">${escapeHtml(accessScopeLabel)}</span>
-          <span class="small-chip">${escapeHtml(course.status)}</span>
+          <span class="small-chip">${escapeHtml(enrollmentCall?.closedMode ? "Inscripción cerrada" : course.status)}</span>
           ${role === "member" && String(course.status || "") === "Inscripcion abierta" && !hasDiploma ? `<span class="small-chip">${escapeHtml(enrollmentCall.occupancyLabel)}</span>` : ""}
         </div>
       </div>

@@ -27,6 +27,8 @@ seed.campusGroups = [{ id: 'group-qa', title: 'Grupo interno QA', modules: [] }]
 seed.courses = [{ ...seed.courses[0], id: 'internal-course-qa', title: 'Curso interno QA', status: 'Inscripcion abierta', accessScope: 'members', audience: 'Socios',
   startDate: '2099-02-01', endDate: '2099-02-02', enrollmentOpensAt: '', capacity: 1, enrollmentFee: 25,
   enrolledIds: [], waitingIds: [], diplomaReady: [], enrollmentSubmissions: [], modules: [] }];
+seed.courses.push({ ...seed.courses[0], id: 'closed-public-course-qa', title: 'Plazo vencido QA', accessScope: 'public',
+  enrollmentClosesAt: '2000-01-01T00:00:00Z' });
 writeFileSync(join(temp, 'seed.json'), JSON.stringify(seed));
 const port = await new Promise((resolvePort, reject) => {
   const probe = net.createServer(); probe.on('error', reject);
@@ -48,7 +50,7 @@ try {
   assert.equal(smoke.status, 0, smoke.stdout + smoke.stderr);
   browser = await chromium.launch({ headless: true, executablePath: process.env.IZ_CHROMIUM_EXECUTABLE || undefined, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   async function login(width, account) {
-    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const context = await browser.newContext({ viewport: { width, height: 900 }, timezoneId: 'Europe/Madrid' });
     const page = await context.newPage();
     page.setDefaultTimeout(15000); page.on('pageerror', error => errors.push(error.message));
     await page.goto(base); await page.fill('#loginEmail', account.email); await page.fill('#loginPassword', password);
@@ -56,6 +58,33 @@ try {
     return page;
   }
   const admin = await login(1440, seed.accounts[0]);
+  await admin.locator('#nav .nav-main-button[data-view="campus"]').click();
+  await admin.locator('[data-action="set-campus-section-mode"][data-mode="courses"]').first().click();
+  await admin.locator('#mainPanel [data-action="select-course"][data-course-id="internal-course-qa"]').first().click();
+  const editor = admin.locator('#courseEditForm');
+  await editor.locator('#editCourseEnrollmentClosesAt').fill('2099-02-01T12:00');
+  await editor.locator('button[type=submit]').click();
+  await editor.getByText(/El cierre de inscripción debe ser anterior/).waitFor();
+  assert.equal(await editor.locator('#editCourseEnrollmentClosesAt').inputValue(), '2099-02-01T12:00');
+  await editor.locator('#editCourseEnrollmentClosesAt').fill('2099-01-31T20:00');
+  const savedClose = admin.waitForResponse(response => response.url().endsWith('/api/courses/internal-course-qa') && response.request().method() === 'PATCH');
+  await editor.locator('button[type=submit]').click();
+  assert.equal((await savedClose).status(), 200);
+  await admin.reload();
+  await admin.locator('#nav .nav-main-button[data-view="campus"]').click();
+  await admin.locator('[data-action="set-campus-section-mode"][data-mode="courses"]').first().click();
+  await admin.locator('#mainPanel [data-action="select-course"][data-course-id="internal-course-qa"]').first().click();
+  assert.equal(await admin.locator('#editCourseEnrollmentClosesAt').inputValue(), '2099-01-31T20:00');
+  const persistedClose = (await (await admin.request.get(base + '/api/state')).json()).courses.find(c => c.id === 'internal-course-qa');
+  assert.equal(persistedClose.enrollmentClosesAt, '2099-01-31T19:00:00.000Z');
+  await admin.locator('#editCourseEnrollmentClosesAt').scrollIntoViewIfNeeded();
+  assert.ok(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await admin.screenshot({ path: join(screenshots, 'admin-close-editor.png'), animations: 'disabled' });
+  await admin.setViewportSize({ width: 390, height: 844 });
+  await admin.locator('#editCourseEnrollmentClosesAt').scrollIntoViewIfNeeded();
+  assert.ok(await admin.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await admin.screenshot({ path: join(screenshots, 'admin-close-editor-mobile.png'), animations: 'disabled' });
+  await admin.setViewportSize({ width: 1440, height: 900 });
   await admin.locator('#roleSwitcher').selectOption('member-self');
   await admin.waitForFunction(() => document.querySelector('#roleSwitcher')?.value === 'member-self' && !document.querySelector('#roleSwitcher').disabled);
   const accountBefore = await (await admin.request.get(base + '/api/state?mode=self')).json();
@@ -95,20 +124,32 @@ try {
   assert.equal(submission.method, 'Bizum');
   assert.equal(submission.note, 'Justificante de prueba conservado');
   assert.equal(submission.paymentProof.contentBase64, proof.toString('base64'));
+  // Close an existing request, then submit its proof again without a new enrollment.
+  assert.equal((await admin.request.patch(base + '/api/courses/internal-course-qa', { data: { enrollmentClosesAt: '2000-01-01T00:00:00Z' } })).status(), 200);
+  const proofResponse = await admin.request.post(base + '/api/member/courses/internal-course-qa/enrollment-proof', { data: { paymentProof: submission.paymentProof } });
+  assert.equal(proofResponse.status(), 200);
+  const closed = (await (await admin.request.get(base + '/api/state')).json()).courses.find(c => c.id === 'internal-course-qa');
+  assert.equal(closed.enrollmentSubmissions.length, 1);
+  assert.deepEqual(closed.enrolledIds, [ownMember]);
   await admin.screenshot({ path: join(screenshots, 'admin-own-enrollment.png'), animations: 'disabled' });
   const external = await login(390, seed.accounts[1]);
   await external.locator('#mobileShellToggle').click();
   await external.locator('#nav .nav-main-button[data-view="campus"]').click();
   await external.locator('[data-action="set-campus-section-mode"][data-mode="alerts"]').first().click();
   await external.getByText('Aviso integrado QA', { exact: true }).first().waitFor();
+  await external.locator('[data-action="set-campus-section-mode"][data-mode="courses"]').first().click();
+  await external.locator('#mainPanel').getByText('Plazo vencido QA', { exact: true }).first().waitFor();
+  assert.equal(await external.locator('[data-action="prepare-course-enrollment"][data-course-id="closed-public-course-qa"]').count(), 0);
+  await external.locator('#mainPanel').getByText('Inscripción cerrada', { exact: true }).first().waitFor();
   assert.equal(await external.locator('[data-action="set-campus-section-mode"][data-mode="groups"]').count(), 0);
   const scoped = await (await external.request.get(base + '/api/state')).json();
   assert.deepEqual(scoped.campusGroups, []);
   assert.ok(!scoped.courses.some(course => course.id === 'internal-course-qa'));
   assert.ok(await external.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await external.locator('#mainPanel').getByText('Inscripción cerrada', { exact: true }).first().scrollIntoViewIfNeeded();
   await external.screenshot({ path: join(screenshots, 'external-campus-notices-mobile.png'), animations: 'disabled' });
   assert.deepEqual(errors, []);
-  console.log('Campus UI PASS: own admin learning/enrollment, proof and draft recovery, internal groups, external restrictions, notices, mobile fit and smoke routes.');
+  console.log('Campus UI PASS: own admin learning/enrollment, closed enrollment without CTA, proof after close, draft recovery, internal groups, external restrictions, notices, mobile fit and smoke routes.');
 } finally {
   await browser?.close(); server.kill('SIGTERM'); await delay(200); rmSync(temp, { recursive: true, force: true });
 }

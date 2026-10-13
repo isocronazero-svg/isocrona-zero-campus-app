@@ -3352,17 +3352,7 @@ function getCourseEnrollmentOpensAtTimestamp(course) {
 }
 
 function isCourseEnrollmentWindowOpen(course, nowValue = Date.now()) {
-  const timestamp = getCourseEnrollmentOpensAtTimestamp(course);
-  if (timestamp === null) {
-    return true;
-  }
-  const nowTimestamp =
-    typeof nowValue === "number"
-      ? nowValue
-      : nowValue instanceof Date
-        ? nowValue.getTime()
-        : new Date(nowValue).getTime();
-  return timestamp <= nowTimestamp;
+  return EnrollmentTime.courseWindowState(course, nowValue) === "open";
 }
 
 function formatCourseEnrollmentOpensAt(course) {
@@ -4108,6 +4098,8 @@ function getPublicCampusCourses(state) {
         enrollmentFee: Number(course.enrollmentFee || 0),
         modality: course.modality || "Presencial",
         enrollmentOpensAt: String(course.enrollmentOpensAt || "").trim(),
+        enrollmentClosesAt: String(course.enrollmentClosesAt || "").trim(),
+        enrollmentWindowState: EnrollmentTime.courseWindowState(course),
         enrollmentWindowOpen:
           String(course.status || "") === "Inscripcion abierta" && isCourseEnrollmentWindowOpen(course)
       };
@@ -6486,6 +6478,9 @@ const server = http.createServer(async (req, res) => {
       for (const course of state.courses || []) {
         const current = (latestQuestionState.courses || []).find(c => c.id === course.id);
         course.instructorAssociateIds = current ? [...(current.instructorAssociateIds || [])] : [];
+        // The course API owns explicit deadlines; old whole-state forms must not reopen enrollment.
+        if (current) course.enrollmentClosesAt = current.enrollmentClosesAt || "";
+        EnrollmentTime.validateCourseWindow(course, current);
       }
       for (const associate of latestQuestionState.associates || []) {
         validateInstructorAssociateUpdate(latestQuestionState, associate.id,
@@ -8591,7 +8586,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if (!isCourseEnrollmentWindowOpen(course)) {
         return sendJson(res, 403, {
           ok: false,
-          error: `La inscripcion de este curso se abrira el ${formatCourseEnrollmentOpensAt(course)}`
+          error: EnrollmentTime.courseWindowState(course) === "closed"
+            ? "La inscripción de este curso está cerrada. No se admiten nuevas solicitudes."
+            : `La inscripcion de este curso se abrira el ${formatCourseEnrollmentOpensAt(course)}`
         });
       }
 
@@ -13346,6 +13343,7 @@ function normalizeCourseMutationPayload(payload, existingCourse = null) {
     audience: audience || "Socios y voluntariado operativo",
     accessScope: normalizeCourseAccessScope(readString("accessScope", "members"), audience),
     enrollmentOpensAt: EnrollmentTime.canonical(readString("enrollmentOpensAt")),
+    enrollmentClosesAt: EnrollmentTime.canonical(readString("enrollmentClosesAt"), "cierre"),
     coordinator: readString("coordinator"),
     contentTemplate: readString("contentTemplate", "operativo") || "operativo",
     objectives: readArray("objectives"),
@@ -13372,6 +13370,7 @@ function normalizeCourseMutationPayload(payload, existingCourse = null) {
     diplomaTemplate: readString("diplomaTemplate", "Aprovechamiento") || "Aprovechamiento"
   };
 
+  EnrollmentTime.validateCourseWindow(nextCourse, existingCourse);
   if (!existingCourse) {
     Object.assign(nextCourse, {
       enrollmentSubmissions: [],
