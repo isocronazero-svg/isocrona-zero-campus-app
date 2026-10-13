@@ -34,7 +34,16 @@ No empezar #247/#245/#248 mientras #253/#252 sigan siendo el cuello de botella d
 
 # #253 / PR #255 — revisión móvil de altas de socio
 
-## Estado remoto
+## Estado final de implementación — 13/10/2026, Desktop
+- PR #255 abierta, NO fusionada ni desplegada; base actualizada a main `9f021a7` sin perder la bitácora posterior.
+- Código final: `c5dec4fbdfa3cb611577f20cd6aee67571768c28`; recuperado el diff literal `6151266079` sin reconstruir la solución.
+- [Actions #384 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38458722283) sobre ese SHA.
+- Dos P2 corregidos y resueltos: conteo disjunto listas/bloqueadas y acción `Reabrir revision` en documentación pendiente. Revisión local completa sin P1/P2 pendientes; re-review remota solicitada.
+- Archivos: `public/app.js`, `package.json`, `scripts/check-app.mjs`, `scripts/check-associate-review-navigation.mjs` y esta bitácora.
+- Node22.23.3: targeted, frontend syntax, check:app completo, smoke14 y diff check PASS. Edge real 390/1440 PASS para los tres tipos de revisión, ambas ramas de estado, contexto obsoleto, enlaces, foco único, sin errores JS ni escrituras.
+- Siguiente: #252 en PR separado desde main vigente. #255 no es dependencia funcional del backend de onboarding; preservar ambos cambios al integrarlos. No merge automático ni datos/correos reales. #254 ya estaba cerrado y había trasladado su handoff a este documento.
+
+## Estado remoto anterior (contexto de recuperación)
 - PR real: **#255** `Fix #253 mobile associate review detail and proof links`.
 - Rama: `fix/253-mobile-associate-review`.
 - Head remoto verificado: `1f21bf48dfe516f0bf6e06f1b82e2728c8a20f31`.
@@ -71,16 +80,7 @@ Criterio final, comentario PR `6151246412`:
 - Aprobar sigue condicionado por readiness; Rechazar se conserva; estados resueltos no recuperan acciones de pendiente.
 
 ### Siguiente paso #253
-1. Refrescar `main` y PR #255.
-2. Aplicar el diff de `6151266079` sobre la rama si el head sigue siendo `1f21bf4`.
-3. Preservar esta bitácora al sincronizar con `main`.
-4. Node22: targeted + `check:app` + frontend syntax + smoke + diff check.
-5. Push misma rama.
-6. Esperar Actions.
-7. `@codex review` final; leer todos comments/reviews/threads.
-8. Resolver el thread P2 solo si el código remoto lo corrige.
-9. Merge manual solo con head/checks/review limpios; no auto-merge.
-10. Actualizar #227/bitácora y verificar main/deploy. No declarar QA productiva autenticada si no se ha realizado.
+Esperar/revisar el CI del commit documental y la revisión final. Merge solo por decisión humana; cerrar #253 tras integración y QA del despliegue. No repetir la recuperación ni confundir QA local con QA productiva.
 
 ---
 
