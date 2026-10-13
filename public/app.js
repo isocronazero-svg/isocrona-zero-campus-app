@@ -9046,9 +9046,14 @@ function renderAssociatesSide() {
                   : ""
               }
               <div class="chip-row">
+                ${application?.status === "Pendiente de revision"
+                  ? `<button class="mini-button" data-action="request-associate-info" data-application-id="${escapeHtml(application.id)}">Pedir doc.</button>`
+                  : ""}
+                ${application?.status === "Pendiente de documentacion"
+                  ? `<button class="mini-button" data-action="reopen-associate-application" data-application-id="${escapeHtml(application.id)}">Reabrir revision</button>`
+                  : ""}
                 ${application && application.status !== "Aprobada" && application.status !== "Rechazada"
-                  ? `<button class="mini-button" data-action="request-associate-info" data-application-id="${escapeHtml(application.id)}">Pedir doc.</button>
-                     <button class="mini-button" data-action="reject-associate" data-application-id="${escapeHtml(application.id)}">Rechazar</button>`
+                  ? `<button class="mini-button" data-action="reject-associate" data-application-id="${escapeHtml(application.id)}">Rechazar</button>`
                   : ""}
                 ${
                   nextPendingApplication

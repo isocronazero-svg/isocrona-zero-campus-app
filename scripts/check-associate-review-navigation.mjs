@@ -133,6 +133,21 @@ assert.match(withProofs, /Solicitud activa: Solicitud QA/);
 assert.doesNotMatch(withProofs, /Ficha activa: Otro socio|data-action="approve-associate-payment"|data-action="approve-associate-profile-request"/);
 assert.match(withProofs, /data-action="reject-associate"/);
 assert.match(withProofs, /data-action="request-associate-info"/);
+assert.doesNotMatch(withProofs, /data-action="reopen-associate-application"/);
+
+const pendingDocumentation = renderSelectedApplication({
+  id: "application-pending-documentation",
+  status: "Pendiente de documentacion",
+  email: "qa@example.test"
+});
+assert.match(pendingDocumentation, /data-action="reopen-associate-application"/);
+assert.doesNotMatch(pendingDocumentation, /data-action="request-associate-info"/);
+assert.match(pendingDocumentation, /data-action="reject-associate"/);
+
+for (const status of ["Aprobada", "Rechazada"]) {
+  const resolved = renderSelectedApplication({ id: "resolved-application", status });
+  assert.doesNotMatch(resolved, /data-action="(?:request-associate-info|reopen-associate-application|reject-associate)"/);
+}
 
 const withoutProofs = renderSelectedApplication({
   id: "application-without-proofs",
