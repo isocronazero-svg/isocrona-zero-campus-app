@@ -8699,7 +8699,7 @@ function renderAssociates() {
           </div>
         </div>
         <p class="status-note info">
-          Hay <strong>${selectableApplications.length}</strong> solicitud(es) lista(s) para aprobar y
+          Hay <strong>${selectableApplications.filter((item) => getAssociateApplicationReadiness(item).ready).length}</strong> solicitud(es) lista(s) para aprobar y
           <strong>${selectableApplications.filter((item) => !getAssociateApplicationReadiness(item).ready).length}</strong> bloqueada(s) por datos o documentacion.
         </p>
         <table>

@@ -155,5 +155,14 @@ assert.equal(vm.runInNewContext(blockedCount, {
   selectableApplications: [{ ready: true }, { ready: false }],
   getAssociateApplicationReadiness: item => item
 }), 1);
+const readyCount = app.match(/\$\{(selectableApplications\.filter\(\(item\) => getAssociateApplicationReadiness\(item\)\.ready\)\.length)\}/)?.[1];
+assert.ok(readyCount, "Ready count must exclude blocked applications");
+for (const readiness of [[], [true], [false], [true, false]]) {
+  const context = { selectableApplications: readiness.map(ready => ({ ready })), getAssociateApplicationReadiness: item => item };
+  const ready = vm.runInNewContext(readyCount, context);
+  const blocked = vm.runInNewContext(blockedCount, context);
+  assert.equal(ready, readiness.filter(Boolean).length);
+  assert.equal(ready + blocked, readiness.length, "Pending categories must not overlap");
+}
 
 console.log("Associate review navigation check passed.");
