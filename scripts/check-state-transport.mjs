@@ -74,6 +74,9 @@ function buildSeedState() {
   seed.accounts.push({ id: "external-campus", role: "member", name: "External QA", email: "external@example.test", password: externalPassword, memberId: "external-member", associateId: "" });
   seed.members.push({ id: "external-member", name: "External QA", email: "external@example.test", role: "Alumno", associateId: "" });
   seed.campusGroups = [{ id: "internal-group", title: "Grupo interno QA", modules: [] }];
+  seed.settings.smtp = {};
+  seed.settings.automation.autoRunOnSave = false;
+  seed.settings.automation.autoAdvanceCourseStatus = false;
   for (const [id, status, enrollmentOpensAt] of [
     ["member-only-course", "Inscripcion abierta", ""],
     ["full-course", "Inscripcion abierta", ""],
@@ -83,6 +86,16 @@ function buildSeedState() {
     seed.courses.push({ ...seed.courses[0], id, accessScope: "members", audience: "Socios", status, enrollmentOpensAt,
       startDate: "2099-02-01", endDate: "2099-02-02", capacity: id === "full-course" ? 1 : 2, enrollmentFee: 0,
       enrolledIds: ["member-1"], waitingIds: [], diplomaReady: [], enrollmentSubmissions: [] });
+  }
+  for (const [id, startDate, enrollmentClosesAt] of [
+    ["past-open-course", "2000-01-01", ""],
+    ["expired-explicit-course", "2099-02-01", "2000-01-01T00:00:00Z"],
+    ["invalid-legacy-close", "2000-01-01", "2099-01-01T00:00:00Z"]
+  ]) {
+    seed.courses.push({ ...seed.courses[0], id, status: "Inscripcion abierta", accessScope: "public",
+      startDate, endDate: startDate, enrollmentOpensAt: "", enrollmentClosesAt, capacity: 10,
+      enrolledIds: ["member-1"], waitingIds: [], diplomaReady: [], enrollmentFee: 25,
+      enrollmentSubmissions: [{ id: `proof-${id}`, memberId: "member-1", status: "pending-proof", amount: 25 }] });
   }
   seed.testZoneQuestions = [
     {
@@ -323,6 +336,58 @@ async function main() {
     for (const id of ["closed-course", "future-course"]) {
       assert.equal((await adminClient.request("POST", `/api/member/courses/${id}/enroll`, {}, { allowFailure: true })).status, 403);
     }
+    for (const id of ["past-open-course", "expired-explicit-course", "invalid-legacy-close"]) {
+      const denied = await adminClient.request("POST", `/api/member/courses/${id}/enroll`, {}, { allowFailure: true });
+      assert.equal(denied.status, 403);
+      assert.match(denied.body.error, /cerrada/);
+      assert.doesNotMatch(denied.body.error, /abrira/);
+      const paymentProof = { name: "qa-proof.pdf", type: "application/pdf", contentBase64: Buffer.from("synthetic proof").toString("base64") };
+      await memberClient.request("POST", `/api/member/courses/${id}/enrollment-proof`, { paymentProof });
+      const stored = (await adminClient.request("GET", "/api/state")).body.courses.find(c => c.id === id);
+      assert.deepEqual(stored.enrolledIds, ["member-1"]);
+      assert.deepEqual(stored.waitingIds, []);
+      assert.equal(stored.enrollmentSubmissions.length, 1);
+      assert.equal(stored.enrollmentSubmissions[0].paymentProof.contentBase64, paymentProof.contentBase64);
+    }
+    const catalog = (await adminClient.request("GET", "/api/public-campus/courses")).body.courses;
+    for (const id of ["past-open-course", "expired-explicit-course", "invalid-legacy-close"]) {
+      assert.equal(catalog.find(c => c.id === id).enrollmentWindowOpen, false);
+      assert.equal(catalog.find(c => c.id === id).enrollmentWindowState, "closed");
+    }
+    const coursePayload = { id: "course-window-qa", title: "Window QA", type: "Practica", hours: 4, capacity: 10,
+      startDate: "2099-02-01", endDate: "2099-02-01", enrollmentOpensAt: "2099-01-01T09:00",
+      enrollmentClosesAt: "2099-01-31T20:00" };
+    const coursePath = "/api/courses/course-window-qa";
+    assert.equal((await adminClient.request("POST", "/api/courses", { ...coursePayload, enrollmentClosesAt: "2099-02-01T00:00" }, { allowFailure: true })).status, 400);
+    await adminClient.request("POST", "/api/courses", coursePayload);
+    let storedWindow = (await adminClient.request("GET", "/api/state")).body.courses.find(c => c.id === coursePayload.id);
+    assert.equal(storedWindow.enrollmentClosesAt, "2099-01-31T19:00:00.000Z");
+    for (const changes of [
+      { enrollmentClosesAt: "2099-02-01T00:00" }, { enrollmentClosesAt: "2099-02-01T10:00" },
+      { enrollmentClosesAt: "2099-01-01T09:00" }, { enrollmentClosesAt: "bad" },
+      { enrollmentOpensAt: "2099-01-31T21:00" }, { startDate: "2099-01-31" },
+      { enrollmentClosesAt: "", enrollmentOpensAt: "2099-02-01T00:00" }
+    ]) {
+      assert.equal((await adminClient.request("PATCH", coursePath, changes, { allowFailure: true })).status, 400);
+      const after = (await adminClient.request("GET", "/api/state")).body.courses.find(c => c.id === coursePayload.id);
+      assert.equal(after.enrollmentClosesAt, storedWindow.enrollmentClosesAt, "Rejected temporal patch must not persist");
+    }
+    await adminClient.request("PATCH", coursePath, { title: "Title only" });
+    assert.equal((await adminClient.request("GET", "/api/state")).body.courses.find(c => c.id === coursePayload.id).enrollmentClosesAt, storedWindow.enrollmentClosesAt);
+    const badState = (await adminClient.request("GET", "/api/state")).body;
+    badState.courses.find(c => c.id === coursePayload.id).enrollmentOpensAt = "2099-02-01T00:00";
+    assert.equal((await adminClient.request("POST", "/api/state", badState, { allowFailure: true })).status, 400);
+    const staleState = (await adminClient.request("GET", "/api/state")).body;
+    await adminClient.request("PATCH", coursePath, { enrollmentClosesAt: "2099-01-30T20:00" });
+    await adminClient.request("POST", "/api/state", staleState);
+    assert.equal((await adminClient.request("GET", "/api/state")).body.courses.find(c => c.id === coursePayload.id).enrollmentClosesAt,
+      "2099-01-30T19:00:00.000Z", "Old global save must preserve the updated deadline");
+    await adminClient.request("PATCH", coursePath, { enrollmentClosesAt: "" });
+    storedWindow = (await adminClient.request("GET", "/api/state")).body.courses.find(c => c.id === coursePayload.id);
+    assert.equal(storedWindow.enrollmentClosesAt, "", "Clearing explicit close restores fallback without persisting it");
+    await adminClient.request("POST", "/api/state", staleState);
+    assert.equal((await adminClient.request("GET", "/api/state")).body.courses.find(c => c.id === coursePayload.id).enrollmentClosesAt,
+      "", "Old global save must not resurrect a cleared deadline");
     const external = createClient("external", baseUrl);
     await login(external, "external@example.test", externalPassword);
     const externalState = (await external.request("GET", "/api/state")).body;

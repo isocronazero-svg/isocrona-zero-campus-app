@@ -71,7 +71,8 @@ function fixture(id = "courseEditForm") {
     normalizeCourseAccessScope: () => "members",
     normalizeDateTimeLocalInput: (value) => value,
     readCourseTrimmedValue: () => "Curso editado",
-    readCourseFieldValue: (field) => field === "editCourseEnrollmentOpensAt" ? "2026-10-10T22:26" : "Valor",
+    readCourseFieldValue: (field) => ({ editCourseEnrollmentOpensAt: "2026-10-10T22:26", editCourseEnrollmentClosesAt: "",
+      editCourseStart: "2026-10-12", editCourseEnd: "2026-10-13" })[field] ?? "Valor",
     readCourseNumberValue: () => 10,
     hasCourseModuleEditors: () => false,
     hasCourseResourceEditors: () => false,
@@ -280,6 +281,28 @@ for (const hours of [0.5, 6.5]) {
 }
 
 // Non-form actions retain their existing refresh and rendering behavior.
+// A bad close, on creation or edit, must never clear/remount the administrator's draft.
+for (const id of ["courseForm", "courseEditForm"]) {
+  const f = fixture(id);
+  const values = {
+    courseCreationMode: "intensive", intensiveDayTitle: "RIT", intensiveDayDate: "2099-02-01",
+    courseHours: "4", courseCapacity: "10", courseAccessScope: "members",
+    courseEnrollmentOpensAt: "2099-01-01T09:00", courseEnrollmentClosesAt: "2099-02-01T12:00"
+  };
+  for (const [name, value] of Object.entries(values)) f.field(name, value);
+  f.context.readCourseFieldValue = (name, fallback) => ({
+    editCourseStart: "2099-02-01", editCourseEnd: "2099-02-01",
+    editCourseEnrollmentOpensAt: values.courseEnrollmentOpensAt,
+    editCourseEnrollmentClosesAt: values.courseEnrollmentClosesAt
+  })[name] ?? fallback;
+  await f.context.submit({ target: f.form, preventDefault() {} });
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.form.resets, 0);
+  assert.equal(f.context.renderCount, 0);
+  assert.match(f.form.status.textContent, /cierre.*anterior/);
+  assert.equal(f.context.document.getElementById("courseEnrollmentClosesAt").value, values.courseEnrollmentClosesAt);
+}
+
 {
   const f = fixture();
   assert.equal(await f.context.invokeJsonAction("/api/action", {}, "Listo"), true);

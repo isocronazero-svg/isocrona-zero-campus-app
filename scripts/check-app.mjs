@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
+  "public/enrollment-time.js",
   "server/instructor-certificate.js",
   "server/certificate-template-image.js",
   "server/live-test-library.js", "public/assets/js/app/modules/tests/liveTestLibrary.js",
@@ -28,6 +29,7 @@ const syntaxFiles = [
   "storage.js"
 ];
 const conflictCheckedFiles = [
+  "public/enrollment-time.js",
   "server/instructor-certificate.js",
   "server/certificate-template-image.js",
   "server/live-test-library.js", "public/assets/js/app/modules/tests/liveTestLibrary.js",
