@@ -2,108 +2,125 @@
 
 Repositorio: `isocronazero-svg/isocrona-zero-campus-app`
 
-Esta es la bitácora operativa vigente para continuar desde Desktop/Codex. Continúa `docs/estado-web-2026-10-12.md`; no perder el detalle técnico histórico de ese documento.
+Esta es la bitácora operativa vigente para continuar desde Desktop/Codex. Continúa `docs/estado-web-2026-10-12.md`; usar ese documento para detalle histórico anterior.
 
-## Estado al handoff — 13/10/2026 05:50 Europe/Madrid
+## Estado consolidado — 13/10/2026 06:57 Europe/Madrid
 
 ### `main`
-- HEAD validado al cierre de la sesión móvil: `e298e06caea094b22c46f3b87fad1c595de8bd30`.
-- Ese commit fusionó PR #250 / issue #246: jornadas intensivas, guardado fiable, formulario simplificado y preservación de horas decimales.
-- #250 está fusionada/cerrada. No recrear esa rama, patch ni PR.
-- Verificacion Desktop del 12/10: CI PR #372 y main #373 SUCCESS; Railway deployment `306b97f1-93de-4691-8b70-01ff63dd9bf7` SUCCESS para `e298e06` en el servicio del portal. Healthz y smoke publico 14/14 PASS; app.js/styles.css publicados coinciden por SHA256. No datos, variables ni permisos modificados. QA autenticada productiva pendiente.
+- HEAD funcional consolidado antes de esta actualización documental: `deb4188103a3a4e4cdab31960b4d59b2a05a9415`.
+- Ese commit fusionó PR #251 / issue #249.
+- PR #250 / issue #246 ya estaba fusionada previamente en `e298e06caea094b22c46f3b87fad1c595de8bd30`.
+- No recrear ramas/patches de #244, #250 ni #251.
+
+### #246 / PR #250 — jornadas intensivas
+- FUSIONADA y desplegada.
+- Incluye modo Jornada intensiva, siete nombres predefinidos, guardado fiable, validación visible, borrador preservado, plazas enteras > 0, horas > 0 y edición compatible con horas decimales como 6,5 h.
+- CI PR #372 y main #373: SUCCESS.
+- Railway oficial del portal: SUCCESS sobre `e298e06`.
+- Smoke público 14/14 PASS; `app.js` y `styles.css` publicados coincidieron por SHA256 con Git.
+- QA autenticada productiva específica de este flujo sigue formando parte de la pasada final de #227.
+
+### #249 / PR #251 — cierre de inscripciones
+- FUSIONADA y desplegada con autorización expresa del usuario.
+- Squash en `main`: `deb4188103a3a4e4cdab31960b4d59b2a05a9415`.
+- HEAD validado de la PR: `49747680e66fe4d12006185911d1d11c738c800f`; código funcional revisado: `cdc912c736ddf0286b5b495a2a51d68a31bc7d01`.
+- CI HEAD #377 y main #378: SUCCESS.
+- Re-review Codex sin problemas importantes; cero P1/P2 abiertos al merge.
+- Railway oficial SUCCESS: deployment `7f35d0b9-5104-45fc-8388-5bb5e426d406` en `zealous-warmth - isocrona-zero-campus-test`, que corresponde al portal activo `portal.isocronazero.org`.
+- `outstanding-wholeness - isocrona-zero-campus` sigue dando un estado fallido/noisy y NO debe confundirse con el servicio activo del portal.
+- Verificación posterior de solo lectura: `/healthz` 200, smoke público 14/14 PASS y bytes/SHA256 de `app.js`, `styles.css` y `enrollment-time.js` iguales a Git en `deb4188`.
+- Implementado: `enrollmentClosesAt` opcional; fallback a `startDate 00:00 Europe/Madrid`; cierre explícito estrictamente anterior al inicio; apertura < cierre efectivo; backend bloquea nuevas altas fuera de ventana aunque el status siga abierto; UI sin CTA tras cierre; `/api/state` preserva el cierre actual frente a snapshots obsoletos; justificantes posteriores de solicitudes existentes siguen permitidos sin duplicar matrícula/lista de espera.
+- Issue #249 permanece ABIERTA hasta QA autenticada productiva/frontera real, igual que #241/#242.
 
 ### #241 — apertura de inscripción y zona horaria
-- Código ya fusionado en `main`.
-- NO cerrar todavía la issue solo por estar implementada.
-- Pendiente QA manual en producción: configurar apertura a pocos minutos en hora española y verificar que antes rechaza y desde la hora exacta acepta sin desfase UTC.
-- Mantener backend como autoridad y compatibilidad `Europe/Madrid`/DST.
+- Código fusionado.
+- Pendiente QA manual en producción: apertura configurada a pocos minutos en hora española; verificar rechazo antes y aceptación desde el instante exacto sin desfase UTC.
+- Mantener `Europe/Madrid`, DST y backend como autoridad.
 
 ### #242 — certificados de instructor
-- Código ya fusionado mediante PR #244.
+- Código fusionado mediante PR #244.
 - P1/P2 de código resueltos y CI verde antes del merge.
-- NO cerrar todavía la issue: queda QA manual productiva.
-- Comprobar selector/edición con varios instructores, PDF desde admin y desde el propio instructor, permisos laterales y que un curso cerrado hoy no habilita certificado hasta haber pasado completamente `endDate`.
+- Pendiente QA manual productiva: varios instructores, PDF desde admin y propio instructor, permisos laterales y bloqueo de certificado hasta que haya pasado completamente `endDate`.
 
-## Orden de desarrollo confirmado
+## Siguiente tarea activa: #247 — habilitación explícita de socios instructores
 
-1. **#249 — cierre automático/configurable de inscripciones**
-2. **#247 — habilitación explícita de socios instructores**
-3. **#245 — asistencia presencial y cierre de alumnos**
-4. **#248 — histórico de jornadas y prioridad por menor participación**
+No existe todavía rama/PR de #247 al consolidar esta bitácora. Empezar desde `main` actualizado tras este commit documental.
 
-No empezar #248 antes de consolidar #245 y #247: su fuente de verdad depende de asistencia/cierre real y de distinguir alumnado de instructores.
+Contrato ya cerrado:
+- `instructorEnabled` booleano persistente en `associate`, default seguro `false` para legacy;
+- solo administración puede cambiarlo;
+- solo socios existentes, con nombre válido e `instructorEnabled=true`, pueden añadirse como NUEVOS instructores;
+- backend valida cada nueva asignación; no confiar solo en UI;
+- si un instructor ya estaba históricamente en `course.instructorAssociateIds` y luego se deshabilita, se conserva relación/certificado histórico y puede quitarse solo por acción administrativa explícita;
+- reactivar lo vuelve seleccionable para nuevas asignaciones;
+- no límite artificial de dos: cubrir 1, 2, 3 y 4+ instructores;
+- deduplicación frontend/backend;
+- UX: selector de elegibles + `Añadir instructor` + chips/lista con `Quitar`, mostrando nombre y nº de socio;
+- un instructor histórico deshabilitado debe seguir visible al editar como no disponible para nuevas asignaciones, sin desaparecer al guardar;
+- reutilizar `instructorAssociateIds` y `server/instructor-certificate.js`; no crear otra identidad docente;
+- `storage.js` debe normalizar/persistir el flag;
+- proteger `instructorEnabled` frente a guardados legacy/obsoletos por `/api/state` para que un navegador viejo no lo borre ni cambie al guardar otra cosa;
+- las subacciones del editor deben conservar todos los IDs como ya resolvió #244.
 
-## #249 — PR #251 abierta, codigo/CI/review aprobados
+Validación mínima #247:
+- legacy sin campo => no seleccionable;
+- habilitar => aparece;
+- deshabilitar => desaparece de nuevas selecciones;
+- histórico deshabilitado permanece tras recarga/edición y conserva certificado;
+- payload manipulado de instructor no habilitado => rechazo backend;
+- 1/2/3/4 instructores, dedupe, quitar uno sin perder los demás;
+- `npm run check:app`, `npm run smoke:campus-test`, revisión P1/P2 y QA móvil/escritorio sintética.
 
-13/10 Desktop: [PR #251](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/251), rama `codex/enrollment-closing-window` sobre `c875221` (main con este handoff). Codigo `cdc912c736ddf0286b5b495a2a51d68a31bc7d01`. No merge ni despliegue autorizados de #249.
+## Después de #247: #245 — asistencia presencial y cierre
 
-- `EnrollmentTime` compartido calcula cierre explicito/fallback y distingue future/open/closed; no parser nuevo ni migracion. Por la aclaracion de la issue #249 (comentario 6127911743), cierre EXPLICITO debe ser estrictamente anterior al inicio; solo el cierre implicito coincide con startDate 00:00 Europe/Madrid.
-- Backend: POST/PATCH de cursos valida el conjunto temporal; POST /api/state preserva el cierre explicito actual, propiedad de la API de cursos, y revalida cambios temporales sin bloquear ediciones ajenas de ventanas legacy sin cambios. Un snapshot global obsoleto no borra ni resucita un cierre. Catalogo publico expone cierre/estado; alta de alumno rechaza fuera de ventana aunque status siga abierto. Justificantes de solicitudes existentes permanecen permitidos.
-- UI: campos de apertura/cierre juntos en alta/edicion, cierre opcional conservado por normalizacion/PATCH/subacciones; error visible sin destruir borrador. Tarjetas/publico/resumen sin CTA tras cierre; no confundir cierre con apertura futura. No se modifica el estado academico para forzar el bloqueo.
-- Check temporal red/green reproduce el bug anterior. Fronteras exactas, DST, verano/invierno, TZ UTC/Madrid/New York, validacion POST/PATCH/state, permiso de justificantes y no duplicacion cubiertos. check:app completo PASS y smoke local14 PASS. Check de Windows contributions-ui requiere normalizacion LF SOLO LOCAL de question-bank.js, sin incluirla en el diff.
-- QA navegador sintetica: cierre invalido conserva borrador; cierre valido en Madrid persiste como UTC y recarga a la misma hora. Socio/admin propio conserva inscripcion/justificante; participante externo no ve grupos privados ni CTA del curso cerrado. Consola sin errores. Capturas locales en Gestion/issue249-ui, no versionadas.
-- [App checks #375 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38346619317) sobre codigo cdc912c. Re-review finalizada sin problemas importantes ([comentario6138306404](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/251#issuecomment-6138306404)); sin P1/P2 abiertos. Los commits posteriores son solo esta bitacora. #227 registra HEAD/CI documental final sin crear otra PR.
-- Pendiente: CI del ultimo commit documental y autorizacion expresa antes de merge. No datos reales; QA productiva a pocos minutos de frontera despues de autorizacion/merge. Preview sintetica local http://127.0.0.1:54143, no es produccion. #247 solo despues de cerrar esta integracion.
+No construir un segundo sistema: gran parte de la UI/flujo ya existe.
+- reutilizar `PATCH /api/courses/:courseId/members/:memberId/academic` y `PATCH /api/courses/:courseId/academic`;
+- reutilizar `POST /api/courses/:courseId/members/:memberId/close` y cierre masivo existente;
+- reutilizar blockers académicos, `attendance`, `evaluations` y `diplomaReady`;
+- la UI ya dispone de asistencia/evaluación, `Todo al 100%`, `Marcar aptos`, cierre individual/masivo y tabla de progreso/diploma;
+- trabajo principal: UX móvil rápida `Asistió` / `No asistió` y permisos backend/frontend para instructor ASIGNADO al curso mediante `instructorAssociateIds`;
+- instructor de otro curso => 403; alumno nunca puede autoeditar/autocerrarse;
+- waiting no se toca; curso con requisitos adicionales mantiene blockers; jornada presencial pura + Asistió/Apto puede cerrarse correctamente;
+- no usar `/api/state` como bypass.
 
-Implementar en un PR específico sobre `main` actual. Alcance ya cerrado:
-- añadir `enrollmentClosesAt` opcional;
-- si existe, cerrar exactamente en ese instante;
-- si no existe, cierre implícito a `startDate 00:00 Europe/Madrid` mientras no haya hora de inicio específica;
-- validar apertura < cierre efectivo; cierre explicito < inicio, fallback = inicio del curso;
-- backend rechaza nuevas inscripciones fuera de ventana aunque `course.status` siga obsoleto;
-- UI muestra `Inscripción cerrada` y no ofrece CTA;
-- no romper lista de espera, reintento de justificante ni expedientes ya creados;
-- reutilizar la infraestructura temporal introducida por #241, sin crear un segundo parser de fechas;
-- cubrir invierno/verano, DST, frontera exacta, cierre explícito e implícito y POST directo fuera de ventana;
-- ejecutar `npm run check:app` y `npm run smoke:campus-test`;
-- pedir revisión P1/P2 antes de merge.
+## Después de #245: #248 — histórico y prioridad
 
-Objetivo de eficiencia para Codex: antes de modificar código, localizar y reutilizar `EnrollmentTime`, `isCourseEnrollmentWindowOpen`, alta/edición de cursos y `scripts/check-enrollment-time.mjs`. No explorar ni refactorizar áreas no relacionadas.
-
-## #247 — preparado para después de #249
-
-- `instructorEnabled` booleano en socio, default `false`;
-- solo socios habilitados seleccionables en nuevas asignaciones;
-- backend debe rechazar IDs manipulados/no habilitados;
-- deshabilitar no borra relaciones ni certificados históricos;
-- selector incremental `Añadir instructor`, sin límite artificial de dos;
-- evitar duplicados y conservar 1, 2, 3, 4+ instructores tras recarga;
-- reutilizar `instructorAssociateIds` ya introducido por #242/#244.
-
-## #245 — preparado para después de #247
-
-Reutilizar, no duplicar:
-- `PATCH /api/courses/:courseId/academic`;
-- `POST /api/courses/:courseId/members/:memberId/close`;
-- blockers académicos y `diplomaReady` existentes.
-
-UX móvil prioritaria: `Asistencia y certificación`, acciones rápidas `Asistió` / `No asistió`, cierre por alumno y permisos de admin/instructor asignado. No usar `/api/state` como bypass.
-
-## #248 — preparado pero bloqueado por #245/#247
-
-- derivar histórico de la verdad académica; no contador manual;
-- contar solo participación real como alumno en jornadas finalizadas/validadas;
-- deduplicar por jornada + alumno;
-- excluir espera, anulados, no asistencia, no aptos e instructor puro;
+Bloqueada hasta consolidar #247 y #245.
+- no contador manual persistido;
+- derivar desde verdad académica consolidada, preferentemente `diplomaReady`/cierre válido;
+- contar solo `Jornada intensiva` realmente realizada como alumno;
+- deduplicar por `course.id + memberId`;
+- excluir espera, anulados/rechazados, No asistió, No apto e instructor puro;
+- un único agregador en servidor debe alimentar vista y exportación para evitar discrepancias;
 - ordenar por menor nº de jornadas para informar prioridad;
-- V1 no adjudica plazas automáticamente;
-- vista web principal y exportación como apoyo.
+- V1 informa/ordena, no adjudica automáticamente plazas;
+- vista admin completa; instructor asignado solo contexto necesario de su jornada; socio normal sin ranking global;
+- CSV/XLSX como apoyo, no fuente de verdad independiente.
 
-## Pendientes que NO deben distraer el siguiente arranque
+## Orden confirmado
 
-- #109 refactor backend: V2, no mezclar con estas funcionalidades.
-- #112 ampliación de preguntas IVASPE: trabajo independiente.
-- #134 importación IVASPE en Railway: operación productiva, no mezclar con cambios funcionales.
-- #227 sigue siendo paraguas de QA/cierre V1; no interpretar su texto antiguo como motivo para revertir los avances posteriores ya autorizados e integrados.
+1. #247 — instructor habilitado + selector múltiple incremental.
+2. #245 — asistencia/cierre con permisos de instructor asignado.
+3. #248 — histórico/prioridad/exportación.
+4. QA integral final #227: crear jornada → apertura/cierre inscripción → instructores → inscripción → asistencia/cierre → diplomas alumno/instructor → histórico/prioridad.
+5. QA productiva pendiente de #241/#242/#249 y resto de recorrido V1.
 
-## Instrucción de arranque en Desktop
+## PR #240
 
-Antes de tocar código:
-1. `git fetch` / actualizar `main` y confirmar HEAD;
-2. leer este documento y `docs/estado-web-2026-10-12.md` si hace falta detalle histórico;
-3. comprobar PRs/issues recientes por si hubo cambios después de este handoff;
-4. trabajar únicamente #249 en un PR específico;
-5. ejecutar checks, revisión P1/P2 y corregir hallazgos antes de plantear merge;
-6. actualizar esta bitácora y #227 cuando cambie el estado.
+Sigue abierta como referencia histórica, pero usa un modelo docente incompatible basado en otra identidad. NO fusionar junto al modelo `associates` de #244. Solo reutilizar ideas puntuales si se adaptan explícitamente al modelo actual.
 
-No tocar datos reales, migraciones ni operaciones productivas sin backup/dry-run y autorización explícita.
+## Pendientes que no deben distraer
+
+- #109 refactor backend: V2; no mezclar.
+- #112 ampliación de preguntas IVASPE: independiente.
+- #134 importación IVASPE en Railway: operación productiva separada.
+- No datos reales, migraciones ni operaciones productivas sin backup recuperable, dry-run y autorización explícita.
+
+## Regla de continuidad
+
+Antes de tocar código desde cualquier chat/Desktop:
+1. refrescar `main`, esta bitácora, PRs/issues y checks recientes;
+2. un PR por tema;
+3. no mezclar #247/#245/#248;
+4. actualizar #227 y esta bitácora cuando cambie el estado significativo;
+5. no confundir CI verde con QA productiva.
