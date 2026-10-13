@@ -33,16 +33,17 @@ Esta es la bitácora operativa vigente para continuar desde Desktop/Codex. Conti
 
 No empezar #248 antes de consolidar #245 y #247: su fuente de verdad depende de asistencia/cierre real y de distinguir alumnado de instructores.
 
-## #249 — implementada localmente, pendiente PR/review
+## #249 — PR #251 abierta, CI verde, review en curso
 
-13/10 Desktop: rama `codex/enrollment-closing-window` sobre `c875221` (main con este handoff). No merge ni despliegue autorizados de #249.
+13/10 Desktop: [PR #251](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/251), rama `codex/enrollment-closing-window` sobre `c875221` (main con este handoff). Codigo `cdc912c736ddf0286b5b495a2a51d68a31bc7d01`. No merge ni despliegue autorizados de #249.
 
 - `EnrollmentTime` compartido calcula cierre explicito/fallback y distingue future/open/closed; no parser nuevo ni migracion. Por la aclaracion de la issue #249 (comentario 6127911743), cierre EXPLICITO debe ser estrictamente anterior al inicio; solo el cierre implicito coincide con startDate 00:00 Europe/Madrid.
 - Backend: POST/PATCH de cursos valida el conjunto temporal; POST /api/state preserva el cierre explicito actual, propiedad de la API de cursos, y revalida cambios temporales sin bloquear ediciones ajenas de ventanas legacy sin cambios. Un snapshot global obsoleto no borra ni resucita un cierre. Catalogo publico expone cierre/estado; alta de alumno rechaza fuera de ventana aunque status siga abierto. Justificantes de solicitudes existentes permanecen permitidos.
 - UI: campos de apertura/cierre juntos en alta/edicion, cierre opcional conservado por normalizacion/PATCH/subacciones; error visible sin destruir borrador. Tarjetas/publico/resumen sin CTA tras cierre; no confundir cierre con apertura futura. No se modifica el estado academico para forzar el bloqueo.
 - Check temporal red/green reproduce el bug anterior. Fronteras exactas, DST, verano/invierno, TZ UTC/Madrid/New York, validacion POST/PATCH/state, permiso de justificantes y no duplicacion cubiertos. check:app completo PASS y smoke local14 PASS. Check de Windows contributions-ui requiere normalizacion LF SOLO LOCAL de question-bank.js, sin incluirla en el diff.
 - QA navegador sintetica: cierre invalido conserva borrador; cierre valido en Madrid persiste como UTC y recarga a la misma hora. Socio/admin propio conserva inscripcion/justificante; participante externo no ve grupos privados ni CTA del curso cerrado. Consola sin errores. Capturas locales en Gestion/issue249-ui, no versionadas.
-- Pendiente: publicar PR, CI remoto y review P1/P2; registrar SHA/URL en #227 y bitacora. No datos reales; QA productiva a pocos minutos de frontera despues de autorizacion/merge.
+- [App checks #375 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38346619317) sobre codigo cdc912c. @codex review solicitada en comentario6138244179, en curso a esta actualizacion; no interpretar ausencia temporal de hilos como aprobacion. #227 registra HEAD/CI/review final sin crear otra PR documental.
+- Pendiente: respuesta review, corregir cualquier P1/P2 y pedir autorizacion antes de merge. No datos reales; QA productiva a pocos minutos de frontera despues de autorizacion/merge. Preview sintetica local http://127.0.0.1:54143, no es produccion.
 
 Implementar en un PR específico sobre `main` actual. Alcance ya cerrado:
 - añadir `enrollmentClosesAt` opcional;
