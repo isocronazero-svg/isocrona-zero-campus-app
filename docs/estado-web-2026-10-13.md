@@ -2,125 +2,286 @@
 
 Repositorio: `isocronazero-svg/isocrona-zero-campus-app`
 
-Esta es la bitácora operativa vigente para continuar desde Desktop/Codex. Continúa `docs/estado-web-2026-10-12.md`; usar ese documento para detalle histórico anterior.
+Bitácora operativa vigente para continuar desde Desktop/Codex. Para historia anterior usar `docs/estado-web-2026-10-12.md` y Git.
 
-## Estado consolidado — 13/10/2026 06:57 Europe/Madrid
+## Estado consolidado — 13/10/2026 tarde, Europe/Madrid
 
 ### `main`
-- HEAD funcional consolidado antes de esta actualización documental: `deb4188103a3a4e4cdab31960b4d59b2a05a9415`.
-- Ese commit fusionó PR #251 / issue #249.
-- PR #250 / issue #246 ya estaba fusionada previamente en `e298e06caea094b22c46f3b87fad1c595de8bd30`.
-- No recrear ramas/patches de #244, #250 ni #251.
+- HEAD verificado antes de esta actualización documental: `efa99c4e510691155cd352d8d3e9b0d5bc434a52`.
+- #246 / PR #250 está fusionada y desplegada; jornadas intensivas funcionales. Squash funcional `e298e06caea094b22c46f3b87fad1c595de8bd30`.
+- #249 / PR #251 está fusionada y desplegada. Squash `deb4188103a3a4e4cdab31960b4d59b2a05a9415`.
+- No recrear ramas/patches de #244/#250/#251.
+- Los commits documentales de esta bitácora pueden dejar PRs funcionales un commit por detrás; al fusionar preservar siempre la bitácora más nueva.
 
-### #246 / PR #250 — jornadas intensivas
-- FUSIONADA y desplegada.
-- Incluye modo Jornada intensiva, siete nombres predefinidos, guardado fiable, validación visible, borrador preservado, plazas enteras > 0, horas > 0 y edición compatible con horas decimales como 6,5 h.
-- CI PR #372 y main #373: SUCCESS.
-- Railway oficial del portal: SUCCESS sobre `e298e06`.
-- Smoke público 14/14 PASS; `app.js` y `styles.css` publicados coincidieron por SHA256 con Git.
-- QA autenticada productiva específica de este flujo sigue formando parte de la pasada final de #227.
+### Producción conocida
+- Portal: `https://portal.isocronazero.org`.
+- Railway activo: `zealous-warmth - isocrona-zero-campus-test` aunque el nombre interno sea confuso.
+- `outstanding-wholeness - isocrona-zero-campus` es paralelo/ruidoso; no confundir ni borrar sin verificar dominio/volumen/datos.
+- CI verde o smoke público no equivale a QA autenticada productiva.
 
-### #249 / PR #251 — cierre de inscripciones
-- FUSIONADA y desplegada con autorización expresa del usuario.
-- Squash en `main`: `deb4188103a3a4e4cdab31960b4d59b2a05a9415`.
-- HEAD validado de la PR: `49747680e66fe4d12006185911d1d11c738c800f`; código funcional revisado: `cdc912c736ddf0286b5b495a2a51d68a31bc7d01`.
-- CI HEAD #377 y main #378: SUCCESS.
-- Re-review Codex sin problemas importantes; cero P1/P2 abiertos al merge.
-- Railway oficial SUCCESS: deployment `7f35d0b9-5104-45fc-8388-5bb5e426d406` en `zealous-warmth - isocrona-zero-campus-test`, que corresponde al portal activo `portal.isocronazero.org`.
-- `outstanding-wholeness - isocrona-zero-campus` sigue dando un estado fallido/noisy y NO debe confundirse con el servicio activo del portal.
-- Verificación posterior de solo lectura: `/healthz` 200, smoke público 14/14 PASS y bytes/SHA256 de `app.js`, `styles.css` y `enrollment-time.js` iguales a Git en `deb4188`.
-- Implementado: `enrollmentClosesAt` opcional; fallback a `startDate 00:00 Europe/Madrid`; cierre explícito estrictamente anterior al inicio; apertura < cierre efectivo; backend bloquea nuevas altas fuera de ventana aunque el status siga abierto; UI sin CTA tras cierre; `/api/state` preserva el cierre actual frente a snapshots obsoletos; justificantes posteriores de solicitudes existentes siguen permitidos sin duplicar matrícula/lista de espera.
-- Issue #249 permanece ABIERTA hasta QA autenticada productiva/frontera real, igual que #241/#242.
+## Orden vigente de lanzamiento
 
-### #241 — apertura de inscripción y zona horaria
+1. **#253 / PR #255** — cerrar el bloqueo móvil de revisión de altas.
+2. **#252** — onboarding seguro por lotes de accesos Campus históricos.
+3. **#247** — habilitación explícita de socios instructores.
+4. **#245** — asistencia/cierre con permisos de instructor asignado.
+5. **#248** — histórico/prioridad de jornadas.
+6. **#227** — QA integral + QA productiva pendiente #241/#242/#249.
+
+No empezar #247/#245/#248 mientras #253/#252 sigan siendo el cuello de botella de apertura a socios.
+
+---
+
+# #253 / PR #255 — revisión móvil de altas de socio
+
+## Estado remoto
+- PR real: **#255** `Fix #253 mobile associate review detail and proof links`.
+- Rama: `fix/253-mobile-associate-review`.
+- Head remoto verificado: `1f21bf48dfe516f0bf6e06f1b82e2728c8a20f31`.
+- Commits remotos:
+  - `5c864c543d9121d38925e664b3f0cdf9e4cd4d06`: navegación/foco/detalle/proofs;
+  - `1f21bf48dfe516f0bf6e06f1b82e2728c8a20f31`: contador correcto listas/bloqueadas.
+- Actions `App checks` run #381 sobre `1f21bf4`: SUCCESS.
+- Primer P2 Codex, contador listas/bloqueadas: resuelto y thread cerrado.
+- Segundo P2 Codex, acción `Reabrir revision`: thread `PRRT_kwDOR63Ofc6r2n7m` / discussion `4258508999`, todavía abierto hasta que el fix esté realmente remoto.
+
+## QA ya validada
+- Node 22.23.3 `npm run check:app`: PASS.
+- frontend syntax + `git diff --check`: PASS.
+- smoke aislado: 14/14 PASS.
+- Edge real 390/1440: solicitud/justificante/cambio de ficha abren el detalle correcto; foco/scroll único; selección obsoleta no contamina acciones; justificantes principal/secundario abren; sin overflow, errores JS ni mutación de registros.
+- Foco accesible sobre la tarjeta real seleccionada y side panel acotado al modo activo.
+
+## Último P2 — recuperación durable lista
+El head remoto `1f21bf4` todavía muestra `Pedir doc.` también para `Pendiente de documentacion`. La tabla correcta distingue:
+- `Pendiente de revision` → `Pedir doc.`;
+- `Pendiente de documentacion` → `Reabrir revision`.
+
+Codex hizo el follow-up local y todos los checks pasaron, pero no pudo hacer push. El **diff literal completo y aplicable** quedó preservado en PR #255 comentario **`6151266079`**:
+- base exacta: `1f21bf48dfe516f0bf6e06f1b82e2728c8a20f31`;
+- commit local reproducido: `3040196d412960a1c9be1a3b9b0d6ab0c053142d`;
+- archivos: `package.json`, `public/app.js`, `scripts/check-associate-review-navigation.mjs`;
+- añade comando `check:associate-review-navigation`;
+- añade exclusión mutua de acciones por estado;
+- Node22 targeted + `check:app` + frontend syntax + smoke14 + diff check: PASS.
+
+Criterio final, comentario PR `6151246412`:
+- `Pendiente de revision`: tiene `request-associate-info` y NO `reopen-associate-application`;
+- `Pendiente de documentacion`: tiene `reopen-associate-application` y NO `request-associate-info`;
+- Aprobar sigue condicionado por readiness; Rechazar se conserva; estados resueltos no recuperan acciones de pendiente.
+
+### Siguiente paso #253
+1. Refrescar `main` y PR #255.
+2. Aplicar el diff de `6151266079` sobre la rama si el head sigue siendo `1f21bf4`.
+3. Preservar esta bitácora al sincronizar con `main`.
+4. Node22: targeted + `check:app` + frontend syntax + smoke + diff check.
+5. Push misma rama.
+6. Esperar Actions.
+7. `@codex review` final; leer todos comments/reviews/threads.
+8. Resolver el thread P2 solo si el código remoto lo corrige.
+9. Merge manual solo con head/checks/review limpios; no auto-merge.
+10. Actualizar #227/bitácora y verificar main/deploy. No declarar QA productiva autenticada si no se ha realizado.
+
+---
+
+# #252 — alta masiva segura de accesos Campus
+
+## Recuperación
+- Rama remota `issue-252-member-access-launch` seguía en la base histórica `a043b3beb15b5d8e49d9b3b88a15a4d0be0f9bba`; no hay implementación funcional publicada.
+- NO reimplementar desde cero.
+- Baseline completo como **diff literal durable** en issue #252 comentario **`6143098248`**; commit local reconstruido `42d964635745edbb676b6ebda702f45c1fa33448`.
+- Archivos baseline: `docs/associate-onboarding.md`, `package.json`, `public/app.js`, `scripts/check-associate-onboarding.mjs`, `server.js`.
+- Baseline ya probó Node22, onboarding sintético, associate-update, frontend syntax, check:app, smoke y diff check.
+
+## Referencia única de implementación
+El **contrato consolidado definitivo** es el comentario #252 **`6151415338`**. Si un comentario previo contradice ese contrato, prevalece `6151415338`.
+
+Desktop/Codex debe:
+1. cerrar/fusionar #253 primero;
+2. partir del `main` vigente después de #253 y de esta bitácora;
+3. reutilizar el baseline `6143098248`;
+4. portar/ajustar hunks con conflictos sin revertir #253;
+5. implementar exactamente el contrato `6151415338`;
+6. un solo PR #252, sin mezclar #247/#245/#248.
+
+## Reglas finales #252
+
+### Preview
+- solo admin, read-only, token/fingerprint 15 min, cero mutación;
+- email canónico `trim().toLowerCase()`;
+- clasificación por estado/email/duplicados/identidad antes de declarar ejecutable;
+- devolver `smtpReady`, resumen e items sin credenciales.
+
+### Estados
+No usar `/activa/i` ni exigir solo `Activa`.
+- `Activa`: permitido si pasa el resto;
+- `Pendiente cuota`: permitido; sigue siendo socio;
+- `Revisar documentacion`: permitido solo si es legacy importado (`Importado desde Excel legacy`) y tiene nombre + apellidos + email canónico válido;
+- `Baja`: nunca ejecutable aunque tenga links/cuenta;
+- `Solicitud recibida`, `En revision` y equivalentes no consolidados: bloqueados;
+- estado desconocido: `incident`.
+
+### Email
+- canónico también al crear/enlazar associate/member/account;
+- duplicados normalizados bloqueados;
+- bloquear explícitamente `gmail.con` como caso real sospechoso; no montar un validador DNS universal;
+- espacios/mayúsculas no crean identidades distintas.
+
+### Identidad
+No “adoptar” member/account por simple coincidencia de email:
+- resolver primero `linkedMemberId`/`linkedAccountId`;
+- link roto o incompatible => `incident`;
+- member/account mismo email de otra identidad => `incident`;
+- member huérfano ambiguo sin vínculo explícito suficiente => `incident`;
+- link coherente del mismo socio puede reutilizarse;
+- execute vuelve a validar antes de mutar.
+
+### Cuenta ya existente
+- cuenta manual operativa existente: `already_linked`, NO ejecutable por lote;
+- retry solo si es onboarding realmente incompleto/fallido: links coherentes + `mustChangePassword=true` + `associate.temporaryPassword` válida + bienvenida pending/failed;
+- retry no crea cuenta ni rota contraseña.
+
+### Selección/lotes
+- execute recibe `associateIds` explícitos;
+- default tras preview: 0 seleccionados;
+- máximo **20** por ejecución;
+- 0 o 21+ => 400 antes de consumir token y con cero mutación;
+- IDs manipulados/no elegibles => 400 y token no consumido;
+- solo después de validar request/fingerprint/SMTP consumir token;
+- SMTP secuencial por socio;
+- UI: checkboxes + `Seleccionados X/20` + `Seleccionar 5` + `Seleccionar 10` + `Seleccionar hasta 20` + `Limpiar selección`;
+- los botones de selección nunca ejecutan automáticamente;
+- botón `Procesar X seleccionados` disabled con X=0.
+
+### SMTP — P1
+El flujo existente con `strict:false` puede devolver `smtp_missing` sin lanzar. Por eso:
+- preview indica `smtpReady`;
+- execute valida `isSmtpConfigured(state)` **antes de consumir token y antes de crear una cuenta**;
+- SMTP ausente => 400, cero mutación;
+- UI bloquea execute si SMTP no está listo.
+
+### Contraseña/bienvenida
+- mantener `randomBytes(18).toString("base64url")`;
+- generar una sola vez al crear/reset explícito;
+- retry SMTP reutiliza la credencial;
+- `mustChangePassword=true` hasta el primer cambio;
+- cambio real limpia `temporaryPassword`;
+- no filtrar password/hash/token/credenciales SMTP en responses/logs/listados de socio;
+- bienvenida incluye portal oficial `https://portal.isocronazero.org`.
+
+### Error visible seguro
+- fallo SMTP: cuenta persiste una sola vez, bienvenida `failed`, retryable;
+- guardar `welcomeEmailError` saneado y mostrar motivo útil solo a admin;
+- jamás incluir contraseña temporal, hash, token o secreto SMTP en ese error;
+- éxito limpia el error.
+
+## Tests obligatorios #252
+La lista exhaustiva está en `6151415338`. Cubrir como mínimo:
+- permisos 401/403/admin;
+- preview no mutante;
+- Activa/Pendiente cuota/legacy Revisar doc elegibles;
+- Baja/request/unknown bloqueados;
+- missing/invalid/duplicate/`gmail.con`;
+- normalización de email;
+- colisión member/account/links rotos;
+- manual account no ejecutable;
+- retry onboarding sí;
+- SMTP ausente cero mutación;
+- 0 IDs, 21 IDs, subset 5/N, IDs manipulados;
+- fingerprint/token TTL/reutilización;
+- fallo SMTP + retry misma cuenta/credencial;
+- mustChangePassword + limpieza;
+- no fuga de credenciales;
+- `check:associate-onboarding`, `check:associate-update`, frontend syntax, `check:app` Node22, smoke14, `git diff --check`.
+
+## Operación REAL — solo después de merge/deploy y autorización
+- `/api/storage/export-state` descarga el estado completo mediante `JSON.stringify(state)`: backup sensible.
+- Guardar `campus-backup-*.json` privado fuera del host; nunca GitHub/issues/adjunto público; verificar JSON; restore solo aislado salvo autorización expresa.
+- Ya existe `smtp-test` → `/api/smtp/test`: configurar `testTo`, enviar un único test y confirmar recepción real.
+- Después: preview productivo → corregir incidencias → Carlos autoriza primer subset **5–10** → comprobar accesos/correo/cambio de contraseña → continuar en lotes de **máximo 20**.
+- Cero cuentas/emails reales durante desarrollo/CI.
+
+## Censo read-only de preparación
+Fuente conectada `CUOTAS SOCIOS`, sin escrituras:
+- 153 emails consolidados, 153 distintos tras trim/lower, 0 duplicados exactos;
+- 8 emails con espacios sobrantes;
+- al menos un dominio `gmail.con` sospechoso;
+- 8 bajas expresas;
+- numeración visible 1..143 + 10 filas consolidadas sin número;
+- una alta posterior adicional en formulario: total potencial 154 / activo aparente ~146, a confirmar contra producción;
+- existen varios accesos manuales previos, que deben quedar fuera del envío masivo por defecto.
+
+---
+
+# QA productiva pendiente
+
+## #241 — apertura/zona horaria
 - Código fusionado.
-- Pendiente QA manual en producción: apertura configurada a pocos minutos en hora española; verificar rechazo antes y aceptación desde el instante exacto sin desfase UTC.
-- Mantener `Europe/Madrid`, DST y backend como autoridad.
+- Pendiente prueba autenticada con apertura 3–5 min por delante en hora española: rechazo antes y aceptación desde umbral exacto.
+- Mantener Europe/Madrid/DST/backend como autoridad.
 
-### #242 — certificados de instructor
-- Código fusionado mediante PR #244.
-- P1/P2 de código resueltos y CI verde antes del merge.
-- Pendiente QA manual productiva: varios instructores, PDF desde admin y propio instructor, permisos laterales y bloqueo de certificado hasta que haya pasado completamente `endDate`.
+## #242 — certificados de instructor
+- Fusionado vía PR #244.
+- Pendiente varios instructores, PDF admin/propio instructor, permisos laterales y bloqueo hasta pasar completamente `endDate`.
 
-## Siguiente tarea activa: #247 — habilitación explícita de socios instructores
+## #249 — cierre de inscripción
+- Fusionado vía PR #251.
+- Cierre explícito + fallback `startDate 00:00 Europe/Madrid`, backend autoritativo y retry de justificante existente preservado.
+- Issue abierta hasta QA productiva de frontera real.
 
-No existe todavía rama/PR de #247 al consolidar esta bitácora. Empezar desde `main` actualizado tras este commit documental.
+---
 
-Contrato ya cerrado:
-- `instructorEnabled` booleano persistente en `associate`, default seguro `false` para legacy;
-- solo administración puede cambiarlo;
-- solo socios existentes, con nombre válido e `instructorEnabled=true`, pueden añadirse como NUEVOS instructores;
-- backend valida cada nueva asignación; no confiar solo en UI;
-- si un instructor ya estaba históricamente en `course.instructorAssociateIds` y luego se deshabilita, se conserva relación/certificado histórico y puede quitarse solo por acción administrativa explícita;
-- reactivar lo vuelve seleccionable para nuevas asignaciones;
-- no límite artificial de dos: cubrir 1, 2, 3 y 4+ instructores;
-- deduplicación frontend/backend;
-- UX: selector de elegibles + `Añadir instructor` + chips/lista con `Quitar`, mostrando nombre y nº de socio;
-- un instructor histórico deshabilitado debe seguir visible al editar como no disponible para nuevas asignaciones, sin desaparecer al guardar;
-- reutilizar `instructorAssociateIds` y `server/instructor-certificate.js`; no crear otra identidad docente;
-- `storage.js` debe normalizar/persistir el flag;
-- proteger `instructorEnabled` frente a guardados legacy/obsoletos por `/api/state` para que un navegador viejo no lo borre ni cambie al guardar otra cosa;
-- las subacciones del editor deben conservar todos los IDs como ya resolvió #244.
+# Después de #252
 
-Validación mínima #247:
-- legacy sin campo => no seleccionable;
-- habilitar => aparece;
-- deshabilitar => desaparece de nuevas selecciones;
-- histórico deshabilitado permanece tras recarga/edición y conserva certificado;
-- payload manipulado de instructor no habilitado => rechazo backend;
-- 1/2/3/4 instructores, dedupe, quitar uno sin perder los demás;
-- `npm run check:app`, `npm run smoke:campus-test`, revisión P1/P2 y QA móvil/escritorio sintética.
+## #247 — instructor habilitado + selector múltiple
+- `instructorEnabled`, default legacy false, solo admin;
+- nuevas asignaciones solo habilitados y validadas backend;
+- deshabilitar no borra historia/certificado;
+- selector + añadir + chips/quitar, 1/2/3/4+ sin límite artificial, dedupe;
+- proteger frente a `/api/state` obsoleto;
+- reutilizar `instructorAssociateIds` y `server/instructor-certificate.js`.
 
-## Después de #247: #245 — asistencia presencial y cierre
+## #245 — asistencia/cierre
+- reutilizar verdad/endpoints académicos existentes;
+- UX móvil `Asistió` / `No asistió`;
+- instructor asignado solo su curso; otro instructor 403; alumno nunca se autoedita/autocierra;
+- waiting no se toca; blockers adicionales se conservan; no `/api/state` como bypass.
 
-No construir un segundo sistema: gran parte de la UI/flujo ya existe.
-- reutilizar `PATCH /api/courses/:courseId/members/:memberId/academic` y `PATCH /api/courses/:courseId/academic`;
-- reutilizar `POST /api/courses/:courseId/members/:memberId/close` y cierre masivo existente;
-- reutilizar blockers académicos, `attendance`, `evaluations` y `diplomaReady`;
-- la UI ya dispone de asistencia/evaluación, `Todo al 100%`, `Marcar aptos`, cierre individual/masivo y tabla de progreso/diploma;
-- trabajo principal: UX móvil rápida `Asistió` / `No asistió` y permisos backend/frontend para instructor ASIGNADO al curso mediante `instructorAssociateIds`;
-- instructor de otro curso => 403; alumno nunca puede autoeditar/autocerrarse;
-- waiting no se toca; curso con requisitos adicionales mantiene blockers; jornada presencial pura + Asistió/Apto puede cerrarse correctamente;
-- no usar `/api/state` como bypass.
+## #248 — histórico/prioridad
+- derivado, no contador manual;
+- solo Jornada intensiva realmente realizada como alumno;
+- dedupe course+member;
+- excluir waiting/rechazado/cancelado/no asistió/no apto/instructor puro;
+- agregador servidor único para UI/export;
+- ordenar por menor nº de jornadas; V1 informa/ordena, no adjudica plazas automáticamente.
 
-## Después de #245: #248 — histórico y prioridad
+---
 
-Bloqueada hasta consolidar #247 y #245.
-- no contador manual persistido;
-- derivar desde verdad académica consolidada, preferentemente `diplomaReady`/cierre válido;
-- contar solo `Jornada intensiva` realmente realizada como alumno;
-- deduplicar por `course.id + memberId`;
-- excluir espera, anulados/rechazados, No asistió, No apto e instructor puro;
-- un único agregador en servidor debe alimentar vista y exportación para evitar discrepancias;
-- ordenar por menor nº de jornadas para informar prioridad;
-- V1 informa/ordena, no adjudica automáticamente plazas;
-- vista admin completa; instructor asignado solo contexto necesario de su jornada; socio normal sin ranking global;
-- CSV/XLSX como apoyo, no fuente de verdad independiente.
+# QA integral #227
+Recorrido objetivo final:
+1. crear jornada;
+2. apertura/cierre hora local;
+3. instructores habilitados;
+4. inscripción + justificante/retry;
+5. asistencia/aptitud/cierre;
+6. diplomas alumno/instructor;
+7. histórico/prioridad/export;
+8. responsive 390/768/1440;
+9. backup externo + restore aislado ensayado antes de operaciones reales relevantes.
 
-## Orden confirmado
+# Otros
+- PR #240: referencia histórica; modelo docente incompatible, no fusionar tal cual.
+- #109 refactor backend: V2.
+- #112 ampliación IVASPE: independiente.
+- #134 importación IVASPE Railway: operación productiva separada; requiere backup + dry-run + autorización.
 
-1. #247 — instructor habilitado + selector múltiple incremental.
-2. #245 — asistencia/cierre con permisos de instructor asignado.
-3. #248 — histórico/prioridad/exportación.
-4. QA integral final #227: crear jornada → apertura/cierre inscripción → instructores → inscripción → asistencia/cierre → diplomas alumno/instructor → histórico/prioridad.
-5. QA productiva pendiente de #241/#242/#249 y resto de recorrido V1.
-
-## PR #240
-
-Sigue abierta como referencia histórica, pero usa un modelo docente incompatible basado en otra identidad. NO fusionar junto al modelo `associates` de #244. Solo reutilizar ideas puntuales si se adaptan explícitamente al modelo actual.
-
-## Pendientes que no deben distraer
-
-- #109 refactor backend: V2; no mezclar.
-- #112 ampliación de preguntas IVASPE: independiente.
-- #134 importación IVASPE en Railway: operación productiva separada.
-- No datos reales, migraciones ni operaciones productivas sin backup recuperable, dry-run y autorización explícita.
-
-## Regla de continuidad
-
+# Regla de continuidad
 Antes de tocar código desde cualquier chat/Desktop:
-1. refrescar `main`, esta bitácora, PRs/issues y checks recientes;
-2. un PR por tema;
-3. no mezclar #247/#245/#248;
-4. actualizar #227 y esta bitácora cuando cambie el estado significativo;
-5. no confundir CI verde con QA productiva.
+1. refrescar `main`, esta bitácora, #227, PRs/issues/checks recientes;
+2. GitHub + esta bitácora son fuente común; no crear plan paralelo;
+3. un PR por tema;
+4. #253 antes de #252; #252 antes de #247/#245/#248;
+5. leer todos los comments/reviews/threads P1/P2 antes de merge;
+6. si cambia plan/estado, actualizar esta bitácora y #227;
+7. no confundir CI verde con QA productiva;
+8. no datos reales, migraciones, altas masivas ni emails reales sin backup recuperable + preview/dry-run + autorización explícita.
