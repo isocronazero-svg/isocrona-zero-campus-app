@@ -1504,6 +1504,32 @@ a {
   scroll-margin-top: 24px;
 }
 
+#associateOnboardingBatch {
+  min-width: 0;
+  max-width: 100%;
+  border-block: 1px solid var(--line);
+  padding-block: 16px;
+}
+
+#associateOnboardingBatch .table-wrap {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  margin-block: 12px;
+}
+
+#associateOnboardingBatch table {
+  min-width: 760px;
+}
+
+#associateOnboardingBatch .course-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+#associateOnboardingBatch .course-grid p {
+  margin: 4px 0;
+}
+
 .section-jump-button {
   justify-content: flex-start;
   width: 100%;

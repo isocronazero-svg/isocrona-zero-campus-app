@@ -6437,6 +6437,7 @@ const server = http.createServer(async (req, res) => {
           : mergeMemberScopedStateIntoFullState(currentState, payload, account);
       // Reports are written only through the scoped moderation API.
       const latestQuestionState = readState();
+      preserveAssociateOnboardingState(latestQuestionState, state);
       // Historical proof references are owned by the reviewed workbook import, not whole-state forms.
       const currentProofs = new Map((latestQuestionState.associates || []).map(item => [item.id, item.legacyPaymentProofs]));
       for (const associate of state.associates || []) {
@@ -12894,6 +12895,29 @@ function hasAssociateWelcomeInFlight(state, associate) {
     email.associateId === associate.id && ["queued", "sending", "sent"].includes(email.status));
 }
 
+function preserveAssociateOnboardingState(current, next) {
+  // Dedicated provisioning/reset endpoints own access data, not old whole-state forms.
+  for (const associate of current.associates || []) {
+    if (!associate.campusOnboardingCreatedAt) continue;
+    const incoming = (next.associates || []).find(item => item.id === associate.id);
+    if (incoming) {
+      for (const key of ["email", "linkedMemberId", "linkedAccountId", "campusAccessStatus", "temporaryPassword",
+        "campusOnboardingCreatedAt", "welcomeEmailStatus", "welcomeEmailSentAt", "welcomeEmailError"]) {
+        incoming[key] = associate[key];
+      }
+    } else {
+      next.associates = [...(next.associates || []), associate];
+    }
+    for (const [collection, id] of [["members", associate.linkedMemberId], ["accounts", associate.linkedAccountId]]) {
+      const record = (current[collection] || []).find(item => item.id === id);
+      if (record) next[collection] = [...(next[collection] || []).filter(item => item.id !== id), record];
+    }
+  }
+  const welcomeRecords = (current.emailOutbox || []).filter(item => item.kind === "associate_welcome");
+  const ids = new Set(welcomeRecords.map(item => item.id));
+  next.emailOutbox = [...welcomeRecords, ...(next.emailOutbox || []).filter(item => !ids.has(item.id) && item.kind !== "associate_welcome")];
+}
+
 async function sendAssociateOnboardingWelcome(associateId) {
   const state = readState();
   const associate = state.associates.find(item => item.id === associateId);
@@ -15444,7 +15468,11 @@ async function deliverEmailRecord(state, email) {
       const associate = (state.associates || []).find(item => item.id === email.associateId);
       const account = (state.accounts || []).find(item => item.id === associate?.linkedAccountId);
       const member = (state.members || []).find(item => item.id === associate?.linkedMemberId);
-      if (!associate || !account) throw new Error("Acceso no disponible");
+      if (!associate || !account || !member || account.memberId !== member.id ||
+          String(email.to || "").trim().toLowerCase() !== String(account.email || "").trim().toLowerCase() ||
+          String(email.to || "").trim().toLowerCase() !== String(associate.email || "").trim().toLowerCase()) {
+        throw new Error("Acceso o destinatario no disponible");
+      }
       body = buildAssociateWelcomeEmailBody(state, associate, account, member);
     }
     const result = await sendMail(smtp, {

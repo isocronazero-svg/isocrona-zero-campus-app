@@ -42,6 +42,13 @@ function smtpServer(port) {
             messages.push(message);
             message = "";
             dataMode = false;
+            if (server.holdNext) {
+              const gate = server.holdNext;
+              server.holdNext = null;
+              server.onCaptured?.();
+              gate.then(() => socket.write("250 queued synthetic\r\n"));
+              continue;
+            }
             if (rejectNextMessage) {
               rejectNextMessage = false;
               socket.write("451 synthetic retryable failure\r\n");
@@ -206,8 +213,12 @@ async function main() {
     assert.ok(!JSON.stringify(ownState).includes(password));
     assert.ok(!JSON.stringify(ownState).includes("temporaryPassword"));
     assert.ok(!JSON.stringify((await member.call("GET", "/api/state")).body).includes(password));
-    await own.call("POST", "/api/state", { ...ownState, associates: [{ ...eligible, temporaryPassword: "attacker" }] });
+    assert.equal((await own.call("POST", "/api/state", { ...ownState, associates: [{ ...eligible, temporaryPassword: "attacker" }] })).status, 200);
     assert.equal((await admin.call("GET", "/api/state")).body.associates.find(item => item.id === "eligible").temporaryPassword, password, "Scoped save cannot replace or clear credentials");
+    assert.equal((await admin.call("POST", "/api/state", before)).status, 200);
+    const preserved = (await admin.call("GET", "/api/storage/export-state")).body;
+    assert.equal(preserved.associates.find(item => item.id === "eligible").linkedAccountId, account.id, "Old admin form cannot erase provisioning");
+    assert.equal(preserved.emailOutbox.filter(item => subset.includes(item.associateId)).length, 5, "Old admin form cannot erase delivery state");
     const retryPreview = await admin.call("POST", "/api/associates/onboarding/preview");
     assert.equal(retryPreview.body.items.find((item) => item.id === "eligible").category, "already_linked");
     assert.equal(retryPreview.body.items.find((item) => item.id === "eligible").executable, true);
@@ -234,11 +245,36 @@ async function main() {
     assert.equal(finalState.associates.find((item) => item.id === "eligible").temporaryPassword, "");
     assert.ok(!JSON.stringify((await login.call("GET", "/api/state")).body).includes(password));
     assert.ok(!JSON.stringify((await admin.call("GET", "/api/storage/export-state")).body.emailOutbox).includes(password));
+    let releaseSmtp, captured;
+    smtp.holdNext = new Promise(resolve => { releaseSmtp = resolve; });
+    const reachedSmtp = new Promise(resolve => { captured = resolve; });
+    smtp.onCaptured = captured;
+    const concurrentPreview = await previewOf();
+    const pendingBatch = execute(concurrentPreview, ["batch-0", "batch-1"]);
+    await reachedSmtp;
+    try {
+      const secondPreview = await previewOf();
+      assert.equal((await execute(secondPreview, ["batch-2"])).status, 400, "Concurrent batch is rejected");
+      const during = (await admin.call("GET", "/api/state")).body;
+      during.settings.organization = "Concurrent synthetic edit";
+      during.associates.find(item => item.id === "batch-1").status = "Baja";
+      assert.equal((await admin.call("POST", "/api/state", during)).status, 200);
+    } finally {
+      releaseSmtp();
+    }
+    const concurrentResult = await pendingBatch;
+    assert.equal(concurrentResult.status, 200);
+    assert.equal(concurrentResult.body.created, 1);
+    assert.equal(concurrentResult.body.results[1].outcome, "skipped", "Next candidate is revalidated after SMTP");
+    const afterConcurrent = (await admin.call("GET", "/api/state")).body;
+    assert.equal(afterConcurrent.settings.organization, "Concurrent synthetic edit", "SMTP completion preserves unrelated concurrent writes");
+    assert.equal(afterConcurrent.associates.find(item => item.id === "batch-1").linkedAccountId, "");
+    assert.equal(afterConcurrent.associates.find(item => item.id === "batch-2").linkedAccountId, "");
     await stop();
     await start();
     await admin.call("POST", "/api/login", { email: "admin.synthetic@example.test", password: adminPassword });
     const restarted = (await admin.call("GET", "/api/storage/export-state")).body;
-    assert.equal(restarted.accounts.length, finalState.accounts.length);
+    assert.equal(restarted.accounts.length, afterConcurrent.accounts.length);
     assert.equal(restarted.associates.find(item => item.id === "eligible").welcomeEmailStatus, "sent");
     const importFixture = snapshot => admin.call("POST", "/api/storage/import-state", { snapshotFile: {
       name: "synthetic-backup.json", type: "application/json", contentBase64: Buffer.from(JSON.stringify(snapshot)).toString("base64")
