@@ -98,6 +98,7 @@ const extraCheckScripts = [
   "scripts/check-test-zone-ivaspe-dry-run.mjs",
   "scripts/check-test-zone-normalizer.mjs",
   "scripts/check-instructor-certificates.mjs",
+  "scripts/check-instructor-eligibility.mjs",
   "scripts/check-form-save-recovery.mjs",
   "scripts/check-intensive-days.mjs"
 ];
