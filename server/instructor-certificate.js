@@ -17,12 +17,17 @@ function validateInstructorAssociateIds(state, ids, existingIds = []) {
   if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => typeof id !== "string" || !id)) {
     throw new Error("Selecciona instructores desde las fichas de socios existentes");
   }
-  if (new Set(ids).size !== ids.length || ids.some(id => !(state.associates || []).some(a => a.id === id))) {
+  const associates = state.associates || [];
+  if (new Set(ids).size !== ids.length || ids.some(id => !associates.some(a => a.id === id))) {
     throw new Error("Todos los instructores deben tener una ficha de socio existente");
   }
-  // Existing incomplete records must not block unrelated course edits.
-  if (ids.some(id => !existingIds.includes(id) && !hasInstructorName(state.associates.find(a => a.id === id)))) {
+  // Existing historical assignments may remain after an instructor is disabled or an old record becomes incomplete.
+  const newIds = ids.filter(id => !existingIds.includes(id));
+  if (newIds.some(id => !hasInstructorName(associates.find(a => a.id === id)))) {
     throw new Error("Completa el nombre del socio antes de asignarlo como instructor");
+  }
+  if (newIds.some(id => associates.find(a => a.id === id)?.instructorEnabled !== true)) {
+    throw new Error("El socio debe estar habilitado como instructor antes de asignarlo");
   }
   return [...ids];
 }
