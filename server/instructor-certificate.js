@@ -1,4 +1,25 @@
 // Certifiable identities are association records, never campus names or coordinator text.
+const pendingInstructorAssignments = new Map();
+
+function reserveInstructorAssignments(ids, existingIds = []) {
+  const added = ids.filter(id => !existingIds.includes(id));
+  for (const id of added) pendingInstructorAssignments.set(id, (pendingInstructorAssignments.get(id) || 0) + 1);
+  return () => {
+    for (const id of added) {
+      const remaining = pendingInstructorAssignments.get(id) - 1;
+      if (remaining) pendingInstructorAssignments.set(id, remaining);
+      else pendingInstructorAssignments.delete(id);
+    }
+  };
+}
+
+function assertInstructorAssignmentEditable(associateId) {
+  if (!pendingInstructorAssignments.has(associateId)) return;
+  const error = new Error("Este instructor tiene un curso guardandose. Espera a que termine y vuelve a intentarlo.");
+  error.statusCode = 409;
+  throw error;
+}
+
 function hasInstructorName(associate) {
   return [associate?.firstName, associate?.lastName].some(value => String(value || "").trim());
 }
@@ -7,6 +28,7 @@ function validateInstructorAssociateUpdate(state, associateId, nextAssociate) {
   const previous = (state.associates || []).find(a => a.id === associateId);
   const nameChanged = ["firstName", "lastName"].some(key =>
     String(previous?.[key] || "").trim() !== String(nextAssociate?.[key] || "").trim());
+  if (nameChanged) assertInstructorAssignmentEditable(associateId);
   if (nameChanged && !hasInstructorName(nextAssociate) &&
       (state.courses || []).some(course => (course.instructorAssociateIds || []).includes(associateId))) {
     throw new Error("No puedes borrar el nombre de un socio asignado como instructor. Introduce un nombre valido.");
@@ -67,4 +89,4 @@ function buildInstructorCertificateModel(state, courseId, associateId, dates) {
   };
 }
 
-module.exports = { validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel };
+module.exports = { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel };

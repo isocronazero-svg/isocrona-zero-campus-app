@@ -16,7 +16,7 @@ function capture(state) {
   };
 }
 
-function mergeConcurrentAccessChanges(state, baseline, current) {
+function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdateId) {
   if (baseline && JSON.stringify(baseline.smtp) !== JSON.stringify(current.smtp)) {
     state.settings = { ...(state.settings || {}), smtp: structuredClone(current.smtp) };
   }
@@ -45,9 +45,9 @@ function mergeConcurrentAccessChanges(state, baseline, current) {
     state[collection] = [...rows.values()];
   }
   for (const associate of state.associates || []) {
-    if (current.instructorFlags.has(associate.id) && (!baseline ||
-        baseline.instructorFlags.get(associate.id) !== current.instructorFlags.get(associate.id))) {
-      associate.instructorEnabled = current.instructorFlags.get(associate.id);
+    if (associate.id !== instructorUpdateId || !baseline ||
+        baseline.instructorFlags.get(associate.id) !== current.instructorFlags.get(associate.id)) {
+      associate.instructorEnabled = current.instructorFlags.get(associate.id) === true;
     }
   }
   return state;
@@ -61,9 +61,9 @@ function createOnboardingStateAccess(storage) {
       snapshots.set(state, capture(state));
       return state;
     },
-    writeState(state) {
+    writeState(state, { instructorUpdateId } = {}) {
       const latest = capture(storage.readState());
-      mergeConcurrentAccessChanges(state, snapshots.get(state), latest);
+      mergeConcurrentAccessChanges(state, snapshots.get(state), latest, instructorUpdateId);
       storage.writeState(state);
       snapshots.set(state, capture(state));
     }

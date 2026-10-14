@@ -81,7 +81,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
-const { validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
+const { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
   PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");
@@ -7731,6 +7731,7 @@ const server = http.createServer(async (req, res) => {
         if (typeof payload.instructorEnabled !== "boolean") {
           throw new Error("La habilitacion como instructor debe ser true o false");
         }
+        if (payload.instructorEnabled !== associate.instructorEnabled) assertInstructorAssignmentEditable(associate.id);
         associate.instructorEnabled = Boolean(payload.instructorEnabled);
       }
       associate.associateNumber = associateNumber;
@@ -7775,7 +7776,7 @@ const server = http.createServer(async (req, res) => {
         account.name,
         `Ha actualizado la ficha del socio #${associateNumber} ${getAssociateFullName(associate)}`.trim()
       );
-      writeState(state);
+      writeState(state, { instructorUpdateId: associate.id });
 
       return sendJson(res, 200, {
         ok: true,
@@ -8122,6 +8123,7 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      assertInstructorAssignmentEditable(context.associate.id);
       deleteAssociateFromState(state, context);
       appendActivity(
         state,
@@ -8829,6 +8831,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
   if (requestUrl.pathname === "/api/courses" && req.method === "POST") {
     let state = null;
+    let releaseInstructors = () => {};
     try {
       state = readState();
       const account = requireAdminAccount(req, res, state);
@@ -8842,25 +8845,27 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if ((state.courses || []).some((item) => item.id === course.id)) {
         return sendJson(res, 409, { ok: false, error: "Ya existe un curso con ese identificador" });
       }
+      releaseInstructors = reserveInstructorAssignments(course.instructorAssociateIds);
 
       state.courses = state.courses || [];
       state.courses.unshift(course);
       state.selectedCourseId = course.id;
       state.activeView = "campus";
       appendActivity(state, "admin", account.name, `Ha creado el curso ${course.title}`);
-      // Commit the validated assignment synchronously, before automation can yield to SMTP.
-      writeState(state);
       const summary = await runCourseAcademicAutomation(state, "Creacion de curso");
       writeState(state);
       return sendJson(res, 201, { ok: true, message: "Curso creado y guardado", course, summary });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo crear el curso");
+    } finally {
+      releaseInstructors();
     }
   }
 
   const updateCourseMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)$/);
   if (updateCourseMatch && req.method === "PATCH") {
     let state = null;
+    let releaseInstructors = () => {};
     try {
       state = readState();
       const account = requireAdminAccount(req, res, state);
@@ -8879,18 +8884,19 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       const previousCourse = state.courses[courseIndex];
       const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
       const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...courseInstructorConfig(state, payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
+      releaseInstructors = reserveInstructorAssignments(course.instructorAssociateIds, previousCourse.instructorAssociateIds || []);
       state.courses[courseIndex] = course;
       state.selectedCourseId = course.id;
       state.activeView = "campus";
       appendActivity(state, "admin", account.name, `Ha actualizado el curso ${course.title}`);
-      // A later disable affects new assignments, not this already committed course.
-      writeState(state);
       const summary = await runCourseAcademicAutomation(state, "Actualizacion de curso");
       course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
       writeState(state);
       return sendJson(res, 200, { ok: true, message: "Curso actualizado", course, summary });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo actualizar el curso");
+    } finally {
+      releaseInstructors();
     }
   }
 
