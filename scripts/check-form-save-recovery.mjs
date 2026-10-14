@@ -241,7 +241,7 @@ for (const title of ["Accidentes de tráfico", "Rescate vertical", "RIT", "Incen
     courseEnrollmentOpensAt: "", courseTemplate: "operativo"
   })) f.field(name, value);
   f.field("courseGenerateContent", "on", true, "checkbox").checked = true;
-  f.context.readInstructorSelection = () => ["hidden-instructor"];
+  f.context.readInstructorSelection = () => ["instructor-one", "instructor-two", "instructor-three"];
   f.context.buildCourseBlueprint = () => { throw new Error("Intensive day must not generate hidden content"); };
   await f.context.submit({ target: f.form, preventDefault() {} });
   assert.equal(f.requests.length, 1);
@@ -261,7 +261,7 @@ for (const title of ["Accidentes de tráfico", "Rescate vertical", "RIT", "Incen
   assert.equal(course.capacity, 16);
   assert.equal(course.coordinator, "");
   assert.equal(course.audience, "");
-  assert.deepEqual(course.instructorAssociateIds, []);
+  assert.deepEqual(course.instructorAssociateIds, ["instructor-one", "instructor-two", "instructor-three"]);
   assert.equal(f.form.resets, 1);
 }
 

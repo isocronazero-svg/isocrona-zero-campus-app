@@ -6493,6 +6493,11 @@ const server = http.createServer(async (req, res) => {
         validateInstructorAssociateUpdate(latestQuestionState, associate.id,
           (state.associates || []).find(item => item.id === associate.id));
       }
+      // Only the administrative associate PATCH owns instructor eligibility.
+      const currentAssociates = new Map((latestQuestionState.associates || []).map(item => [item.id, item]));
+      for (const associate of state.associates || []) {
+        associate.instructorEnabled = currentAssociates.get(associate.id)?.instructorEnabled === true;
+      }
       let summary = null;
 
       if (state.settings?.automation?.autoRunOnSave !== false) {
@@ -7722,6 +7727,12 @@ const server = http.createServer(async (req, res) => {
       }
 
       validateInstructorAssociateUpdate(state, associate.id, payload);
+      if (Object.prototype.hasOwnProperty.call(payload, "instructorEnabled")) {
+        if (typeof payload.instructorEnabled !== "boolean") {
+          throw new Error("La habilitacion como instructor debe ser true o false");
+        }
+        associate.instructorEnabled = Boolean(payload.instructorEnabled);
+      }
       associate.associateNumber = associateNumber;
       associate.status = String(payload.status || associate.status || "Revisar documentacion").trim();
       associate.firstName = String(payload.firstName || "").trim();
@@ -8826,6 +8837,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
+      state = readState();
       const course = { ...normalizeCourseMutationPayload(payload, null), ...courseInstructorConfig(state, payload), ...courseTestConfig(state, payload) };
       if ((state.courses || []).some((item) => item.id === course.id)) {
         return sendJson(res, 409, { ok: false, error: "Ya existe un curso con ese identificador" });
@@ -8855,6 +8867,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
+      state = readState();
       const courseId = decodeURIComponent(updateCourseMatch[1] || "");
       const courseIndex = (state.courses || []).findIndex((item) => item.id === courseId);
       if (courseIndex === -1) {

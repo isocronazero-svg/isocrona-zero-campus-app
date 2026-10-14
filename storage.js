@@ -1298,6 +1298,7 @@ function normalizeState(state) {
       yearlyFees,
       payments,
       ...item,
+      instructorEnabled: Boolean(item.instructorEnabled),
       manualYearlyFees,
       yearlyFees,
       payments

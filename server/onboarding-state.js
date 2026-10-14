@@ -1,4 +1,4 @@
-// Protect only onboarding-owned access/delivery fields from async stale writers.
+// Protect onboarding-owned access/delivery fields and instructor eligibility from async stale writers.
 // Unrelated application state keeps the existing storage behavior.
 const associateFields = ["firstName", "lastName", "email", "status", "observations", "linkedMemberId", "linkedAccountId", "campusAccessStatus",
   "temporaryPassword", "campusOnboardingCreatedAt", "welcomeEmailStatus", "welcomeEmailSentAt", "welcomeEmailError"];
@@ -7,6 +7,7 @@ const memberFields = ["id", "associateId", "email", "name", "source"];
 function capture(state) {
   const associates = (state.associates || []).filter(item => item.campusOnboardingCreatedAt);
   return {
+    instructorFlags: new Map((state.associates || []).map(item => [item.id, item.instructorEnabled === true])),
     smtp: structuredClone(state.settings?.smtp),
     associates: new Map(associates.map(item => [item.id, structuredClone(item)])),
     members: new Map((state.members || []).filter(item => associates.some(a => a.linkedMemberId === item.id)).map(item => [item.id, structuredClone(item)])),
@@ -42,6 +43,12 @@ function mergeConcurrentAccessChanges(state, baseline, current) {
     // A deliberate deletion after the reader's snapshot must not be resurrected.
     for (const id of previous.keys()) if (!latest.has(id)) rows.delete(id);
     state[collection] = [...rows.values()];
+  }
+  for (const associate of state.associates || []) {
+    if (current.instructorFlags.has(associate.id) && (!baseline ||
+        baseline.instructorFlags.get(associate.id) !== current.instructorFlags.get(associate.id))) {
+      associate.instructorEnabled = current.instructorFlags.get(associate.id);
+    }
   }
   return state;
 }
