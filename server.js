@@ -7688,6 +7688,7 @@ const server = http.createServer(async (req, res) => {
 
       const payload = await readJsonBody(req, payloadLimitBytes.small);
       const associateId = decodeURIComponent(updateAssociateMatch[1] || "");
+      state = readState();
       const associate = (state.associates || []).find((item) => item.id === associateId);
       if (!associate) {
         return sendJson(res, 404, { ok: false, error: "Socio no encontrado" });
@@ -7705,6 +7706,14 @@ const server = http.createServer(async (req, res) => {
       }
 
       const email = String(payload.email || "").trim().toLowerCase();
+      const identityChanged = email !== String(associate.email || "").trim().toLowerCase() ||
+        String(payload.firstName || "").trim() !== String(associate.firstName || "").trim() ||
+        String(payload.lastName || "").trim() !== String(associate.lastName || "").trim();
+      if (associate.campusOnboardingCreatedAt && identityChanged &&
+          (welcomeDeliveriesInFlight.has(associate.id) || (state.emailOutbox || []).some(mail =>
+            mail.kind === "associate_welcome" && mail.associateId === associate.id && mail.status === "sending"))) {
+        throw new Error("No puedes cambiar la identidad mientras la bienvenida esta en envio o pendiente de confirmar");
+      }
       if (email && !isLikelyEmail(email)) {
         throw new Error("El email no tiene un formato valido");
       }
@@ -7781,6 +7790,7 @@ const server = http.createServer(async (req, res) => {
       associateOnboardingPreviews.set(token, {
         accountId: account.id,
         fingerprint: preview.fingerprint,
+        smtpFingerprint: fingerprintOnboardingSmtp(state),
         identities: new Map((state.associates || []).map(associate => [associate.id, fingerprintOnboardingAssociate(associate)])),
         expiresAt: Date.now() + ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS
       });
@@ -7828,6 +7838,10 @@ const server = http.createServer(async (req, res) => {
       for (const id of ids) {
         // Re-read after each SMTP await. Never persist a whole pre-send snapshot.
         const latest = readState();
+        if (!isSmtpConfigured(latest) || savedPreview.smtpFingerprint !== fingerprintOnboardingSmtp(latest)) {
+          results.push({ id, outcome: "skipped", reason: "SMTP ha cambiado desde la revision; compruebalo y genera una nueva vista previa" });
+          continue;
+        }
         const associate = latest.associates.find(entry => entry.id === id);
         if (savedPreview.identities.get(id) !== fingerprintOnboardingAssociate(associate)) {
           results.push({ id, outcome: "skipped", reason: "La ficha ha cambiado desde la revision; genera una nueva vista previa" });
@@ -12804,6 +12818,10 @@ function fingerprintOnboardingAssociate(associate) {
   return createHash("sha256").update(JSON.stringify(associate || null)).digest("hex");
 }
 
+function fingerprintOnboardingSmtp(state) {
+  return createHash("sha256").update(JSON.stringify(getSmtpSettings(state))).digest("hex");
+}
+
 function buildAssociateOnboardingPreview(state) {
   const associates = state.associates || [];
   const emailCounts = new Map();
@@ -12958,6 +12976,8 @@ function persistOnboardingWelcomeDelivery(state, email) {
   if (!storedEmail) return;
   Object.assign(storedEmail, email);
   if (current && current.linkedAccountId === associate.linkedAccountId &&
+      current.linkedMemberId === associate.linkedMemberId &&
+      String(current.email || "").trim().toLowerCase() === String(email.to || "").trim().toLowerCase() &&
       current.temporaryPassword === associate.temporaryPassword) {
     current.welcomeEmailStatus = email.status;
     current.welcomeEmailSentAt = email.deliveredAt || "";

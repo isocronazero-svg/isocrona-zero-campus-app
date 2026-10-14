@@ -17,6 +17,7 @@ El outbox de bienvenida NUEVO guarda siempre un cuerpo redactado, incluso antes 
 ## Reglas operativas
 
 - Preview ligado al administrador, identidades, credenciales, estado de entrega y configuración SMTP; caduca en 15 minutos, se invalida con cambios y es de un solo uso. Cada ficha pendiente se compara con la revisada antes de su turno: si cambia durante otra entrega SMTP, se omite sin crear acceso ni enviar a una identidad nueva y requiere otro preview. Tras reiniciar hay que generar otro.
+- SMTP también se compara antes de cada alta; si cambia o deja de estar configurado, se omiten los siguientes destinatarios antes de provisionar. Durante una bienvenida `sending`, el editor rechaza cambios de nombre/email, pero permite datos ajenos a la identidad; la reconciliación de entrega comprueba también destinatario y vínculo de alumno.
 - Elegibles: Activa, Pendiente cuota y Revisar documentacion legacy con identidad mínima. Baja, solicitudes no aprobadas, estados desconocidos, links rotos, identidades ambiguas y gmail.con se bloquean.
 - No adoptar cuentas/alumnos por email. Cuentas manuales o privilegiadas nunca reciben bienvenida por el lote. Solo un acceso member marcado por este onboarding, coherente, pendiente/fallido y con temporal válida admite retry.
 - Selección inicial vacía; atajos 5/10/20 solo seleccionan. El servidor deduplica IDs, comprueba el subset y rechaza manipulaciones antes de consumir el token.

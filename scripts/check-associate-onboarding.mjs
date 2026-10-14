@@ -313,7 +313,16 @@ async function main() {
     try {
       const secondPreview = await previewOf();
       assert.equal((await execute(secondPreview, ["batch-2"])).status, 400, "Concurrent batch is rejected");
-      const during = (await admin.call("GET", "/api/state")).body;
+      let during = (await admin.call("GET", "/api/state")).body;
+      const sendingAssociate = during.associates.find(item => item.id === "batch-0");
+      const editPayload = { ...sendingAssociate, associateNumber: 1000 };
+      for (const changes of [{ email: "changed-during-send@example.test" }, { firstName: "Changed during send" }]) {
+        const blockedEdit = await admin.call("PATCH", "/api/associates/batch-0", { ...editPayload, ...changes });
+        assert.equal(blockedEdit.status, 400);
+        assert.match(blockedEdit.body.error, /identidad.*bienvenida/);
+      }
+      assert.equal((await admin.call("PATCH", "/api/associates/batch-0", { ...editPayload, phone: "synthetic-phone" })).status, 200, "Unrelated edits remain allowed during SMTP");
+      during = (await admin.call("GET", "/api/state")).body;
       during.settings.organization = "Concurrent synthetic edit";
       during.associates.find(item => item.id === "batch-1").status = "Baja";
       during.associates.find(item => item.id === "batch-8").email = "not-reviewed@example.test";
@@ -335,8 +344,40 @@ async function main() {
     assert.equal(smtp.messages.some(message => message.includes("not-reviewed@example.test")), false);
     for (const id of ["batch-8", "batch-9"]) assert.equal(afterConcurrent.associates.find(item => item.id === id).linkedAccountId, "");
     assert.equal(afterConcurrent.settings.organization, "Concurrent synthetic edit", "SMTP completion preserves unrelated concurrent writes");
+    const unchangedRecipient = afterConcurrent.associates.find(item => item.id === "batch-0");
+    assert.equal(unchangedRecipient.email, "batch-0@example.test");
+    assert.equal(unchangedRecipient.phone, "synthetic-phone");
+    assert.equal(unchangedRecipient.welcomeEmailStatus, "sent");
+    assert.equal(afterConcurrent.accounts.find(item => item.id === unchangedRecipient.linkedAccountId).email, unchangedRecipient.email);
+    assert.equal(afterConcurrent.members.find(item => item.id === unchangedRecipient.linkedMemberId).email, unchangedRecipient.email);
+    assert.equal(smtp.messages.some(message => message.includes("changed-during-send@example.test")), false);
     assert.equal(afterConcurrent.associates.find(item => item.id === "batch-1").linkedAccountId, "");
     assert.equal(afterConcurrent.associates.find(item => item.id === "batch-2").linkedAccountId, "");
+    for (const [firstId, nextId, mode] of [["batch-11", "batch-12", "change"], ["batch-13", "batch-14", "clear"]]) {
+      const smtpBefore = (await admin.call("GET", "/api/state")).body.settings.smtp;
+      let releaseConfig, capturedConfig;
+      smtp.holdNext = new Promise(resolve => { releaseConfig = resolve; });
+      const configReachedSmtp = new Promise(resolve => { capturedConfig = resolve; });
+      smtp.onCaptured = capturedConfig;
+      const attemptsBeforeConfigChange = smtp.messages.length;
+      const configBatch = execute(await previewOf(), [firstId, nextId]);
+      await configReachedSmtp;
+      try {
+        const changedConfig = (await admin.call("GET", "/api/state")).body;
+        changedConfig.settings.smtp = mode === "clear" ? {} : { ...smtpBefore, fromName: "Not reviewed SMTP" };
+        assert.equal((await admin.call("POST", "/api/state", changedConfig)).status, 200);
+      } finally { releaseConfig(); }
+      const result = await configBatch;
+      assert.equal(result.body.created, 1);
+      assert.equal(result.body.results[1].outcome, "skipped");
+      assert.match(result.body.results[1].reason, /SMTP ha cambiado/);
+      const afterConfig = (await admin.call("GET", "/api/state")).body;
+      assert.equal(afterConfig.associates.find(item => item.id === nextId).linkedAccountId, "");
+      assert.equal(afterConfig.emailOutbox.some(item => item.associateId === nextId), false);
+      assert.equal(smtp.messages.length, attemptsBeforeConfigChange + 1, "SMTP " + mode + " stops later recipients before provisioning");
+      afterConfig.settings.smtp = smtpBefore;
+      assert.equal((await admin.call("POST", "/api/state", afterConfig)).status, 200);
+    }
     // Start the generic queue writer BEFORE provisioning so its whole-state snapshot is stale.
     const queuedFixture = (await admin.call("GET", "/api/state")).body;
     queuedFixture.emailOutbox.push({ id: "generic-qa", to: "generic@example.test", subject: "QA", body: "Synthetic only", status: "queued" });
