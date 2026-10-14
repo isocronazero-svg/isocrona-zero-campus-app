@@ -20,6 +20,8 @@
     "check:course-academic": "node scripts/check-course-academic.mjs",
     "check:frontend-syntax": "node scripts/check-frontend-syntax.mjs",
     "check:form-save-recovery": "node scripts/check-form-save-recovery.mjs",
+    "check:instructor-eligibility": "node scripts/check-instructor-eligibility.mjs",
+    "check:instructor-picker": "node scripts/check-instructor-picker.mjs",
     "check:intensive-days": "node scripts/check-intensive-days.mjs",
     "check:test-zone-csv": "node scripts/check-test-zone-csv-importer.mjs",
     "check:test-zone-ivaspe-csv": "node scripts/check-test-zone-ivaspe-csv-files.mjs",

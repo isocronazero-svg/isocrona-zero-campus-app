@@ -22,6 +22,7 @@ import {
   ASSOCIATE_ADMIN_ONLY_FORM_IDS
 } from "./assets/js/app/admin/actions.js";
 import { buildDefaultCampusGroups } from "./assets/js/app/campus/defaultGroups.js";
+import { buildInstructorPickerModel, addInstructorSelection, removeInstructorSelection } from "./assets/js/app/campus/instructorPicker.js";
 import { clearCampusDraft, getCampusDraftStorageKey } from "./assets/js/app/storage/localStorage.js";
 
 import { renderCourseSharedTestEditor, readCourseSharedTestSelection } from "./assets/js/app/campus/sharedTests.js";
@@ -724,6 +725,11 @@ document.addEventListener("click", async (event) => {
   const courseId = actionTarget.dataset.courseId;
   const memberId = actionTarget.dataset.memberId;
   let shouldPersist = false;
+
+  if ((action === "add-course-instructor" || action === "remove-course-instructor") && isAdminView()) {
+    updateInstructorSelection(actionTarget.dataset.selectorId, action, actionTarget.dataset.associateId);
+    return;
+  }
 
   if (!isAdminView() && ASSOCIATE_ADMIN_ONLY_ACTIONS.has(action)) {
     showMemberModeAdminWarning();
@@ -4149,7 +4155,7 @@ document.addEventListener("submit", async (event) => {
     const hours = Number(document.getElementById("courseHours").value);
     const capacity = Number(document.getElementById("courseCapacity").value);
     const coordinator = intensive ? "" : document.getElementById("courseCoordinator").value.trim();
-    const instructorAssociateIds = intensive ? [] : readInstructorSelection("courseInstructors");
+    const instructorAssociateIds = readInstructorSelection("courseInstructors");
     const audience = intensive ? "" : document.getElementById("courseAudience").value.trim();
     const accessScope = normalizeCourseAccessScope(document.getElementById("courseAccessScope")?.value, audience);
     let enrollmentOpensAt;
@@ -4516,6 +4522,7 @@ document.addEventListener("submit", async (event) => {
       annualAmount: Number(document.getElementById("editAssociateAnnual").value || 0),
       observations: document.getElementById("editAssociateObservations").value.trim(),
       accountRole: normalizeCampusAccountRole(document.getElementById("editAssociateAccountRole")?.value),
+      instructorEnabled: document.getElementById("editAssociateInstructorEnabled")?.checked === true,
       manualYearlyFees: {
         "2024": Number(document.getElementById("editAssociateFee2024").value || 0),
         "2025": Number(document.getElementById("editAssociateFee2025").value || 0),
@@ -9313,6 +9320,9 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
             </select>
           </label>
           <label class="inline-field">
+            <span><input id="editAssociateInstructorEnabled" type="checkbox" ${associate.instructorEnabled === true ? "checked" : ""} /> Habilitado como instructor</span>
+          </label>
+          <label class="inline-field">
             Nombre
             <input id="editAssociateFirstName" value="${escapeHtml(associate.firstName)}" />
           </label>
@@ -10795,7 +10805,7 @@ function renderCourses() {
                     Coordinación informativa (no certificable)
                     <input id="courseCoordinator" placeholder="Texto informativo" />
                   </label>
-                  <div class="studio-full" data-course-mode="course">${renderInstructorSelector("courseInstructors")}</div>
+                  <div class="studio-full">${renderInstructorSelector("courseInstructors")}</div>
                   <label class="inline-field" data-course-mode="course">
                     Publico objetivo
                     <input id="courseAudience" placeholder="Publico objetivo del curso" />
@@ -11121,17 +11131,46 @@ function getLearnerPendingDiplomaReasons(course, memberJourney) {
 }
 
 function renderInstructorSelector(id, selectedIds = []) {
-  const selected = new Set(selectedIds || []);
-  return `<label class="inline-field studio-full">Instructores certificables (socios)
-    <select id="${id}" multiple size="5" aria-label="Instructores certificables">
-      ${(state.associates || []).map(a => `<option value="${escapeHtml(a.id)}" ${selected.has(a.id) ? "selected" : ""}>${escapeHtml([a.firstName, a.lastName].filter(Boolean).join(" "))}${a.associateNumber ? ` · Socio nº ${escapeHtml(String(a.associateNumber))}` : ""}</option>`).join("")}
-    </select><span class="field-hint">Puedes seleccionar varios socios. En ordenador, usa Ctrl o Cmd para añadir personas. La docencia no suma horas de formación recibida.</span>
-  </label>`;
+  const model = buildInstructorPickerModel(state.associates, selectedIds);
+  const candidates = model.options;
+  return `<div id="${escapeHtml(id)}" class="instructor-selector studio-full" data-instructor-ids="${escapeHtml(JSON.stringify(model.selectedIds))}">
+    <label class="inline-field" for="${escapeHtml(id)}Candidate">Instructores certificables (socios)</label>
+    <div class="instructor-picker">
+      <select id="${escapeHtml(id)}Candidate" ${candidates.length ? "" : "disabled"}>
+        <option value="">${candidates.length ? "Selecciona un instructor" : "No hay más instructores habilitados disponibles"}</option>
+        ${candidates.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`).join("")}
+      </select>
+      <button type="button" class="mini-button" data-action="add-course-instructor" data-selector-id="${escapeHtml(id)}" ${candidates.length ? "" : "disabled"}>Añadir instructor</button>
+    </div>
+    <ul class="instructor-selection" aria-label="Instructores asignados">
+      ${model.selectedItems.map(item => {
+        return `<li><span>${escapeHtml(item.missing ? "Socio no disponible" : item.label)}${item.historicalUnavailable ? '<small class="muted">Deshabilitado para nuevas asignaciones</small>' : ""}</span>
+          <button type="button" class="mini-button" data-action="remove-course-instructor" data-selector-id="${escapeHtml(id)}" data-associate-id="${escapeHtml(item.id)}" aria-label="Quitar ${escapeHtml(item.label)}">Quitar</button></li>`;
+      }).join("")}
+    </ul>
+  </div>`;
+}
+
+function updateInstructorSelection(id, action, associateId) {
+  const control = document.getElementById(id);
+  if (!control) return;
+  let ids = readInstructorSelection(id);
+  if (action === "add-course-instructor") {
+    const candidateId = document.getElementById(`${id}Candidate`)?.value;
+    ids = addInstructorSelection(state.associates, ids, candidateId);
+  } else {
+    ids = removeInstructorSelection(ids, associateId);
+  }
+  // Replace only this small, escaped control; leave the rest of the unsaved form intact.
+  control.outerHTML = renderInstructorSelector(id, ids);
+  const candidate = document.getElementById(`${id}Candidate`);
+  if (candidate && !candidate.disabled) candidate.focus();
+  else document.getElementById(id)?.querySelector('button:not(:disabled)')?.focus();
 }
 
 function readInstructorSelection(id, fallback = []) {
   const control = document.getElementById(id);
-  return control ? Array.from(control.selectedOptions || [], option => option.value) : [...(fallback || [])];
+  return control ? JSON.parse(control.dataset.instructorIds) : [...(fallback || [])];
 }
 
 function renderInstructorCertificates(course, ownMember = null) {

@@ -1,4 +1,25 @@
 // Certifiable identities are association records, never campus names or coordinator text.
+const pendingInstructorAssignments = new Map();
+
+function reserveInstructorAssignments(ids, existingIds = []) {
+  const added = ids.filter(id => !existingIds.includes(id));
+  for (const id of added) pendingInstructorAssignments.set(id, (pendingInstructorAssignments.get(id) || 0) + 1);
+  return () => {
+    for (const id of added) {
+      const remaining = pendingInstructorAssignments.get(id) - 1;
+      if (remaining) pendingInstructorAssignments.set(id, remaining);
+      else pendingInstructorAssignments.delete(id);
+    }
+  };
+}
+
+function assertInstructorAssignmentEditable(associateId) {
+  if (!pendingInstructorAssignments.has(associateId)) return;
+  const error = new Error("Este instructor tiene un curso guardandose. Espera a que termine y vuelve a intentarlo.");
+  error.statusCode = 409;
+  throw error;
+}
+
 function hasInstructorName(associate) {
   return [associate?.firstName, associate?.lastName].some(value => String(value || "").trim());
 }
@@ -7,6 +28,7 @@ function validateInstructorAssociateUpdate(state, associateId, nextAssociate) {
   const previous = (state.associates || []).find(a => a.id === associateId);
   const nameChanged = ["firstName", "lastName"].some(key =>
     String(previous?.[key] || "").trim() !== String(nextAssociate?.[key] || "").trim());
+  if (nameChanged) assertInstructorAssignmentEditable(associateId);
   if (nameChanged && !hasInstructorName(nextAssociate) &&
       (state.courses || []).some(course => (course.instructorAssociateIds || []).includes(associateId))) {
     throw new Error("No puedes borrar el nombre de un socio asignado como instructor. Introduce un nombre valido.");
@@ -17,12 +39,17 @@ function validateInstructorAssociateIds(state, ids, existingIds = []) {
   if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => typeof id !== "string" || !id)) {
     throw new Error("Selecciona instructores desde las fichas de socios existentes");
   }
-  if (new Set(ids).size !== ids.length || ids.some(id => !(state.associates || []).some(a => a.id === id))) {
+  const associates = state.associates || [];
+  if (new Set(ids).size !== ids.length || ids.some(id => !associates.some(a => a.id === id))) {
     throw new Error("Todos los instructores deben tener una ficha de socio existente");
   }
-  // Existing incomplete records must not block unrelated course edits.
-  if (ids.some(id => !existingIds.includes(id) && !hasInstructorName(state.associates.find(a => a.id === id)))) {
+  // Existing historical assignments may remain after an instructor is disabled or an old record becomes incomplete.
+  const newIds = ids.filter(id => !existingIds.includes(id));
+  if (newIds.some(id => !hasInstructorName(associates.find(a => a.id === id)))) {
     throw new Error("Completa el nombre del socio antes de asignarlo como instructor");
+  }
+  if (newIds.some(id => associates.find(a => a.id === id)?.instructorEnabled !== true)) {
+    throw new Error("El socio debe estar habilitado como instructor antes de asignarlo");
   }
   return [...ids];
 }
@@ -62,4 +89,4 @@ function buildInstructorCertificateModel(state, courseId, associateId, dates) {
   };
 }
 
-module.exports = { validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel };
+module.exports = { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel };

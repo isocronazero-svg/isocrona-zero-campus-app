@@ -5206,3 +5206,11 @@ input[type="file"][name="attachments"] { width: 100%; min-width: 0; box-sizing: 
 .live-library-question input, .live-library-toggle input { flex: 0 0 auto; width: 18px; height: 18px; }
 .test-zone-option-row[data-action="answer-learning-question"] { width: 100%; font: inherit; text-align: left; grid-template-columns: 34px minmax(0, 1fr); }
 .test-zone-option-row[data-action="answer-learning-question"]:focus-visible { outline: 3px solid #0369a1; outline-offset: 3px; }
+.instructor-selector { min-width: 0; }
+.instructor-picker { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.instructor-picker select { flex: 1 1 220px; width: 100%; min-width: 0; }
+.instructor-selection { list-style: none; padding: 0; margin: 8px 0 0; }
+.instructor-selection li { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.instructor-selection li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.instructor-selection small { display: block; }
+.instructor-selector button { min-height: 44px; flex-shrink: 0; }

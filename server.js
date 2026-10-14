@@ -81,7 +81,7 @@ const {
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
-const { validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
+const { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
   PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");
@@ -6493,6 +6493,11 @@ const server = http.createServer(async (req, res) => {
         validateInstructorAssociateUpdate(latestQuestionState, associate.id,
           (state.associates || []).find(item => item.id === associate.id));
       }
+      // Only the administrative associate PATCH owns instructor eligibility.
+      const currentAssociates = new Map((latestQuestionState.associates || []).map(item => [item.id, item]));
+      for (const associate of state.associates || []) {
+        associate.instructorEnabled = currentAssociates.get(associate.id)?.instructorEnabled === true;
+      }
       let summary = null;
 
       if (state.settings?.automation?.autoRunOnSave !== false) {
@@ -7722,6 +7727,13 @@ const server = http.createServer(async (req, res) => {
       }
 
       validateInstructorAssociateUpdate(state, associate.id, payload);
+      if (Object.prototype.hasOwnProperty.call(payload, "instructorEnabled")) {
+        if (typeof payload.instructorEnabled !== "boolean") {
+          throw new Error("La habilitacion como instructor debe ser true o false");
+        }
+        if (payload.instructorEnabled !== associate.instructorEnabled) assertInstructorAssignmentEditable(associate.id);
+        associate.instructorEnabled = Boolean(payload.instructorEnabled);
+      }
       associate.associateNumber = associateNumber;
       associate.status = String(payload.status || associate.status || "Revisar documentacion").trim();
       associate.firstName = String(payload.firstName || "").trim();
@@ -7764,7 +7776,7 @@ const server = http.createServer(async (req, res) => {
         account.name,
         `Ha actualizado la ficha del socio #${associateNumber} ${getAssociateFullName(associate)}`.trim()
       );
-      writeState(state);
+      writeState(state, { instructorUpdateId: associate.id });
 
       return sendJson(res, 200, {
         ok: true,
@@ -8111,6 +8123,7 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      assertInstructorAssignmentEditable(context.associate.id);
       deleteAssociateFromState(state, context);
       appendActivity(
         state,
@@ -8818,6 +8831,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
   if (requestUrl.pathname === "/api/courses" && req.method === "POST") {
     let state = null;
+    let releaseInstructors = () => {};
     try {
       state = readState();
       const account = requireAdminAccount(req, res, state);
@@ -8826,10 +8840,12 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
+      state = readState();
       const course = { ...normalizeCourseMutationPayload(payload, null), ...courseInstructorConfig(state, payload), ...courseTestConfig(state, payload) };
       if ((state.courses || []).some((item) => item.id === course.id)) {
         return sendJson(res, 409, { ok: false, error: "Ya existe un curso con ese identificador" });
       }
+      releaseInstructors = reserveInstructorAssignments(course.instructorAssociateIds);
 
       state.courses = state.courses || [];
       state.courses.unshift(course);
@@ -8841,12 +8857,15 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       return sendJson(res, 201, { ok: true, message: "Curso creado y guardado", course, summary });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo crear el curso");
+    } finally {
+      releaseInstructors();
     }
   }
 
   const updateCourseMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)$/);
   if (updateCourseMatch && req.method === "PATCH") {
     let state = null;
+    let releaseInstructors = () => {};
     try {
       state = readState();
       const account = requireAdminAccount(req, res, state);
@@ -8855,6 +8874,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
+      state = readState();
       const courseId = decodeURIComponent(updateCourseMatch[1] || "");
       const courseIndex = (state.courses || []).findIndex((item) => item.id === courseId);
       if (courseIndex === -1) {
@@ -8864,6 +8884,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       const previousCourse = state.courses[courseIndex];
       const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
       const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...courseInstructorConfig(state, payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
+      releaseInstructors = reserveInstructorAssignments(course.instructorAssociateIds, previousCourse.instructorAssociateIds || []);
       state.courses[courseIndex] = course;
       state.selectedCourseId = course.id;
       state.activeView = "campus";
@@ -8874,6 +8895,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       return sendJson(res, 200, { ok: true, message: "Curso actualizado", course, summary });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo actualizar el curso");
+    } finally {
+      releaseInstructors();
     }
   }
 
