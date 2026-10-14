@@ -7,7 +7,8 @@ Bitácora operativa vigente para continuar desde Desktop/Codex. Para historia an
 ## Estado consolidado — 14/10/2026, Europe/Madrid
 
 ### `main`
-- HEAD verificado: `3b2f0efed264c0866d224a646c7dddfddf065084` (#253 / PR #255 integrada).
+- HEAD base verificado: `a92dabe9ea7fd7f4d9de18e5f823155a252768ff` (#252 / PR #256 integrada, conserva #253/#255).
+- #256 ya fusionada y desplegada; no repetir. Su cierre operativo y las barreras del piloto están documentados en PR #257, todavía independiente. No hay autorización para altas, emails ni cambios productivos en #247.
 - #246 / PR #250 está fusionada y desplegada; jornadas intensivas funcionales. Squash funcional `e298e06caea094b22c46f3b87fad1c595de8bd30`.
 - #249 / PR #251 está fusionada y desplegada. Squash `deb4188103a3a4e4cdab31960b4d59b2a05a9415`.
 - No recrear ramas/patches de #244/#250/#251.
@@ -21,13 +22,13 @@ Bitácora operativa vigente para continuar desde Desktop/Codex. Para historia an
 
 ## Orden vigente de lanzamiento
 
-1. **#252 / PR #256** — revisión limpia; decisión humana de merge con CI verde del último HEAD. #253 / PR #255 ya integrada.
-2. **#247** — habilitación explícita de socios instructores, trabajo posterior; NO iniciarlo en el encargo vigente.
+1. **#252 / PR #256** — fusionada y desplegada. Piloto real pendiente de backup recuperable, dry-run/SMTP revisados y autorización expresa; no ejecutarlo aquí.
+2. **#247 / PR #258** — único encargo vigente: completar la rama existente `issue-247-instructor-enabled-v2`, validar y dejar revisable; SIN merge.
 3. **#245** — asistencia/cierre con permisos de instructor asignado.
 4. **#248** — histórico/prioridad de jornadas.
 5. **#227** — QA integral + QA productiva pendiente #241/#242/#249 (implementaciones terminadas).
 
-No empezar #247/#245/#248 mientras #253/#252 sigan siendo el cuello de botella de apertura a socios.
+El encargo del 14 octubre autoriza #247 y sustituye el orden anterior. No trabajar #245/#248 ni QA productiva de otros issues. La intervención productiva sobre bypass demo/bootstrap, custodia de backup y piloto sigue pendiente; no modificar variables ni datos por este encargo.
 
 ---
 
@@ -46,7 +47,7 @@ No empezar #247/#245/#248 mientras #253/#252 sigan siendo el cuello de botella d
 
 # #252 — alta masiva segura de accesos Campus
 
-## Implementación publicada — 14/10/2026
+## Archivo de implementación previo al merge — 14/10/2026 (superado por el estado consolidado superior)
 - [PR #256](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/256), rama `codex/associate-onboarding-252`, base main `3b2f0ef`; código `c8ee86e4ca9459811e762da5c6604494c52e83a0`. NO fusionada ni desplegada.
 - Reutilizado baseline durable `6143098248` y aplicados contrato `6151415338`/anexo `6151519842`. No buscar commits locales perdidos ni rehacer el trabajo.
 - Preview read-only y token15min ligado a admin/estado; subset explícito1–20, 0 seleccionados, SMTP obligatorio antes del alta; identidades explícitas, estados consolidados, emails canónicos, colisiones bloqueadas, cuentas manuales/privilegiadas excluidas.
@@ -213,12 +214,15 @@ Fuente conectada `CUOTAS SOCIOS`, sin escrituras:
 # Después de #252
 
 ## #247 — instructor habilitado + selector múltiple
-- `instructorEnabled`, default legacy false, solo admin;
-- nuevas asignaciones solo habilitados y validadas backend;
-- deshabilitar no borra historia/certificado;
-- selector + añadir + chips/quitar, 1/2/3/4+ sin límite artificial, dedupe;
-- proteger frente a `/api/state` obsoleto;
-- reutilizar `instructorAssociateIds` y `server/instructor-certificate.js`.
+- [PR #258](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/258), rama existente `issue-247-instructor-enabled-v2`; código `cd1662798c8d0b4f18d2614bde9aa06f29f1e842`, base main `a92dabe`. Sin merge/despliegue.
+- Reutilizados helper de elegibilidad, `instructorPicker.js` y checks previos del HEAD137877a. Flag booleano legacy=false, checkbox/PATCH solo admin; state global y escritores concurrentes no lo conceden/revocan. Nueva asignación exige ID/nombre/habilitación; históricos visibles y certificables tras deshabilitar, eliminación explícita permitida.
+- Selector simple + Añadir/Quitar, nombre/número, dedupe, 1–5+; cursos/jornadas, recarga y subacciones con un solo PATCH. Certificados e identidad siguen en el modelo associate de #242, sin sumar docencia a horas de alumnado.
+- Dos carreras reproducidas red/green y corregidas: escritor detenido durante automatización retrocedía el flag; POST/PATCH de curso con body lento aceptaba una habilitación revocada entretanto. Protección puntual en coordinador existente y lectura fresca tras body, sin refactor.
+- La primera corrección de scB0e (09b04c3, guardado anticipado) queda SUSTITUIDA: review scQp8 demostró dos diplomas al ejecutar automatización concurrente durante SMTP. Solución: conservar un único guardado final y reservar temporalmente SOLO las nuevas asignaciones; deshabilitar/cambiar nombre/borrar el instructor afectado devuelve conflicto mientras se guarda, y vuelve a permitirse al terminar. Reserva con contador por ID y liberación en finally, sin nuevo modelo ni cambios del motor general. El coordinador solo admite cambios del flag desde el PATCH admin explícito.
+- Regresión SMTP retenido: POST/PATCH no exponen curso/asignación provisional; automatización concurrente obtiene cero nuevos envíos y el original solo uno/outbox sent; bloqueo temporal y liberación, histórico/PDF tras deshabilitar y rechazo de nueva asignación. Single-writer/proceso actual; no afirmar exclusión entre réplicas.
+- Archivos del PR: app.js, styles.css, storage.js, server.js, server/onboarding-state.js, server/instructor-certificate.js, instructorPicker.js, check-instructor-certificates/eligibility/picker, check-form-save-recovery, check-app, package.json y esta bitácora.
+- Node22.23.3: elegibilidad, picker, certificados/API/reinicio, check:app completo, smoke14 y diff check PASS. Edge390/1440 sintético PASS: 5 instructores, añadir/quitar también en móvil, jornada, checkbox, deshabilitar/reactivar, reload, histórico/PDF, HTML escapado, sin overflow/errores JS. Helper externo Gestion/qa-instructors-247-current.mjs; capturas issue247-ui-current. LF local de question-bank.js excluido.
+- [CI del código #411 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38609302640), incluido smoke. Re-review cd16627 sin problemas importantes (comentario6174686472); scB0e/scQp8 resueltos, cero P1/P2 pendientes. El commit documental posterior debe tener CI verde antes de Ready. QA productiva NO realizada; no cuentas/emails reales, onboarding, migraciones ni cambios de variables. Siguiente: revisión/decisión humana de merge de #258; #245/#248 fuera de esta entrega.
 
 ## #245 — asistencia/cierre
 - reutilizar verdad/endpoints académicos existentes;
