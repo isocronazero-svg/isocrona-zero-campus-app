@@ -16,7 +16,7 @@ El outbox de bienvenida NUEVO guarda siempre un cuerpo redactado, incluso antes 
 
 ## Reglas operativas
 
-- Preview ligado al administrador, identidades, credenciales, estado de entrega y configuración SMTP; caduca en 15 minutos, se invalida con cambios y es de un solo uso. Tras reiniciar hay que generar otro.
+- Preview ligado al administrador, identidades, credenciales, estado de entrega y configuración SMTP; caduca en 15 minutos, se invalida con cambios y es de un solo uso. Cada ficha pendiente se compara con la revisada antes de su turno: si cambia durante otra entrega SMTP, se omite sin crear acceso ni enviar a una identidad nueva y requiere otro preview. Tras reiniciar hay que generar otro.
 - Elegibles: Activa, Pendiente cuota y Revisar documentacion legacy con identidad mínima. Baja, solicitudes no aprobadas, estados desconocidos, links rotos, identidades ambiguas y gmail.con se bloquean.
 - No adoptar cuentas/alumnos por email. Cuentas manuales o privilegiadas nunca reciben bienvenida por el lote. Solo un acceso member marcado por este onboarding, coherente, pendiente/fallido y con temporal válida admite retry.
 - Selección inicial vacía; atajos 5/10/20 solo seleccionan. El servidor deduplica IDs, comprueba el subset y rechaza manipulaciones antes de consumir el token.
@@ -24,7 +24,7 @@ El outbox de bienvenida NUEVO guarda siempre un cuerpo redactado, incluso antes 
 - Los escritores de estado del servidor, incluida la cola SMTP y la automatización, preservan en el punto común de guardado los cambios concurrentes en registros de acceso/bienvenida. No se restaura una contraseña ni una cuenta borrada por un guardado atrasado. La restauración explícita de backup y la limpieza autorizada conservan su semántica de reemplazo.
 - Los reintentos genéricos actualizan también el estado/fecha/error del socio; reutilizan la bienvenida fallida y no dejan una copia pendiente tras el envío correcto. Cada entrega de onboarding persiste `sending` y su resultado antes de liberar el bloqueo, sin esperar al guardado final de toda la cola.
 - El agente no genera ni ejecuta altas `associate_legacy_access`; los avisos antiguos también se rechazan sin crear acceso. Los accesos históricos por lote pasan por el preview/subset. Se mantienen los endpoints individuales explícitos existentes.
-- Si el proceso se interrumpe con un correo `sending`, no se reenvía automáticamente: revisar entrega con el proveedor antes de habilitar un reintento. SMTP no ofrece garantía absoluta de entrega exactamente una vez (aceptación seguida de desconexión puede ser ambigua).
+- Tras un reinicio, `queued`/`failed` reutilizan el registro existente; nunca crean otra bienvenida para ese intento. Si el proceso se interrumpe con un correo `sending`, todos los resolutores de bienvenida y transporte lo bloquean: revisar entrega con el proveedor antes de habilitar un reintento. El preview indica reconciliación manual. SMTP no ofrece garantía absoluta de entrega exactamente una vez (aceptación seguida de desconexión puede ser ambigua).
 - V1 asume un único proceso escritor, como el almacenamiento actual. No desplegar múltiples réplicas para ejecutar lotes; los locks/tokens en memoria no son distribuidos.
 
 ## Barrera de producción

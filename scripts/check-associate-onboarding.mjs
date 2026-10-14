@@ -308,7 +308,7 @@ async function main() {
     const reachedSmtp = new Promise(resolve => { captured = resolve; });
     smtp.onCaptured = captured;
     const concurrentPreview = await previewOf();
-    const pendingBatch = execute(concurrentPreview, ["batch-0", "batch-1"]);
+    const pendingBatch = execute(concurrentPreview, ["batch-0", "batch-1", "batch-8", "batch-9"]);
     await reachedSmtp;
     try {
       const secondPreview = await previewOf();
@@ -316,6 +316,8 @@ async function main() {
       const during = (await admin.call("GET", "/api/state")).body;
       during.settings.organization = "Concurrent synthetic edit";
       during.associates.find(item => item.id === "batch-1").status = "Baja";
+      during.associates.find(item => item.id === "batch-8").email = "not-reviewed@example.test";
+      during.associates.find(item => item.id === "batch-9").firstName = "Another identity";
       assert.equal((await admin.call("POST", "/api/state", during)).status, 200);
     } finally {
       releaseSmtp();
@@ -324,7 +326,14 @@ async function main() {
     assert.equal(concurrentResult.status, 200);
     assert.equal(concurrentResult.body.created, 1);
     assert.equal(concurrentResult.body.results[1].outcome, "skipped", "Next candidate is revalidated after SMTP");
+    for (const id of ["batch-8", "batch-9"]) {
+      const result = concurrentResult.body.results.find(item => item.id === id);
+      assert.equal(result.outcome, "skipped", "Only the confirmed identity may be used");
+      assert.match(result.reason, /nueva vista previa/);
+    }
     const afterConcurrent = (await admin.call("GET", "/api/state")).body;
+    assert.equal(smtp.messages.some(message => message.includes("not-reviewed@example.test")), false);
+    for (const id of ["batch-8", "batch-9"]) assert.equal(afterConcurrent.associates.find(item => item.id === id).linkedAccountId, "");
     assert.equal(afterConcurrent.settings.organization, "Concurrent synthetic edit", "SMTP completion preserves unrelated concurrent writes");
     assert.equal(afterConcurrent.associates.find(item => item.id === "batch-1").linkedAccountId, "");
     assert.equal(afterConcurrent.associates.find(item => item.id === "batch-2").linkedAccountId, "");
@@ -438,12 +447,47 @@ async function main() {
     assert.equal(blockedWelcome.status, 500);
     assert.match(blockedWelcome.body.error, /pendiente de confirmar/);
     assert.equal((await admin.call("POST", "/api/automation/resolve-all", {})).status, 200);
+    assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).status, 200);
     assert.equal(smtp.messages.length, interruptedAttempts, "Interrupted welcome cannot resend through any generic resolver after restart");
     const afterInterrupted = (await admin.call("GET", "/api/storage/export-state")).body;
     assert.equal(afterInterrupted.accounts.length, ambiguous.accounts.length);
     assert.equal(afterInterrupted.emailOutbox.filter(item => item.associateId === "batch-7").length, 1);
     assert.equal(afterInterrupted.emailOutbox.find(item => item.id === interruptedMail.id).status, "sending");
-    assert.equal((await previewOf()).items.find(item => item.id === "batch-7").executable, false);
+    const ambiguousAssociate = ambiguous.associates.find(item => item.id === "batch-7");
+    const safeAssociate = afterInterrupted.associates.find(item => item.id === "batch-7");
+    assert.equal(safeAssociate.linkedAccountId, ambiguousAssociate.linkedAccountId);
+    assert.equal(safeAssociate.temporaryPassword, ambiguousAssociate.temporaryPassword);
+    const blockedPreview = (await previewOf()).items.find(item => item.id === "batch-7");
+    assert.equal(blockedPreview.executable, false);
+    assert.match(blockedPreview.detail, /reconciliacion manual/);
+
+    // Persist the pre-SMTP queued window, restart, then resolve and drain the queue.
+    smtp.rejectNext = true;
+    assert.equal((await execute(await previewOf(), ["batch-10"])).body.results[0].status, "email_error");
+    const queuedBeforeRestart = (await admin.call("GET", "/api/storage/export-state")).body;
+    const queuedAssociate = queuedBeforeRestart.associates.find(item => item.id === "batch-10");
+    const queuedWelcome = queuedBeforeRestart.emailOutbox.find(item => item.associateId === "batch-10");
+    queuedWelcome.status = "queued";
+    queuedWelcome.deliveryError = "";
+    queuedAssociate.welcomeEmailStatus = "pending";
+    assert.equal((await importFixture(queuedBeforeRestart)).status, 200);
+    await stop();
+    await start();
+    await admin.call("POST", "/api/login", { email: "admin.synthetic@example.test", password: adminPassword });
+    const queuedAttempts = smtp.messages.length;
+    const queuedInbox = (await admin.call("GET", "/api/state")).body.automationInbox;
+    const queuedTask = queuedInbox.find(item => item.type === "associate_welcome" && item.memberId === "batch-10");
+    assert.ok(queuedTask);
+    assert.equal((await admin.call("POST", "/api/automation/inbox/" + queuedTask.id + "/resolve", {})).status, 200);
+    assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).status, 200);
+    assert.equal(smtp.messages.length, queuedAttempts + 1, "Queued recovery delivers once across resolver and generic queue");
+    const afterQueuedRestart = (await admin.call("GET", "/api/storage/export-state")).body;
+    const deliveredQueued = afterQueuedRestart.emailOutbox.filter(item => item.associateId === "batch-10");
+    assert.equal(deliveredQueued.length, 1);
+    assert.equal(deliveredQueued[0].id, queuedWelcome.id);
+    assert.equal(deliveredQueued[0].status, "sent");
+    assert.equal(afterQueuedRestart.associates.find(item => item.id === "batch-10").linkedAccountId, queuedAssociate.linkedAccountId);
+    assert.equal(afterQueuedRestart.associates.find(item => item.id === "batch-10").temporaryPassword, queuedAssociate.temporaryPassword);
     const beforeRestart = (await admin.call("GET", "/api/storage/export-state")).body;
     await stop();
     await start();

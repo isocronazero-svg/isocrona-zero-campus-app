@@ -7781,6 +7781,7 @@ const server = http.createServer(async (req, res) => {
       associateOnboardingPreviews.set(token, {
         accountId: account.id,
         fingerprint: preview.fingerprint,
+        identities: new Map((state.associates || []).map(associate => [associate.id, fingerprintOnboardingAssociate(associate)])),
         expiresAt: Date.now() + ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS
       });
       return sendJson(res, 200, {
@@ -7827,12 +7828,16 @@ const server = http.createServer(async (req, res) => {
       for (const id of ids) {
         // Re-read after each SMTP await. Never persist a whole pre-send snapshot.
         const latest = readState();
+        const associate = latest.associates.find(entry => entry.id === id);
+        if (savedPreview.identities.get(id) !== fingerprintOnboardingAssociate(associate)) {
+          results.push({ id, outcome: "skipped", reason: "La ficha ha cambiado desde la revision; genera una nueva vista previa" });
+          continue;
+        }
         const item = buildAssociateOnboardingPreview(latest).items.find(entry => entry.id === id);
         if (!item?.executable) {
           results.push({ id, outcome: "skipped", reason: item?.detail || "La ficha ha cambiado" });
           continue;
         }
-        const associate = latest.associates.find(entry => entry.id === id);
         let outcome = "already_exists";
         try {
           if (!associate.linkedAccountId) {
@@ -12795,6 +12800,10 @@ function getAssociateApplicationReplyRecipients(state) {
   ).values()];
 }
 
+function fingerprintOnboardingAssociate(associate) {
+  return createHash("sha256").update(JSON.stringify(associate || null)).digest("hex");
+}
+
 function buildAssociateOnboardingPreview(state) {
   const associates = state.associates || [];
   const emailCounts = new Map();
@@ -12836,6 +12845,9 @@ function buildAssociateOnboardingPreview(state) {
       !hasAssociateWelcomeInFlight(state, associate) &&
       verifyLegacyAccountPassword(identity.account, associate.temporaryPassword);
     if (retryWelcome) detail = "Reintentar bienvenida sin crear cuenta ni cambiar credencial";
+    if ((state.emailOutbox || []).some(mail => mail.kind === "associate_welcome" && mail.associateId === associate.id && mail.status === "sending")) {
+      detail = "Entrega SMTP pendiente de confirmar; requiere reconciliacion manual antes de reintentar";
+    }
     return {
       id: associate.id,
       associateNumber: associate.associateNumber || "",
@@ -15394,7 +15406,7 @@ function createAssociateWelcomeEmailRecord(state, associate) {
   }
   const account = (state.accounts || []).find((item) => item.id === associate.linkedAccountId);
   const member = (state.members || []).find((item) => item.id === associate.linkedMemberId);
-  const previous = (state.emailOutbox || []).find(item => item.kind === "associate_welcome" && item.associateId === associate.id && item.status === "failed");
+  const previous = (state.emailOutbox || []).find(item => item.kind === "associate_welcome" && item.associateId === associate.id && ["queued", "failed"].includes(item.status));
   const email = {
     id: `mail-${Date.now()}-${associate.id}-${Math.random().toString(36).slice(2, 7)}`,
     courseId: "",
