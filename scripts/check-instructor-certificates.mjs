@@ -28,9 +28,9 @@ seed.members.find(m=>m.id==='legacyname').source='campus';
 seed.accounts.push({id:'freshdb',name:'Legacy Email',email:'freshdb@example.test',password,role:'member',
   memberId:'freshdb',associateId:'',source:'postgres'});
 seed.members.push({id:'freshdb',name:'Legacy Email',email:'freshdb@example.test',associateId:'',source:'postgres'});
-seed.associates = [{ id:'socio-one', firstName:'Normal', lastName:'Docente Uno', dni:'12345678Z', associateNumber:1, email:'member@example.test', linkedMemberId:'member',linkedAccountId:'member' },
-  { id:'socio-two', firstName:'Admin', lastName:'Docente Dos', dni:'87654321X', associateNumber:2, email:'adminwith@example.test', linkedMemberId:'adminwith',linkedAccountId:'adminwith' }];
-seed.associates.push({ id:'legacy-email',firstName:'Legacy Email',email:'legacyemail@example.test' },
+seed.associates = [{ id:'socio-one', firstName:'Normal', lastName:'Docente Uno', dni:'12345678Z', associateNumber:1, email:'member@example.test', linkedMemberId:'member',linkedAccountId:'member', instructorEnabled:true },
+  { id:'socio-two', firstName:'Admin', lastName:'Docente Dos', dni:'87654321X', associateNumber:2, email:'adminwith@example.test', linkedMemberId:'adminwith',linkedAccountId:'adminwith', instructorEnabled:true }];
+seed.associates.push({ id:'legacy-email',firstName:'Legacy Email',email:'legacyemail@example.test', instructorEnabled:true },
   { id:'legacy-name',firstName:'legacyname' }, { id:'unnamed',firstName:' ',lastName:'' },
   { id:'unassigned',firstName:'Sin docencia',associateNumber:5 },
   { id:'namesake-own',firstName:'Normal',lastName:'Docente Uno' },
@@ -52,6 +52,8 @@ seed.courses = [course, { ...course,id:'course-legacy',instructorAssociateIds:[]
 assert.deepEqual(validateInstructorAssociateIds(seed,course.instructorAssociateIds),course.instructorAssociateIds);
 for (const ids of [['admin'],['missing'],['member'],['Persona legacy no certificable'],['socio-one','socio-one'], 'socio-one']) assert.throws(() => validateInstructorAssociateIds(seed,ids), /socios|socio/);
 assert.throws(() => validateInstructorAssociateIds(seed,['unnamed']), /nombre/);
+assert.throws(() => validateInstructorAssociateIds(seed,['unassigned']), /habilitado/);
+assert.deepEqual(validateInstructorAssociateIds(seed,['legacy-name'],['legacy-name']),['legacy-name']);
 // DNI/NIE remains optional, as specified by #242; a person's name is required.
 assert.deepEqual(validateInstructorAssociateIds(seed,['legacy-email']),['legacy-email']);
 const dates = { dateRange:'1–2 octubre 2026',issueDate:'11 octubre 2026' };
