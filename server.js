@@ -13079,6 +13079,10 @@ function buildTemporaryCampusPassword() {
 }
 
 function resetAssociateCampusPassword(state, associate) {
+  if (welcomeDeliveriesInFlight.has(associate.id) || (state.emailOutbox || []).some(mail =>
+      mail.kind === "associate_welcome" && mail.associateId === associate.id && mail.status === "sending")) {
+    throw new Error("No puedes restablecer la contrasena mientras la bienvenida esta en envio o pendiente de confirmar");
+  }
   if (!associate?.email) {
     throw new Error("El socio necesita un email antes de restablecer su acceso");
   }

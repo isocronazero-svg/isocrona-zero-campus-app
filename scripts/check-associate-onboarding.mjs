@@ -315,6 +315,13 @@ async function main() {
       assert.equal((await execute(secondPreview, ["batch-2"])).status, 400, "Concurrent batch is rejected");
       let during = (await admin.call("GET", "/api/state")).body;
       const sendingAssociate = during.associates.find(item => item.id === "batch-0");
+      const beforeBlockedReset = (await admin.call("GET", "/api/storage/export-state")).body;
+      const blockedReset = await admin.call("POST", "/api/associates/batch-0/reset-password", {});
+      assert.equal(blockedReset.status, 400);
+      assert.match(blockedReset.body.error, /contrasena.*bienvenida/);
+      const afterBlockedReset = (await admin.call("GET", "/api/storage/export-state")).body;
+      assert.deepEqual(afterBlockedReset.accounts, beforeBlockedReset.accounts, "Reset cannot rotate credentials in flight");
+      assert.equal(afterBlockedReset.associates.find(item => item.id === "batch-0").temporaryPassword, sendingAssociate.temporaryPassword);
       const editPayload = { ...sendingAssociate, associateNumber: 1000 };
       for (const changes of [{ email: "changed-during-send@example.test" }, { firstName: "Changed during send" }]) {
         const blockedEdit = await admin.call("PATCH", "/api/associates/batch-0", { ...editPayload, ...changes });
@@ -483,6 +490,7 @@ async function main() {
     const interruptedAttempts = smtp.messages.length;
     const ambiguous = (await admin.call("GET", "/api/storage/export-state")).body;
     assert.equal(ambiguous.emailOutbox.find(item => item.id === interruptedMail.id).status, "sending");
+    assert.equal((await admin.call("POST", "/api/associates/batch-7/reset-password", {})).status, 400, "Interrupted sending also blocks credential rotation");
     assert.equal((await admin.call("POST", "/api/emails/" + interruptedMail.id + "/send", {})).status, 500);
     const blockedWelcome = await admin.call("POST", "/api/automation/inbox/" + welcomeTask.id + "/resolve", {});
     assert.equal(blockedWelcome.status, 500);
@@ -553,6 +561,9 @@ async function main() {
     assert.equal(noSmtpPreview.smtpReady, false);
     assert.equal((await execute(noSmtpPreview, ["eligible"])).status, 400);
     assert.deepEqual((await admin.call("GET", "/api/storage/export-state")).body, noSmtpBefore);
+    const normalReset = await admin.call("POST", "/api/associates/manual/reset-password", {});
+    assert.equal(normalReset.status, 200, "Explicit reset outside an active/ambiguous welcome remains available");
+    assert.notEqual(normalReset.body.associate.temporaryPassword, noSmtpBefore.associates.find(item => item.id === "manual").temporaryPassword);
   } finally {
     await stop();
     await new Promise(resolve => smtp.close(resolve));
