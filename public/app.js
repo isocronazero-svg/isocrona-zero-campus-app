@@ -234,6 +234,17 @@ let campusGroupPendingUploads = 0;
 let publicCampusCourses = [];
 let publicCampusStatus = "Cargando cursos abiertos...";
 let associateDeleteDialog = null;
+let associateOnboardingPreview = null;
+let associateOnboardingSelection = new Set();
+let associateOnboardingResults = [];
+let associateOnboardingBusy = false;
+const ASSOCIATE_ONBOARDING_LABELS = {
+  eligible: "Elegible", already_linked: "Ya tiene acceso", missing_email: "Sin email",
+  invalid_email: "Email invalido", duplicate_email: "Email duplicado", incident: "Incidencia",
+  without_access: "Sin acceso", access_created: "Acceso creado · correo pendiente",
+  email_sent: "Correo enviado", email_error: "Error de correo", total: "Total", executable: "Procesables",
+  created: "Acceso creado", already_exists: "Acceso existente", skipped: "Omitido", failed: "Error"
+};
 const ADMIN_ONLY_TOP_LEVEL_VIEWS = new Set(["associates", "validations", "members", "reports", "automation", "activity"]);
 
 const navElement = document.getElementById("nav");
@@ -554,6 +565,9 @@ logoutButton.addEventListener("click", async () => {
     return;
   }
   clearSession();
+  associateOnboardingPreview = null;
+  associateOnboardingSelection.clear();
+  associateOnboardingResults = [];
   loginStatus = "Sesion cerrada. Introduce tus credenciales.";
   render();
 });
@@ -2841,6 +2855,59 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (action === "preview-associate-onboarding" && isAdminSession()) {
+    if (associateOnboardingBusy) return;
+    associateOnboardingBusy = true;
+    associateOnboardingPreview = null;
+    associateOnboardingSelection.clear();
+    render();
+    try {
+      const response = await fetch("/api/associates/onboarding/preview", { method: "POST" });
+      const result = await readJsonResponse(response, "No se pudo generar la vista previa");
+      if (!response.ok) throw new Error(result?.error || "No se pudo generar la vista previa");
+      associateOnboardingPreview = result;
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      associateOnboardingBusy = false;
+      render();
+    }
+    return;
+  }
+
+  if (action === "select-associate-onboarding" && isAdminSession()) {
+    if (associateOnboardingBusy) return;
+    const count = Math.min(20, Math.max(0, Number(actionTarget.dataset.count || 0)));
+    associateOnboardingSelection = new Set((associateOnboardingPreview?.items || []).filter(item => item.executable).slice(0, count).map(item => item.id));
+    render();
+    return;
+  }
+
+  if (action === "execute-associate-onboarding" && isAdminSession()) {
+    if (associateOnboardingBusy || !associateOnboardingPreview?.smtpReady || !associateOnboardingSelection.size ||
+        !window.confirm("Confirmo backup externo recuperable, vista previa revisada y autorizacion expresa de Carlos para estos socios.")) return;
+    const payload = { token: associateOnboardingPreview.token, associateIds: [...associateOnboardingSelection], confirmed: true };
+    associateOnboardingBusy = true;
+    render();
+    try {
+      const response = await fetch("/api/associates/onboarding/execute", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const result = await readJsonResponse(response, "No se pudo confirmar el lote. Genera otra vista previa antes de reintentar.");
+      if (!response.ok) throw new Error(result?.error || "Lote rechazado");
+      associateOnboardingResults = result.results || [];
+      await refreshState();
+      applySessionToState();
+      showToast("Lote terminado. Revisa el resultado de cada socio.", "success");
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      associateOnboardingPreview = null;
+      associateOnboardingSelection.clear();
+      associateOnboardingBusy = false;
+      render();
+    }
+    return;
+  }
+
   if (action === "reset-associate-campus-password" && isAdminSession()) {
     const associateId = actionTarget.dataset.associateId;
     const associate = findAssociate(associateId);
@@ -3477,6 +3544,15 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.dataset.onboardingId && isAdminSession()) {
+    const id = event.target.dataset.onboardingId;
+    if (!associateOnboardingBusy && associateOnboardingPreview?.items.some(item => item.id === id && item.executable)) {
+      if (event.target.checked && associateOnboardingSelection.size < 20) associateOnboardingSelection.add(id);
+      else associateOnboardingSelection.delete(id);
+    }
+    render();
+    return;
+  }
   if (event.target.id === "courseCreationMode") {
     syncCourseCreationMode(event.target.form);
     return;
@@ -7849,6 +7925,35 @@ function renderAssociates() {
         }
       </div>
 
+      <section class="associate-anchor" id="associateOnboardingBatch" aria-busy="${associateOnboardingBusy}">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Alta Campus en lote</p>
+            <h4>Accesos de socios</h4>
+          </div>
+          <button class="ghost-button" type="button" data-action="preview-associate-onboarding" ${associateOnboardingBusy ? "disabled" : ""}>Revisar accesos</button>
+        </div>
+        ${associateOnboardingPreview ? `
+          <div class="course-grid">
+            ${Object.entries(associateOnboardingPreview.summary || {}).map(([label, value]) => `<p>${escapeHtml(ASSOCIATE_ONBOARDING_LABELS[label] || label)}: <strong>${escapeHtml(value)}</strong></p>`).join("")}
+          </div>
+          <p role="status">Seleccionados ${associateOnboardingSelection.size}/20</p>
+          <div class="chip-row">
+            ${[5, 10, 20, 0].map(count => `<button type="button" class="mini-button" data-action="select-associate-onboarding" data-count="${count}" ${associateOnboardingBusy ? "disabled" : ""}>${count ? `Seleccionar ${count === 20 ? "hasta " : ""}${count}` : "Limpiar seleccion"}</button>`).join("")}
+          </div>
+          <div class="table-wrap">
+            <table><thead><tr><th>Seleccion</th><th>Socio</th><th>Clasificacion</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>
+              ${(associateOnboardingPreview.items || []).map((item) => `<tr><td><input type="checkbox" data-onboarding-id="${escapeHtml(item.id)}" aria-label="Seleccionar ${escapeHtml(item.name)}" ${associateOnboardingSelection.has(item.id) ? "checked" : ""} ${!item.executable || associateOnboardingBusy || (!associateOnboardingSelection.has(item.id) && associateOnboardingSelection.size >= 20) ? "disabled" : ""}></td><td>#${escapeHtml(item.associateNumber || "-")} · ${escapeHtml(item.name)}<br>${escapeHtml(item.email)}</td><td>${escapeHtml(ASSOCIATE_ONBOARDING_LABELS[item.category])}</td><td>${escapeHtml(ASSOCIATE_ONBOARDING_LABELS[item.status])}</td><td>${escapeHtml(item.detail)} ${escapeHtml(item.error || "")}</td></tr>`).join("")}
+            </tbody></table>
+          </div>
+          <p class="status-note warning">La ejecucion requiere backup recuperable y autorizacion expresa. Las credenciales no se muestran en este listado.</p>
+          ${!associateOnboardingPreview.smtpReady ? '<p class="status-note warning">SMTP no configurado. El lote esta bloqueado.</p>' : ""}
+          <button class="primary-button" type="button" data-action="execute-associate-onboarding" ${associateOnboardingBusy || !associateOnboardingSelection.size || !associateOnboardingPreview.smtpReady ? "disabled" : ""}>Procesar ${associateOnboardingSelection.size} seleccionados</button>
+        ` : ""}
+        ${associateOnboardingBusy ? '<p role="status">Procesando...</p>' : ""}
+        ${associateOnboardingResults.length ? `<h4>Resultado del ultimo lote</h4><ul>${associateOnboardingResults.map(item => `<li>${escapeHtml(state.associates.find(associate => associate.id === item.id)?.firstName || item.id)}: ${escapeHtml(ASSOCIATE_ONBOARDING_LABELS[item.outcome])} · ${escapeHtml(ASSOCIATE_ONBOARDING_LABELS[item.status] || "")} ${escapeHtml(item.reason || "")}</li>`).join("")}</ul>` : ""}
+      </section>
+
       <div class="mail-card associate-anchor" id="associateSectionToday">
         <div class="panel-header">
           <div>
@@ -9385,6 +9490,7 @@ function buildAssociateWelcomePreviewText(associate, campusAccount, campusMember
     "- Grupos internos con documentacion, fichas de practica, videos y enlaces de interes.",
     "",
     hasTemporaryPassword ? "Datos de acceso inicial:" : "Datos de acceso:",
+    "- Portal: https://portal.isocronazero.org",
     `- Usuario: ${loginEmail || "pendiente de configurar"}`,
     hasTemporaryPassword
       ? `- Contrasena temporal: ${tempPassword || "pendiente de generar"}`

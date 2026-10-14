@@ -102,6 +102,10 @@ function createStateTransport(dependencies = {}) {
     return {
       ...state,
       accounts: (state.accounts || []).map(stripAccountSecrets),
+      emailOutbox: (state.emailOutbox || []).map(item => ({
+        ...item,
+        body: String(item.body || "").replace(/^.*Contrasena temporal:.*$/gm, "- Contrasena temporal: [redactada]")
+      })),
       settings: {
         ...(state.settings || {}),
         smtp: stripSmtpSecrets(state.settings?.smtp || {})
@@ -464,6 +468,7 @@ function createStateTransport(dependencies = {}) {
     }
 
     const nextState = buildMemberScopedState(state, account);
+    nextState.associates = (nextState.associates || []).map(({ temporaryPassword, ...associate }) => associate);
     nextState.liveTestSessions = [];
     nextState.liveTestPlayers = [];
     nextState.liveTestAnswers = [];

@@ -70,6 +70,7 @@ const extraCheckScripts = [
   "scripts/check-admin-settings.mjs",
   "scripts/check-associate-payments.mjs",
   "scripts/check-associate-update.mjs",
+  "scripts/check-associate-onboarding.mjs",
   "scripts/check-associate-workbook-import.mjs",
   "scripts/check-course-academic.mjs",
   "scripts/check-course-journey.mjs",
