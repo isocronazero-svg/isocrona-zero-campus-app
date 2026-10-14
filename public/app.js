@@ -2199,7 +2199,7 @@ document.addEventListener("click", async (event) => {
     state.selectedAssociateApplicationId = actionTarget.dataset.applicationId;
     associatesSectionMode = "applications";
     render();
-    requestAnimationFrame(() => scrollToAssociateSection("associateSectionApplications"));
+    requestAnimationFrame(() => focusAssociatesSidePanel());
     return;
   }
 
@@ -2223,7 +2223,7 @@ document.addEventListener("click", async (event) => {
     }
     associatesSectionMode = "fees";
     render();
-    requestAnimationFrame(() => scrollToAssociateSection("associateSectionPayments"));
+    requestAnimationFrame(() => focusAssociatesSidePanel());
     return;
   }
 
@@ -2235,7 +2235,7 @@ document.addEventListener("click", async (event) => {
     }
     associatesSectionMode = "profiles";
     render();
-    requestAnimationFrame(() => scrollToAssociateSection("associateSectionProfiles"));
+    requestAnimationFrame(() => focusAssociatesSidePanel());
     return;
   }
 
@@ -6218,7 +6218,9 @@ function scrollToAssociateSection(sectionId) {
 
 function focusAssociatesSidePanel() {
   sidePanel.scrollTo({ top: 0, behavior: "smooth" });
-  sidePanel.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  const detail = sidePanel.querySelector("[data-associate-review-detail]") || sidePanel;
+  detail.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  detail.focus({ preventScroll: true });
 }
 
 function focusAssociatesWorkbench() {
@@ -8697,8 +8699,8 @@ function renderAssociates() {
           </div>
         </div>
         <p class="status-note info">
-          Hay <strong>${selectableApplications.length}</strong> solicitud(es) lista(s) para aprobar y
-          <strong>${blockedFilteredApplications.length}</strong> bloqueada(s) por datos o documentacion.
+          Hay <strong>${selectableApplications.filter((item) => getAssociateApplicationReadiness(item).ready).length}</strong> solicitud(es) lista(s) para aprobar y
+          <strong>${selectableApplications.filter((item) => !getAssociateApplicationReadiness(item).ready).length}</strong> bloqueada(s) por datos o documentacion.
         </p>
         <table>
           <thead>
@@ -8887,10 +8889,10 @@ function renderAssociatesSide() {
     return `<div class="empty-state">Esta vista solo esta disponible para administracion.</div>`;
   }
 
-  const application = findAssociateApplication(state.selectedAssociateApplicationId);
-  const paymentSubmission = findAssociatePaymentSubmission(state.selectedAssociatePaymentSubmissionId);
-  const profileRequest = findAssociateProfileRequest(state.selectedAssociateProfileRequestId);
-  const associate = findAssociate(state.selectedAssociateId);
+  const application = associatesSectionMode === "applications" ? findAssociateApplication(state.selectedAssociateApplicationId) : null;
+  const paymentSubmission = associatesSectionMode === "fees" ? findAssociatePaymentSubmission(state.selectedAssociatePaymentSubmissionId) : null;
+  const profileRequest = associatesSectionMode === "profiles" ? findAssociateProfileRequest(state.selectedAssociateProfileRequestId) : null;
+  const associate = application ? null : findAssociate(paymentSubmission?.associateId || profileRequest?.associateId || state.selectedAssociateId);
   const campusAccount = associate ? findAccountByAssociate(associate.id) : null;
   const campusMember = associate?.linkedMemberId ? findMember(associate.linkedMemberId) : null;
   const associatePayments = getAssociatePayments(associate);
@@ -9020,7 +9022,7 @@ function renderAssociatesSide() {
       ${
         application || paymentSubmission || profileRequest || associate
           ? `
-            <div class="mail-card">
+            <div class="mail-card" data-associate-review-detail tabindex="-1">
               <h4>Accion seleccionada</h4>
               <p><strong>${escapeHtml(quickFocusTitle)}</strong></p>
               <p class="muted">${escapeHtml(quickFocusDetail)}</p>
@@ -9033,7 +9035,26 @@ function renderAssociatesSide() {
                     }</p>`
                   : ""
               }
+              ${
+                application?.paymentProof
+                  ? `<a class="mini-button" target="_blank" rel="noreferrer" href="/api/associates/files/${encodeURIComponent(application.paymentProof)}">Abrir justificante</a>`
+                  : ""
+              }
+              ${
+                application?.paymentProof2
+                  ? `<a class="mini-button" target="_blank" rel="noreferrer" href="/api/associates/files/${encodeURIComponent(application.paymentProof2)}">Abrir justificante 2</a>`
+                  : ""
+              }
               <div class="chip-row">
+                ${application?.status === "Pendiente de revision"
+                  ? `<button class="mini-button" data-action="request-associate-info" data-application-id="${escapeHtml(application.id)}">Pedir doc.</button>`
+                  : ""}
+                ${application?.status === "Pendiente de documentacion"
+                  ? `<button class="mini-button" data-action="reopen-associate-application" data-application-id="${escapeHtml(application.id)}">Reabrir revision</button>`
+                  : ""}
+                ${application && application.status !== "Aprobada" && application.status !== "Rechazada"
+                  ? `<button class="mini-button" data-action="reject-associate" data-application-id="${escapeHtml(application.id)}">Rechazar</button>`
+                  : ""}
                 ${
                   nextPendingApplication
                     ? `<button class="mini-button" data-action="select-next-associate-application">Siguiente pendiente</button>`
