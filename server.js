@@ -14256,24 +14256,6 @@ async function runAutomationEngine(state, options = {}) {
       (associate) =>
         associate.status === "Revisar documentacion" &&
         /Importado desde Excel legacy/i.test(String(associate.observations || "")) &&
-        !associate.linkedAccountId &&
-        associate.email
-    )
-    .forEach((associate) => {
-      pushAutomationItem(state, {
-        type: "associate_legacy_access",
-        title: `Acceso campus pendiente para socio legacy #${associate.associateNumber}`,
-        detail: `${getAssociateFullName(associate)} ya esta importado y puede recibir cuenta de campus.`,
-        memberId: associate.id,
-        key: `associate_legacy_access:${associate.id}`
-      });
-    });
-
-  (state.associates || [])
-    .filter(
-      (associate) =>
-        associate.status === "Revisar documentacion" &&
-        /Importado desde Excel legacy/i.test(String(associate.observations || "")) &&
         String(associate.firstName || "").trim() &&
         String(associate.lastName || "").trim() &&
         String(associate.email || "").trim() &&
@@ -14695,7 +14677,6 @@ function pickNextAgentItem(state) {
     "associate_welcome",
     "associate_profile_notification",
     "associate_payment_notification",
-    "associate_legacy_access",
     "associate_legacy_review",
     "associate_fee",
     "course_feedback_reminder",
@@ -14866,7 +14847,8 @@ async function resolveFailedEmailItem(state, item) {
     throw new Error("No se ha encontrado el correo fallido para reintentar");
   }
 
-  const email = {
+  const retryWelcome = sourceEmail.kind === "associate_welcome";
+  const email = retryWelcome ? sourceEmail : {
     ...sourceEmail,
     id: `mail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     sentAt: new Date().toISOString(),
@@ -14877,7 +14859,7 @@ async function resolveFailedEmailItem(state, item) {
     deliveredAt: null
   };
 
-  state.emailOutbox.unshift(email);
+  if (!retryWelcome) state.emailOutbox.unshift(email);
   await deliverEmailRecord(state, email);
 
   appendActivity(
@@ -15239,30 +15221,8 @@ async function resolveAssociateProfileNotificationItem(state, item) {
 }
 
 async function resolveAssociateLegacyAccessItem(state, item) {
-  if (!state.settings?.agent?.canResolveInbox) {
-    throw new Error("El agente no tiene permiso para preparar accesos legacy");
-  }
-
-  const associate = (state.associates || []).find((entry) => entry.id === item.memberId);
-  if (!associate) {
-    throw new Error("Socio legacy no encontrado");
-  }
-  if (!associate.email) {
-    throw new Error("El socio no tiene email para crear acceso");
-  }
-
-  provisionAssociateCampusAccess(state, associate, { force: true });
-  appendActivity(
-    state,
-    "system",
-    "Bandeja automatica",
-    `Acceso legacy preparado para el socio #${associate.associateNumber} (${getAssociateFullName(associate)})`
-  );
-
-  return {
-    type: item.type,
-    message: `Acceso al campus preparado para ${getAssociateFullName(associate)}`
-  };
+  // Old persisted inbox items must not bypass the reviewed onboarding subset.
+  throw new Error("Los accesos legacy requieren revisar y seleccionar socios en Revisar accesos");
 }
 
 async function resolveAssociateLegacyReviewItem(state, item) {

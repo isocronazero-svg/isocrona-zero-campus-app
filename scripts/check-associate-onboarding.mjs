@@ -197,6 +197,25 @@ async function main() {
     assert.equal((await anonymous.call("POST", "/api/associates/onboarding/preview")).status, 401);
     assert.equal((await member.call("POST", "/api/associates/onboarding/preview")).status, 403);
     assert.equal((await member.call("POST", "/api/associates/onboarding/execute", {})).status, 403);
+    const importFixture = snapshot => admin.call("POST", "/api/storage/import-state", { snapshotFile: {
+      name: "synthetic-backup.json", type: "application/json", contentBase64: Buffer.from(JSON.stringify(snapshot)).toString("base64")
+    } });
+    const initial = (await admin.call("GET", "/api/storage/export-state")).body;
+    const legacyAgent = structuredClone(initial);
+    legacyAgent.settings.agent = { enabled: true, canResolveInbox: true, canSendDiplomas: true };
+    legacyAgent.automationInbox = [{ id: "old-legacy-item", type: "associate_legacy_access", memberId: "legacy", status: "open" }];
+    assert.equal((await importFixture(legacyAgent)).status, 200);
+    assert.equal((await admin.call("POST", "/api/agent/resolve-next", {})).status, 200);
+    const blockedLegacy = await admin.call("POST", "/api/automation/inbox/old-legacy-item/resolve", {});
+    assert.equal(blockedLegacy.status, 500);
+    assert.match(blockedLegacy.body.error, /Revisar accesos/);
+    assert.equal((await admin.call("POST", "/api/automation/run", {})).status, 200);
+    const afterLegacyAgent = (await admin.call("GET", "/api/storage/export-state")).body;
+    assert.equal(afterLegacyAgent.accounts.length, initial.accounts.length, "Legacy agent cannot bypass preview and subset");
+    assert.equal(afterLegacyAgent.associates.find(item => item.id === "legacy").linkedAccountId, "");
+    assert.equal(afterLegacyAgent.automationInbox.some(item => item.type === "associate_legacy_access"), false);
+    assert.equal(smtp.messages.length, 0);
+    assert.equal((await importFixture(initial)).status, 200);
     const before = (await admin.call("GET", "/api/storage/export-state")).body;
     const previewOf = async () => (await admin.call("POST", "/api/associates/onboarding/preview")).body;
     const execute = (preview, associateIds) => admin.call("POST", "/api/associates/onboarding/execute", { token: preview.token, associateIds, confirmed: true });
@@ -330,13 +349,15 @@ async function main() {
     assert.equal(queueAssociate.welcomeEmailStatus, "sent");
     assert.equal(afterQueue.emailOutbox.filter(item => item.associateId === "batch-2" && item.status === "sent").length, 1);
 
-    // Generic queue and per-email retries must reconcile the associate too.
-    for (const [id, route] of [["batch-3", "queue"], ["batch-4", "individual"]]) {
+    // All existing generic retry paths must reconcile the associate too.
+    for (const [id, route] of [["batch-3", "queue"], ["batch-4", "individual"], ["batch-5", "automation"], ["batch-6", "all"]]) {
       smtp.rejectNext = true;
       assert.equal((await execute(await previewOf(), [id])).body.results[0].status, "email_error");
       const failedState = (await admin.call("GET", "/api/storage/export-state")).body;
       const failedAssociate = failedState.associates.find(item => item.id === id);
       const failedMail = failedState.emailOutbox.find(item => item.associateId === id);
+      const recipientAttempts = () => smtp.messages.filter(message => message.includes(id + "@example.test")).length;
+      const attemptsBeforeRetry = recipientAttempts();
       // Hold a second queue message after the welcome succeeds: its delivery
       // must already be durable before the queue's final whole-state write.
       let releaseTrailing, trailingCaptured;
@@ -353,7 +374,18 @@ async function main() {
           smtp.onCaptured = trailingCaptured;
         };
       }
-      const sending = admin.call("POST", route === "queue" ? "/api/emails/send-queued" : "/api/emails/" + failedMail.id + "/send", {});
+      let retryRoute = route === "queue" ? "/api/emails/send-queued" : "/api/emails/" + failedMail.id + "/send";
+      if (["automation", "all"].includes(route)) {
+        const fixture = (await admin.call("GET", "/api/state")).body;
+        fixture.settings.agent.canSendDiplomas = true;
+        fixture.settings.automation.autoDetectFailedEmails = true;
+        assert.equal((await admin.call("POST", "/api/state", fixture)).status, 200);
+        const inbox = (await admin.call("GET", "/api/state")).body.automationInbox;
+        const task = inbox.find(item => item.type === "failed_email" && item.emailId === failedMail.id);
+        assert.ok(task);
+        retryRoute = route === "all" ? "/api/automation/resolve-all" : "/api/automation/inbox/" + task.id + "/resolve";
+      }
+      const sending = admin.call("POST", retryRoute, {});
       if (route === "queue") {
         await trailingReached;
         try {
@@ -364,6 +396,7 @@ async function main() {
       }
       const response = await sending;
       assert.equal(response.status, 200);
+      assert.equal(recipientAttempts(), attemptsBeforeRetry + 1, "Exactly one delivery through " + route);
       const afterGenericRetry = (await admin.call("GET", "/api/storage/export-state")).body;
       const retried = afterGenericRetry.associates.find(item => item.id === id);
       assert.equal(retried.welcomeEmailStatus, "sent");
@@ -385,9 +418,6 @@ async function main() {
     const restarted = (await admin.call("GET", "/api/storage/export-state")).body;
     assert.equal(restarted.accounts.length, beforeRestart.accounts.length);
     assert.equal(restarted.associates.find(item => item.id === "eligible").welcomeEmailStatus, "sent");
-    const importFixture = snapshot => admin.call("POST", "/api/storage/import-state", { snapshotFile: {
-      name: "synthetic-backup.json", type: "application/json", contentBase64: Buffer.from(JSON.stringify(snapshot)).toString("base64")
-    } });
     assert.equal((await importFixture(before)).status, 200);
     const restored = (await admin.call("GET", "/api/storage/export-state")).body;
     assert.equal(restored.accounts.length, before.accounts.length);
