@@ -189,7 +189,9 @@ const root=mkdtempSync(path.join(os.tmpdir(),'iz-instructor-cert-'));
 writeFileSync(path.join(root,'seed.json'),JSON.stringify(seed));
 const port=await new Promise(resolve=>{const probe=net.createServer();probe.listen(0,'127.0.0.1',()=>{const p=probe.address().port;probe.close(()=>resolve(p));});});
 const base=`http://127.0.0.1:${port}`;
-let child,smtp,logs='',smtpMessages=0;
+let child,smtp,logs='',smtpMessages=0,releaseSmtp;
+let smtpDataReady;
+let firstSmtpData=new Promise(resolve=>{smtpDataReady=resolve;});
 async function stopServer() {
   if (!child) return;
   const done=new Promise(resolve=>child.once('exit',resolve));child.kill();await done;child=null;
@@ -450,7 +452,11 @@ try {
       buffer+=chunk;
       while(buffer.includes('\r\n')){
         const end=buffer.indexOf('\r\n'),line=buffer.slice(0,end);buffer=buffer.slice(end+2);
-        if(data){if(line==='.'){data=false;smtpMessages++;socket.write('250 queued QA\r\n');}continue;}
+        if(data){if(line==='.'){
+          data=false;smtpMessages++;
+          if(smtpMessages===1){releaseSmtp=()=>socket.write('250 queued QA\r\n');smtpDataReady();}
+          else socket.write('250 queued QA\r\n');
+        }continue;}
         if(line.startsWith('EHLO'))socket.write('250 localhost\r\n');
         else if(line==='DATA'){data=true;socket.write('354 send data\r\n');}
         else if(line==='QUIT')socket.end('221 bye\r\n');
@@ -530,7 +536,18 @@ try {
     assert.ok(context.getSelectedCourse().questionBank.some(q=>q.prompt===bankPrompt));
     assert.equal(mutations.length,0,'Save-to-bank is still only a local draft');
     context.action=action;context.actionTarget={dataset:{}};
-    await context.runAction();
+    if(actionIndex===0){
+      const actionPending=context.runAction();
+      try {
+        await firstSmtpData;
+        const duringPayload=await (await request('/api/state',editorAdmin)).json();
+        const during=duringPayload.state || duringPayload;
+        assert.deepEqual(during.courses.find(c=>c.id===course.id).instructorAssociateIds,selectedIds,
+          'Assignment must be durably committed while eligible, before automation awaits SMTP');
+        const fifth=during.associates.find(a=>a.id==='enabled-five');
+        assert.equal((await request('/api/associates/enabled-five',editorAdmin,{...fifth,instructorEnabled:false},'PATCH')).status,200);
+      } finally {releaseSmtp?.();await actionPending;}
+    } else await context.runAction();
     assert.deepEqual(mutations,[[`/api/courses/${course.id}`,'PATCH']],'One mutation/automation per editor action');
     if(selectedIds.includes('missing')){
       assert.match(errors[0],/socio/);
@@ -544,6 +561,8 @@ try {
       assert.ok(savedCourse.questionBank.some(q=>q.prompt===bankPrompt),'Edited question bank survives subaction/refetch');
       assert.deepEqual(savedCourse.instructorAssociateIds,selectedIds,action);
       assert.equal(savedCourse.modules.length,action==='add-course-module'?previousModules+1:1,'Subaction content is persisted');
+      assert.equal(savedState.associates.find(a=>a.id==='enabled-five').instructorEnabled,false,
+        'Concurrent disable is retained without invalidating an already committed assignment');
       assert.equal(savedState.emailOutbox.length,1,'Delivery record survives the editor save');
       assert.equal(savedState.emailOutbox[0].status,'sent');
       assert.equal(savedState.emailOutbox[0].attemptCount,1);
@@ -557,5 +576,34 @@ try {
       assert.deepEqual(Array.from(context.getSelectedCourse().instructorAssociateIds),selectedIds,'Selection survives response/re-render');
     }
   }
-  console.log('Instructor certificates PASS: completed-course gate, legacy UI/permissions, name invariants, deletion impact, single editor mutation/SMTP delivery, retained outbox, stale-state protection, learner hours unchanged.');
+  // The creation path has the same synchronous assignment boundary as PATCH.
+  await stopServer();
+  smtpMessages=0;
+  firstSmtpData=new Promise(resolve=>{smtpDataReady=resolve;});
+  child=spawn(process.execPath,['server.js'],{env:{...env,IZ_DATA_DIR:path.join(root,'create-data'),
+    IZ_DEFAULT_STATE_PATH:path.join(root,'editor-seed.json')},stdio:['ignore','pipe','pipe']});
+  child.stdout.on('data',b=>logs+=b);child.stderr.on('data',b=>logs+=b);
+  ready=false;for(let i=0;i<100;i++){try{if((await request('/healthz')).ok){ready=true;break;}}catch{}await delay(100);}
+  assert.ok(ready,logs);
+  const createAdmin=await login('admin');
+  const creation=request('/api/courses',createAdmin,{...course,id:'smtp-create',title:'QA creation boundary',instructorAssociateIds:allIds},'POST');
+  let createdDuring;
+  try {
+    await firstSmtpData;
+    const payload=await (await request('/api/state',createAdmin)).json();
+    const during=payload.state || payload;
+    createdDuring=during.courses.find(c=>c.title==='QA creation boundary');
+    assert.deepEqual(createdDuring?.instructorAssociateIds,allIds,'POST commits while eligible before awaiting automation');
+    const fifth=during.associates.find(a=>a.id==='enabled-five');
+    assert.equal((await request('/api/associates/enabled-five',createAdmin,{...fifth,instructorEnabled:false},'PATCH')).status,200);
+  } finally {releaseSmtp?.();}
+  assert.equal((await creation).status,201);
+  const afterPayload=await (await request('/api/state',createAdmin)).json();
+  const after=afterPayload.state || afterPayload;
+  assert.equal(after.associates.find(a=>a.id==='enabled-five').instructorEnabled,false);
+  assert.deepEqual(after.courses.find(c=>c.id===createdDuring.id).instructorAssociateIds,allIds);
+  assert.equal(after.emailOutbox.length,1);assert.equal(after.emailOutbox[0].status,'sent');assert.equal(smtpMessages,1);
+  assert.equal((await request(`/api/courses/${createdDuring.id}/instructors/enabled-five.pdf`,createAdmin)).status,200);
+  assert.equal((await request('/api/courses',createAdmin,{...course,id:'disabled-after-smtp',title:'Blocked new assignment',instructorAssociateIds:['enabled-five']},'POST')).status,400);
+  console.log('Instructor certificates PASS: completed-course gate, legacy UI/permissions, name invariants, deletion impact, single editor mutation/SMTP delivery, retained outbox, stale-state protection, atomic POST/PATCH assignment before SMTP and learner hours unchanged.');
 } catch(error){console.error(logs);throw error;} finally {await stopServer();if(smtp)await new Promise(resolve=>smtp.close(resolve));rmSync(root,{recursive:true,force:true});}

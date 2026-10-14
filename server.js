@@ -8848,6 +8848,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       state.selectedCourseId = course.id;
       state.activeView = "campus";
       appendActivity(state, "admin", account.name, `Ha creado el curso ${course.title}`);
+      // Commit the validated assignment synchronously, before automation can yield to SMTP.
+      writeState(state);
       const summary = await runCourseAcademicAutomation(state, "Creacion de curso");
       writeState(state);
       return sendJson(res, 201, { ok: true, message: "Curso creado y guardado", course, summary });
@@ -8881,6 +8883,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       state.selectedCourseId = course.id;
       state.activeView = "campus";
       appendActivity(state, "admin", account.name, `Ha actualizado el curso ${course.title}`);
+      // A later disable affects new assignments, not this already committed course.
+      writeState(state);
       const summary = await runCourseAcademicAutomation(state, "Actualizacion de curso");
       course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
       writeState(state);
