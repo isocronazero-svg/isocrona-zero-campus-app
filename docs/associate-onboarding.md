@@ -21,6 +21,8 @@ El outbox de bienvenida NUEVO guarda siempre un cuerpo redactado, incluso antes 
 - No adoptar cuentas/alumnos por email. Cuentas manuales o privilegiadas nunca reciben bienvenida por el lote. Solo un acceso member marcado por este onboarding, coherente, pendiente/fallido y con temporal válida admite retry.
 - Selección inicial vacía; atajos 5/10/20 solo seleccionan. El servidor deduplica IDs, comprueba el subset y rechaza manipulaciones antes de consumir el token.
 - Una ejecución simultánea por proceso, SMTP secuencial y persistencia antes del envío. Cada socio se revalida tras la espera anterior; la respuesta SMTP se combina con el estado recién leído. Los formularios completos obsoletos no borran accesos/outbox de onboarding.
+- Los escritores de estado del servidor, incluida la cola SMTP y la automatización, preservan en el punto común de guardado los cambios concurrentes en registros de acceso/bienvenida. No se restaura una contraseña ni una cuenta borrada por un guardado atrasado. La restauración explícita de backup y la limpieza autorizada conservan su semántica de reemplazo.
+- Los reintentos genéricos actualizan también el estado/fecha/error del socio; reutilizan la bienvenida fallida y no dejan una copia pendiente tras el envío correcto.
 - Si el proceso se interrumpe con un correo `sending`, no se reenvía automáticamente: revisar entrega con el proveedor antes de habilitar un reintento. SMTP no ofrece garantía absoluta de entrega exactamente una vez (aceptación seguida de desconexión puede ser ambigua).
 - V1 asume un único proceso escritor, como el almacenamiento actual. No desplegar múltiples réplicas para ejecutar lotes; los locks/tokens en memoria no son distribuidos.
 

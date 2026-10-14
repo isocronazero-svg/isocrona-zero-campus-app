@@ -8,6 +8,43 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createOnboardingStateAccess } from "../server/onboarding-state.js";
+
+// Background writers share the same protection without locking unrelated state.
+{
+  let stored = { associates: [{ id: "a" }], members: [], accounts: [], emailOutbox: [], setting: "initial" };
+  const access = createOnboardingStateAccess({
+    readState: () => structuredClone(stored),
+    writeState: state => { stored = structuredClone(state); }
+  });
+  const oldSweep = access.readState();
+  const provision = access.readState();
+  Object.assign(provision.associates[0], { campusOnboardingCreatedAt: "created", linkedMemberId: "m", linkedAccountId: "u", temporaryPassword: "synthetic" });
+  provision.members.push({ id: "m", associateId: "a" });
+  provision.accounts.push({ id: "u", memberId: "m", passwordHash: "synthetic-hash", mustChangePassword: true });
+  provision.emailOutbox.push({ id: "mail", kind: "associate_welcome", associateId: "a", status: "sent" });
+  access.writeState(provision);
+  oldSweep.setting = "updated";
+  access.writeState(oldSweep);
+  assert.equal(stored.accounts.length, 1);
+  assert.equal(stored.emailOutbox[0].status, "sent");
+  assert.equal(stored.setting, "updated");
+  const beforePasswordChange = access.readState();
+  const changedPassword = access.readState();
+  delete changedPassword.associates[0].temporaryPassword;
+  Object.assign(changedPassword.accounts[0], { passwordHash: "changed-hash", mustChangePassword: false });
+  access.writeState(changedPassword);
+  access.writeState(beforePasswordChange);
+  assert.equal(stored.associates[0].temporaryPassword, undefined);
+  assert.equal(stored.accounts[0].passwordHash, "changed-hash");
+  assert.equal(stored.accounts[0].mustChangePassword, false);
+  const beforeDeletion = access.readState();
+  const deleted = access.readState();
+  for (const key of ["associates", "members", "accounts", "emailOutbox"]) deleted[key] = [];
+  access.writeState(deleted);
+  access.writeState(beforeDeletion);
+  for (const key of ["associates", "members", "accounts", "emailOutbox"]) assert.equal(stored[key].length, 0);
+}
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), "iz-onboarding-"));
@@ -49,8 +86,9 @@ function smtpServer(port) {
               gate.then(() => socket.write("250 queued synthetic\r\n"));
               continue;
             }
-            if (rejectNextMessage) {
+            if (rejectNextMessage || server.rejectNext) {
               rejectNextMessage = false;
+              server.rejectNext = false;
               socket.write("451 synthetic retryable failure\r\n");
             } else {
               socket.write("250 queued synthetic\r\n");
@@ -270,11 +308,57 @@ async function main() {
     assert.equal(afterConcurrent.settings.organization, "Concurrent synthetic edit", "SMTP completion preserves unrelated concurrent writes");
     assert.equal(afterConcurrent.associates.find(item => item.id === "batch-1").linkedAccountId, "");
     assert.equal(afterConcurrent.associates.find(item => item.id === "batch-2").linkedAccountId, "");
+    // Start the generic queue writer BEFORE provisioning so its whole-state snapshot is stale.
+    const queuedFixture = (await admin.call("GET", "/api/state")).body;
+    queuedFixture.emailOutbox.push({ id: "generic-qa", to: "generic@example.test", subject: "QA", body: "Synthetic only", status: "queued" });
+    assert.equal((await admin.call("POST", "/api/state", queuedFixture)).status, 200);
+    let releaseQueue, queueCaptured;
+    smtp.holdNext = new Promise(resolve => { releaseQueue = resolve; });
+    const queueReachedSmtp = new Promise(resolve => { queueCaptured = resolve; });
+    smtp.onCaptured = queueCaptured;
+    const queuedSend = admin.call("POST", "/api/emails/send-queued", {});
+    await queueReachedSmtp;
+    let provisionedDuringQueue;
+    try {
+      provisionedDuringQueue = await execute(await previewOf(), ["batch-2"]);
+      assert.equal(provisionedDuringQueue.body.created, 1);
+    } finally { releaseQueue(); }
+    assert.equal((await queuedSend).status, 200);
+    const afterQueue = (await admin.call("GET", "/api/storage/export-state")).body;
+    const queueAssociate = afterQueue.associates.find(item => item.id === "batch-2");
+    assert.ok(afterQueue.accounts.some(item => item.id === queueAssociate.linkedAccountId), "Old queued writer retains the new account");
+    assert.equal(queueAssociate.welcomeEmailStatus, "sent");
+    assert.equal(afterQueue.emailOutbox.filter(item => item.associateId === "batch-2" && item.status === "sent").length, 1);
+
+    // Generic queue and per-email retries must reconcile the associate too.
+    for (const [id, route] of [["batch-3", "queue"], ["batch-4", "individual"]]) {
+      smtp.rejectNext = true;
+      assert.equal((await execute(await previewOf(), [id])).body.results[0].status, "email_error");
+      const failedState = (await admin.call("GET", "/api/storage/export-state")).body;
+      const failedAssociate = failedState.associates.find(item => item.id === id);
+      const failedMail = failedState.emailOutbox.find(item => item.associateId === id);
+      const response = await admin.call("POST", route === "queue" ? "/api/emails/send-queued" : "/api/emails/" + failedMail.id + "/send", {});
+      assert.equal(response.status, 200);
+      const afterGenericRetry = (await admin.call("GET", "/api/storage/export-state")).body;
+      const retried = afterGenericRetry.associates.find(item => item.id === id);
+      assert.equal(retried.welcomeEmailStatus, "sent");
+      assert.equal(retried.welcomeEmailError, "");
+      assert.ok(retried.welcomeEmailSentAt);
+      assert.equal(retried.temporaryPassword, failedAssociate.temporaryPassword);
+      assert.equal(afterGenericRetry.emailOutbox.filter(item => item.associateId === id).length, 1, "Retry reuses the failed welcome record");
+      const visible = (await previewOf()).items.find(item => item.id === id);
+      assert.equal(visible.status, "email_sent");
+      assert.equal(visible.executable, false);
+    }
+    const sentBeforeEmptyQueue = smtp.messages.length;
+    assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).body.sentCount, 0);
+    assert.equal(smtp.messages.length, sentBeforeEmptyQueue, "No failed clone remains to resend a delivered welcome");
+    const beforeRestart = (await admin.call("GET", "/api/storage/export-state")).body;
     await stop();
     await start();
     await admin.call("POST", "/api/login", { email: "admin.synthetic@example.test", password: adminPassword });
     const restarted = (await admin.call("GET", "/api/storage/export-state")).body;
-    assert.equal(restarted.accounts.length, afterConcurrent.accounts.length);
+    assert.equal(restarted.accounts.length, beforeRestart.accounts.length);
     assert.equal(restarted.associates.find(item => item.id === "eligible").welcomeEmailStatus, "sent");
     const importFixture = snapshot => admin.call("POST", "/api/storage/import-state", { snapshotFile: {
       name: "synthetic-backup.json", type: "application/json", contentBase64: Buffer.from(JSON.stringify(snapshot)).toString("base64")

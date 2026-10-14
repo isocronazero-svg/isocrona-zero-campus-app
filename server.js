@@ -12,10 +12,12 @@ const {
   associateUploadsDir,
   getStorageDebugInfo,
   getStorageMeta,
-  readState,
+  readState: readStoredState,
   resetState,
-  writeState
+  writeState: writeStoredState
 } = require("./storage");
+const { createOnboardingStateAccess } = require("./server/onboarding-state");
+const { readState, writeState } = createOnboardingStateAccess({ readState: readStoredState, writeState: writeStoredState });
 const { sendMail } = require("./smtp");
 const associateOnboardingPreviews = new Map();
 const ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS = 15 * 60 * 1000;
@@ -9426,7 +9428,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
       for (const email of batch) {
         try {
-          email.status = "queued";
+          if (email.kind !== "associate_welcome") email.status = "queued";
           email.transport = "smtp";
           await deliverEmailRecord(state, email);
           if (email.status === "sent") {
@@ -9480,7 +9482,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Correo no encontrado" });
       }
 
-      const email = {
+      const retryWelcome = sourceEmail.kind === "associate_welcome" && sourceEmail.status !== "sent";
+      const email = retryWelcome ? sourceEmail : {
         ...sourceEmail,
         id: `mail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         sentAt: new Date().toISOString(),
@@ -9490,7 +9493,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         deliveryError: "",
         deliveredAt: null
       };
-      state.emailOutbox.unshift(email);
+      if (!retryWelcome) state.emailOutbox.unshift(email);
       await deliverEmailRecord(state, email);
       appendActivity(state, "system", "Servidor", `Reenvio SMTP solicitado para ${email.to}`);
       const summary = await runAutomationEngine(state);
@@ -9949,7 +9952,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     try {
       const payload = await readJsonBody(req, 80_000_000);
       const importedState = parseCampusSnapshotUpload(payload.snapshotFile);
-      writeState(importedState);
+      writeStoredState(importedState);
       const nextState = readState();
       return sendJson(res, 200, {
         ok: true,
@@ -9987,7 +9990,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         });
       }
       const cleanState = prepareCleanPrepublicationState(currentState, account.name || "Administracion");
-      writeState(cleanState);
+      writeStoredState(cleanState);
       const nextState = readState();
       return sendJson(res, 200, {
         ok: true,
@@ -15455,6 +15458,20 @@ async function deliverEmailRecord(state, email) {
     throw new Error("Falta configuracion SMTP minima");
   }
   const welcome = email.kind === "associate_welcome";
+  if (welcome) {
+    // Another sender may have completed this record while a queue awaited SMTP.
+    const storedEmail = (readState().emailOutbox || []).find(item => item.id === email.id);
+    if (storedEmail?.status === "sent") {
+      Object.assign(email, storedEmail);
+      const associate = (state.associates || []).find(item => item.id === email.associateId);
+      if (associate) {
+        associate.welcomeEmailStatus = "sent";
+        associate.welcomeEmailSentAt = email.deliveredAt;
+        associate.welcomeEmailError = "";
+      }
+      return;
+    }
+  }
   if (welcome && welcomeDeliveriesInFlight.has(email.associateId)) throw new Error("Bienvenida en curso");
   if (welcome) welcomeDeliveriesInFlight.add(email.associateId);
 
@@ -15487,10 +15504,23 @@ async function deliverEmailRecord(state, email) {
     email.deliveredAt = new Date().toISOString();
     email.deliveryError = "";
     email.smtpMessageId = result.messageId || "";
+    if (welcome) {
+      const associate = (state.associates || []).find(item => item.id === email.associateId);
+      associate.welcomeEmailStatus = "sent";
+      associate.welcomeEmailSentAt = email.deliveredAt;
+      associate.welcomeEmailError = "";
+    }
 
   } catch (error) {
     email.status = "failed";
     email.deliveryError = welcome ? "Fallo de entrega SMTP; revisa la configuracion y reintenta" : error.message || "Error SMTP";
+    if (welcome) {
+      const associate = (state.associates || []).find(item => item.id === email.associateId);
+      if (associate) {
+        associate.welcomeEmailStatus = "failed";
+        associate.welcomeEmailError = email.deliveryError;
+      }
+    }
     throw welcome ? new Error(email.deliveryError) : error;
   } finally {
     if (welcome) welcomeDeliveriesInFlight.delete(email.associateId);
