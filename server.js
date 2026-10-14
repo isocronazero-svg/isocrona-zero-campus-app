@@ -12928,7 +12928,6 @@ async function sendAssociateOnboardingWelcome(associateId) {
     return { status: associate ? getAssociateOnboardingVisibleStatus(associate) : "without_access", reason: "Bienvenida ya enviada o en curso" };
   }
   const email = createAssociateWelcomeEmailRecord(state, associate);
-  email.status = "sending";
   writeState(state);
   try {
     await deliverEmailRecord(state, email);
@@ -15389,6 +15388,10 @@ function createEmailRecord(state, course, member) {
 }
 
 function createAssociateWelcomeEmailRecord(state, associate) {
+  if ((state.emailOutbox || []).some(item => item.kind === "associate_welcome" &&
+      item.associateId === associate.id && item.status === "sending")) {
+    throw new Error("Bienvenida con entrega pendiente de confirmar; revisa el envio con el proveedor antes de reintentar");
+  }
   const account = (state.accounts || []).find((item) => item.id === associate.linkedAccountId);
   const member = (state.members || []).find((item) => item.id === associate.linkedMemberId);
   const previous = (state.emailOutbox || []).find(item => item.kind === "associate_welcome" && item.associateId === associate.id && item.status === "failed");
@@ -15427,6 +15430,9 @@ async function deliverEmailRecord(state, email) {
   if (welcome) {
     // Another sender may have completed this record while a queue awaited SMTP.
     const storedEmail = (readState().emailOutbox || []).find(item => item.id === email.id);
+    if (storedEmail?.status === "sending") {
+      throw new Error("Bienvenida con entrega pendiente de confirmar; revisa el envio con el proveedor antes de reintentar");
+    }
     if (storedEmail?.status === "sent") {
       Object.assign(email, storedEmail);
       const associate = (state.associates || []).find(item => item.id === email.associateId);

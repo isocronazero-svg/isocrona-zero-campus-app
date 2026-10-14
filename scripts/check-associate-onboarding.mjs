@@ -66,6 +66,7 @@ function smtpServer(port) {
   let rejectNextMessage = true;
   const messages = [];
   const server = net.createServer((socket) => {
+    socket.on("error", () => {}); // The restart regression deliberately interrupts SMTP.
     socket.write("220 synthetic SMTP\r\n");
     let dataMode = false;
     let buffer = "", message = "";
@@ -411,6 +412,38 @@ async function main() {
     const sentBeforeEmptyQueue = smtp.messages.length;
     assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).body.sentCount, 0);
     assert.equal(smtp.messages.length, sentBeforeEmptyQueue, "No failed clone remains to resend a delivered welcome");
+    smtp.rejectNext = true;
+    assert.equal((await execute(await previewOf(), ["batch-7"])).body.results[0].status, "email_error");
+    const interruptedFixture = (await admin.call("GET", "/api/state")).body;
+    const welcomeTask = interruptedFixture.automationInbox.find(item => item.type === "associate_welcome" && item.memberId === "batch-7");
+    const interruptedMail = interruptedFixture.emailOutbox.find(item => item.associateId === "batch-7");
+    assert.ok(welcomeTask);
+    assert.ok(interruptedFixture.automationInbox.some(item => item.type === "failed_email" && item.emailId === interruptedMail.id));
+    let releaseInterrupted, capturedInterrupted;
+    smtp.holdNext = new Promise(resolve => { releaseInterrupted = resolve; });
+    const interruptedReachedSmtp = new Promise(resolve => { capturedInterrupted = resolve; });
+    smtp.onCaptured = capturedInterrupted;
+    const interruptedSend = admin.call("POST", "/api/automation/inbox/" + welcomeTask.id + "/resolve", {}).catch(() => ({ status: 0 }));
+    await interruptedReachedSmtp;
+    await stop();
+    releaseInterrupted();
+    await interruptedSend;
+    await start();
+    await admin.call("POST", "/api/login", { email: "admin.synthetic@example.test", password: adminPassword });
+    const interruptedAttempts = smtp.messages.length;
+    const ambiguous = (await admin.call("GET", "/api/storage/export-state")).body;
+    assert.equal(ambiguous.emailOutbox.find(item => item.id === interruptedMail.id).status, "sending");
+    assert.equal((await admin.call("POST", "/api/emails/" + interruptedMail.id + "/send", {})).status, 500);
+    const blockedWelcome = await admin.call("POST", "/api/automation/inbox/" + welcomeTask.id + "/resolve", {});
+    assert.equal(blockedWelcome.status, 500);
+    assert.match(blockedWelcome.body.error, /pendiente de confirmar/);
+    assert.equal((await admin.call("POST", "/api/automation/resolve-all", {})).status, 200);
+    assert.equal(smtp.messages.length, interruptedAttempts, "Interrupted welcome cannot resend through any generic resolver after restart");
+    const afterInterrupted = (await admin.call("GET", "/api/storage/export-state")).body;
+    assert.equal(afterInterrupted.accounts.length, ambiguous.accounts.length);
+    assert.equal(afterInterrupted.emailOutbox.filter(item => item.associateId === "batch-7").length, 1);
+    assert.equal(afterInterrupted.emailOutbox.find(item => item.id === interruptedMail.id).status, "sending");
+    assert.equal((await previewOf()).items.find(item => item.id === "batch-7").executable, false);
     const beforeRestart = (await admin.call("GET", "/api/storage/export-state")).body;
     await stop();
     await start();
