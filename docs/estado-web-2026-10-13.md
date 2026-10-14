@@ -7,7 +7,7 @@ Bitácora operativa vigente para continuar desde Desktop/Codex. Para historia an
 ## Estado consolidado — 14/10/2026, Europe/Madrid
 
 ### `main`
-- HEAD verificado: `3b2f0efed264c0866d224a646c7dddfddf065084` (#253 / PR #255 integrada).
+- HEAD verificado: `a92dabe9ea7fd7f4d9de18e5f823155a252768ff` (#252 / PR #256 integrada, conserva #253 / PR #255).
 - #246 / PR #250 está fusionada y desplegada; jornadas intensivas funcionales. Squash funcional `e298e06caea094b22c46f3b87fad1c595de8bd30`.
 - #249 / PR #251 está fusionada y desplegada. Squash `deb4188103a3a4e4cdab31960b4d59b2a05a9415`.
 - No recrear ramas/patches de #244/#250/#251.
@@ -19,15 +19,25 @@ Bitácora operativa vigente para continuar desde Desktop/Codex. Para historia an
 - `outstanding-wholeness - isocrona-zero-campus` es paralelo/ruidoso; no confundir ni borrar sin verificar dominio/volumen/datos.
 - CI verde o smoke público no equivale a QA autenticada productiva.
 
+### Cierre post-merge #252 — 14/10/2026
+- Merge squash autorizado por Carlos en el encargo adjunto `27c9ba6c-b722-459d-87bd-a813e9bfad5c`: #256 fusionada a las 15:41 UTC; #252 cerrada como implementación completada. HEAD validado `18d408e66af2d4090b0181b103d16a41b6f7606b`; árbol idéntico a main tras merge. Ancestro #253 `3b2f0ef` conservado.
+- [CI main #402 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38591551246), incluido check:app y smoke. No repetida suite local para árbol idéntico ya validado. CI PR #401 también SUCCESS.
+- Railway del portal SUCCESS para ese SHA: despliegue `d8e4ff96-f1d2-489d-a851-28fd174efddf`. Healthz 200, smoke público 14/14 y hashes de app.js/styles.css/formatters.js iguales al commit. El campo release de healthz es una etiqueta histórica, no prueba del SHA; se contrastó con el estado de despliegue GitHub/Railway.
+- QA pública sin sesión con Edge390/1440: inicio, join, application, public-live-test y verify devuelven 200, sin errores JS no capturados ni overflow horizontal; logo cargado. Todas las peticiones no GET/HEAD bloqueadas por el harness (ninguna intentada). /api/state y export-state rechazan anónimo con 401. Capturas/harness en `Gestion/issue252-postmerge-public` y `Gestion/qa-public-postmerge-252.mjs`, fuera de Git.
+- **P2 operativo: piloto bloqueado por configuración de emergencia.** Logs del arranque confirman `IZ_ALLOW_DEMO_ADMIN_IN_PRODUCTION=true` y bootstrap admin aplicado. El warning del bypass se emite por el flag, NO demuestra que siga existiendo una cuenta demo ni que su contraseña funcione; no se intentó login con credenciales demo. `db.js` reaplica hash/bootstrap en cada arranque mientras permanezcan sus variables. Carlos debe verificar su acceso admin, disponer de backup recuperable y autorizar la retirada segura del bypass y de las variables temporales de bootstrap; después comprobar nuevo arranque/login. No se cambiaron variables ni datos manualmente. Otros avisos observados: SQLite experimental; sin fallo fatal de arranque.
+- #241/#242/#249: implementación completa, issues abiertos por QA productiva pendiente. #253 integrada/cerrada, recorrido admin móvil productivo pendiente. #252 integrada/cerrada, preview/admin/SMTP/piloto productivos NO ejecutados.
+- Procedimiento preparado: [piloto de 5–10 socios](piloto-socios-252.md). Además de la configuración anterior, falta copia externa actual recuperable con clave fuera del PC, revisión del censo/SMTP/preview y autorización expresa del subconjunto. No se crearon cuentas ni enviaron correos de prueba/reales. El despliegue sí ejecutó su bootstrap preexistente según logs.
+- Siguiente acción: Carlos cierra las barreras operativas de la checklist y autoriza cada acción productiva. No iniciar ni analizar #247 mientras exista intervención productiva pendiente; luego #247 → #245 → #248. No se reabrió trabajo ya implementado.
+
 ## Orden vigente de lanzamiento
 
-1. **#252 / PR #256** — revisión limpia; decisión humana de merge con CI verde del último HEAD. #253 / PR #255 ya integrada.
-2. **#247** — habilitación explícita de socios instructores, trabajo posterior; NO iniciarlo en el encargo vigente.
+1. **#252 / PR #256 integrada** — retirar configuración de emergencia de forma autorizada, cerrar backup/SMTP/preview y realizar QA/piloto expresamente autorizado. #253 / PR #255 ya integrada.
+2. **#247** — análisis posterior a cerrar barreras operativas; NO implementarlo en el encargo vigente.
 3. **#245** — asistencia/cierre con permisos de instructor asignado.
 4. **#248** — histórico/prioridad de jornadas.
 5. **#227** — QA integral + QA productiva pendiente #241/#242/#249 (implementaciones terminadas).
 
-No empezar #247/#245/#248 mientras #253/#252 sigan siendo el cuello de botella de apertura a socios.
+No repetir #253/#252 ni empezar #247/#245/#248 mientras haya acciones productivas pendientes de Carlos.
 
 ---
 
@@ -46,8 +56,8 @@ No empezar #247/#245/#248 mientras #253/#252 sigan siendo el cuello de botella d
 
 # #252 — alta masiva segura de accesos Campus
 
-## Implementación publicada — 14/10/2026
-- [PR #256](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/256), rama `codex/associate-onboarding-252`, base main `3b2f0ef`; código `c8ee86e4ca9459811e762da5c6604494c52e83a0`. NO fusionada ni desplegada.
+## Implementación integrada y desplegada — 14/10/2026
+- [PR #256](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/256) fusionada, issue #252 cerrada. Código revisado `c8ee86e4ca9459811e762da5c6604494c52e83a0`, HEAD final `18d408e`, squash main `a92dabe9ea7fd7f4d9de18e5f823155a252768ff`. No subir más cambios a su rama cerrada; cierre/QA y barreras vigentes arriba.
 - Reutilizado baseline durable `6143098248` y aplicados contrato `6151415338`/anexo `6151519842`. No buscar commits locales perdidos ni rehacer el trabajo.
 - Preview read-only y token15min ligado a admin/estado; subset explícito1–20, 0 seleccionados, SMTP obligatorio antes del alta; identidades explícitas, estados consolidados, emails canónicos, colisiones bloqueadas, cuentas manuales/privilegiadas excluidas.
 - Provisionado separado de entrega, retry sin cuenta/clave nueva, outbox redactado desde su creación, temporal ausente en state no-admin. Protección de snapshots antiguos y combinación del resultado SMTP con estado actual.
@@ -59,9 +69,9 @@ No empezar #247/#245/#248 mientras #253/#252 sigan siendo el cuello de botella d
 - Re-review local de `bc400f0`: reproducido envío desde una cola obsoleta tras reset/cambio de destinatario o SMTP, y rollback de nombre/SMTP al guardar esa cola. Corregido en `9d117b9`: validación del contexto actual justo antes de SMTP y preservación de cambios concurrentes. Regresión red/green con tres esperas SMTP sintéticas: cero envíos obsoletos, retry con clave vigente/login válido, mismo outbox y cambios preservados. Sin otros P1/P2 detectados en revisión local.
 - P2 final `sTEtX` corregido/respondido/resuelto en `c8ee86e`: transporte y preview comparten elegibilidad; una cola antigua no envía a un socio ahora Baja o que haya perdido el requisito legacy, ni restaura estado/observaciones. Regresión red/green con SMTP retenido, retry fresco bloqueado, un solo outbox y login Baja 403.
 - Node22.23.3: check focalizado, `check:associate-onboarding`, `check:app` completo y diff check PASS. [Actions #400 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38560082555) sobre código `c8ee86e`, incluido smoke. Frontend syntax/smoke14/Edge390/1440 locales anteriores PASS; sin cambios nuevos en frontend ni rutas del smoke, no repetidos. Los commits documentales posteriores deben tener también CI verde antes del merge.
-- Revisión final automática de `c8ee86e` completada sin problemas importantes: comentario `6167866495`, 14/10 12:01 UTC. Diez threads resueltos, cero P1/P2 pendientes, mergeable=true/clean en la comprobación final del código. El commit posterior solo consolida esta bitácora, sin cambios funcionales. Siguiente acción: Carlos decide el merge de #256 tras confirmar CI verde del HEAD documental; no hay autorización de merge ni de operaciones reales. No iniciar otros issues en este encargo.
+- Revisión final automática de `c8ee86e` completada sin problemas importantes: comentario `6167866495`, 14/10 12:01 UTC. Diez threads resueltos, cero P1/P2 de código pendientes, mergeable=true/clean y CI #401 SUCCESS revalidados antes del squash autorizado. No hay autorización para piloto ni cambios de datos/variables productivos.
 - Archivos: server.js, server/onboarding-state.js, server/state-transport.js, public/app.js, public/styles.css, package.json, scripts/check-app.mjs, scripts/check-associate-onboarding.mjs, docs/associate-onboarding.md y esta bitácora.
-- Cero cuentas/correos/datos productivos tocados. Encargo vigente: dejar SOLO #256 lista para decisión humana; sin merge automático ni inicio de #247/#245/#248.
+- Desarrollo y regresiones solo con cuentas/SMTP sintéticos. Post-merge solo lecturas y QA anónima; no altas/emails reales ni cambios manuales de datos/variables. No confundir esto con ausencia de automatismos preexistentes al arrancar (bootstrap observado arriba).
 - Límites documentados: single-writer, token/lock en memoria, envío `sending` interrumpido exige reconciliación manual; SMTP no garantiza exactamente una entrega ante desconexión ambigua. Temporal heredada en ficha admin hasta cambio; backups antiguos sensibles.
 - Gates reales: censo presente en state, backup externo recuperable verificado (export-state = rollback lógico, no uploads/volumen), test SMTP recibido, dry-run revisado y autorización expresa de Carlos para piloto5–10.
 
@@ -75,7 +85,7 @@ No empezar #247/#245/#248 mientras #253/#252 sigan siendo el cuello de botella d
 ## Referencia única de implementación
 El **contrato consolidado definitivo** es el comentario #252 **`6151415338`**. Si un comentario previo contradice ese contrato, prevalece `6151415338`.
 
-Desktop/Codex debe:
+Secuencia histórica YA COMPLETADA; no repetir:
 1. cerrar/fusionar #253 primero;
 2. partir del `main` vigente después de #253 y de esta bitácora;
 3. reutilizar el baseline `6143098248`;
