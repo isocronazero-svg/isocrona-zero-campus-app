@@ -1,12 +1,13 @@
 // Protect only onboarding-owned access/delivery fields from async stale writers.
 // Unrelated application state keeps the existing storage behavior.
-const associateFields = ["email", "linkedMemberId", "linkedAccountId", "campusAccessStatus",
+const associateFields = ["firstName", "lastName", "email", "linkedMemberId", "linkedAccountId", "campusAccessStatus",
   "temporaryPassword", "campusOnboardingCreatedAt", "welcomeEmailStatus", "welcomeEmailSentAt", "welcomeEmailError"];
 const memberFields = ["id", "associateId", "email", "name", "source"];
 
 function capture(state) {
   const associates = (state.associates || []).filter(item => item.campusOnboardingCreatedAt);
   return {
+    smtp: structuredClone(state.settings?.smtp),
     associates: new Map(associates.map(item => [item.id, structuredClone(item)])),
     members: new Map((state.members || []).filter(item => associates.some(a => a.linkedMemberId === item.id)).map(item => [item.id, structuredClone(item)])),
     accounts: new Map((state.accounts || []).filter(item => associates.some(a => a.linkedAccountId === item.id)).map(item => [item.id, structuredClone(item)])),
@@ -15,6 +16,9 @@ function capture(state) {
 }
 
 function mergeConcurrentAccessChanges(state, baseline, current) {
+  if (baseline && JSON.stringify(baseline.smtp) !== JSON.stringify(current.smtp)) {
+    state.settings = { ...(state.settings || {}), smtp: structuredClone(current.smtp) };
+  }
   for (const collection of ["associates", "members", "accounts", "emailOutbox"]) {
     const previous = baseline?.[collection] || new Map();
     const latest = current[collection];

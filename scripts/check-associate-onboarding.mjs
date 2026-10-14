@@ -469,6 +469,60 @@ async function main() {
     const sentBeforeEmptyQueue = smtp.messages.length;
     assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).body.sentCount, 0);
     assert.equal(smtp.messages.length, sentBeforeEmptyQueue, "No failed clone remains to resend a delivered welcome");
+    // A generic queue can wait before reaching a welcome. Do not use its stale credentials/recipient/SMTP.
+    for (const [id, change] of [["batch-16", "reset"], ["batch-17", "identity"], ["batch-18", "smtp"]]) {
+      smtp.rejectNext = true;
+      assert.equal((await execute(await previewOf(), [id])).body.results[0].status, "email_error");
+      const fixture = (await admin.call("GET", "/api/storage/export-state")).body;
+      const beforeEdit = fixture.associates.find(item => item.id === id);
+      const mail = fixture.emailOutbox.find(item => item.associateId === id);
+      fixture.emailOutbox.unshift({ id: "leading-" + id, to: "leading@example.test", subject: "QA", body: "Synthetic only", status: "queued" });
+      assert.equal((await importFixture(fixture)).status, 200);
+      let releaseLeading, capturedLeading;
+      smtp.holdNext = new Promise(resolve => { releaseLeading = resolve; });
+      const leadingReached = new Promise(resolve => { capturedLeading = resolve; });
+      smtp.onCaptured = capturedLeading;
+      const attemptsBeforeChange = smtp.messages.length;
+      const queued = admin.call("POST", "/api/emails/send-queued", {});
+      await leadingReached;
+      try {
+        if (change === "reset") {
+          assert.equal((await admin.call("POST", "/api/associates/" + id + "/reset-password", {})).status, 200);
+        } else if (change === "identity") {
+          assert.equal((await admin.call("PATCH", "/api/associates/" + id, { ...beforeEdit, associateNumber: 1017, firstName: "Updated identity", email: "updated-identity@example.test" })).status, 200);
+        } else {
+          const changed = (await admin.call("GET", "/api/state")).body;
+          changed.settings.smtp = { ...changed.settings.smtp, fromName: "Updated queue SMTP" };
+          assert.equal((await admin.call("POST", "/api/state", changed)).status, 200);
+        }
+      } finally { releaseLeading(); }
+      assert.equal((await queued).status, 200);
+      assert.equal(smtp.messages.length, attemptsBeforeChange + 1, "Stale queue cannot send a welcome after " + change);
+      const afterEdit = (await admin.call("GET", "/api/storage/export-state")).body;
+      const currentAssociate = afterEdit.associates.find(item => item.id === id);
+      assert.equal(afterEdit.emailOutbox.find(item => item.id === mail.id).status, "failed");
+      if (change === "identity") {
+        assert.equal(currentAssociate.firstName, "Updated identity", "Old queue cannot undo the identity edit");
+        assert.equal(currentAssociate.email, "updated-identity@example.test");
+      }
+      if (change === "smtp") assert.equal(afterEdit.settings.smtp.fromName, "Updated queue SMTP", "Old queue cannot roll back SMTP configuration");
+      if (change === "reset") {
+        assert.notEqual(currentAssociate.temporaryPassword, beforeEdit.temporaryPassword);
+        assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).body.sentCount, 1);
+        assert.ok(smtp.messages.at(-1).includes(currentAssociate.temporaryPassword));
+        assert.ok(!smtp.messages.at(-1).includes(beforeEdit.temporaryPassword));
+        assert.equal((await client(baseUrl).call("POST", "/api/login", { email: currentAssociate.email, password: currentAssociate.temporaryPassword })).status, 200);
+      } else {
+        // Restore only the synthetic fixture, then retry from a fresh queue snapshot.
+        afterEdit.associates.find(item => item.id === id).email = beforeEdit.email;
+        afterEdit.members.find(item => item.id === beforeEdit.linkedMemberId).email = beforeEdit.email;
+        afterEdit.accounts.find(item => item.id === beforeEdit.linkedAccountId).email = beforeEdit.email;
+        afterEdit.settings.smtp = fixture.settings.smtp;
+        assert.equal((await importFixture(afterEdit)).status, 200);
+        assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).body.sentCount, 1);
+      }
+      assert.equal((await admin.call("GET", "/api/state")).body.emailOutbox.filter(item => item.associateId === id).length, 1);
+    }
     smtp.rejectNext = true;
     assert.equal((await execute(await previewOf(), ["batch-7"])).body.results[0].status, "email_error");
     const interruptedFixture = (await admin.call("GET", "/api/state")).body;

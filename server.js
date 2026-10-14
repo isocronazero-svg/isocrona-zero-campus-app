@@ -15465,7 +15465,8 @@ async function deliverEmailRecord(state, email) {
   const welcome = email.kind === "associate_welcome";
   if (welcome) {
     // Another sender may have completed this record while a queue awaited SMTP.
-    const storedEmail = (readState().emailOutbox || []).find(item => item.id === email.id);
+    const latest = readState();
+    const storedEmail = (latest.emailOutbox || []).find(item => item.id === email.id);
     if (storedEmail?.status === "sending") {
       throw new Error("Bienvenida con entrega pendiente de confirmar; revisa el envio con el proveedor antes de reintentar");
     }
@@ -15478,6 +15479,19 @@ async function deliverEmailRecord(state, email) {
         associate.welcomeEmailError = "";
       }
       return;
+    }
+    const associate = (state.associates || []).find(item => item.id === email.associateId);
+    const current = (latest.associates || []).find(item => item.id === email.associateId);
+    if (associate?.campusOnboardingCreatedAt && (
+      !current || fingerprintOnboardingSmtp(state) !== fingerprintOnboardingSmtp(latest) ||
+      ["email", "firstName", "lastName", "linkedAccountId", "linkedMemberId", "temporaryPassword"].some(key => associate[key] !== current[key]) ||
+      ["accounts", "members"].some(collection => {
+        const id = collection === "accounts" ? associate.linkedAccountId : associate.linkedMemberId;
+        return JSON.stringify((state[collection] || []).find(item => item.id === id)) !==
+          JSON.stringify((latest[collection] || []).find(item => item.id === id));
+      })
+    )) {
+      throw new Error("La identidad, credencial o configuracion SMTP ha cambiado; revisa y reintenta desde el estado actual");
     }
   }
   if (welcome && welcomeDeliveriesInFlight.has(email.associateId)) throw new Error("Bienvenida en curso");
