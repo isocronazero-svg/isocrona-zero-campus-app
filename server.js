@@ -12894,7 +12894,7 @@ function resolveAssociateOnboardingIdentity(state, associate, email) {
 }
 
 function hasAssociateWelcomeInFlight(state, associate) {
-  return (state.emailOutbox || []).some(email => email.kind === "associate_welcome" &&
+  return welcomeDeliveriesInFlight.has(associate.id) || (state.emailOutbox || []).some(email => email.kind === "associate_welcome" &&
     email.associateId === associate.id && ["queued", "sending", "sent"].includes(email.status));
 }
 
@@ -12935,10 +12935,17 @@ async function sendAssociateOnboardingWelcome(associateId) {
   } catch {
     // Delivery metadata is safe; the account was committed before this separate step.
   }
+  return { status: email.status === "sent" ? "email_sent" : "email_error", emailStatus: email.status, reason: email.deliveryError || "Bienvenida enviada" };
+}
+
+function persistOnboardingWelcomeDelivery(state, email) {
+  const associate = (state.associates || []).find(item => item.id === email.associateId);
+  if (!associate?.campusOnboardingCreatedAt) return;
   const latest = readState();
-  const current = latest.associates.find(item => item.id === associateId);
+  const current = latest.associates.find(item => item.id === associate.id);
   const storedEmail = latest.emailOutbox.find(item => item.id === email.id);
-  if (storedEmail) Object.assign(storedEmail, email);
+  if (!storedEmail) return;
+  Object.assign(storedEmail, email);
   if (current && current.linkedAccountId === associate.linkedAccountId &&
       current.temporaryPassword === associate.temporaryPassword) {
     current.welcomeEmailStatus = email.status;
@@ -12946,7 +12953,6 @@ async function sendAssociateOnboardingWelcome(associateId) {
     current.welcomeEmailError = email.deliveryError || "";
   }
   writeState(latest);
-  return { status: email.status === "sent" ? "email_sent" : "email_error", emailStatus: email.status, reason: email.deliveryError || "Bienvenida enviada" };
 }
 
 function provisionAssociateCampusAccess(state, associate, options = {}) {
@@ -15491,6 +15497,8 @@ async function deliverEmailRecord(state, email) {
         throw new Error("Acceso o destinatario no disponible");
       }
       body = buildAssociateWelcomeEmailBody(state, associate, account, member);
+      email.status = "sending";
+      persistOnboardingWelcomeDelivery(state, email);
     }
     const result = await sendMail(smtp, {
       from: smtp.fromEmail,
@@ -15509,6 +15517,7 @@ async function deliverEmailRecord(state, email) {
       associate.welcomeEmailStatus = "sent";
       associate.welcomeEmailSentAt = email.deliveredAt;
       associate.welcomeEmailError = "";
+      persistOnboardingWelcomeDelivery(state, email);
     }
 
   } catch (error) {
@@ -15520,6 +15529,7 @@ async function deliverEmailRecord(state, email) {
         associate.welcomeEmailStatus = "failed";
         associate.welcomeEmailError = email.deliveryError;
       }
+      persistOnboardingWelcomeDelivery(state, email);
     }
     throw welcome ? new Error(email.deliveryError) : error;
   } finally {

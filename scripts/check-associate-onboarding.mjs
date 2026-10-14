@@ -337,7 +337,32 @@ async function main() {
       const failedState = (await admin.call("GET", "/api/storage/export-state")).body;
       const failedAssociate = failedState.associates.find(item => item.id === id);
       const failedMail = failedState.emailOutbox.find(item => item.associateId === id);
-      const response = await admin.call("POST", route === "queue" ? "/api/emails/send-queued" : "/api/emails/" + failedMail.id + "/send", {});
+      // Hold a second queue message after the welcome succeeds: its delivery
+      // must already be durable before the queue's final whole-state write.
+      let releaseTrailing, trailingCaptured;
+      let trailingReached;
+      if (route === "queue") {
+        const fixture = (await admin.call("GET", "/api/state")).body;
+        fixture.emailOutbox.push({ id: "trailing-qa", to: "trailing@example.test", subject: "QA", body: "Synthetic only", status: "queued" });
+        assert.equal((await admin.call("POST", "/api/state", fixture)).status, 200);
+        const welcomeGate = Promise.resolve();
+        smtp.holdNext = welcomeGate;
+        trailingReached = new Promise(resolve => { trailingCaptured = resolve; });
+        smtp.onCaptured = () => {
+          smtp.holdNext = new Promise(resolve => { releaseTrailing = resolve; });
+          smtp.onCaptured = trailingCaptured;
+        };
+      }
+      const sending = admin.call("POST", route === "queue" ? "/api/emails/send-queued" : "/api/emails/" + failedMail.id + "/send", {});
+      if (route === "queue") {
+        await trailingReached;
+        try {
+          const previewDuringQueue = await previewOf();
+          assert.equal(previewDuringQueue.items.find(item => item.id === id).status, "email_sent");
+          assert.equal((await execute(previewDuringQueue, [id])).status, 400, "Sent welcome cannot retry while queue awaits another message");
+        } finally { releaseTrailing(); }
+      }
+      const response = await sending;
       assert.equal(response.status, 200);
       const afterGenericRetry = (await admin.call("GET", "/api/storage/export-state")).body;
       const retried = afterGenericRetry.associates.find(item => item.id === id);
