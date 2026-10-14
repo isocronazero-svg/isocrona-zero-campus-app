@@ -12822,6 +12822,12 @@ function fingerprintOnboardingSmtp(state) {
   return createHash("sha256").update(JSON.stringify(getSmtpSettings(state))).digest("hex");
 }
 
+function isAssociateOnboardingEligible(associate) {
+  return Boolean(associate && (["Activa", "Pendiente cuota"].includes(associate.status) ||
+    (associate.status === "Revisar documentacion" && /Importado desde Excel legacy/i.test(associate.observations || "") &&
+      String(associate.firstName || "").trim() && String(associate.lastName || "").trim())));
+}
+
 function buildAssociateOnboardingPreview(state) {
   const associates = state.associates || [];
   const emailCounts = new Map();
@@ -12833,9 +12839,7 @@ function buildAssociateOnboardingPreview(state) {
     const email = String(associate.email || "").trim().toLowerCase();
     let category = "eligible";
     let detail = "Acceso nuevo preparado para crear y enviar secuencialmente";
-    const allowedStatus = ["Activa", "Pendiente cuota"].includes(associate.status) ||
-      (associate.status === "Revisar documentacion" && /Importado desde Excel legacy/i.test(associate.observations || "") &&
-        String(associate.firstName || "").trim() && String(associate.lastName || "").trim());
+    const allowedStatus = isAssociateOnboardingEligible(associate);
     const identity = resolveAssociateOnboardingIdentity(state, associate, email);
     if (!allowedStatus) {
       category = "incident";
@@ -15483,7 +15487,7 @@ async function deliverEmailRecord(state, email) {
     const associate = (state.associates || []).find(item => item.id === email.associateId);
     const current = (latest.associates || []).find(item => item.id === email.associateId);
     if (associate?.campusOnboardingCreatedAt && (
-      !current || fingerprintOnboardingSmtp(state) !== fingerprintOnboardingSmtp(latest) ||
+      !isAssociateOnboardingEligible(current) || fingerprintOnboardingSmtp(state) !== fingerprintOnboardingSmtp(latest) ||
       ["email", "firstName", "lastName", "linkedAccountId", "linkedMemberId", "temporaryPassword"].some(key => associate[key] !== current[key]) ||
       ["accounts", "members"].some(collection => {
         const id = collection === "accounts" ? associate.linkedAccountId : associate.linkedMemberId;
@@ -15491,7 +15495,7 @@ async function deliverEmailRecord(state, email) {
           JSON.stringify((latest[collection] || []).find(item => item.id === id));
       })
     )) {
-      throw new Error("La identidad, credencial o configuracion SMTP ha cambiado; revisa y reintenta desde el estado actual");
+      throw new Error("La ficha ya no es elegible o ha cambiado su identidad, credencial o SMTP; revisa el estado actual antes de reintentar");
     }
   }
   if (welcome && welcomeDeliveriesInFlight.has(email.associateId)) throw new Error("Bienvenida en curso");

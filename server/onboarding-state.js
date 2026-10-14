@@ -1,6 +1,6 @@
 // Protect only onboarding-owned access/delivery fields from async stale writers.
 // Unrelated application state keeps the existing storage behavior.
-const associateFields = ["firstName", "lastName", "email", "linkedMemberId", "linkedAccountId", "campusAccessStatus",
+const associateFields = ["firstName", "lastName", "email", "status", "observations", "linkedMemberId", "linkedAccountId", "campusAccessStatus",
   "temporaryPassword", "campusOnboardingCreatedAt", "welcomeEmailStatus", "welcomeEmailSentAt", "welcomeEmailError"];
 const memberFields = ["id", "associateId", "email", "name", "source"];
 

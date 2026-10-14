@@ -470,7 +470,12 @@ async function main() {
     assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).body.sentCount, 0);
     assert.equal(smtp.messages.length, sentBeforeEmptyQueue, "No failed clone remains to resend a delivered welcome");
     // A generic queue can wait before reaching a welcome. Do not use its stale credentials/recipient/SMTP.
-    for (const [id, change] of [["batch-16", "reset"], ["batch-17", "identity"], ["batch-18", "smtp"]]) {
+    for (const [id, change] of [["batch-16", "reset"], ["batch-17", "identity"], ["batch-18", "smtp"], ["batch-19", "status"], ["batch-20", "legacy"]]) {
+      if (change === "legacy") {
+        const legacy = (await admin.call("GET", "/api/state")).body;
+        Object.assign(legacy.associates.find(item => item.id === id), { status: "Revisar documentacion", observations: "Importado desde Excel legacy" });
+        assert.equal((await admin.call("POST", "/api/state", legacy)).status, 200);
+      }
       smtp.rejectNext = true;
       assert.equal((await execute(await previewOf(), [id])).body.results[0].status, "email_error");
       const fixture = (await admin.call("GET", "/api/storage/export-state")).body;
@@ -490,6 +495,9 @@ async function main() {
           assert.equal((await admin.call("POST", "/api/associates/" + id + "/reset-password", {})).status, 200);
         } else if (change === "identity") {
           assert.equal((await admin.call("PATCH", "/api/associates/" + id, { ...beforeEdit, associateNumber: 1017, firstName: "Updated identity", email: "updated-identity@example.test" })).status, 200);
+        } else if (["status", "legacy"].includes(change)) {
+          const update = change === "status" ? { status: "Baja" } : { observations: "Legacy eligibility removed" };
+          assert.equal((await admin.call("PATCH", "/api/associates/" + id, { ...beforeEdit, associateNumber: change === "status" ? 1019 : 1020, ...update })).status, 200);
         } else {
           const changed = (await admin.call("GET", "/api/state")).body;
           changed.settings.smtp = { ...changed.settings.smtp, fromName: "Updated queue SMTP" };
@@ -506,6 +514,19 @@ async function main() {
         assert.equal(currentAssociate.email, "updated-identity@example.test");
       }
       if (change === "smtp") assert.equal(afterEdit.settings.smtp.fromName, "Updated queue SMTP", "Old queue cannot roll back SMTP configuration");
+      if (["status", "legacy"].includes(change)) {
+        if (change === "status") assert.equal(currentAssociate.status, "Baja", "Queue cannot reactivate a deactivated associate");
+        else assert.equal(currentAssociate.observations, "Legacy eligibility removed");
+        assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).body.sentCount, 0, "Fresh retries also revalidate eligibility");
+        assert.equal(smtp.messages.length, attemptsBeforeChange + 1);
+        assert.equal((await previewOf()).items.find(item => item.id === id).executable, false);
+        if (change === "status") assert.equal((await client(baseUrl).call("POST", "/api/login", { email: currentAssociate.email, password: currentAssociate.temporaryPassword })).status, 403);
+        assert.equal(afterEdit.emailOutbox.filter(item => item.associateId === id).length, 1);
+        // Do not leave an intentionally ineligible retry in the later test fixtures.
+        afterEdit.emailOutbox = afterEdit.emailOutbox.filter(item => item.associateId !== id);
+        assert.equal((await importFixture(afterEdit)).status, 200);
+        continue;
+      }
       if (change === "reset") {
         assert.notEqual(currentAssociate.temporaryPassword, beforeEdit.temporaryPassword);
         assert.equal((await admin.call("POST", "/api/emails/send-queued", {})).body.sentCount, 1);
