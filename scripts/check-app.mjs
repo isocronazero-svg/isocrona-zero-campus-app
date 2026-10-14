@@ -19,6 +19,7 @@ const syntaxFiles = [
   "server/course-shared-tests.js", "server/question-bank-import.js",
   "public/course-test.js", "public/question-bank.js", "public/assets/js/app/modules/tests/topicPicker.js",
   "public/assets/js/app/campus/sharedTests.js",
+  "public/assets/js/app/campus/instructorPicker.js",
   "public/app.js",
   "public/public-live-test.js",
   "server.js",
@@ -99,6 +100,7 @@ const extraCheckScripts = [
   "scripts/check-test-zone-normalizer.mjs",
   "scripts/check-instructor-certificates.mjs",
   "scripts/check-instructor-eligibility.mjs",
+  "scripts/check-instructor-picker.mjs",
   "scripts/check-form-save-recovery.mjs",
   "scripts/check-intensive-days.mjs"
 ];
