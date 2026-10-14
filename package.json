@@ -14,6 +14,7 @@
     "check:app": "node scripts/check-app.mjs",
     "check:admin-settings": "node scripts/check-admin-settings.mjs",
     "check:associate-payments": "node scripts/check-associate-payments.mjs",
+    "check:associate-onboarding": "node scripts/check-associate-onboarding.mjs",
     "check:associate-review-navigation": "node scripts/check-associate-review-navigation.mjs",
     "check:associate-update": "node scripts/check-associate-update.mjs",
     "check:course-academic": "node scripts/check-course-academic.mjs",

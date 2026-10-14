@@ -3,7 +3,7 @@ const http = require("http");
 const { createPublicLiveFlow, answerDistribution } = require("./server/public-live-flow");
 const publicLiveFlow = createPublicLiveFlow();
 const { createQuestionContributionsHandler } = require("./server/question-contributions");
-const { randomUUID, createHash } = require("node:crypto");
+const { randomUUID, randomBytes, createHash } = require("node:crypto");
 const handleQuestionMaintenance = require("./server/question-maintenance");
 const fs = require("fs");
 const path = require("path");
@@ -12,11 +12,17 @@ const {
   associateUploadsDir,
   getStorageDebugInfo,
   getStorageMeta,
-  readState,
+  readState: readStoredState,
   resetState,
-  writeState
+  writeState: writeStoredState
 } = require("./storage");
+const { createOnboardingStateAccess } = require("./server/onboarding-state");
+const { readState, writeState } = createOnboardingStateAccess({ readState: readStoredState, writeState: writeStoredState });
 const { sendMail } = require("./smtp");
+const associateOnboardingPreviews = new Map();
+const ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS = 15 * 60 * 1000;
+let associateOnboardingRunning = false;
+const welcomeDeliveriesInFlight = new Set();
 const {
   authenticateUser,
   createUser,
@@ -6433,6 +6439,7 @@ const server = http.createServer(async (req, res) => {
           : mergeMemberScopedStateIntoFullState(currentState, payload, account);
       // Reports are written only through the scoped moderation API.
       const latestQuestionState = readState();
+      preserveAssociateOnboardingState(latestQuestionState, state);
       // Historical proof references are owned by the reviewed workbook import, not whole-state forms.
       const currentProofs = new Map((latestQuestionState.associates || []).map(item => [item.id, item.legacyPaymentProofs]));
       for (const associate of state.associates || []) {
@@ -7681,6 +7688,7 @@ const server = http.createServer(async (req, res) => {
 
       const payload = await readJsonBody(req, payloadLimitBytes.small);
       const associateId = decodeURIComponent(updateAssociateMatch[1] || "");
+      state = readState();
       const associate = (state.associates || []).find((item) => item.id === associateId);
       if (!associate) {
         return sendJson(res, 404, { ok: false, error: "Socio no encontrado" });
@@ -7698,6 +7706,14 @@ const server = http.createServer(async (req, res) => {
       }
 
       const email = String(payload.email || "").trim().toLowerCase();
+      const identityChanged = email !== String(associate.email || "").trim().toLowerCase() ||
+        String(payload.firstName || "").trim() !== String(associate.firstName || "").trim() ||
+        String(payload.lastName || "").trim() !== String(associate.lastName || "").trim();
+      if (associate.campusOnboardingCreatedAt && identityChanged &&
+          (welcomeDeliveriesInFlight.has(associate.id) || (state.emailOutbox || []).some(mail =>
+            mail.kind === "associate_welcome" && mail.associateId === associate.id && mail.status === "sending"))) {
+        throw new Error("No puedes cambiar la identidad mientras la bienvenida esta en envio o pendiente de confirmar");
+      }
       if (email && !isLikelyEmail(email)) {
         throw new Error("El email no tiene un formato valido");
       }
@@ -7757,6 +7773,106 @@ const server = http.createServer(async (req, res) => {
       });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo actualizar la ficha del socio");
+    }
+  }
+
+  if (requestUrl.pathname === "/api/associates/onboarding/preview" && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      const preview = buildAssociateOnboardingPreview(state);
+      for (const [key, value] of associateOnboardingPreviews) {
+        if (value.expiresAt <= Date.now()) associateOnboardingPreviews.delete(key);
+      }
+      if (associateOnboardingPreviews.size >= 100) associateOnboardingPreviews.delete(associateOnboardingPreviews.keys().next().value);
+      const token = randomUUID();
+      associateOnboardingPreviews.set(token, {
+        accountId: account.id,
+        fingerprint: preview.fingerprint,
+        smtpFingerprint: fingerprintOnboardingSmtp(state),
+        identities: new Map((state.associates || []).map(associate => [associate.id, fingerprintOnboardingAssociate(associate)])),
+        expiresAt: Date.now() + ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS
+      });
+      return sendJson(res, 200, {
+        ok: true,
+        token,
+        expiresAt: new Date(Date.now() + ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS).toISOString(),
+        summary: preview.summary,
+        smtpReady: isSmtpConfigured(state),
+        items: preview.items
+      });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo preparar la vista previa del lote");
+    }
+  }
+
+  if (requestUrl.pathname === "/api/associates/onboarding/execute" && req.method === "POST") {
+    let ownsBatch = false;
+    try {
+      const account = requireAdminAccount(req, res, readState());
+      if (!account) return;
+      const payload = await readJsonBody(req, payloadLimitBytes.registration);
+      const state = readState();
+      const savedPreview = associateOnboardingPreviews.get(String(payload.token || ""));
+      const currentPreview = buildAssociateOnboardingPreview(state);
+      if (!savedPreview || savedPreview.accountId !== account.id || savedPreview.expiresAt <= Date.now()) {
+        throw new Error("La vista previa ha caducado; genera una nueva antes de ejecutar");
+      }
+      if (savedPreview.fingerprint !== currentPreview.fingerprint) {
+        throw new Error("El censo ha cambiado desde la vista previa; revisa el lote de nuevo");
+      }
+      if (payload.confirmed !== true) {
+        throw new Error("Confirma expresamente el backup y la autorizacion del lote");
+      }
+      const ids = Array.isArray(payload.associateIds) ? [...new Set(payload.associateIds)] : [];
+      if (!ids.length || ids.length > 20 || ids.some(id => typeof id !== "string" || !currentPreview.items.some(item => item.id === id && item.executable))) {
+        throw new Error("Selecciona entre 1 y 20 socios ejecutables de esta vista previa");
+      }
+      if (!isSmtpConfigured(state)) throw new Error("Configura y comprueba SMTP antes de procesar accesos");
+      if (associateOnboardingRunning) throw new Error("Ya hay un lote en curso; espera a que termine");
+      associateOnboardingRunning = true;
+      ownsBatch = true;
+      associateOnboardingPreviews.delete(String(payload.token));
+      const results = [];
+      for (const id of ids) {
+        // Re-read after each SMTP await. Never persist a whole pre-send snapshot.
+        const latest = readState();
+        if (!isSmtpConfigured(latest) || savedPreview.smtpFingerprint !== fingerprintOnboardingSmtp(latest)) {
+          results.push({ id, outcome: "skipped", reason: "SMTP ha cambiado desde la revision; compruebalo y genera una nueva vista previa" });
+          continue;
+        }
+        const associate = latest.associates.find(entry => entry.id === id);
+        if (savedPreview.identities.get(id) !== fingerprintOnboardingAssociate(associate)) {
+          results.push({ id, outcome: "skipped", reason: "La ficha ha cambiado desde la revision; genera una nueva vista previa" });
+          continue;
+        }
+        const item = buildAssociateOnboardingPreview(latest).items.find(entry => entry.id === id);
+        if (!item?.executable) {
+          results.push({ id, outcome: "skipped", reason: item?.detail || "La ficha ha cambiado" });
+          continue;
+        }
+        let outcome = "already_exists";
+        try {
+          if (!associate.linkedAccountId) {
+            associate.email = item.email;
+            provisionAssociateCampusAccess(latest, associate, { force: true });
+            associate.campusOnboardingCreatedAt = new Date().toISOString();
+            associate.welcomeEmailStatus = "pending";
+            writeState(latest);
+            outcome = "created";
+          }
+          const emailResult = await sendAssociateOnboardingWelcome(id);
+          results.push({ id, outcome, ...emailResult });
+        } catch (error) {
+          results.push({ id, outcome: "failed", reason: "No se pudo completar este acceso; revisa su ficha antes de reintentar" });
+        }
+      }
+      return sendJson(res, 200, { ok: true, processed: results.length, created: results.filter(item => item.outcome === "created").length, results });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo ejecutar el lote de accesos");
+    } finally {
+      if (ownsBatch) associateOnboardingRunning = false;
     }
   }
 
@@ -9331,7 +9447,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
       for (const email of batch) {
         try {
-          email.status = "queued";
+          if (email.kind !== "associate_welcome") email.status = "queued";
           email.transport = "smtp";
           await deliverEmailRecord(state, email);
           if (email.status === "sent") {
@@ -9385,7 +9501,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Correo no encontrado" });
       }
 
-      const email = {
+      const retryWelcome = sourceEmail.kind === "associate_welcome" && sourceEmail.status !== "sent";
+      const email = retryWelcome ? sourceEmail : {
         ...sourceEmail,
         id: `mail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         sentAt: new Date().toISOString(),
@@ -9395,7 +9512,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         deliveryError: "",
         deliveredAt: null
       };
-      state.emailOutbox.unshift(email);
+      if (!retryWelcome) state.emailOutbox.unshift(email);
       await deliverEmailRecord(state, email);
       appendActivity(state, "system", "Servidor", `Reenvio SMTP solicitado para ${email.to}`);
       const summary = await runAutomationEngine(state);
@@ -9854,7 +9971,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     try {
       const payload = await readJsonBody(req, 80_000_000);
       const importedState = parseCampusSnapshotUpload(payload.snapshotFile);
-      writeState(importedState);
+      writeStoredState(importedState);
       const nextState = readState();
       return sendJson(res, 200, {
         ok: true,
@@ -9892,7 +10009,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         });
       }
       const cleanState = prepareCleanPrepublicationState(currentState, account.name || "Administracion");
-      writeState(cleanState);
+      writeStoredState(cleanState);
       const nextState = readState();
       return sendJson(res, 200, {
         ok: true,
@@ -12697,6 +12814,182 @@ function getAssociateApplicationReplyRecipients(state) {
   ).values()];
 }
 
+function fingerprintOnboardingAssociate(associate) {
+  return createHash("sha256").update(JSON.stringify(associate || null)).digest("hex");
+}
+
+function fingerprintOnboardingSmtp(state) {
+  return createHash("sha256").update(JSON.stringify(getSmtpSettings(state))).digest("hex");
+}
+
+function isAssociateOnboardingEligible(associate) {
+  return Boolean(associate && (["Activa", "Pendiente cuota"].includes(associate.status) ||
+    (associate.status === "Revisar documentacion" && /Importado desde Excel legacy/i.test(associate.observations || "") &&
+      String(associate.firstName || "").trim() && String(associate.lastName || "").trim())));
+}
+
+function buildAssociateOnboardingPreview(state) {
+  const associates = state.associates || [];
+  const emailCounts = new Map();
+  for (const associate of associates) {
+    const email = String(associate.email || "").trim().toLowerCase();
+    if (email) emailCounts.set(email, (emailCounts.get(email) || 0) + 1);
+  }
+  const items = associates.map((associate) => {
+    const email = String(associate.email || "").trim().toLowerCase();
+    let category = "eligible";
+    let detail = "Acceso nuevo preparado para crear y enviar secuencialmente";
+    const allowedStatus = isAssociateOnboardingEligible(associate);
+    const identity = resolveAssociateOnboardingIdentity(state, associate, email);
+    if (!allowedStatus) {
+      category = "incident";
+      detail = "La ficha no es un socio consolidado habilitado para este lote";
+    } else if (!email) {
+      category = "missing_email";
+      detail = "La ficha no tiene email";
+    } else if (!isLikelyEmail(email) || email.split("@")[1] === "gmail.con") {
+      category = "invalid_email";
+      detail = "El formato del email no es valido";
+    } else if ((emailCounts.get(email) || 0) > 1) {
+      category = "duplicate_email";
+      detail = "El email aparece en mas de una ficha";
+    } else if (identity.error) {
+      category = "incident";
+      detail = identity.error;
+    } else if (identity.account) {
+      category = "already_linked";
+      detail = "Acceso existente; fuera del alta masiva";
+    }
+    const retryWelcome = category === "already_linked" &&
+      identity.account.role === "member" && Boolean(associate.campusOnboardingCreatedAt) &&
+      identity.account.mustChangePassword === true && Boolean(associate.temporaryPassword) &&
+      ["pending", "failed"].includes(associate.welcomeEmailStatus) &&
+      !hasAssociateWelcomeInFlight(state, associate) &&
+      verifyLegacyAccountPassword(identity.account, associate.temporaryPassword);
+    if (retryWelcome) detail = "Reintentar bienvenida sin crear cuenta ni cambiar credencial";
+    if ((state.emailOutbox || []).some(mail => mail.kind === "associate_welcome" && mail.associateId === associate.id && mail.status === "sending")) {
+      detail = "Entrega SMTP pendiente de confirmar; requiere reconciliacion manual antes de reintentar";
+    }
+    return {
+      id: associate.id,
+      associateNumber: associate.associateNumber || "",
+      name: getAssociateFullName(associate),
+      email,
+      category,
+      detail,
+      error: associate.welcomeEmailStatus === "failed" ? "Fallo de entrega SMTP; revisa la configuracion y reintenta" : "",
+      status: getAssociateOnboardingVisibleStatus(associate),
+      executable: category === "eligible" || retryWelcome
+    };
+  });
+  const summary = items.reduce((result, item) => {
+    result.total += 1;
+    result[item.category] = (result[item.category] || 0) + 1;
+    if (item.executable) result.executable += 1;
+    return result;
+  }, { total: 0, executable: 0, eligible: 0, already_linked: 0, missing_email: 0, invalid_email: 0, duplicate_email: 0, incident: 0 });
+  // Bind to identities, credentials and delivery state, not only display categories.
+  const fingerprint = createHash("sha256").update(JSON.stringify({
+    associates, members: state.members, accounts: state.accounts, emailOutbox: state.emailOutbox, smtp: getSmtpSettings(state)
+  })).digest("hex");
+  return { items, summary, fingerprint };
+}
+
+function getAssociateOnboardingVisibleStatus(associate) {
+  if (!associate.linkedAccountId) return "without_access";
+  if (associate.welcomeEmailStatus === "sent") return "email_sent";
+  if (associate.welcomeEmailStatus === "failed") return "email_error";
+  return "access_created";
+}
+
+function resolveAssociateOnboardingIdentity(state, associate, email) {
+  const canonical = value => String(value || "").trim().toLowerCase();
+  const members = state.members || [];
+  const accounts = state.accounts || [];
+  const relatedMembers = members.filter(item => item.id === associate.linkedMemberId || item.associateId === associate.id);
+  const member = relatedMembers[0];
+  if ((associate.linkedMemberId && !members.some(item => item.id === associate.linkedMemberId)) ||
+      relatedMembers.length > 1 || (member && ((member.associateId && member.associateId !== associate.id) || canonical(member.email) !== email)) ||
+      members.some(item => canonical(item.email) === email && item.id !== member?.id)) {
+    return { error: "Vinculo de alumno roto, ambiguo o perteneciente a otra identidad" };
+  }
+  const relatedAccounts = accounts.filter(item => item.id === associate.linkedAccountId || item.associateId === associate.id || (member && item.memberId === member.id));
+  const account = relatedAccounts[0];
+  if ((associate.linkedAccountId && !accounts.some(item => item.id === associate.linkedAccountId)) ||
+      relatedAccounts.length > 1 || (account && (!member || account.memberId !== member.id ||
+        (account.associateId && account.associateId !== associate.id) || canonical(account.email) !== email ||
+        account.id !== associate.linkedAccountId || member.id !== associate.linkedMemberId)) ||
+      accounts.some(item => canonical(item.email) === email && item.id !== account?.id) ||
+      (state.associates || []).some(item => item.id !== associate.id &&
+        ((member && item.linkedMemberId === member.id) || (account && item.linkedAccountId === account.id)))) {
+    return { error: "Vinculo de cuenta roto, ambiguo o perteneciente a otra identidad" };
+  }
+  return { member, account };
+}
+
+function hasAssociateWelcomeInFlight(state, associate) {
+  return welcomeDeliveriesInFlight.has(associate.id) || (state.emailOutbox || []).some(email => email.kind === "associate_welcome" &&
+    email.associateId === associate.id && ["queued", "sending", "sent"].includes(email.status));
+}
+
+function preserveAssociateOnboardingState(current, next) {
+  // Dedicated provisioning/reset endpoints own access data, not old whole-state forms.
+  for (const associate of current.associates || []) {
+    if (!associate.campusOnboardingCreatedAt) continue;
+    const incoming = (next.associates || []).find(item => item.id === associate.id);
+    if (incoming) {
+      for (const key of ["email", "linkedMemberId", "linkedAccountId", "campusAccessStatus", "temporaryPassword",
+        "campusOnboardingCreatedAt", "welcomeEmailStatus", "welcomeEmailSentAt", "welcomeEmailError"]) {
+        incoming[key] = associate[key];
+      }
+    } else {
+      next.associates = [...(next.associates || []), associate];
+    }
+    for (const [collection, id] of [["members", associate.linkedMemberId], ["accounts", associate.linkedAccountId]]) {
+      const record = (current[collection] || []).find(item => item.id === id);
+      if (record) next[collection] = [...(next[collection] || []).filter(item => item.id !== id), record];
+    }
+  }
+  const welcomeRecords = (current.emailOutbox || []).filter(item => item.kind === "associate_welcome");
+  const ids = new Set(welcomeRecords.map(item => item.id));
+  next.emailOutbox = [...welcomeRecords, ...(next.emailOutbox || []).filter(item => !ids.has(item.id) && item.kind !== "associate_welcome")];
+}
+
+async function sendAssociateOnboardingWelcome(associateId) {
+  const state = readState();
+  const associate = state.associates.find(item => item.id === associateId);
+  if (!associate || hasAssociateWelcomeInFlight(state, associate)) {
+    return { status: associate ? getAssociateOnboardingVisibleStatus(associate) : "without_access", reason: "Bienvenida ya enviada o en curso" };
+  }
+  const email = createAssociateWelcomeEmailRecord(state, associate);
+  writeState(state);
+  try {
+    await deliverEmailRecord(state, email);
+  } catch {
+    // Delivery metadata is safe; the account was committed before this separate step.
+  }
+  return { status: email.status === "sent" ? "email_sent" : "email_error", emailStatus: email.status, reason: email.deliveryError || "Bienvenida enviada" };
+}
+
+function persistOnboardingWelcomeDelivery(state, email) {
+  const associate = (state.associates || []).find(item => item.id === email.associateId);
+  if (!associate?.campusOnboardingCreatedAt) return;
+  const latest = readState();
+  const current = latest.associates.find(item => item.id === associate.id);
+  const storedEmail = latest.emailOutbox.find(item => item.id === email.id);
+  if (!storedEmail) return;
+  Object.assign(storedEmail, email);
+  if (current && current.linkedAccountId === associate.linkedAccountId &&
+      current.linkedMemberId === associate.linkedMemberId &&
+      String(current.email || "").trim().toLowerCase() === String(email.to || "").trim().toLowerCase() &&
+      current.temporaryPassword === associate.temporaryPassword) {
+    current.welcomeEmailStatus = email.status;
+    current.welcomeEmailSentAt = email.deliveredAt || "";
+    current.welcomeEmailError = email.deliveryError || "";
+  }
+  writeState(latest);
+}
+
 function provisionAssociateCampusAccess(state, associate, options = {}) {
   const force = Boolean(options.force);
   const requestedAccountRole = options.accountRole
@@ -12710,7 +13003,7 @@ function provisionAssociateCampusAccess(state, associate, options = {}) {
   state.members = state.members || [];
   state.accounts = state.accounts || [];
 
-  let member = state.members.find(
+  let member = state.members.find(item => item.id === associate.linkedMemberId || item.associateId === associate.id) || state.members.find(
     (item) => item.email.toLowerCase() === associate.email.toLowerCase() || (associate.dni && item.email && item.associateId === associate.id)
   );
 
@@ -12784,16 +13077,16 @@ function provisionAssociateCampusAccess(state, associate, options = {}) {
   return associate;
 }
 
-function buildTemporaryCampusPassword(associate, options = {}) {
-  const nameChunk = String(associate.firstName || "socio")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "")
-    .slice(0, 4) || "socio";
-  const base = `IZ-${nameChunk}-${associate.associateNumber || Date.now().toString().slice(-4)}`;
-  return options.unique ? `${base}-${Math.random().toString(36).slice(2, 6)}` : base;
+function buildTemporaryCampusPassword() {
+  // Generated once when provisioning/resetting. SMTP retries reuse the stored secret.
+  return `IZ-${randomBytes(18).toString("base64url")}`;
 }
 
 function resetAssociateCampusPassword(state, associate) {
+  if (welcomeDeliveriesInFlight.has(associate.id) || (state.emailOutbox || []).some(mail =>
+      mail.kind === "associate_welcome" && mail.associateId === associate.id && mail.status === "sending")) {
+    throw new Error("No puedes restablecer la contrasena mientras la bienvenida esta en envio o pendiente de confirmar");
+  }
   if (!associate?.email) {
     throw new Error("El socio necesita un email antes de restablecer su acceso");
   }
@@ -12809,7 +13102,7 @@ function resetAssociateCampusPassword(state, associate) {
     throw new Error("Primero crea el acceso al campus de este socio");
   }
 
-  const tempPassword = buildTemporaryCampusPassword(associate, { unique: true });
+  const tempPassword = buildTemporaryCampusPassword();
   setLegacyAccountPassword(account, tempPassword);
   account.mustChangePassword = true;
   account.email = associate.email;
@@ -12868,6 +13161,7 @@ async function maybeSendAssociateWelcomeEmail(state, associate, options = {}) {
     await deliverEmailRecord(state, email);
     associate.welcomeEmailStatus = "sent";
     associate.welcomeEmailSentAt = new Date().toISOString();
+    associate.welcomeEmailError = "";
     appendActivity(
       state,
       "system",
@@ -12877,19 +13171,20 @@ async function maybeSendAssociateWelcomeEmail(state, associate, options = {}) {
     return { status: "sent", emailId: email.id };
   } catch (error) {
     associate.welcomeEmailStatus = "failed";
+    associate.welcomeEmailError = "Fallo de entrega SMTP; revisa la configuracion y reintenta";
     appendActivity(
       state,
       "system",
       actor,
-      `Fallo al enviar la bienvenida del campus al socio #${associate.associateNumber}: ${error.message || "Error SMTP"}`
+      `Fallo al enviar la bienvenida del campus al socio #${associate.associateNumber}: revisa SMTP`
     );
     if (strict) {
-      throw error;
+      throw new Error(associate.welcomeEmailError);
     }
     return {
       status: "failed",
       emailId: email.id,
-      error: error.message || "Error SMTP"
+      error: associate.welcomeEmailError
     };
   }
 }
@@ -14000,24 +14295,6 @@ async function runAutomationEngine(state, options = {}) {
       (associate) =>
         associate.status === "Revisar documentacion" &&
         /Importado desde Excel legacy/i.test(String(associate.observations || "")) &&
-        !associate.linkedAccountId &&
-        associate.email
-    )
-    .forEach((associate) => {
-      pushAutomationItem(state, {
-        type: "associate_legacy_access",
-        title: `Acceso campus pendiente para socio legacy #${associate.associateNumber}`,
-        detail: `${getAssociateFullName(associate)} ya esta importado y puede recibir cuenta de campus.`,
-        memberId: associate.id,
-        key: `associate_legacy_access:${associate.id}`
-      });
-    });
-
-  (state.associates || [])
-    .filter(
-      (associate) =>
-        associate.status === "Revisar documentacion" &&
-        /Importado desde Excel legacy/i.test(String(associate.observations || "")) &&
         String(associate.firstName || "").trim() &&
         String(associate.lastName || "").trim() &&
         String(associate.email || "").trim() &&
@@ -14439,7 +14716,6 @@ function pickNextAgentItem(state) {
     "associate_welcome",
     "associate_profile_notification",
     "associate_payment_notification",
-    "associate_legacy_access",
     "associate_legacy_review",
     "associate_fee",
     "course_feedback_reminder",
@@ -14610,7 +14886,8 @@ async function resolveFailedEmailItem(state, item) {
     throw new Error("No se ha encontrado el correo fallido para reintentar");
   }
 
-  const email = {
+  const retryWelcome = sourceEmail.kind === "associate_welcome";
+  const email = retryWelcome ? sourceEmail : {
     ...sourceEmail,
     id: `mail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     sentAt: new Date().toISOString(),
@@ -14621,7 +14898,7 @@ async function resolveFailedEmailItem(state, item) {
     deliveredAt: null
   };
 
-  state.emailOutbox.unshift(email);
+  if (!retryWelcome) state.emailOutbox.unshift(email);
   await deliverEmailRecord(state, email);
 
   appendActivity(
@@ -14983,30 +15260,8 @@ async function resolveAssociateProfileNotificationItem(state, item) {
 }
 
 async function resolveAssociateLegacyAccessItem(state, item) {
-  if (!state.settings?.agent?.canResolveInbox) {
-    throw new Error("El agente no tiene permiso para preparar accesos legacy");
-  }
-
-  const associate = (state.associates || []).find((entry) => entry.id === item.memberId);
-  if (!associate) {
-    throw new Error("Socio legacy no encontrado");
-  }
-  if (!associate.email) {
-    throw new Error("El socio no tiene email para crear acceso");
-  }
-
-  provisionAssociateCampusAccess(state, associate, { force: true });
-  appendActivity(
-    state,
-    "system",
-    "Bandeja automatica",
-    `Acceso legacy preparado para el socio #${associate.associateNumber} (${getAssociateFullName(associate)})`
-  );
-
-  return {
-    type: item.type,
-    message: `Acceso al campus preparado para ${getAssociateFullName(associate)}`
-  };
+  // Old persisted inbox items must not bypass the reviewed onboarding subset.
+  throw new Error("Los accesos legacy requieren revisar y seleccionar socios en Revisar accesos");
 }
 
 async function resolveAssociateLegacyReviewItem(state, item) {
@@ -15173,8 +15428,13 @@ function createEmailRecord(state, course, member) {
 }
 
 function createAssociateWelcomeEmailRecord(state, associate) {
+  if ((state.emailOutbox || []).some(item => item.kind === "associate_welcome" &&
+      item.associateId === associate.id && item.status === "sending")) {
+    throw new Error("Bienvenida con entrega pendiente de confirmar; revisa el envio con el proveedor antes de reintentar");
+  }
   const account = (state.accounts || []).find((item) => item.id === associate.linkedAccountId);
   const member = (state.members || []).find((item) => item.id === associate.linkedMemberId);
+  const previous = (state.emailOutbox || []).find(item => item.kind === "associate_welcome" && item.associateId === associate.id && ["queued", "failed"].includes(item.status));
   const email = {
     id: `mail-${Date.now()}-${associate.id}-${Math.random().toString(36).slice(2, 7)}`,
     courseId: "",
@@ -15182,15 +15442,21 @@ function createAssociateWelcomeEmailRecord(state, associate) {
     associateId: associate.id,
     to: associate.email,
     subject: `Bienvenida al campus - ${state.settings?.organization || "Isocrona Zero"}`,
-    body: buildAssociateWelcomeEmailBody(state, associate, account, member),
+    kind: "associate_welcome",
+    body: buildAssociateWelcomeEmailBody(state, { ...associate, temporaryPassword: "[redactada]" }, account, member),
     sentAt: new Date().toISOString(),
     status: "queued",
     transport: "smtp",
-    attemptCount: 0,
+    attemptCount: previous?.attemptCount || 0,
     deliveryError: "",
     deliveredAt: null
   };
 
+  if (previous) {
+    email.id = previous.id;
+    Object.assign(previous, email);
+    return previous;
+  }
   state.emailOutbox.unshift(email);
   return email;
 }
@@ -15200,29 +15466,94 @@ async function deliverEmailRecord(state, email) {
   if (!smtp.host || !smtp.port || !smtp.fromEmail) {
     throw new Error("Falta configuracion SMTP minima");
   }
+  const welcome = email.kind === "associate_welcome";
+  if (welcome) {
+    // Another sender may have completed this record while a queue awaited SMTP.
+    const latest = readState();
+    const storedEmail = (latest.emailOutbox || []).find(item => item.id === email.id);
+    if (storedEmail?.status === "sending") {
+      throw new Error("Bienvenida con entrega pendiente de confirmar; revisa el envio con el proveedor antes de reintentar");
+    }
+    if (storedEmail?.status === "sent") {
+      Object.assign(email, storedEmail);
+      const associate = (state.associates || []).find(item => item.id === email.associateId);
+      if (associate) {
+        associate.welcomeEmailStatus = "sent";
+        associate.welcomeEmailSentAt = email.deliveredAt;
+        associate.welcomeEmailError = "";
+      }
+      return;
+    }
+    const associate = (state.associates || []).find(item => item.id === email.associateId);
+    const current = (latest.associates || []).find(item => item.id === email.associateId);
+    if (associate?.campusOnboardingCreatedAt && (
+      !isAssociateOnboardingEligible(current) || fingerprintOnboardingSmtp(state) !== fingerprintOnboardingSmtp(latest) ||
+      ["email", "firstName", "lastName", "linkedAccountId", "linkedMemberId", "temporaryPassword"].some(key => associate[key] !== current[key]) ||
+      ["accounts", "members"].some(collection => {
+        const id = collection === "accounts" ? associate.linkedAccountId : associate.linkedMemberId;
+        return JSON.stringify((state[collection] || []).find(item => item.id === id)) !==
+          JSON.stringify((latest[collection] || []).find(item => item.id === id));
+      })
+    )) {
+      throw new Error("La ficha ya no es elegible o ha cambiado su identidad, credencial o SMTP; revisa el estado actual antes de reintentar");
+    }
+  }
+  if (welcome && welcomeDeliveriesInFlight.has(email.associateId)) throw new Error("Bienvenida en curso");
+  if (welcome) welcomeDeliveriesInFlight.add(email.associateId);
 
   email.transport = "smtp";
   email.attemptCount = Number(email.attemptCount || 0) + 1;
   email.lastAttemptAt = new Date().toISOString();
 
   try {
+    let body = email.body;
+    if (welcome) {
+      const associate = (state.associates || []).find(item => item.id === email.associateId);
+      const account = (state.accounts || []).find(item => item.id === associate?.linkedAccountId);
+      const member = (state.members || []).find(item => item.id === associate?.linkedMemberId);
+      if (!associate || !account || !member || account.memberId !== member.id ||
+          String(email.to || "").trim().toLowerCase() !== String(account.email || "").trim().toLowerCase() ||
+          String(email.to || "").trim().toLowerCase() !== String(associate.email || "").trim().toLowerCase()) {
+        throw new Error("Acceso o destinatario no disponible");
+      }
+      body = buildAssociateWelcomeEmailBody(state, associate, account, member);
+      email.status = "sending";
+      persistOnboardingWelcomeDelivery(state, email);
+    }
     const result = await sendMail(smtp, {
       from: smtp.fromEmail,
       fromName: smtp.fromName,
       to: email.to,
       subject: email.subject,
-      text: email.body
+      text: body
     });
 
     email.status = "sent";
     email.deliveredAt = new Date().toISOString();
     email.deliveryError = "";
     email.smtpMessageId = result.messageId || "";
+    if (welcome) {
+      const associate = (state.associates || []).find(item => item.id === email.associateId);
+      associate.welcomeEmailStatus = "sent";
+      associate.welcomeEmailSentAt = email.deliveredAt;
+      associate.welcomeEmailError = "";
+      persistOnboardingWelcomeDelivery(state, email);
+    }
 
   } catch (error) {
     email.status = "failed";
-    email.deliveryError = error.message || "Error SMTP";
-    throw error;
+    email.deliveryError = welcome ? "Fallo de entrega SMTP; revisa la configuracion y reintenta" : error.message || "Error SMTP";
+    if (welcome) {
+      const associate = (state.associates || []).find(item => item.id === email.associateId);
+      if (associate) {
+        associate.welcomeEmailStatus = "failed";
+        associate.welcomeEmailError = email.deliveryError;
+      }
+      persistOnboardingWelcomeDelivery(state, email);
+    }
+    throw welcome ? new Error(email.deliveryError) : error;
+  } finally {
+    if (welcome) welcomeDeliveriesInFlight.delete(email.associateId);
   }
 }
 
@@ -15269,6 +15600,7 @@ function buildAssociateWelcomeEmailBody(state, associate, account, member) {
     "- Grupos internos con documentacion, fichas de practica, videos y enlaces de interes.",
     "",
     hasTemporaryPassword ? "Datos de acceso inicial:" : "Datos de acceso:",
+    "- Portal: https://portal.isocronazero.org",
     `- Usuario: ${loginEmail || "pendiente de configurar"}`,
     hasTemporaryPassword
       ? `- Contrasena temporal: ${tempPassword || "pendiente de generar"}`

@@ -4,10 +4,10 @@ Repositorio: `isocronazero-svg/isocrona-zero-campus-app`
 
 Bitácora operativa vigente para continuar desde Desktop/Codex. Para historia anterior usar `docs/estado-web-2026-10-12.md` y Git.
 
-## Estado consolidado — 13/10/2026 tarde, Europe/Madrid
+## Estado consolidado — 14/10/2026, Europe/Madrid
 
 ### `main`
-- HEAD verificado antes de esta actualización documental: `efa99c4e510691155cd352d8d3e9b0d5bc434a52`.
+- HEAD verificado: `3b2f0efed264c0866d224a646c7dddfddf065084` (#253 / PR #255 integrada).
 - #246 / PR #250 está fusionada y desplegada; jornadas intensivas funcionales. Squash funcional `e298e06caea094b22c46f3b87fad1c595de8bd30`.
 - #249 / PR #251 está fusionada y desplegada. Squash `deb4188103a3a4e4cdab31960b4d59b2a05a9415`.
 - No recrear ramas/patches de #244/#250/#251.
@@ -21,72 +21,51 @@ Bitácora operativa vigente para continuar desde Desktop/Codex. Para historia an
 
 ## Orden vigente de lanzamiento
 
-1. **#253 / PR #255** — cerrar el bloqueo móvil de revisión de altas.
-2. **#252** — onboarding seguro por lotes de accesos Campus históricos.
-3. **#247** — habilitación explícita de socios instructores.
-4. **#245** — asistencia/cierre con permisos de instructor asignado.
-5. **#248** — histórico/prioridad de jornadas.
-6. **#227** — QA integral + QA productiva pendiente #241/#242/#249.
+1. **#252 / PR #256** — revisión limpia; decisión humana de merge con CI verde del último HEAD. #253 / PR #255 ya integrada.
+2. **#247** — habilitación explícita de socios instructores, trabajo posterior; NO iniciarlo en el encargo vigente.
+3. **#245** — asistencia/cierre con permisos de instructor asignado.
+4. **#248** — histórico/prioridad de jornadas.
+5. **#227** — QA integral + QA productiva pendiente #241/#242/#249 (implementaciones terminadas).
 
 No empezar #247/#245/#248 mientras #253/#252 sigan siendo el cuello de botella de apertura a socios.
 
 ---
 
-# #253 / PR #255 — revisión móvil de altas de socio
+# #253 / PR #255 — FUSIONADA (14/10/2026)
 
-## Estado final de implementación — 13/10/2026, Desktop
-- PR #255 abierta, NO fusionada ni desplegada; base actualizada a main `9f021a7` sin perder la bitácora posterior.
-- Código final: `c5dec4fbdfa3cb611577f20cd6aee67571768c28`; recuperado el diff literal `6151266079` sin reconstruir la solución.
-- [Actions #384 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38458722283) sobre ese SHA.
-- Dos P2 corregidos y resueltos: conteo disjunto listas/bloqueadas y acción `Reabrir revision` en documentación pendiente. Revisión local completa sin P1/P2 pendientes; re-review remota solicitada.
-- Archivos: `public/app.js`, `package.json`, `scripts/check-app.mjs`, `scripts/check-associate-review-navigation.mjs` y esta bitácora.
-- Node22.23.3: targeted, frontend syntax, check:app completo, smoke14 y diff check PASS. Edge real 390/1440 PASS para los tres tipos de revisión, ambas ramas de estado, contexto obsoleto, enlaces, foco único, sin errores JS ni escrituras.
-- Siguiente: #252 en PR separado desde main vigente. #255 no es dependencia funcional del backend de onboarding; preservar ambos cambios al integrarlos. No merge automático ni datos/correos reales. #254 ya estaba cerrado y había trasladado su handoff a este documento.
-
-## Estado remoto anterior (contexto de recuperación)
-- PR real: **#255** `Fix #253 mobile associate review detail and proof links`.
-- Rama: `fix/253-mobile-associate-review`.
-- Head remoto verificado: `1f21bf48dfe516f0bf6e06f1b82e2728c8a20f31`.
-- Commits remotos:
-  - `5c864c543d9121d38925e664b3f0cdf9e4cd4d06`: navegación/foco/detalle/proofs;
-  - `1f21bf48dfe516f0bf6e06f1b82e2728c8a20f31`: contador correcto listas/bloqueadas.
-- Actions `App checks` run #381 sobre `1f21bf4`: SUCCESS.
-- Primer P2 Codex, contador listas/bloqueadas: resuelto y thread cerrado.
-- Segundo P2 Codex, acción `Reabrir revision`: thread `PRRT_kwDOR63Ofc6r2n7m` / discussion `4258508999`, todavía abierto hasta que el fix esté realmente remoto.
-
-## QA ya validada
-- Node 22.23.3 `npm run check:app`: PASS.
-- frontend syntax + `git diff --check`: PASS.
-- smoke aislado: 14/14 PASS.
-- Edge real 390/1440: solicitud/justificante/cambio de ficha abren el detalle correcto; foco/scroll único; selección obsoleta no contamina acciones; justificantes principal/secundario abren; sin overflow, errores JS ni mutación de registros.
-- Foco accesible sobre la tarjeta real seleccionada y side panel acotado al modo activo.
-
-## Último P2 — recuperación durable lista
-El head remoto `1f21bf4` todavía muestra `Pedir doc.` también para `Pendiente de documentacion`. La tabla correcta distingue:
-- `Pendiente de revision` → `Pedir doc.`;
-- `Pendiente de documentacion` → `Reabrir revision`.
-
-Codex hizo el follow-up local y todos los checks pasaron, pero no pudo hacer push. El **diff literal completo y aplicable** quedó preservado en PR #255 comentario **`6151266079`**:
-- base exacta: `1f21bf48dfe516f0bf6e06f1b82e2728c8a20f31`;
-- commit local reproducido: `3040196d412960a1c9be1a3b9b0d6ab0c053142d`;
-- archivos: `package.json`, `public/app.js`, `scripts/check-associate-review-navigation.mjs`;
-- añade comando `check:associate-review-navigation`;
-- añade exclusión mutua de acciones por estado;
-- Node22 targeted + `check:app` + frontend syntax + smoke14 + diff check: PASS.
-
-Criterio final, comentario PR `6151246412`:
-- `Pendiente de revision`: tiene `request-associate-info` y NO `reopen-associate-application`;
-- `Pendiente de documentacion`: tiene `reopen-associate-application` y NO `request-associate-info`;
-- Aprobar sigue condicionado por readiness; Rechazar se conserva; estados resueltos no recuperan acciones de pendiente.
-
-### Siguiente paso #253
-Esperar/revisar el CI del commit documental y la revisión final. Merge solo por decisión humana; cerrar #253 tras integración y QA del despliegue. No repetir la recuperación ni confundir QA local con QA productiva.
+- Autorización expresa de Carlos en el encargo del 14 octubre. Squash real en main: `3b2f0efed264c0866d224a646c7dddfddf065084`. Issue #253 cerrada como implementación completada.
+- HEAD aprobado: `b26b4b9a6b8e2e5c09f5d1fe37f159ec4d6a245b`; código `c5dec4fbdfa3cb611577f20cd6aee67571768c28`.
+- [CI PR #385 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38459013756); [CI main #386 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38490893742).
+- Ambos P2 resueltos: listas/bloqueadas disjuntas; documentación pendiente ofrece `reopen-associate-application`, revisión ofrece `request-associate-info`. Review `6154036414` sin problemas importantes, cero threads abiertos al merge.
+- Node22: targeted, frontend syntax, check:app, smoke14 y diff check PASS. Edge390/1440: tres tipos de revisión, contexto obsoleto, enlaces de justificantes, foco/scroll único, sin errores JS ni escrituras.
+- Recuperación aplicada de comentarios `6143102157` y `6151266079`; NO repetir. Archivos: app.js, package.json, check-app, check-associate-review-navigation y bitácora.
+- Bitácora conservada al integrar. #254 ya estaba cerrado tras trasladar su handoff documental.
+- QA autenticada productiva NO realizada. No inferir despliegue verificado solo por merge/CI; recorrido productivo pendiente en #227.
 
 ---
 
 # #252 — alta masiva segura de accesos Campus
 
-## Recuperación
+## Implementación publicada — 14/10/2026
+- [PR #256](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/256), rama `codex/associate-onboarding-252`, base main `3b2f0ef`; código `c8ee86e4ca9459811e762da5c6604494c52e83a0`. NO fusionada ni desplegada.
+- Reutilizado baseline durable `6143098248` y aplicados contrato `6151415338`/anexo `6151519842`. No buscar commits locales perdidos ni rehacer el trabajo.
+- Preview read-only y token15min ligado a admin/estado; subset explícito1–20, 0 seleccionados, SMTP obligatorio antes del alta; identidades explícitas, estados consolidados, emails canónicos, colisiones bloqueadas, cuentas manuales/privilegiadas excluidas.
+- Provisionado separado de entrega, retry sin cuenta/clave nueva, outbox redactado desde su creación, temporal ausente en state no-admin. Protección de snapshots antiguos y combinación del resultado SMTP con estado actual.
+- P1 preventivos corregidos: adopción por email, secretos en outbox/state de socio, ejecución sin SMTP, doble lote y rollback por snapshot/espera SMTP. P2 móvil corregido en panel acotado, sin rediseño global.
+- Review: P1 `sHoaH`, P2 `sHoaN` y nuevo P2 `sLcBB` corregidos/respondidos/resueltos tras CI verde. Commits `6b0de79`, `ff21a0d`, `03df97f`: preservación común de cambios concurrentes de acceso/outbox; entrega durable por correo; estado del socio reconciliado; reintentos/Resolver todo sin clones ni envíos duplicados. Agente legacy ya no crea accesos fuera del preview/subset; avisos antiguos bloqueados.
+- Tres P2 posteriores también corregidos/respondidos/resueltos: `sLkCH` bloquea sending tras interrupción/reinicio; `sLqZu` compara cada ficha con la confirmada antes de su turno; `sLqZz` reutiliza queued tras reinicio. Regresiones: cero envíos ambiguos, ningún envío al email modificado durante SMTP y máximo una entrega/outbox en recuperación queued, conservando cuenta/temporal.
+- P2 adicionales `sRuhE`/`sRuhS` corregidos/resueltos: SMTP ligado al preview y revalidado antes de cada alta; no se puede cambiar nombre/email durante sending. Reconciliación comprueba destinatario y vínculo; edición de teléfono sigue permitida. Regresiones SMTP cambiado/vaciado y PATCH concurrente PASS.
+- P2 `sR6ak` corregido en `bc400f0` y resuelto: reset bloqueado durante sending activo o persistido; fuera de ese estado sigue operativo. Nueve threads históricos resueltos.
+- Re-review local de `bc400f0`: reproducido envío desde una cola obsoleta tras reset/cambio de destinatario o SMTP, y rollback de nombre/SMTP al guardar esa cola. Corregido en `9d117b9`: validación del contexto actual justo antes de SMTP y preservación de cambios concurrentes. Regresión red/green con tres esperas SMTP sintéticas: cero envíos obsoletos, retry con clave vigente/login válido, mismo outbox y cambios preservados. Sin otros P1/P2 detectados en revisión local.
+- P2 final `sTEtX` corregido/respondido/resuelto en `c8ee86e`: transporte y preview comparten elegibilidad; una cola antigua no envía a un socio ahora Baja o que haya perdido el requisito legacy, ni restaura estado/observaciones. Regresión red/green con SMTP retenido, retry fresco bloqueado, un solo outbox y login Baja 403.
+- Node22.23.3: check focalizado, `check:associate-onboarding`, `check:app` completo y diff check PASS. [Actions #400 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38560082555) sobre código `c8ee86e`, incluido smoke. Frontend syntax/smoke14/Edge390/1440 locales anteriores PASS; sin cambios nuevos en frontend ni rutas del smoke, no repetidos. Los commits documentales posteriores deben tener también CI verde antes del merge.
+- Revisión final automática de `c8ee86e` completada sin problemas importantes: comentario `6167866495`, 14/10 12:01 UTC. Diez threads resueltos, cero P1/P2 pendientes, mergeable=true/clean en la comprobación final del código. El commit posterior solo consolida esta bitácora, sin cambios funcionales. Siguiente acción: Carlos decide el merge de #256 tras confirmar CI verde del HEAD documental; no hay autorización de merge ni de operaciones reales. No iniciar otros issues en este encargo.
+- Archivos: server.js, server/onboarding-state.js, server/state-transport.js, public/app.js, public/styles.css, package.json, scripts/check-app.mjs, scripts/check-associate-onboarding.mjs, docs/associate-onboarding.md y esta bitácora.
+- Cero cuentas/correos/datos productivos tocados. Encargo vigente: dejar SOLO #256 lista para decisión humana; sin merge automático ni inicio de #247/#245/#248.
+- Límites documentados: single-writer, token/lock en memoria, envío `sending` interrumpido exige reconciliación manual; SMTP no garantiza exactamente una entrega ante desconexión ambigua. Temporal heredada en ficha admin hasta cambio; backups antiguos sensibles.
+- Gates reales: censo presente en state, backup externo recuperable verificado (export-state = rollback lógico, no uploads/volumen), test SMTP recibido, dry-run revisado y autorización expresa de Carlos para piloto5–10.
+
+## Recuperación histórica (ya aplicada)
 - Rama remota `issue-252-member-access-launch` seguía en la base histórica `a043b3beb15b5d8e49d9b3b88a15a4d0be0f9bba`; no hay implementación funcional publicada.
 - NO reimplementar desde cero.
 - Baseline completo como **diff literal durable** en issue #252 comentario **`6143098248`**; commit local reconstruido `42d964635745edbb676b6ebda702f45c1fa33448`.
