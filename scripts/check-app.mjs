@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
+  "server/mail-delivery.js",
   "server/onboarding-state.js",
   "public/enrollment-time.js",
   "server/instructor-certificate.js",
@@ -50,6 +51,7 @@ const conflictCheckedFiles = [
 ];
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
+  "scripts/check-mail-delivery.mjs",
   "scripts/check-enrollment-time.mjs",
   "scripts/check-live-test-library.mjs",
   "scripts/check-backup-recovery.mjs",

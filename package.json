@@ -12,6 +12,7 @@
     "start": "node server.js",
     "start:local": "node server.js",
     "check:app": "node scripts/check-app.mjs",
+    "check:mail": "node scripts/check-mail-delivery.mjs",
     "check:admin-settings": "node scripts/check-admin-settings.mjs",
     "check:associate-payments": "node scripts/check-associate-payments.mjs",
     "check:associate-onboarding": "node scripts/check-associate-onboarding.mjs",

@@ -5,6 +5,21 @@ Portal: `https://portal.isocronazero.org`.
 
 > Esta es la bitácora operativa vigente desde el 15/10/2026. Conserva `docs/estado-web-2026-10-09.md` como histórico. Antes de trabajar: leer este documento y revisar commits, PR, CI y comentarios posteriores.
 
+## Correo por Resend — preparación autorizada, 15/10/2026
+
+Carlos mostró un fallo en Enviar diplomas pendientes y autorizó preparar Resend para usar un remitente del campus y dirigir respuestas al Gmail de la asociación. Railway confirma el plan **Hobby** en el espacio de trabajo; la documentación oficial de Railway restringe SMTP a Pro o superior.
+
+- Incidencia #264. Rama de desarrollo `feat/resend-email-delivery`, desde `main` `6cb7577`.
+- Adaptador HTTPS con clave solo en entorno del servidor, remitente y reply-to configurables y habilitación explícita. Resend comienza en pausa incluso con la clave presente; solo administración puede enviar la prueba al destinatario configurado.
+- El estado de administración distingue proveedor/pausa/disponibilidad, sin exponer la clave ni guardar esa información derivada en SQLite. Los socios no reciben configuración de envío.
+- El flujo común conserva el control académico inmediatamente antes de transmitir, registra el identificador del proveedor y reconoce entregas Resend para no repetir diplomas pendientes. Se reutilizan los registros fallidos para reintentos con clave de idempotencia estable (ventana del proveedor: 24 h).
+- El lote muestra el motivo del fallo y usa un aviso de error cuando hay entregas fallidas.
+- Guía de conexión/activación: `docs/correo-resend.md`. Pendientes cuenta/dominio/clave, revisión de bandeja, prueba real y activación productiva autorizada. No se han cambiado variables, DNS, plan, datos ni enviado mensajes reales.
+- Pruebas locales en Node 22.23.3: batería `check:app` completa PASS, incluido `check-mail-delivery` (HTTP sin red externa, pausa, roles, fallos, reinicio/reintento y envíos simultáneos), onboarding, control académico, ajustes, permisos y SMTP local. `smoke:campus-test` 14/14 PASS en un servidor aislado con Resend en pausa y sin clave. `git diff --check` PASS.
+- Carlos autoriza expresamente el 15/10/2026 a las 23:01 Europe/Madrid publicar `feat/resend-email-delivery` en el repositorio privado del campus y abrir una PR en borrador. Esta autorización no incluye fusionar ni desplegar. Publicación/CI en curso; consultar el HEAD y los controles de la PR para el resultado vigente.
+
+La auditoría productiva más reciente sigue en la PR documental #262 (borrador): Gate B completo; Gate C parcial y piloto cerrado. Esta rama no sustituye ni revierte su evidencia y no habilita #248. Fusionar una PR funcional o cambiar Railway requiere autorización concreta; preparar código/pruebas/PR queda dentro del trabajo autorizado.
+
 ## 1. Base integrada
 
 Base funcional revisada antes de #259: `44bc5e4bf9424ee0faf8986ebdea345106f359c1` — #247/#258, instructores asociados y selección dinámica, integrado.
