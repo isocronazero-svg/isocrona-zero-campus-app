@@ -15240,11 +15240,18 @@ function isSmtpConfigured(state) {
   return Boolean(smtp.host && smtp.port && smtp.fromEmail);
 }
 
+function isCourseDiplomaEmail(email) {
+  // Keep queued legacy diplomas compatible without treating feedback reminders as diplomas.
+  return Boolean(email.kind === "course_diploma" || (!email.kind && email.courseId && email.memberId &&
+    String(email.subject || "").startsWith("Diploma emitido - ")));
+}
+
 function hasSuccessfulSmtpDelivery(state, courseId, memberId) {
   return (state.emailOutbox || []).some(
     (item) =>
       item.courseId === courseId &&
       item.memberId === memberId &&
+      isCourseDiplomaEmail(item) &&
       item.status === "sent" &&
       item.transport === "smtp"
   );
@@ -15257,6 +15264,7 @@ function createEmailRecord(state, course, member) {
     memberId: member.id,
     to: member.email,
     subject: `Diploma emitido - ${course.title}`,
+    kind: "course_diploma",
     body: buildEmailBody(state, member, course),
     sentAt: new Date().toISOString(),
     status: "queued",
@@ -15343,7 +15351,7 @@ async function deliverEmailRecord(state, email) {
   }
   if (welcome && welcomeDeliveriesInFlight.has(email.associateId)) throw new Error("Bienvenida en curso");
   if (welcome) welcomeDeliveriesInFlight.add(email.associateId);
-  const diploma = !email.kind && email.courseId && email.memberId;
+  const diploma = isCourseDiplomaEmail(email);
 
   email.transport = "smtp";
   email.attemptCount = Number(email.attemptCount || 0) + 1;
@@ -15655,6 +15663,7 @@ async function maybeSendCourseFeedbackReminder(state, course, member, options = 
     associateId: member.associateId || "",
     to: email,
     subject: `Valoracion final pendiente - ${course.title}`,
+    kind: "course_feedback_reminder",
     body: buildCourseFeedbackReminderEmailBody(state, member, course),
     sentAt: new Date().toISOString(),
     status: "queued",

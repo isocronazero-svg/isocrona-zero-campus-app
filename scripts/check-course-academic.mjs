@@ -44,6 +44,12 @@ assert.ok(stored.courses[0].diplomaReady.includes("pupil"), "Previously issued d
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+const serverSource = readFileSync(path.join(repoRoot, "server.js"), "utf8");
+const classifyDiploma = vm.runInNewContext("(" + serverSource.slice(serverSource.indexOf("function isCourseDiplomaEmail("), serverSource.indexOf("function hasSuccessfulSmtpDelivery(")) + ")");
+assert.equal(classifyDiploma({ kind: "course_diploma" }), true);
+assert.equal(classifyDiploma({ courseId: "qa", memberId: "pupil", subject: "Diploma emitido - QA" }), true);
+assert.equal(classifyDiploma({ courseId: "qa", memberId: "pupil", subject: "Valoracion final pendiente - QA" }), false);
+assert.equal(classifyDiploma({ kind: "course_feedback_reminder", courseId: "qa", memberId: "pupil" }), false);
 const appSource = readFileSync(path.join(repoRoot, "public/app.js"), "utf8");
 const academicActionSource = appSource.slice(appSource.indexOf("async function invokeCourseAcademicAction("), appSource.indexOf("function renderOperations("));
 for (const refreshFails of [false, true]) {
@@ -412,7 +418,7 @@ async function checkInstructorAcademic(admin, member, anonymous, baseUrl) {
 
 
 async function checkAcademicDeliveryRace(admin, baseUrl) {
-  let release, reachedData, reachedMessage, messages = 0, holdAcknowledgement = false;
+  let release, reachedData, reachedMessage, messages = 0, holdAcknowledgement = false, pauseNegotiation = true;
   let dataReceived = new Promise(resolve => { reachedData = resolve; });
   const messageReceived = new Promise(resolve => { reachedMessage = resolve; });
   const smtp = net.createServer(socket => {
@@ -431,7 +437,11 @@ async function checkAcademicDeliveryRace(admin, baseUrl) {
           continue;
         }
         if (line.startsWith("EHLO")) socket.write("250 localhost\r\n");
-        else if (line === "DATA") { data = true; release = () => socket.write("354 send data\r\n"); reachedData(); }
+        else if (line === "DATA") {
+          data = true;
+          if (pauseNegotiation) { release = () => socket.write("354 send data\r\n"); reachedData(); }
+          else socket.write("354 send data\r\n");
+        }
         else if (line === "QUIT") socket.end("221 bye\r\n");
         else socket.write("250 OK\r\n");
       }
@@ -480,6 +490,28 @@ async function checkAcademicDeliveryRace(admin, baseUrl) {
     assert.ok(findCourse(issued, course.id).diplomaReady.includes("member-1"));
     assert.equal(messages, 1, "Repeated automation must not resend the issued diploma");
     assert.equal(issued.emailOutbox.filter(item => item.courseId === course.id && item.status === "sent").length, 1);
+
+    // Feedback requests are not diploma deliveries: their missing feedback must not block the reminder itself.
+    pauseNegotiation = false; holdAcknowledgement = false;
+    const feedbackCourse = { ...findCourse(issued, course.id), id: "course-feedback-manual", diplomaReady: [],
+      attendance: { "member-1": 100 }, evaluations: { "member-1": "Apto" },
+      feedbackEnabled: true, feedbackRequiredForDiploma: true, feedbackResponses: [], feedbackReminderLog: {} };
+    issued.courses = [feedbackCourse]; issued.emailOutbox = [];
+    await admin.request("POST", "/api/state", issued);
+    const reminder = await admin.request("POST", "/api/courses/" + feedbackCourse.id + "/members/member-1/request-feedback-reminder", {});
+    assert.equal(reminder.body.status, "sent");
+    assert.equal(messages, 2);
+    let feedbackState = (await admin.request("GET", "/api/state")).body;
+    assert.ok(feedbackState.emailOutbox.every(item => !item.diplomaCommittedAt));
+    feedbackState.courses = [{ ...feedbackCourse, id: "course-feedback-auto", feedbackReminderLog: {} }];
+    feedbackState.emailOutbox = [];
+    feedbackState.settings.automation.autoSendFeedbackReminders = true;
+    await admin.request("POST", "/api/state", feedbackState);
+    await admin.request("POST", "/api/automation/run", {});
+    feedbackState = (await admin.request("GET", "/api/state")).body;
+    assert.equal(messages, 3);
+    assert.equal(feedbackState.emailOutbox.filter(item => item.status === "sent").length, 1);
+    assert.ok(feedbackState.emailOutbox.every(item => !item.diplomaCommittedAt));
   } finally {
     release?.();
     if (pending) await pending;
