@@ -14,13 +14,35 @@ Carlos autorizó comenzar por acceso, permisos visibles y vista móvil. Se revis
 - PASS de UI: perfil propio accesible, con solicitudes de cambio y justificantes; no ofrece cambiar directamente número de socio, rol, estado o cuotas. No se enviaron formularios.
 - PASS de UI: cursos e historial accesibles, sin Gestionar/Eliminar curso/Emitir/Enviar/Cerrar. Mi aula dirige a la ficha de socio conforme a la navegación actual; no se interpretó como error.
 - PASS de UI: biblioteca accesible y sin Guardar grupo/Anadir recurso/Eliminar. Descarga del adjunto ficticio también completada en este modo: 208 bytes y mismo SHA-256 `26338a62592d090077326f460c7b1b93bc75ea11514c6123089824d73e0b3039`.
-- PASS de logout: Cerrar sesión vuelve al acceso público; tras recargar permanece en el formulario de entrada. Nueva autenticación administrativa pendiente de entrada segura de credenciales por el titular, por lo que el ciclo login/logout completo todavía NO se marca PASS.
+- PASS del ciclo login/logout administrativo: Cerrar sesión vuelve al acceso público y permanece desconectado tras reload. Nueva entrada mediante el formulario seguro completada por el titular; la UI confirma la sesión administrativa de Carlos, los menús de gestión y Datos cargados. Un segundo reload conserva esa sesión y la vista administrativa.
 - Escritorio: ancho CSS 1348 px, scrollWidth 1348 en perfil, cursos y grupos, sin overflow horizontal de página en esas vistas.
 - Móvil a ~390 px: BLOQUEADO por capacidad del navegador de esta sesión (ancho fijo; no expone ajuste de viewport). No se sustituye por recorte de captura ni se acredita QA móvil productiva. La QA local móvil anterior sigue siendo evidencia separada.
 - Consola del recorrido: los 12 errores registrados en este intervalo comparten `Error sending browser metadata to extension: Object`; no se identificó un error JS específico del portal en las vistas visitadas. La comprobación global de errores de Gate C sigue pendiente.
 - Baseline leído en SQLite en solo lectura a las `2026-10-15T20:11:17.609Z`: hashes de associates/members/courses/campusGroups sin cambios; recuentos 153/7/3/5; outbox conserva 7 queued. Sin altas, correos, modificaciones de fichas, cursos ni recursos.
 
 Límite de permisos: se ha comprobado la UI de modo socio dentro de una sesión autenticada como administrador. Esto NO acredita el aislamiento backend de una cuenta independiente con rol socio. Falta login/logout con una cuenta de prueba existente, sin crearla ni cambiar permisos por esta revisión. Gate C continúa PARCIAL; piloto cerrado. PR #262 permanece en borrador, sin merge ni nuevo despliegue.
+
+
+### Alta ficticia solicitada por Carlos: preparada, todavía SIN enviar
+
+Después de esta QA, Carlos pidió expresamente crear un alta ficticia, aprobarla con su cuenta administrativa y probar el acceso de socio independiente. Esta autorización amplía la revisión anterior para UNA identidad sintética.
+
+Datos introducidos en el formulario público `/join.html`:
+- Nombre: `PRUEBA QA Campus 20261015`.
+- Identificador de prueba: `QA20261015`; teléfono no operativo `000000000`.
+- Correo de solicitud y remitente: `qa-campus-20261015@isocronazero.invalid`, sin destinatario real.
+- Servicio: `PRUEBA TECNICA — NO REAL — SIN PAGO`.
+- Adjunto de prueba preparado: imagen SVG con el texto explícito `PRUEBA QA — NO REAL / SIN PAGO · SIN VALIDEZ ECONÓMICA`. La carga del archivo NO llegó a completarse.
+- No se marcaron los consentimientos ni se pulsó Enviar solicitud. No existe una solicitud/cuenta de prueba creada por esta intervención ni se aprobó ninguna alta.
+
+Preflight del flujo desplegado:
+- Consulta autenticada de solo lectura confirma `smtpConfigured=false`, `autoCreateCampusAccess=true` y las automatizaciones activadas. No se cambió ninguna configuración.
+- El alta pública intenta enviar acuse si existe SMTP. Aprobar crea socio/alumno/cuenta, asigna número y cuota anual, genera una contraseña temporal y llama también al motor global de automatización. Antes de ejecutarlo hay que volver a comprobar configuración/baseline y comparar después todos los registros previos, separando únicamente el alta QA esperada.
+- La contraseña inicial y su cambio deberán tratarse mediante la entrada segura/manual del titular; no copiarla a la bitácora, GitHub ni salidas de herramientas.
+
+Bloqueo concreto: después de la autenticación segura, el navegador impidió nuevas operaciones por protección de credenciales retenidas. Se siguió la recuperación que indicó (documento nuevo y reinicio de runtime), pero continuó devolviendo `native credential state cannot be safely resumed`. Se detuvo la interacción sin eludir esa protección. La sesión administrativa se había verificado antes del bloqueo; su estado posterior no se volvió a observar.
+
+Pendiente al restablecer el navegador: enviar la solicitud QA y revisar/aprobar SOLO esa solicitud, completar el primer acceso de la cuenta de prueba con el titular, comprobar permisos reales y logout/login, y comparar los datos previos. No abrir piloto ni marcar onboarding/cuenta socio independiente como PASS. La QA móvil productiva continúa pendiente por el viewport.
 
 ## Corrección del dominio y cierre de persistencia — 15/10/2026
 

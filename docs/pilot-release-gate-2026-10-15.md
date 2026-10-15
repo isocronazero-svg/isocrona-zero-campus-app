@@ -64,8 +64,8 @@ Si una comprobación de persistencia vuelve a fallar, reabrir #259 y Gate B ante
 Registrar PASS / FAIL reproducible / BLOQUEADO / NO APLICA.
 
 - [x] `/healthz` correcto y SHA desplegado conocido (15/10 20:01:52 UTC tras redeploy, SHA 6cb7577; no acredita el resto de Gate C).
-- [ ] Login/logout admin: logout y permanencia en acceso público tras reload PASS; nueva autenticación pendiente de credenciales seguras.
-- [ ] Login/logout socio de prueba.
+- [x] Login/logout admin: cierre, reload desconectado, nueva entrada segura y reload autenticado PASS.
+- [ ] Login/logout socio de prueba: Carlos autoriza crear una identidad ficticia; formulario preparado, sin enviar ni crear cuenta por bloqueo del navegador.
 - [x] Modo socio desde administración y permisos visibles correctos: perfil/cursos/grupos revisados, sin controles de gestión; retorno a administración PASS. No sustituye el login de una cuenta socio independiente.
 - [ ] Móvil ~390 px sin overflow bloqueante en login, inicio, cursos y perfil: BLOQUEADO en este navegador de ancho fijo; escritorio 1348 px comprobado por separado.
 - [ ] Onboarding controlado sin duplicar cuenta/identidad.
@@ -76,7 +76,7 @@ Registrar PASS / FAIL reproducible / BLOQUEADO / NO APLICA.
 - [x] Grupos internos: Descargar usa el dominio oficial y devuelve bytes/hash idénticos después del redeploy; Ver online muestra el texto correcto desde el origen oficial (#263).
 - [ ] No aparecen errores JS bloqueantes en los recorridos anteriores.
 
-Evidencia de acceso/modo socio del 15/10 en la bitácora y PR #262. Descarga en modo socio: 208 bytes/hash original PASS; baseline operativo sin cambios a las 20:11:17 UTC. Nueva autenticación admin, cuenta socio independiente y viewport móvil siguen pendientes. Gate C PARCIAL.
+Evidencia de acceso/modo socio del 15/10 en la bitácora y PR #262. Descarga en modo socio: 208 bytes/hash original PASS; baseline operativo sin cambios a las 20:11:17 UTC. Login/logout admin completado. Cuenta socio independiente pendiente: alta ficticia autorizada y preparada, sin enviar por bloqueo de protección de credenciales del navegador. Viewport móvil pendiente. Gate C PARCIAL.
 
 ## Gate D — piloto
 
