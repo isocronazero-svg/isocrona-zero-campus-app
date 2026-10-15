@@ -5,6 +5,23 @@ Portal: `https://portal.isocronazero.org`.
 
 > Esta es la bitácora operativa vigente desde el 15/10/2026. Conserva `docs/estado-web-2026-10-09.md` como histórico. Antes de trabajar: leer este documento y revisar commits, PR, CI y comentarios posteriores.
 
+## QA inicial de acceso y modo socio — 15/10/2026
+
+Carlos autorizó comenzar por acceso, permisos visibles y vista móvil. Se revisó la sesión administrativa ya abierta y su modo socio con la cuenta propia.
+
+- PASS: cambio Administración → Modo Socio → Administración; el retorno recupera el menú y la vista administrativa.
+- PASS de UI: en modo socio aparecen Mi aula, Cursos, Grupos internos, Mis diplomas y Mi perfil; desaparecen Socios y cuotas, Informes y validación y el selector de otra persona.
+- PASS de UI: perfil propio accesible, con solicitudes de cambio y justificantes; no ofrece cambiar directamente número de socio, rol, estado o cuotas. No se enviaron formularios.
+- PASS de UI: cursos e historial accesibles, sin Gestionar/Eliminar curso/Emitir/Enviar/Cerrar. Mi aula dirige a la ficha de socio conforme a la navegación actual; no se interpretó como error.
+- PASS de UI: biblioteca accesible y sin Guardar grupo/Anadir recurso/Eliminar. Descarga del adjunto ficticio también completada en este modo: 208 bytes y mismo SHA-256 `26338a62592d090077326f460c7b1b93bc75ea11514c6123089824d73e0b3039`.
+- PASS de logout: Cerrar sesión vuelve al acceso público; tras recargar permanece en el formulario de entrada. Nueva autenticación administrativa pendiente de entrada segura de credenciales por el titular, por lo que el ciclo login/logout completo todavía NO se marca PASS.
+- Escritorio: ancho CSS 1348 px, scrollWidth 1348 en perfil, cursos y grupos, sin overflow horizontal de página en esas vistas.
+- Móvil a ~390 px: BLOQUEADO por capacidad del navegador de esta sesión (ancho fijo; no expone ajuste de viewport). No se sustituye por recorte de captura ni se acredita QA móvil productiva. La QA local móvil anterior sigue siendo evidencia separada.
+- Consola del recorrido: los 12 errores registrados en este intervalo comparten `Error sending browser metadata to extension: Object`; no se identificó un error JS específico del portal en las vistas visitadas. La comprobación global de errores de Gate C sigue pendiente.
+- Baseline leído en SQLite en solo lectura a las `2026-10-15T20:11:17.609Z`: hashes de associates/members/courses/campusGroups sin cambios; recuentos 153/7/3/5; outbox conserva 7 queued. Sin altas, correos, modificaciones de fichas, cursos ni recursos.
+
+Límite de permisos: se ha comprobado la UI de modo socio dentro de una sesión autenticada como administrador. Esto NO acredita el aislamiento backend de una cuenta independiente con rol socio. Falta login/logout con una cuenta de prueba existente, sin crearla ni cambiar permisos por esta revisión. Gate C continúa PARCIAL; piloto cerrado. PR #262 permanece en borrador, sin merge ni nuevo despliegue.
+
 ## Corrección del dominio y cierre de persistencia — 15/10/2026
 
 Carlos autorizó específicamente a las 21:57 Europe/Madrid cambiar SOLO `IZ_BASE_URL` a `https://portal.isocronazero.org` y aplicar el redespliegue necesario. Railway mostró exactamente un cambio pendiente de una variable, revisado antes de desplegar.
