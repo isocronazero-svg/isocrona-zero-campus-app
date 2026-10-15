@@ -30,6 +30,7 @@ const context = vm.createContext({
   session: {accountId:"qa-admin"}, campusGroupPendingUploads: 0,
   campusGroupAutosaveIds: new Set(), campusGroupAutosaveRunning: false, campusGroupSessionEpoch: 0,
   campusGroupPendingFileReads: new Set(),
+  campusGroupFileSelections: new Map(), campusGroupAttachmentBases: {},
   window: { confirm: () => false }, toasts: [],
   state: { campusGroups: [structuredClone(group)] }, selectedCampusGroupModuleId: "module-qa",
   campusGroupAttachmentDrafts: {}, isAdminView: () => true,
@@ -64,7 +65,7 @@ Object.assign(context, {
   }
 });
 vm.runInContext(["getCampusGroupFileMaxBytes", "applyCampusGroupFileSelection", "saveCampusGroupAndRender",
-  "hasPendingCampusAttachmentBytes", "confirmCampusAttachmentNavigation", "warnPendingCampusAttachments", "flushCampusGroupAutoSaves"].map(source).join("\n"), context);
+  "hasPendingCampusAttachmentBytes", "beginCampusGroupFileSelection", "confirmCampusAttachmentNavigation", "warnPendingCampusAttachments", "flushCampusGroupAutoSaves"].map(source).join("\n"), context);
 await vm.runInContext("applyCampusGroupFileSelection(file, target)", context);
 assert.equal(context.state.campusGroups[0].modules[0].documents[0].attachment.name, "replacement.txt");
 assert.equal(context.state.campusGroups[0].modules[1].documents.length, 0, "Async uploads must keep their original target");
@@ -291,6 +292,39 @@ try {
   assert.equal(context.selectedCampusGroupModuleId, "module-other");
   assert.equal(context.state.campusGroups.find(g => g.id === "untouched").modules[0].documents[0].attachment.name, "qa.txt");
   assert.ok([...storage.values()].every(value => !value.includes("contentBase64") && !value.includes(file.contentBase64)));
+
+  // Latest selection wins even when the older FileReader finishes last.
+  context.state.selectedCampusGroupId = group.id;
+  context.selectedCampusGroupModuleId = "module-qa";
+  const reads = [];
+  context.readFileInput = () => new Promise(resolve => reads.push(resolve));
+  for (let i=0;i<2;i++) vm.runInContext('(function(event){' + app.slice(changeStart, changeEnd) + '})(event)', context);
+  reads[1]({...file,name:"newest-selection.txt"});
+  await delay(10);
+  reads[0]({...file,name:"old-slow-selection.txt"});
+  for (let i=0;i<100 && (context.campusGroupPendingUploads || context.campusGroupSaving || context.campusGroupAutosaveRunning);i++) await delay(30);
+  let latestState = await (await request("/api/state",admin)).json();
+  assert.equal(latestState.campusGroups.find(g=>g.id===group.id).modules[0].documents[0].attachment.name,"newest-selection.txt");
+
+  // Two individually valid 15.1 MB files exceed 40 MB together after base64 encoding.
+  const largeGroup = context.state.campusGroups.find(g=>g.id===group.id);
+  largeGroup.modules[1].documents = [{id:"large-a",title:"Grande A"},{id:"large-b",title:"Grande B"}];
+  context.largeGroup = largeGroup;
+  vm.runInContext("saveCampusDraft(largeGroup.id,largeGroup)",context);
+  context.campusGroupPendingUploads = 2;
+  const largeBytes = Buffer.alloc(15_100_000,65).toString("base64");
+  for (const id of ["large-a","large-b"]) {
+    context.largeFile = {name:id+".txt",type:"text/plain",size:15_100_000,contentBase64:largeBytes};
+    context.largeTarget = {...context.target,moduleId:"module-other",entryId:id};
+    await vm.runInContext("applyCampusGroupFileSelection(largeFile,largeTarget)",context);
+  }
+  context.campusGroupPendingUploads = 0;
+  assert.equal(await vm.runInContext("flushCampusGroupAutoSaves()",context),true,"Valid large attachments must save in separate PUTs");
+  assert.equal(vm.runInContext("hasPendingCampusAttachmentBytes()",context),false);
+  latestState = await (await request("/api/state",admin)).json();
+  for (const entry of latestState.campusGroups.find(g=>g.id===group.id).modules[1].documents) {
+    assert.equal((await (await request(entry.attachment.transportUrl,admin)).arrayBuffer()).byteLength,15_100_000);
+  }
 
   const storeMetadata = context.sessionStorage.setItem;
   context.sessionStorage.setItem = () => { throw new Error("QuotaExceededError"); };

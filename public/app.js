@@ -236,6 +236,8 @@ let campusGroupAutosaveIds = new Set();
 let campusGroupAutosaveRunning = false;
 let campusGroupSessionEpoch = 0;
 let campusGroupPendingFileReads = new Set();
+let campusGroupFileSelections = new Map();
+let campusGroupAttachmentBases = {};
 window.addEventListener("beforeunload", warnPendingCampusAttachments);
 let publicCampusCourses = [];
 let publicCampusStatus = "Cargando cursos abiertos...";
@@ -1401,8 +1403,12 @@ document.addEventListener("click", async (event) => {
         await refreshState();
         clearCampusDraft(group.id, session?.accountId);
         for (const key of Object.keys(campusGroupAttachmentDrafts)) {
-          if (key.startsWith(`${group.id}::`)) delete campusGroupAttachmentDrafts[key];
+          if (key.startsWith(`${group.id}::`)) {
+            delete campusGroupAttachmentDrafts[key];
+            delete campusGroupAttachmentBases[key];
+          }
         }
+        campusGroupAutosaveIds.delete(group.id);
         syncStatus = "Borrador descartado. Biblioteca actualizada.";
       } catch (error) {
         syncStatus = error.message || "No se pudo actualizar. Tu borrador se conserva.";
@@ -1539,6 +1545,7 @@ document.addEventListener("click", async (event) => {
     }
     const draftKey = getCampusGroupAttachmentDraftKey(group.id, selectedModule.id, category, entryId);
     delete campusGroupAttachmentDrafts[draftKey];
+    delete campusGroupAttachmentBases[draftKey];
     const nextModules = (draft.modules || []).map((module, moduleIndex) =>
       module.id === selectedModule.id
         ? normalizeCampusGroupModule(
@@ -3624,6 +3631,7 @@ document.addEventListener("change", (event) => {
           entryId
         };
 
+        pendingCampusGroupFileTarget = beginCampusGroupFileSelection(pendingCampusGroupFileTarget);
         fileTarget = pendingCampusGroupFileTarget;
         const file = await readFileInput(event.target, {
           maxBytes: getCampusGroupFileMaxBytes(category),
@@ -3658,7 +3666,8 @@ document.addEventListener("change", (event) => {
       const readingFile = event.target.files?.[0];
       if (readingFile?.size > 0) campusGroupPendingFileReads.add(readingFile);
       campusGroupPendingUploads++;
-      const fileTarget = pendingCampusGroupFileTarget;
+      const fileTarget = beginCampusGroupFileSelection(pendingCampusGroupFileTarget);
+      pendingCampusGroupFileTarget = fileTarget;
       try {
         const file = await readFileInput(event.target);
         if (!file) {
@@ -4874,6 +4883,8 @@ function clearSession() {
   campusGroupSaving = false;
   campusGroupPendingUploads = 0;
   campusGroupPendingFileReads.clear();
+  campusGroupFileSelections.clear();
+  campusGroupAttachmentBases = {};
   pendingCampusGroupFileTarget = null;
   viewRole = "admin";
   persistSession();
@@ -20830,6 +20841,8 @@ async function applyCampusGroupFileSelection(file, target = pendingCampusGroupFi
   }
 
   const { groupId, moduleId, category, entryId } = target;
+  const draftKey = getCampusGroupAttachmentDraftKey(groupId, moduleId, category, entryId);
+  if (target.selectionVersion !== undefined && campusGroupFileSelections.get(draftKey) !== target.selectionVersion) return;
   const maxBytes = getCampusGroupFileMaxBytes(category);
   if (maxBytes && Number(file.size || 0) > maxBytes) {
     if (pendingCampusGroupFileTarget === target) pendingCampusGroupFileTarget = null;
@@ -20850,6 +20863,9 @@ async function applyCampusGroupFileSelection(file, target = pendingCampusGroupFi
   }
 
   const draft = group;
+  if (!campusGroupAttachmentDrafts[draftKey]) {
+    campusGroupAttachmentBases[draftKey] = selectedModule[category].find(entry => entry.id === entryId)?.attachment || null;
+  }
   const nextModules = (draft.modules || []).map((module, moduleIndex) =>
     module.id === selectedModule.id
       ? normalizeCampusGroupModule(
@@ -20878,7 +20894,6 @@ async function applyCampusGroupFileSelection(file, target = pendingCampusGroupFi
     ...draft,
     modules: nextModules
   });
-  const draftKey = getCampusGroupAttachmentDraftKey(groupId, moduleId, category, entryId);
   campusGroupAttachmentDrafts[draftKey] = file;
   state.campusGroups = state.campusGroups.map((item) => (item.id === group.id ? nextGroup : item));
   saveCampusDraft(nextGroup.id, nextGroup);
@@ -20892,6 +20907,14 @@ async function applyCampusGroupFileSelection(file, target = pendingCampusGroupFi
 function hasPendingCampusAttachmentBytes(groupId = "") {
   return (!groupId && campusGroupPendingFileReads.size > 0) || Object.entries(campusGroupAttachmentDrafts).some(([key, file]) =>
     (!groupId || key.startsWith(`${groupId}::`)) && Boolean(file?.contentBase64));
+}
+
+function beginCampusGroupFileSelection(target) {
+  if (!target) return null;
+  const key = getCampusGroupAttachmentDraftKey(target.groupId, target.moduleId, target.category, target.entryId);
+  const selectionVersion = (campusGroupFileSelections.get(key) || 0) + 1;
+  campusGroupFileSelections.set(key, selectionVersion);
+  return { ...target, selectionVersion };
 }
 
 function confirmCampusAttachmentNavigation() {
@@ -21073,7 +21096,20 @@ async function saveCampusGroupAndRender(draft) {
   const epoch = campusGroupSessionEpoch;
   saveCampusDraft(draft.id, draft);
   const sentDraft = JSON.stringify(loadCampusDraft(draft.id) || draft);
-  const sentFiles = Object.entries(campusGroupAttachmentDrafts).filter(([key]) => key.startsWith(`${draft.id}::`));
+  const sentFiles = Object.entries(campusGroupAttachmentDrafts).filter(([key]) => key.startsWith(`${draft.id}::`)).slice(0, 1);
+  const sentKey = sentFiles[0]?.[0];
+  // Keep other replacements at their last persisted version. Their bytes stay in the draft for the next revision.
+  const modules = draft.modules.map(module => {
+    const next = { ...module };
+    for (const category of ["documents", "practiceSheets", "videos", "links"]) {
+      next[category] = (module[category] || []).map(entry => {
+        const key = getCampusGroupAttachmentDraftKey(draft.id, module.id, category, entry.id);
+        return campusGroupAttachmentDrafts[key] && key !== sentKey
+          ? { ...entry, attachment: campusGroupAttachmentBases[key] || null } : entry;
+      });
+    }
+    return next;
+  });
   campusGroupSaving = true;
   syncStatus = "Guardando grupo interno...";
   render();
@@ -21081,7 +21117,7 @@ async function saveCampusGroupAndRender(draft) {
     const response = await fetch(`/api/campus-groups/${encodeURIComponent(draft.id)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ group: { title: draft.title, summary: draft.summary, modules: draft.modules, contentRevision: draft.contentRevision || 0 } }),
+      body: JSON.stringify({ group: { title: draft.title, summary: draft.summary, modules, contentRevision: draft.contentRevision || 0 } }),
       signal: AbortSignal.timeout(60000)
     });
     const payload = await readJsonResponse(response, "No se pudo leer la respuesta del grupo");
@@ -21091,9 +21127,12 @@ async function saveCampusGroupAndRender(draft) {
     const changedDuringSave = JSON.stringify(current) !== sentDraft;
     const saved = normalizeCampusGroup(payload.group);
     for (const [key, file] of sentFiles) {
-      if (campusGroupAttachmentDrafts[key] === file) delete campusGroupAttachmentDrafts[key];
+      if (campusGroupAttachmentDrafts[key] === file) {
+        delete campusGroupAttachmentDrafts[key];
+        delete campusGroupAttachmentBases[key];
+      }
     }
-    if (changedDuringSave) {
+    if (changedDuringSave || hasPendingCampusAttachmentBytes(draft.id)) {
       // A later FileReader/edit is not part of this acknowledgement. Keep it and advance only the revision.
       current.contentRevision = saved.contentRevision;
       for (const module of current.modules || []) {
@@ -21102,6 +21141,7 @@ async function saveCampusGroupAndRender(draft) {
           for (const entry of module[category] || []) {
             const key = getCampusGroupAttachmentDraftKey(draft.id, module.id, category, entry.id);
             const savedEntry = savedModule?.[category]?.find(item => item.id === entry.id);
+            if (key === sentKey && campusGroupAttachmentDrafts[key]) campusGroupAttachmentBases[key] = savedEntry?.attachment || null;
             if (!campusGroupAttachmentDrafts[key] && savedEntry && entry.attachment?.contentBase64) {
               entry.attachment = savedEntry.attachment;
             }
@@ -21113,6 +21153,7 @@ async function saveCampusGroupAndRender(draft) {
       state.campusGroups = state.campusGroups.map(group => group.id === draft.id ? saved : group);
       clearCampusDraft(draft.id, accountId);
     }
+    if (hasPendingCampusAttachmentBytes(draft.id)) campusGroupAutosaveIds.add(draft.id);
     syncStatus = hasPendingCampusAttachmentBytes(draft.id) ? "Archivo pendiente de guardar." : "Grupo interno guardado";
     showToast(syncStatus, hasPendingCampusAttachmentBytes(draft.id) ? "info" : "success");
     return true;
