@@ -7,7 +7,9 @@ Portal: `https://portal.isocronazero.org`.
 
 ## 1. Base integrada
 
-`main` revisado antes de #259: `44bc5e4bf9424ee0faf8986ebdea345106f359c1` — #247/#258, instructores asociados y selección dinámica, integrado.
+Base funcional revisada antes de #259: `44bc5e4bf9424ee0faf8986ebdea345106f359c1` — #247/#258, instructores asociados y selección dinámica, integrado.
+
+Desde esa base, `main` contiene además esta bitácora documental. Por ello PR #260 puede aparecer temporalmente detrás/divergida de `main`; la diferencia conocida es documental y no debe resolverse forzando refs ni reescribiendo historia. Antes del merge funcional, incorporar/rebasar `main` de forma normal y repetir CI si GitHub lo exige.
 
 Integrado previamente:
 - #241: corrección de apertura de inscripción por zona horaria; código terminado, QA manual productiva pendiente.
@@ -21,8 +23,8 @@ No confundir CI verde con producción validada.
 ## 2. #259 — persistencia de archivos y almacenamiento — PRIORIDAD DE RELEASE
 
 PR funcional abierta: **#260**.
-HEAD final revisado: `3917716da688f892512cfee430e92c3d6aa3756e`.
-App checks #416: **SUCCESS**.
+HEAD funcional revisado: `3917716da688f892512cfee430e92c3d6aa3756e`.
+App checks #416 sobre ese HEAD: **SUCCESS**.
 
 Cambios revisados en:
 - `public/app.js`;
@@ -54,7 +56,7 @@ Review #260:
 
 ### Bloqueo de infraestructura antes del piloto
 
-Aunque #260 esté lista para merge, #259 NO debe darse por cerrada y NO deben incorporarse socios reales hasta verificar en Railway:
+Aunque #260 esté lista funcionalmente, #259 NO debe darse por cerrada y NO deben incorporarse socios reales hasta verificar en Railway:
 1. `IZ_DATA_DIR` existe y no está vacío;
 2. apunta a una ruta dentro de un Railway Volume persistente;
 3. `/api/debug/storage`/evidencia equivalente confirma que DB/uploads están dentro del volumen;
@@ -94,7 +96,7 @@ Rama de preparación: `chatgpt/248-journey-priority`.
 ## 5. Piloto de socios
 
 Criterio de apertura recomendado:
-1. #260 integrada;
+1. #260 integrada y CI verde tras sincronizar con `main`;
 2. Railway Volume/`IZ_DATA_DIR` verificado;
 3. QA productiva corta: login/logout, onboarding, móvil, inscripción, #241, certificados/permisos, subida/recuperación de un archivo;
 4. piloto controlado 5–10 socios;
@@ -111,7 +113,7 @@ No es necesario esperar a #248 para el piloto. #245 tampoco bloquea el acceso in
 
 ## 7. Orden de trabajo vigente
 
-1. Mantener #260 sin merge hasta autorización; mientras tanto terminar revisión/CI (actualmente verde).
+1. Mantener #260 sin merge hasta autorización; antes del merge sincronizar su rama con `main` de forma normal y repetir CI si corresponde.
 2. Verificar Railway en modo lectura cuando exista acceso/conector; no cambiar configuración.
 3. Avanzar #245 en su rama y preparar implementación/PR.
 4. Tras autorización, merge #260 y verificar deploy/Volume/persistencia.
@@ -132,4 +134,4 @@ No hacer sin autorización explícita:
 
 Sí continuar de forma autónoma con: auditoría, tests, documentación, comentarios/issues, ramas de preparación, revisión P1/P2 y handoffs de Codex.
 
-Última actualización: 15/10/2026, después de CI #416 verde y resolución de los cuatro threads P1/P2 de PR #260.
+Última actualización: 15/10/2026, después de CI #416 verde, resolución de los cuatro threads P1/P2 de PR #260 y creación de la bitácora vigente.
