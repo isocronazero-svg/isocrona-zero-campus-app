@@ -6,12 +6,21 @@ Objetivo: decidir con evidencia si el Campus puede abrirse a un primer grupo de 
 
 ## Gate A — código
 
-- [x] PR #260 sincronizada con `main` sin reescritura forzada (main719674c, merge0ecb012, sin conflictos).
-- [x] `npm run check:app` verde sobre HEAD0ecb012; cambio posterior solo documental, validar su CI.
-- [x] `npm run smoke:campus-test` verde sobre HEAD0ecb012, 14 rutas sinteticas.
-- [x] Sin findings P1/P2 abiertos en #260 (4 corregidos/resueltos, review3917716 limpia; codigo identico tras sync, CI420 SUCCESS).
-- [ ] Merge de #260 expresamente autorizado.
-- [ ] SHA integrado identificado y registrado.
+- [x] PR #260 integrada mediante merge normal.
+- [x] `npm run check:app` verde.
+- [x] `npm run smoke:campus-test` verde, 14 rutas sintéticas.
+- [x] `git diff --check` verde.
+- [x] Sin findings P1/P2 abiertos en #260.
+- [x] PR #261 sincronizada con `main` mediante merge normal, resolviendo conflictos sin perder funcionalidad de #260 ni #261.
+- [x] Regresión académica de #261 verde.
+- [x] QA local móvil/escritorio verde.
+- [x] CI PR #428 SUCCESS.
+- [x] PR #261 fusionada mediante merge normal.
+- [x] CI de `main` #429 SUCCESS.
+- [x] SHA integrado final identificado: `819f7624be148b987ce9997924fd38efbfd234aa`.
+- [x] Cero P1/P2 conocidos pendientes de integración.
+
+**Gate A: COMPLETO.**
 
 ## Gate B — persistencia Railway
 
@@ -26,6 +35,14 @@ Bloqueante para socios reales.
 - [ ] Restart/redeploy solo tras autorización expresa.
 - [ ] El mismo archivo sintético sigue disponible después del restart/redeploy.
 - [ ] Estado de socios/cursos no cambia tras la prueba.
+
+Referencias conocidas previas, pendientes de reconfirmar en vivo:
+- servicio productivo documentado: `zealous-warmth / isocrona-zero-campus-test`;
+- portal: `https://portal.isocronazero.org`;
+- una auditoría anterior registró persistencia en `/var/data/isocrona-zero`;
+- documentación antigua de Railway usa `/data/isocrona-zero` como ejemplo.
+
+No asumir ninguna de esas rutas sin comprobar la configuración real de Railway.
 
 Si cualquiera de estas comprobaciones falla: NO abrir piloto; #259 permanece P1 de release.
 
@@ -64,7 +81,7 @@ Solo si A+B+C están verdes.
 2. Si 24–48 h sin P1/P2: 20–30 socios.
 3. Si sigue estable: apertura progresiva al resto.
 
-#245 (asistencia/cierre presencial) y #248 (histórico/prioridad) mejoran la operativa de jornadas, pero no bloquean el primer acceso controlado al Campus si los gates A+B+C están verdes.
+#245 ya está integrada mediante #261. #248 permanece post-V1 y no bloquea el primer acceso controlado al Campus si los gates A+B+C están verdes.
 
 ## Rollback
 
