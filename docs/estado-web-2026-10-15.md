@@ -9,7 +9,7 @@ Portal: `https://portal.isocronazero.org`.
 
 Base funcional revisada antes de #259: `44bc5e4bf9424ee0faf8986ebdea345106f359c1` — #247/#258, instructores asociados y selección dinámica, integrado.
 
-Desde esa base, `main` contiene además esta bitácora documental. Por ello PR #260 puede aparecer temporalmente detrás/divergida de `main`; la diferencia conocida es documental y no debe resolverse forzando refs ni reescribiendo historia. Antes del merge funcional, incorporar/rebasar `main` de forma normal y repetir CI si GitHub lo exige.
+`main` documental `719674c` incorporado a #260 mediante merge normal `0ecb012666cc35c8f0b88d10a6c8cb593b983a4e`, sin conflictos ni force push. Sin cambios funcionales adicionales: el codigo coincide con `3917716`. Esta sincronizacion NO fusiona la PR en main.
 
 Integrado previamente:
 - #241: corrección de apertura de inscripción por zona horaria; código terminado, QA manual productiva pendiente.
@@ -25,6 +25,8 @@ No confundir CI verde con producción validada.
 PR funcional abierta: **#260**.
 HEAD funcional revisado: `3917716da688f892512cfee430e92c3d6aa3756e`.
 App checks #416 sobre ese HEAD: **SUCCESS**.
+
+Sincronizacion final validada: `0ecb012666cc35c8f0b88d10a6c8cb593b983a4e`; [App checks #420 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38743343295). `npm run check:app` Node22.23.3, `npm run smoke:campus-test` (14 rutas), `git diff --check` y QA Edge390/1440 repetidos: PASS. Sin nuevos P1/P2 ni threads abiertos; READY FOR MERGE tecnico, pendiente decision humana. Este ultimo cambio es solo documental; comprobar tambien su CI antes de fusionar. Normalizacion LF de question-bank.js solo local por harness Windows, fuera del PR.
 
 Cambios revisados en:
 - `public/app.js`;
@@ -113,7 +115,7 @@ No es necesario esperar a #248 para el piloto. #245 tampoco bloquea el acceso in
 
 ## 7. Orden de trabajo vigente
 
-1. Mantener #260 sin merge hasta autorización; antes del merge sincronizar su rama con `main` de forma normal y repetir CI si corresponde.
+1. #260 sincronizada y validada; mantener sin merge hasta autorizacion y confirmar CI del HEAD documental.
 2. Verificar Railway en modo lectura cuando exista acceso/conector; no cambiar configuración.
 3. Avanzar #245 en su rama y preparar implementación/PR.
 4. Tras autorización, merge #260 y verificar deploy/Volume/persistencia.
@@ -134,4 +136,4 @@ No hacer sin autorización explícita:
 
 Sí continuar de forma autónoma con: auditoría, tests, documentación, comentarios/issues, ramas de preparación, revisión P1/P2 y handoffs de Codex.
 
-Última actualización: 15/10/2026, después de CI #416 verde, resolución de los cuatro threads P1/P2 de PR #260 y creación de la bitácora vigente.
+Última actualización: 15/10/2026, sincronizacion #260 con main719674c sin conflictos, CI #420 y validaciones locales verdes. Sin merge, cambios de datos ni operaciones productivas. #259 sigue abierta por QA de persistencia productiva pendiente de autorizacion.
