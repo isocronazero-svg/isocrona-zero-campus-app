@@ -129,9 +129,6 @@ function assertProductionStorageIsConfigured() {
   if (String(process.env.NODE_ENV || "").trim() !== "production") {
     return;
   }
-  if (String(process.env.DATABASE_URL || "").trim()) {
-    return;
-  }
   if (configuredDataDir) {
     return;
   }
@@ -139,9 +136,9 @@ function assertProductionStorageIsConfigured() {
   if (isTrue(process.env[allowEphemeralStorageInProductionFlag])) {
     console.warn(
       [
-        `${allowEphemeralStorageInProductionFlag}=true permite arrancar produccion sin DATABASE_URL ni IZ_DATA_DIR.`,
+        `${allowEphemeralStorageInProductionFlag}=true permite arrancar produccion sin IZ_DATA_DIR.`,
         "El estado puede perderse al reiniciar si el filesystem no es persistente.",
-        "Usalo solo para emergencia y configura un volumen persistente o base de datos cuanto antes."
+        "PELIGRO: SQLite, sesiones, snapshots, backups y uploads siguen siendo locales aunque exista DATABASE_URL. Configura IZ_DATA_DIR en un volumen persistente cuanto antes."
       ].join(" ")
     );
     return;
@@ -150,7 +147,7 @@ function assertProductionStorageIsConfigured() {
   console.error(
     [
       "Arranque bloqueado: produccion necesita persistencia real.",
-      "Configura DATABASE_URL o IZ_DATA_DIR apuntando a un volumen persistente antes de publicar.",
+      "Configura IZ_DATA_DIR apuntando a un volumen persistente antes de publicar. DATABASE_URL no almacena app_state ni sustituye ese volumen.",
       `Solo para emergencia puedes arrancar con ${allowEphemeralStorageInProductionFlag}=true.`
     ].join(" ")
   );
