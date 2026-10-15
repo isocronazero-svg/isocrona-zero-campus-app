@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
-const app = readFileSync(path.join(repo, "public/app.js"), "utf8");
+const app = readFileSync(path.join(repo, "public/app.js"), "utf8").replace(/\r\n/g, "\n");
 function source(name) {
   const start = app.search(new RegExp(`(?:async )?function ${name}\\(`));
   const rest = app.slice(start + 1);
@@ -28,10 +28,13 @@ const fields = { campusGroupSummary: { value: "" }, campusGroupModuleSummary: { 
 const row = { dataset: { entryId: "visible" }, querySelector: (selector) => ({ value: selector.includes('="title"') ? "Editado" : "" }) };
 const context = vm.createContext({
   session: {accountId:"qa-admin"}, campusGroupPendingUploads: 0,
+  campusGroupAutosaveIds: new Set(), campusGroupAutosaveRunning: false, campusGroupSessionEpoch: 0,
+  campusGroupPendingFileReads: new Set(),
+  window: { confirm: () => false }, toasts: [],
   state: { campusGroups: [structuredClone(group)] }, selectedCampusGroupModuleId: "module-qa",
   campusGroupAttachmentDrafts: {}, isAdminView: () => true,
   getCampusDraftStorageKey: (id) => id,
-  sessionStorage: { setItem: (key, value) => storage.set(key, value), getItem: (key) => storage.get(key) },
+  sessionStorage: { setItem: (key, value) => storage.set(key, value), getItem: (key) => storage.get(key), removeItem: key => storage.delete(key) },
   document: { getElementById: (id) => fields[id], querySelectorAll: (selector) => selector.includes('="documents"') ? [row] : [] },
   buildDefaultCampusGroups: () => []
 });
@@ -51,7 +54,7 @@ assert.equal(edited.modules[0].documents[0].attachment.contentBase64, file.conte
 Object.assign(context, {
   file: { ...file, name: "replacement.txt" },
   target: { groupId: group.id, moduleId: "module-qa", category: "documents", entryId: "visible" },
-  pendingCampusGroupFileTarget: null, render: () => {}, showToast: () => {}, formatFileSize: String,
+  pendingCampusGroupFileTarget: null, render: () => {}, showToast: (message, kind) => context.toasts.push({ message, kind }), formatFileSize: String,
   AbortSignal, campusGroupSaving: false, clearCampusDraft: (id) => storage.delete(id),
   readJsonResponse: (response) => response.json(),
   fetch: async (url, options) => {
@@ -60,13 +63,31 @@ Object.assign(context, {
     return { ok: false, json: async () => ({ error: "Fallo de red simulado" }) };
   }
 });
-vm.runInContext(["getCampusGroupFileMaxBytes", "applyCampusGroupFileSelection", "saveCampusGroupAndRender"].map(source).join("\n"), context);
+vm.runInContext(["getCampusGroupFileMaxBytes", "applyCampusGroupFileSelection", "saveCampusGroupAndRender",
+  "hasPendingCampusAttachmentBytes", "confirmCampusAttachmentNavigation", "warnPendingCampusAttachments", "flushCampusGroupAutoSaves"].map(source).join("\n"), context);
 await vm.runInContext("applyCampusGroupFileSelection(file, target)", context);
 assert.equal(context.state.campusGroups[0].modules[0].documents[0].attachment.name, "replacement.txt");
 assert.equal(context.state.campusGroups[0].modules[1].documents.length, 0, "Async uploads must keep their original target");
 assert.equal(await vm.runInContext("saveCampusGroupAndRender(state.campusGroups[0])", context), false);
 assert.ok(storage.has(group.id), "Failed saves must preserve the draft for retry");
 assert.equal(context.campusGroupSaving, false);
+assert.equal(context.toasts.filter(t => t.kind === "success").length, 0, "Failed autosave must not announce success");
+assert.equal(vm.runInContext("hasPendingCampusAttachmentBytes()", context), true);
+assert.equal(vm.runInContext("confirmCampusAttachmentNavigation()", context), false, "User can cancel navigation/logout with pending bytes");
+let unloadPrevented = false;
+context.unloadEvent = { preventDefault: () => { unloadPrevented = true; } };
+vm.runInContext("warnPendingCampusAttachments(unloadEvent)", context);
+assert.equal(unloadPrevented, true);
+context.fetch = async () => ({ ok: false, status: 409, json: async () => ({error:"Revision en conflicto"}) });
+assert.equal(await vm.runInContext("saveCampusGroupAndRender(state.campusGroups[0])", context), false);
+assert.equal(context.campusGroupAttachmentDrafts["group-qa::module-qa::documents::visible"].contentBase64, file.contentBase64);
+assert.match(context.syncStatus, /pendiente de guardar/);
+assert.ok(!storage.get(group.id).includes(file.contentBase64));
+assert.equal(context.toasts.filter(t => t.kind === "success").length, 0, "409 must not announce success");
+context.fetch = async () => { throw new TypeError("Failed to fetch"); };
+assert.equal(await vm.runInContext("saveCampusGroupAndRender(state.campusGroups[0])", context), false);
+assert.equal(context.campusGroupAttachmentDrafts["group-qa::module-qa::documents::visible"].contentBase64, file.contentBase64);
+assert.ok(storage.has(group.id), "Network rejection retains metadata and bytes for retry");
 context.campusGroupPendingUploads = 1;
 context.fetch = () => { throw new Error("Must not send while a file is being read"); };
 assert.equal(await vm.runInContext("saveCampusGroupAndRender(state.campusGroups[0])", context), false);
@@ -75,15 +96,32 @@ let finishSave;
 context.fetch = () => new Promise(resolve => { finishSave = resolve; });
 const pendingSave = vm.runInContext("saveCampusGroupAndRender(state.campusGroups[0])", context);
 context.session = {accountId:"another-admin"};
-finishSave({ok:true,json:async()=>({group:{...group,title:"Late response"}})});
+finishSave({ok:true,status:200,json:async()=>({group:{...group,title:"Late response"}})});
 assert.equal(await pendingSave, false);
 assert.notEqual(context.state.campusGroups[0].title, "Late response", "Old account response cannot mutate the new view");
+context.session = {accountId:"qa-admin"};
+const previousSessionSave = vm.runInContext("saveCampusGroupAndRender(state.campusGroups[0])", context);
+context.campusGroupSessionEpoch++;
+context.campusGroupSaving = false;
+finishSave({ok:true,status:200,json:async()=>({group:{...group,title:"Previous login"}})});
+assert.equal(await previousSessionSave, false, "Logout/relogin with the same account also invalidates old responses");
+assert.notEqual(context.state.campusGroups[0].title, "Previous login");
+context.campusGroupSessionEpoch = 0;
 const storageSource=readFileSync(path.join(repo,"public/assets/js/app/storage/localStorage.js"),"utf8");
 const {getCampusDraftStorageKey}=await import(`data:text/javascript;base64,${Buffer.from(storageSource).toString("base64")}`);
 assert.notEqual(getCampusDraftStorageKey("group-qa","admin-a"),getCampusDraftStorageKey("group-qa","admin-b"),"Drafts must be scoped to the account");
 context.isAdminView = () => false;
 assert.equal(vm.runInContext("loadCampusDraft('group-qa')", context), null, "Members must not see admin drafts on a shared browser");
 assert.doesNotMatch(source("renderCampusGroupEntryList"), /JSON\.stringify\(visibleAttachment\)/, "Do not embed base64 in HTML attributes");
+context.campusGroupAttachmentDrafts = {};
+unloadPrevented = false;
+vm.runInContext("warnPendingCampusAttachments(unloadEvent)", context);
+assert.equal(unloadPrevented, false, "Metadata-only drafts must not trigger beforeunload");
+assert.equal(vm.runInContext("confirmCampusAttachmentNavigation()", context), true);
+assert.match(app, /window\.addEventListener\("beforeunload", warnPendingCampusAttachments\)/);
+for (const button of ["logoutButton", "passwordLogoutButton"]) {
+  assert.ok(app.includes(button + '.addEventListener("click", async () => {\n  if (!confirmCampusAttachmentNavigation()) return;'));
+}
 
 const root = mkdtempSync(path.join(os.tmpdir(), "iz-groups-check-"));
 const password = `QA-${randomUUID()}`;
@@ -125,7 +163,7 @@ async function stop() {
   if (server && server.exitCode === null) { const exited = once(server, "exit"); server.kill(); await exited; }
 }
 async function request(url, cookie = "", method = "GET", body) {
-  return fetch(base + url, { method, headers: { Cookie: cookie, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  return fetch(new URL(url, base), { method, headers: { Cookie: cookie, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
 }
 async function login(email) {
   const response = await request("/api/login", "", "POST", { email, password });
@@ -179,11 +217,110 @@ try {
   const tooLarge = await fetch(base + endpoint, { method: "PUT", headers: { Cookie: admin, "Content-Type": "application/json" }, body: JSON.stringify({ padding: "x".repeat(40_000_001) }) });
   assert.equal(tooLarge.status, 413);
   assert.equal(tooLarge.headers.get("cache-control"), "no-store");
+
+  // Run the real frontend upload/save functions against the dedicated API, not a parallel uploader.
+  Object.assign(context, {
+    state: structuredClone(state), session: {accountId:"qa-admin"}, isAdminView: () => true,
+    campusGroupAttachmentDrafts: {}, campusGroupAutosaveIds: new Set(),
+    campusGroupSaving: false, campusGroupAutosaveRunning: false, campusGroupPendingUploads: 0,
+    selectedCampusGroupModuleId: "module-qa", pendingCampusGroupFileTarget: null
+  });
+  storage.clear();
+  const requests = [];
+  const realFetch = async (url, options) => {
+    requests.push(JSON.parse(options.body).group.contentRevision);
+    return fetch(base + url, { ...options, headers: { ...options.headers, Cookie: admin } });
+  };
+  context.fetch = realFetch;
+  context.file = {...file, name:"autosaved.txt"};
+  context.target = {accountId:"qa-admin",epoch:0,groupId:group.id,moduleId:"module-qa",category:"documents",entryId:"visible"};
+  context.toasts = [];
+  await vm.runInContext("applyCampusGroupFileSelection(file, target)", context);
+  assert.equal(requests.length, 1, "Selecting a file automatically issues PUT");
+  assert.equal(vm.runInContext("hasPendingCampusAttachmentBytes()", context), false);
+  assert.equal(storage.has(group.id), false);
+  assert.ok(context.toasts.some(t => t.kind === "success"));
+  const afterUpload = await (await request("/api/state", admin)).json();
+  assert.equal(afterUpload.campusGroups.find(g => g.id === group.id).modules[0].documents[0].attachment.name, "autosaved.txt");
+
+  // A second FileReader finishing during PUT must keep its bytes and use the acknowledged revision.
+  let releasePut, putStarted;
+  const started = new Promise(resolve => { putStarted = resolve; });
+  let first = true;
+  context.fetch = async (url, options) => {
+    if (first) {
+      first = false;
+      await new Promise(resolve => { releasePut = resolve; putStarted(); });
+    }
+    return realFetch(url, options);
+  };
+  context.file = {...file, name:"first.txt"};
+  const firstUpload = vm.runInContext("applyCampusGroupFileSelection(file, target)", context);
+  await started;
+  context.secondFile = {...file, name:"second.txt",contentBase64:Buffer.from("Second file").toString("base64"),size:11};
+  context.secondTarget = {...context.target,entryId:"hidden"};
+  await vm.runInContext("applyCampusGroupFileSelection(secondFile, secondTarget)", context);
+  releasePut();
+  await firstUpload;
+  assert.deepEqual(requests, [2, 3, 4], "Consecutive uploads use sequential server revisions");
+  assert.equal(vm.runInContext("hasPendingCampusAttachmentBytes()", context), false);
+  assert.equal(storage.has(group.id), false);
+
+  // Exercise the actual change/FileReader handler while the visible group changes.
+  const changeStart = app.indexOf('  if (event.target.dataset.campusGroupFileInput === "true"');
+  const changeEnd = app.indexOf('  if (event.target.dataset.action === "toggle-associate-application-selection")', changeStart);
+  let finishRead;
+  Object.assign(context, {
+    isAdminSession: () => true,
+    getSelectedCampusGroup: () => context.state.campusGroups.find(g => g.id === context.state.selectedCampusGroupId),
+    readFileInput: () => new Promise(resolve => { finishRead = resolve; }),
+    event: { target: {dataset:{campusGroupFileInput:"true",category:"documents",entryId:"visible"},files:[{size:7}],value:"file"} }
+  });
+  context.state.selectedCampusGroupId = group.id;
+  context.selectedCampusGroupModuleId = "module-qa";
+  vm.runInContext('(function(event){' + app.slice(changeStart, changeEnd) + '})(event)', context);
+  assert.equal(context.campusGroupPendingUploads, 1);
+  assert.equal(vm.runInContext("hasPendingCampusAttachmentBytes()", context), true, "A selected file being read is not yet durable");
+  assert.equal(await vm.runInContext("saveCampusGroupAndRender(state.campusGroups[0])", context), false);
+  context.state.selectedCampusGroupId = "untouched";
+  context.selectedCampusGroupModuleId = "module-other";
+  finishRead({...file,name:"original-target.txt"});
+  for (let i=0; i<100 && (context.campusGroupPendingUploads || context.campusGroupSaving || context.campusGroupAutosaveRunning); i++) await delay(30);
+  assert.equal(context.campusGroupPendingUploads, 0);
+  assert.equal(context.state.selectedCampusGroupId, "untouched", "Late file completion must not change the current view");
+  assert.equal(context.selectedCampusGroupModuleId, "module-other");
+  assert.equal(context.state.campusGroups.find(g => g.id === "untouched").modules[0].documents[0].attachment.name, "qa.txt");
+  assert.ok([...storage.values()].every(value => !value.includes("contentBase64") && !value.includes(file.contentBase64)));
+
+  const storeMetadata = context.sessionStorage.setItem;
+  context.sessionStorage.setItem = () => { throw new Error("QuotaExceededError"); };
+  context.fetch = async () => { throw new TypeError("Offline"); };
+  context.file = {...file,name:"quota-safe.txt"};
+  await vm.runInContext("applyCampusGroupFileSelection(file, target)", context);
+  assert.equal(storage.has(group.id), false, "Unwritable storage must not retain an older draft");
+  assert.equal(context.state.campusGroups.find(g => g.id === group.id).modules[0].documents[0].attachment.name,"quota-safe.txt");
+  assert.equal(vm.runInContext("hasPendingCampusAttachmentBytes()", context), true);
+  context.sessionStorage.setItem = storeMetadata;
+  context.fetch = realFetch;
+  assert.equal(await vm.runInContext("saveCampusGroupAndRender(state.campusGroups.find(g => g.id === target.groupId))", context),true);
+
+  await request("/api/logout", admin, "POST");
+  admin = await login("admin@isocronazero.org");
+  let reloaded = await (await request("/api/state", admin)).json();
+  let reloadedGroup = reloaded.campusGroups.find(g => g.id === group.id);
+  assert.equal(reloadedGroup.modules[0].documents[0].attachment.name, "quota-safe.txt");
+  assert.equal(reloadedGroup.modules[0].documents[1].attachment.name, "second.txt");
+  assert.equal(await (await request(reloadedGroup.modules[0].documents[1].attachment.transportUrl, admin)).text(), "Second file");
+  reloadedGroup.summary = "Metadata after autosave";
+  assert.equal((await request(endpoint, admin, "PUT", {group:reloadedGroup})).status,200);
   await stop(); await start();
   admin = await login("admin@isocronazero.org");
   assert.equal(await (await request(filePath, admin)).text(), "QA file", "Attachments must survive restart");
   const restarted = await (await request("/api/state", admin)).json();
   assert.equal(restarted.campusGroups.find((g) => g.id === group.id).modules.length, 3);
+  reloadedGroup = restarted.campusGroups.find(g => g.id === group.id);
+  assert.equal(reloadedGroup.summary, "Metadata after autosave");
+  assert.equal(await (await request(reloadedGroup.modules[0].documents[1].attachment.transportUrl, admin)).text(), "Second file");
   console.log("Campus groups check passed: drafts, filtering, uploads, scoped saving, permissions and restart persistence.");
 } finally {
   await stop();

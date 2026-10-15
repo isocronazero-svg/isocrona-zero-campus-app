@@ -232,6 +232,11 @@ let pendingCampusGroupFileTarget = null;
 let pendingCampusGroupDraftClearGroupId = "";
 let campusGroupSaving = false;
 let campusGroupPendingUploads = 0;
+let campusGroupAutosaveIds = new Set();
+let campusGroupAutosaveRunning = false;
+let campusGroupSessionEpoch = 0;
+let campusGroupPendingFileReads = new Set();
+window.addEventListener("beforeunload", warnPendingCampusAttachments);
 let publicCampusCourses = [];
 let publicCampusStatus = "Cargando cursos abiertos...";
 let associateDeleteDialog = null;
@@ -478,6 +483,11 @@ async function changeViewRole(requestedRole) {
   if (!isAdminSession()) {
     return;
   }
+  if (campusGroupPendingUploads || campusGroupSaving || hasPendingCampusAttachmentBytes()) {
+    showToast("Termina de guardar los archivos del grupo antes de cambiar de modo.", "info");
+    roleSwitcher.value = viewRole;
+    return;
+  }
 
   const previousRole = viewRole;
   const previousState = state;
@@ -541,6 +551,7 @@ memberSwitcher.addEventListener("change", async (event) => {
 });
 
 resetButton?.addEventListener("click", async () => {
+  if (!confirmCampusAttachmentNavigation()) return;
   if (!isAdminSession()) {
     return;
   }
@@ -558,6 +569,7 @@ resetButton?.addEventListener("click", async () => {
 });
 
 logoutButton.addEventListener("click", async () => {
+  if (!confirmCampusAttachmentNavigation()) return;
   try {
     const response = await fetch("/api/logout", { method: "POST" });
     if (!response.ok) throw new Error("No se pudo cerrar la sesión");
@@ -574,6 +586,7 @@ logoutButton.addEventListener("click", async () => {
 });
 
 passwordLogoutButton.addEventListener("click", async () => {
+  if (!confirmCampusAttachmentNavigation()) return;
   try {
     const response = await fetch("/api/logout", { method: "POST" });
     if (!response.ok) throw new Error("No se pudo cerrar la sesión");
@@ -725,6 +738,20 @@ document.addEventListener("click", async (event) => {
   const courseId = actionTarget.dataset.courseId;
   const memberId = actionTarget.dataset.memberId;
   let shouldPersist = false;
+  if (action === "set-course-preview-member" &&
+      (campusGroupPendingUploads || campusGroupSaving || hasPendingCampusAttachmentBytes())) {
+    showToast("Termina de guardar los archivos del grupo antes de cambiar de modo.", "info");
+    return;
+  }
+
+  if (["remove-campus-group-entry", "discard-campus-group-draft", "add-campus-group-module", "add-campus-group-entry"].includes(action) &&
+      (campusGroupSaving || campusGroupPendingUploads)) {
+    showToast("Espera a que termine la carga antes de cambiar los recursos.", "info");
+    return;
+  }
+  if ((action === "nav" || action === "nav-section" || action === "select-campus-group" ||
+      action === "select-campus-group-module" || /^set-.+-section-mode$/.test(action)) &&
+      !confirmCampusAttachmentNavigation()) return;
 
   if ((action === "add-course-instructor" || action === "remove-course-instructor") && isAdminView()) {
     updateInstructorSelection(actionTarget.dataset.selectorId, action, actionTarget.dataset.associateId);
@@ -1030,6 +1057,7 @@ document.addEventListener("click", async (event) => {
       }
       pendingCampusGroupFileTarget = {
         accountId: session?.accountId,
+        epoch: campusGroupSessionEpoch,
         groupId: group.id,
         moduleId: selectedModule.id,
         category,
@@ -1497,6 +1525,7 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "remove-campus-group-entry" && isAdminSession()) {
+    if (!confirmCampusAttachmentNavigation()) return;
     const group = getSelectedCampusGroup();
     const category = actionTarget.dataset.category;
     const entryId = actionTarget.dataset.entryId;
@@ -3572,7 +3601,11 @@ document.addEventListener("change", (event) => {
 
   if (event.target.dataset.campusGroupFileInput === "true" && isAdminSession()) {
     (async () => {
+      const uploadEpoch = campusGroupSessionEpoch;
+      const readingFile = event.target.files?.[0];
+      if (readingFile?.size > 0) campusGroupPendingFileReads.add(readingFile);
       campusGroupPendingUploads++;
+      let fileTarget = null;
       try {
         const group = getSelectedCampusGroup();
         const selectedModule = getSelectedCampusGroupModule(group) || group?.modules?.[0] || null;
@@ -3584,29 +3617,35 @@ document.addEventListener("change", (event) => {
 
         pendingCampusGroupFileTarget = {
         accountId: session?.accountId,
+          epoch: uploadEpoch,
           groupId: group.id,
           moduleId: selectedModule.id,
           category,
           entryId
         };
 
-        const fileTarget = pendingCampusGroupFileTarget;
+        fileTarget = pendingCampusGroupFileTarget;
         const file = await readFileInput(event.target, {
           maxBytes: getCampusGroupFileMaxBytes(category),
           label: category === "practiceSheets" ? "La ficha de practica" : "El documento interno"
         });
         if (!file) {
-          pendingCampusGroupFileTarget = null;
+          if (pendingCampusGroupFileTarget === fileTarget) pendingCampusGroupFileTarget = null;
           return;
         }
 
         await applyCampusGroupFileSelection(file, fileTarget);
       } catch (error) {
+        if (uploadEpoch !== campusGroupSessionEpoch) return;
         syncStatus = error.message || "No se pudo cargar el archivo";
         showToast(syncStatus, "error");
-        pendingCampusGroupFileTarget = null;
+        if (pendingCampusGroupFileTarget === fileTarget) pendingCampusGroupFileTarget = null;
       } finally {
-        campusGroupPendingUploads--;
+        if (uploadEpoch === campusGroupSessionEpoch) {
+          campusGroupPendingFileReads.delete(readingFile);
+          campusGroupPendingUploads--;
+          await flushCampusGroupAutoSaves();
+        }
         event.target.value = "";
       }
     })();
@@ -3615,21 +3654,29 @@ document.addEventListener("change", (event) => {
 
   if (event.target.id === "globalFilePicker") {
     (async () => {
+      const uploadEpoch = campusGroupSessionEpoch;
+      const readingFile = event.target.files?.[0];
+      if (readingFile?.size > 0) campusGroupPendingFileReads.add(readingFile);
       campusGroupPendingUploads++;
+      const fileTarget = pendingCampusGroupFileTarget;
       try {
-        const fileTarget = pendingCampusGroupFileTarget;
         const file = await readFileInput(event.target);
         if (!file) {
-          pendingCampusGroupFileTarget = null;
+          if (pendingCampusGroupFileTarget === fileTarget) pendingCampusGroupFileTarget = null;
           return;
         }
         await applyCampusGroupFileSelection(file, fileTarget);
       } catch (error) {
+        if (uploadEpoch !== campusGroupSessionEpoch) return;
         syncStatus = error.message || "No se pudo cargar el archivo";
         showToast(syncStatus, "error");
-        pendingCampusGroupFileTarget = null;
+        if (pendingCampusGroupFileTarget === fileTarget) pendingCampusGroupFileTarget = null;
       } finally {
-        campusGroupPendingUploads--;
+        if (uploadEpoch === campusGroupSessionEpoch) {
+          campusGroupPendingFileReads.delete(readingFile);
+          campusGroupPendingUploads--;
+          await flushCampusGroupAutoSaves();
+        }
       }
     })();
     return;
@@ -4821,6 +4868,12 @@ function clearSession() {
   getFrontendBridge()?.resetTestView?.();
   session = null;
   campusGroupAttachmentDrafts = {};
+  campusGroupSessionEpoch++;
+  campusGroupAutosaveIds.clear();
+  campusGroupAutosaveRunning = false;
+  campusGroupSaving = false;
+  campusGroupPendingUploads = 0;
+  campusGroupPendingFileReads.clear();
   pendingCampusGroupFileTarget = null;
   viewRole = "admin";
   persistSession();
@@ -10079,7 +10132,7 @@ function renderCampusGroupsSection() {
                       <div class="chip-row compact-chip-row">
                         <button class="primary-button" type="button" data-action="save-campus-group" ${campusGroupSaving ? "disabled" : ""}>${campusGroupSaving ? "Guardando..." : "Guardar grupo interno"}</button>
                         ${loadCampusDraft(selectedGroup.id) ? '<button class="ghost-button" type="button" data-action="discard-campus-group-draft">Descartar borrador y actualizar</button>' : ""}
-                        <span id="campusGroupSaveStatus" role="status">${campusGroupSaving ? "Subiendo y guardando recursos..." : loadCampusDraft(selectedGroup.id) ? "Cambios pendientes de guardar" : "Grupo guardado"}</span>
+                        <span id="campusGroupSaveStatus" role="status">${campusGroupSaving ? "Subiendo y guardando recursos..." : hasPendingCampusAttachmentBytes(selectedGroup.id) ? "Archivo pendiente de guardar. Pulsa Guardar grupo interno para reintentar; no cierres esta pestaña." : loadCampusDraft(selectedGroup.id) ? "Cambios pendientes de guardar" : "Grupo guardado"}</span>
                       </div>
                     `
                     : ""
@@ -20771,27 +20824,28 @@ function getCampusGroupFileMaxBytes(category) {
 }
 
 async function applyCampusGroupFileSelection(file, target = pendingCampusGroupFileTarget) {
-  if (!isAdminView() || !file || !target || (target.accountId && target.accountId !== session?.accountId)) {
+  if (!isAdminView() || !file || !target || (target.accountId && target.accountId !== session?.accountId) ||
+      (target.epoch !== undefined && target.epoch !== campusGroupSessionEpoch)) {
     return;
   }
 
   const { groupId, moduleId, category, entryId } = target;
   const maxBytes = getCampusGroupFileMaxBytes(category);
   if (maxBytes && Number(file.size || 0) > maxBytes) {
-    pendingCampusGroupFileTarget = null;
+    if (pendingCampusGroupFileTarget === target) pendingCampusGroupFileTarget = null;
     throw new Error(
       `El archivo supera el limite de ${formatFileSize(maxBytes)}. Para videos muy pesados conviene usar un enlace externo, pero los documentos y practicas ya admiten bastante mas tamano.`
     );
   }
   const group = loadCampusDraft(groupId) || state.campusGroups.find((item) => item.id === groupId) || null;
   if (!group || !moduleId || !category || !entryId) {
-    pendingCampusGroupFileTarget = null;
+    if (pendingCampusGroupFileTarget === target) pendingCampusGroupFileTarget = null;
     return;
   }
 
   const selectedModule = (group.modules || []).find((item) => item.id === moduleId) || null;
-  if (!selectedModule) {
-    pendingCampusGroupFileTarget = null;
+  if (!selectedModule || !(selectedModule[category] || []).some(entry => entry.id === entryId)) {
+    if (pendingCampusGroupFileTarget === target) pendingCampusGroupFileTarget = null;
     return;
   }
 
@@ -20827,13 +20881,46 @@ async function applyCampusGroupFileSelection(file, target = pendingCampusGroupFi
   const draftKey = getCampusGroupAttachmentDraftKey(groupId, moduleId, category, entryId);
   campusGroupAttachmentDrafts[draftKey] = file;
   state.campusGroups = state.campusGroups.map((item) => (item.id === group.id ? nextGroup : item));
-  state.selectedCampusGroupId = nextGroup.id;
-  selectedCampusGroupModuleId = moduleId;
   saveCampusDraft(nextGroup.id, nextGroup);
-  syncStatus = `Archivo cargado para ${file.name}. Guarda el grupo interno para dejarlo persistido.`;
-  pendingCampusGroupFileTarget = null;
-  showToast("Archivo preparado en el grupo interno", "success");
+  syncStatus = `Archivo pendiente de guardar: ${file.name}.`;
+  if (pendingCampusGroupFileTarget === target) pendingCampusGroupFileTarget = null;
+  campusGroupAutosaveIds.add(nextGroup.id);
   render();
+  return await flushCampusGroupAutoSaves();
+}
+
+function hasPendingCampusAttachmentBytes(groupId = "") {
+  return (!groupId && campusGroupPendingFileReads.size > 0) || Object.entries(campusGroupAttachmentDrafts).some(([key, file]) =>
+    (!groupId || key.startsWith(`${groupId}::`)) && Boolean(file?.contentBase64));
+}
+
+function confirmCampusAttachmentNavigation() {
+  return !hasPendingCampusAttachmentBytes() || window.confirm(
+    "Hay archivos pendientes de guardar. Salir o recargar puede perderlos. Cancela y pulsa Guardar grupo interno para reintentar. ¿Continuar?"
+  );
+}
+
+function warnPendingCampusAttachments(event) {
+  if (!hasPendingCampusAttachmentBytes()) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+async function flushCampusGroupAutoSaves() {
+  if (campusGroupAutosaveRunning || campusGroupSaving || campusGroupPendingUploads || !isAdminView()) return false;
+  const epoch = campusGroupSessionEpoch;
+  campusGroupAutosaveRunning = true;
+  try {
+    while (campusGroupAutosaveIds.size && !campusGroupPendingUploads && epoch === campusGroupSessionEpoch && isAdminView()) {
+      const id = campusGroupAutosaveIds.values().next().value;
+      campusGroupAutosaveIds.delete(id);
+      const draft = loadCampusDraft(id) || state.campusGroups.find(group => group.id === id);
+      if (draft && !await saveCampusGroupAndRender(draft)) return false;
+    }
+    return true;
+  } finally {
+    if (epoch === campusGroupSessionEpoch) campusGroupAutosaveRunning = false;
+  }
 }
 
 function normalizeCampusGroupModule(module, groupId, moduleIndex = 0) {
@@ -20971,6 +21058,8 @@ function saveCampusDraft(groupId, data) {
       JSON.stringify(buildCampusDraftData(draft))
     );
   } catch (error) {
+    // Do not let an older browser draft override the current in-memory file after quota/access errors.
+    try { sessionStorage.removeItem(getCampusDraftStorageKey(normalizedGroupId, session?.accountId)); } catch {}
   }
 }
 
@@ -20981,7 +21070,10 @@ async function saveCampusGroupAndRender(draft) {
     return false;
   }
   const accountId = session?.accountId;
+  const epoch = campusGroupSessionEpoch;
   saveCampusDraft(draft.id, draft);
+  const sentDraft = JSON.stringify(loadCampusDraft(draft.id) || draft);
+  const sentFiles = Object.entries(campusGroupAttachmentDrafts).filter(([key]) => key.startsWith(`${draft.id}::`));
   campusGroupSaving = true;
   syncStatus = "Guardando grupo interno...";
   render();
@@ -20993,23 +21085,48 @@ async function saveCampusGroupAndRender(draft) {
       signal: AbortSignal.timeout(60000)
     });
     const payload = await readJsonResponse(response, "No se pudo leer la respuesta del grupo");
-    if (session?.accountId !== accountId || !isAdminView()) return false;
-    if (!response.ok || !payload.group) throw new Error(payload.error || "No se pudo guardar el grupo interno");
-    state.campusGroups = state.campusGroups.map((group) => group.id === draft.id ? normalizeCampusGroup(payload.group) : group);
-    clearCampusDraft(draft.id, session?.accountId);
-    for (const key of Object.keys(campusGroupAttachmentDrafts)) {
-      if (key.startsWith(`${draft.id}::`)) delete campusGroupAttachmentDrafts[key];
+    if (session?.accountId !== accountId || epoch !== campusGroupSessionEpoch || !isAdminView()) return false;
+    if (response.status !== 200 || !response.ok || payload.group?.id !== draft.id) throw new Error(payload.error || "No se pudo guardar el grupo interno");
+    const current = loadCampusDraft(draft.id) || state.campusGroups.find(group => group.id === draft.id);
+    const changedDuringSave = JSON.stringify(current) !== sentDraft;
+    const saved = normalizeCampusGroup(payload.group);
+    for (const [key, file] of sentFiles) {
+      if (campusGroupAttachmentDrafts[key] === file) delete campusGroupAttachmentDrafts[key];
     }
-    syncStatus = "Grupo interno guardado";
-    showToast(syncStatus, "success");
+    if (changedDuringSave) {
+      // A later FileReader/edit is not part of this acknowledgement. Keep it and advance only the revision.
+      current.contentRevision = saved.contentRevision;
+      for (const module of current.modules || []) {
+        const savedModule = saved.modules.find(item => item.id === module.id);
+        for (const category of ["documents", "practiceSheets", "videos", "links"]) {
+          for (const entry of module[category] || []) {
+            const key = getCampusGroupAttachmentDraftKey(draft.id, module.id, category, entry.id);
+            const savedEntry = savedModule?.[category]?.find(item => item.id === entry.id);
+            if (!campusGroupAttachmentDrafts[key] && savedEntry && entry.attachment?.contentBase64) {
+              entry.attachment = savedEntry.attachment;
+            }
+          }
+        }
+      }
+      saveCampusDraft(draft.id, current);
+    } else {
+      state.campusGroups = state.campusGroups.map(group => group.id === draft.id ? saved : group);
+      clearCampusDraft(draft.id, accountId);
+    }
+    syncStatus = hasPendingCampusAttachmentBytes(draft.id) ? "Archivo pendiente de guardar." : "Grupo interno guardado";
+    showToast(syncStatus, hasPendingCampusAttachmentBytes(draft.id) ? "info" : "success");
     return true;
   } catch (error) {
-    syncStatus = error.message || "No se pudo guardar el grupo interno";
+    if (epoch !== campusGroupSessionEpoch || session?.accountId !== accountId) return false;
+    syncStatus = `${error.message || "No se pudo guardar el grupo interno"}. ${hasPendingCampusAttachmentBytes(draft.id) ? "Archivo pendiente de guardar; conservado en esta pestaña. Pulsa Guardar grupo interno para reintentar." : "El borrador se conserva."}`;
     showToast(syncStatus, "error");
     return false;
   } finally {
-    campusGroupSaving = false;
-    render();
+    if (epoch === campusGroupSessionEpoch) {
+      campusGroupSaving = false;
+      render();
+      if (!campusGroupAutosaveRunning) void flushCampusGroupAutoSaves();
+    }
   }
 }
 
