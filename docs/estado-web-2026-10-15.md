@@ -5,6 +5,40 @@ Portal: `https://portal.isocronazero.org`.
 
 > Esta es la bitácora operativa vigente desde el 15/10/2026. Conserva `docs/estado-web-2026-10-09.md` como histórico. Antes de trabajar: leer este documento y revisar commits, PR, CI y comentarios posteriores.
 
+## Auditoría Railway — 15/10/2026, 21:12 Europe/Madrid
+
+Comprobación autenticada y de solo lectura en Railway. Esta evidencia sustituye las referencias de rutas pendientes de confirmar; NO acredita todavía supervivencia a un reinicio.
+
+### Producción y almacenamiento: PASS
+- Proyecto `zealous-warmth`, entorno `production`, servicio `isocrona-zero-campus-test`, dominio `portal.isocronazero.org`.
+- GitHub Actions App checks #430 SUCCESS sobre ese SHA (run 38789471290).
+- Servicio `88140fe1-79d1-425d-b54b-0a287ea9487e`; entorno `507ab4af-8eb7-42ad-bcca-e3e0dc5a575d`.
+- Despliegue activo `1ec54a54-e130-458e-a364-6f6025f1f2c9`, Railway Deployment successful. SHA confirmado además dentro del contenedor: `6cb7577fd9773da2a8dba41c2e9884407c56f472` (incluye #260 y #261).
+- Volume `eb7b0ddb-4ec4-4199-bc7f-1a0245d776f5`, `isocrona-zero-campus-test-volume`, 5 GB. Mount Path e `IZ_DATA_DIR` coinciden exactamente: `/var/data/isocrona-zero`.
+- La consola autenticada del contenedor confirma `RAILWAY_VOLUME_MOUNT_PATH` y un montaje real ext4 `rw` en esa ruta; no es solo una variable.
+- `campus.db`, `state.json`, `uploads/` y `backups/` existen, sus realpaths están dentro del Volume y comparten el dispositivo montado.
+- SQLite abierto con `readOnly:true`: `PRAGMA quick_check` devuelve `ok`; la fila `app_state/campus_state` existe y su contenido coincide byte a byte con `state.json`.
+- Recuentos de referencia: 153 associates, 7 members, 3 courses y 5 campusGroups. Son entidades distintas; no confundir 7 members con el censo de 153 socios.
+- Estado leído a las 19:12:00 UTC, actualizado a las 19:09:50 UTC, 6.577.428 bytes; SHA-256 `c397a698c29481d791d8ea52a0d75c33b56ce045a32d5428bc06c623518ec557`.
+- `/healthz` dentro del contenedor: HTTP 200, `status: ok`.
+
+### Copias: pendiente externo
+- Hay 30 snapshots automáticos dentro del mismo Volume. NO son una copia externa ni una copia completa de SQLite/uploads.
+- Railway Backups muestra explícitamente `No Backups`. La opción de crear nuevas copias desde ese panel requiere Pro; no se ha contratado ni cambiado ningún plan.
+- No se ha descargado ni publicado información personal, credenciales ni backups reales.
+
+### Prueba final pendiente
+1. Obtener una copia externa privada y coherente de estado/SQLite/uploads; comprobar inventario, hashes y recuperabilidad aislada, sin conectar SMTP ni credenciales productivas.
+2. Registrar baseline fresco y usar un único adjunto sintético identificado, sin tocar socios, cursos, cuotas, diplomas ni correo.
+3. Recuperarlo y comprobar su hash antes del reinicio.
+4. Reiniciar solamente este servicio, con autorización específica de Carlos y avisando de la breve interrupción y posible necesidad de volver a iniciar sesión.
+5. Repetir salud/SHA/rutas, recuperar el mismo archivo y comparar hash y baseline de socios/cursos.
+6. Cerrar #259 únicamente con resultado completo. El piloto y #248 siguen fuera de esta intervención.
+
+### Límite de esta sesión
+No se han cambiado variables, Volume, datos de aplicación, SMTP ni ejecutado restart/redeploy. La conexión a consola solo se ha usado para consultas de filesystem, SQLite de solo lectura y salud.
+La documentación se prepara en una rama separada: escribir en `main` dispararía un despliegue automático de Railway y todavía no hay autorización específica para reiniciar. No fusionar este handoff por inercia.
+
 ## 1. Base integrada
 
 Base funcional revisada antes de #259: `44bc5e4bf9424ee0faf8986ebdea345106f359c1` — #247/#258, instructores asociados y selección dinámica, integrado.

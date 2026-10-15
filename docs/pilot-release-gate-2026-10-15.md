@@ -26,23 +26,27 @@ Objetivo: decidir con evidencia si el Campus puede abrirse a un primer grupo de 
 
 Bloqueante para socios reales.
 
-- [ ] Servicio productivo y entorno correctos identificados.
-- [ ] `IZ_DATA_DIR` no vacío.
-- [ ] `IZ_DATA_DIR` apunta dentro de un Railway Volume persistente.
-- [ ] Evidencia autenticada de almacenamiento confirma DB/app_state/uploads dentro del volumen.
+- [x] Servicio productivo y entorno correctos identificados.
+- [x] `IZ_DATA_DIR` no vacío.
+- [x] `IZ_DATA_DIR` apunta dentro de un Railway Volume persistente.
+- [x] Evidencia autenticada de almacenamiento confirma DB/app_state/uploads dentro del volumen.
 - [ ] Backup externo recuperable realizado antes de operaciones reales.
 - [ ] Archivo sintético subido y recuperable antes del reinicio/redeploy.
 - [ ] Restart/redeploy solo tras autorización expresa.
 - [ ] El mismo archivo sintético sigue disponible después del restart/redeploy.
 - [ ] Estado de socios/cursos no cambia tras la prueba.
 
-Referencias conocidas previas, pendientes de reconfirmar en vivo:
-- servicio productivo documentado: `zealous-warmth / isocrona-zero-campus-test`;
-- portal: `https://portal.isocronazero.org`;
-- una auditoría anterior registró persistencia en `/var/data/isocrona-zero`;
-- documentación antigua de Railway usa `/data/isocrona-zero` como ejemplo.
+Evidencia autenticada 15/10, 21:12 Europe/Madrid:
+- `zealous-warmth / production / isocrona-zero-campus-test`, dominio `https://portal.isocronazero.org`.
+- SHA activo `6cb7577fd9773da2a8dba41c2e9884407c56f472`; despliegue `1ec54a54-e130-458e-a364-6f6025f1f2c9`.
+- Mount Path del Volume e `IZ_DATA_DIR`: `/var/data/isocrona-zero`. Montaje real ext4 rw confirmado desde el contenedor.
+- SQLite, snapshot, uploads y backups resuelven dentro del mismo montaje. `quick_check=ok`, snapshot idéntico a app_state, salud HTTP 200.
+- Baseline orientativo: 153 socios, 7 members, 3 cursos y 5 grupos internos.
+- 30 snapshots locales; Railway Backups muestra `No Backups`. Copia externa y restauración todavía NO verificadas.
 
-No asumir ninguna de esas rutas sin comprobar la configuración real de Railway.
+**Gate B: PARCIAL.** No cerrar #259 ni abrir piloto. Falta copia externa privada y prueba de adjunto antes/después de reinicio autorizado. Ver bitácora del 15/10 para evidencia y secuencia.
+
+Handoff en rama separada: fusionar documentación en main dispara autodeploy; no hacerlo sin autorización específica.
 
 Si cualquiera de estas comprobaciones falla: NO abrir piloto; #259 permanece P1 de release.
 
@@ -50,7 +54,7 @@ Si cualquiera de estas comprobaciones falla: NO abrir piloto; #259 permanece P1 
 
 Registrar PASS / FAIL reproducible / BLOQUEADO / NO APLICA.
 
-- [ ] `/healthz` correcto y SHA desplegado conocido.
+- [x] `/healthz` correcto y SHA desplegado conocido (15/10 21:12, SHA 6cb7577; no acredita el resto de Gate C).
 - [ ] Login/logout admin.
 - [ ] Login/logout socio de prueba.
 - [ ] Modo socio desde administración y permisos visibles correctos.
