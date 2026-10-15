@@ -64,26 +64,20 @@ Aunque #260 esté lista funcionalmente, #259 NO debe darse por cerrada y NO debe
 
 No reiniciar/redesplegar producción sin autorización explícita. Si no existe Volume persistente, tratar como P1 de release.
 
-## 3. #245 — asistencia y certificación presencial — SIGUIENTE FUNCIONAL
+## 3. #245 — asistencia y certificacion presencial — PR #261
 
-Pretrabajo en rama `chatgpt/245-attendance-certification`.
-Commits de preparación conocidos: `48125e0` y `3952f95`.
+- Implementacion completa en [PR #261](https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/261), rama `codex/course-attendance-certification-245` desde main719674c. Codigo `c18cc9b67b1a1d1569a0f9d0ecefb206f31bd721`. Sin merge, despliegue ni cambios productivos; #260 permanece independiente.
+- Contrato definitivo: Asistio=100/Apto; No asistio=0/No apto. /close valida sin autoaprobar ni completar contenido; respeta blockers y conserva diplomas ya emitidos. Admin o instructor con associateId asignado (incluidas asignaciones historicas); waiting y alumnos ajenos excluidos.
+- GET academico minimo sobre el recurso existente, sin ampliar /api/state. Misma seccion operativa/workbench: acciones rapidas, controles avanzados y cierre individual/bulk; instructor entra desde Cursos que imparto. Roster solo en memoria y vinculado a la sesion.
+- Escritura academica sin awaits tras releer permisos/inscritos. No llama al motor global/SMTP dentro de la peticion: entrega manual/programada existente. Repetir marcado/cierre no duplica actividad, diplomas ni outbox.
+- Dos P1 de review reproducidos y corregidos: navegador conservaba curso obsoleto; POST /api/state reconstruido perdia el baseline durante body lento. Ahora el admin incorpora el curso confirmado y refresca sin reenviar; el coordinador reconcilia antes de automatizar y protege el guardado posterior. Regresiones red/green, incluido refresco fallido, body HTTP lento y await posterior. Ambos threads resueltos con CI verde.
+- Dos findings posteriores (P1/P2) corregidos en8570ace: SMTP revalida sincronamente tras354 y antes de transmitir DATA, sin bloqueos globales; el admin conserva tambien activityLog confirmado antes de refrescar. Regresiones deterministas red/green: corregir a No apto durante negociacion cancela el mensaje; corregir despues del compromiso conserva el diploma ya emitido sin reenvio; fallo de refreshState seguido de dos POST /api/state conserva el evento exactamente una vez. SMTP exclusivamente local.
+- Regresion derivada corregida en c18cc9b: tipo explicito de diploma/recordatorio y compatibilidad con diplomas legacy. Recordatorios de valoracion manuales y automaticos se envian aunque falte la valoracion; no se consideran entregas de diploma. Regresion SMTP local red/green. Cinco threads del ciclo resueltos con tests/CI verdes.
+- Archivos: server.js, server/onboarding-state.js, smtp.js, public/app.js, public/styles.css, scripts/check-course-academic.mjs y esta bitacora. Sin suite paralela.
+- Validacion en codigo c18cc9b: check-course-academic y check:app completos Node22.23.3 PASS; smoke:campus-test14 PASS; git diff --check PASS. Edge390/1440 admin/asignado/ajeno/alumno PASS, cierres efectivos admin/instructor, waiting sin controles, sin overflow bloqueante ni errores JS. App checks #425 SUCCESS (38755124944). Question-bank LF solo local por harness Windows, excluido.
+- Revision final de c18cc9b completada sin problemas importantes (comentario6195053804); cero P1/P2 abiertos. Preparada tecnicamente para merge, pendiente decision expresa de Carlos y CI del ultimo commit documental (consultar PR para HEAD/resultado final). No fusionar ni iniciar #248/piloto por inercia.
+- Pendiente: QA productiva requiere autorizacion y gate #259/Volume. Un diploma emitido no se revoca al corregir asistencia. No datos reales, SMTP productivo, onboarding, variables ni restart/redeploy utilizados.
 
-Hallazgo clave: la aplicación YA dispone de bloque `Asistencia y certificación`, controles individuales/masivos y endpoints académicos. No crear un segundo sistema.
-
-Implementación mínima:
-- backend: permitir gestión académica a admin o instructor asignado mediante `account.associateId ∈ course.instructorAssociateIds`;
-- aplicar a PATCH académico individual, PATCH académico masivo, cierre individual y cierre masivo;
-- instructor asignado solo su curso; no asignado 403; alumno 403 incluso sobre sí mismo; espera nunca modificable;
-- frontend: sustituir solo en acciones académicas el guard exclusivo de admin por `canManageCourseAcademic(course)`;
-- acciones rápidas móvil: `Asistió` => 100% + Apto; `No asistió` => 0% + No apto;
-- conservar controles avanzados para cursos con requisitos adicionales;
-- cierre reutiliza blockers existentes; no escribir `diplomaReady` directamente desde UI;
-- acciones repetidas/cierre deben ser idempotentes.
-
-Extender `scripts/check-course-academic.mjs`; no crear suite paralela. Validar `npm run check:app`, `npm run smoke:campus-test`, `git diff --check`, móvil 390 y escritorio 1440. Un PR, sin merge automático, sin datos reales, sin Railway.
-
-#245 no bloquea un piloto pequeño si #259/infraestructura y QA de onboarding están validados, pero sí conviene cerrarla antes de operar jornadas reales de forma completa.
 
 ## 4. #248 — histórico de jornadas y prioridad
 
