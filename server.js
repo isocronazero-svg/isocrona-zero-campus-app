@@ -9039,7 +9039,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         : "Cierre academico validado";
       return sendJson(res, 200, {
         ...buildCourseAcademicRoster(state, course), message,
-        ...(account.role === "admin" ? { course } : {}),
+        ...(account.role === "admin" ? { course, activityLog: state.activityLog } : {}),
         memberId: memberId || undefined, changes, blocked, blockers: [],
         updatedMemberIds: ids, generated: memberId ? (course.diplomaReady || []).includes(memberId) : undefined,
         generatedCount: (course.diplomaReady || []).length, summary: null
@@ -15343,6 +15343,7 @@ async function deliverEmailRecord(state, email) {
   }
   if (welcome && welcomeDeliveriesInFlight.has(email.associateId)) throw new Error("Bienvenida en curso");
   if (welcome) welcomeDeliveriesInFlight.add(email.associateId);
+  const diploma = !email.kind && email.courseId && email.memberId;
 
   email.transport = "smtp";
   email.attemptCount = Number(email.attemptCount || 0) + 1;
@@ -15368,7 +15369,19 @@ async function deliverEmailRecord(state, email) {
       fromName: smtp.fromName,
       to: email.to,
       subject: email.subject,
-      text: body
+      text: body,
+      beforeData: diploma ? () => {
+        // SMTP negotiation may await IO. Reconcile immediately before sending message bytes.
+        reconcileState(state, state);
+        const course = (state.courses || []).find(item => item.id === email.courseId);
+        if (!course || !(course.enrolledIds || []).includes(email.memberId) ||
+            (course.waitingIds || []).includes(email.memberId) ||
+            getCourseMemberDiplomaBlockers(state, course, email.memberId).length) {
+          throw new Error("Entrega cancelada: el alumno ya no cumple los requisitos del diploma");
+        }
+        // After this synchronous boundary it is an issued diploma, even if the SMTP acknowledgement is lost.
+        email.diplomaCommittedAt = new Date().toISOString();
+      } : undefined
     });
 
     email.status = "sent";

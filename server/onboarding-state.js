@@ -36,8 +36,10 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
         else delete course[field][id];
       }
     }
+    const committed = new Set((state.emailOutbox || []).filter(email =>
+      email.courseId === course.id && email.diplomaCommittedAt).map(email => email.memberId));
     course.diplomaReady = [...new Set([...(latest.diplomaReady || []),
-      ...(course.diplomaReady || []).filter(id => !changedGrades.has(id))])];
+      ...(course.diplomaReady || []).filter(id => !changedGrades.has(id) || committed.has(id))])];
   }
   if (baseline && JSON.stringify(baseline.smtp) !== JSON.stringify(current.smtp)) {
     state.settings = { ...(state.settings || {}), smtp: structuredClone(current.smtp) };

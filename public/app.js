@@ -11025,7 +11025,10 @@ async function invokeCourseAcademicAction(courseId, memberId, changes = null) {
     // Keep roster data outside /api/state. A confirmed mutation is never resubmitted by a refresh.
     academicRoster = { ...payload, accountId: session.accountId };
     // Retain the authoritative admin course even if the subsequent refresh cannot reach the server.
-    if (identity.role === "admin" && payload.course?.id === courseId) Object.assign(course, payload.course);
+    if (identity.role === "admin" && payload.course?.id === courseId) {
+      Object.assign(course, payload.course);
+      if (Array.isArray(payload.activityLog)) state.activityLog = payload.activityLog;
+    }
     await refreshState();
     if (session !== identity) return;
     applySessionToState();

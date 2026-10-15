@@ -50,11 +50,11 @@ for (const refreshFails of [false, true]) {
   let requests = 0, refreshes = 0;
   const updatedCourse = { id: "qa", attendance: { pupil: 100 }, evaluations: { pupil: "Apto" }, diplomaReady: [] };
   const context = vm.createContext({
-    state: { courses: [{ id: "qa", attendance: { pupil: 0 } }] }, session: { role: "admin", accountId: "admin" },
+    state: { courses: [{ id: "qa", attendance: { pupil: 0 } }], activityLog: [] }, session: { role: "admin", accountId: "admin" },
     academicBusy: false, academicRoster: null, syncStatus: "", canManageCourseAcademic: () => true,
     render() {}, showToast() {}, applySessionToState() {},
     fetch: async () => { requests++; return { ok: true }; },
-    readJsonResponse: async () => ({ ok: true, course: updatedCourse, students: [] }),
+    readJsonResponse: async () => ({ ok: true, course: updatedCourse, students: [], activityLog: [{ id: "confirmed-academic" }] }),
     refreshState: async () => { refreshes++; if (refreshFails) throw new Error("offline"); }
   });
   vm.runInContext(academicActionSource, context);
@@ -193,6 +193,7 @@ function startServer(port, baseUrl) {
     cwd: repoRoot,
     env: {
       ...process.env,
+      ...Object.fromEntries(Object.keys(process.env).filter(key => key.startsWith("SMTP_")).map(key => [key, ""])),
       ...(nodeModulesPath ? { NODE_PATH: nodeModulesPath } : {}),
       NODE_ENV: "test",
       HOST: "127.0.0.1",
@@ -379,8 +380,112 @@ async function checkInstructorAcademic(admin, member, anonymous, baseUrl) {
   await admin.request("PATCH",path+"/members/member-1/academic",{attendance:0,evaluation:"No apto"});
   assert.equal((await admin.request("POST",path+"/members/member-1/close",undefined,true)).status,400);
   assert.ok(findCourse((await admin.request("GET","/api/state")).body,"course-attendance").diplomaReady.includes("member-1"));
+
+  // Run the real UI action against the test server, then save its fallback state after a failed refresh.
+  const browserState = (await admin.request("GET", "/api/state")).body;
+  const oldLogIds = new Set(browserState.activityLog.map(item => item.id));
+  let mutations = 0;
+  const browser = vm.createContext({
+    state: browserState, session: { role: "admin", accountId: "account-1" }, academicBusy: false,
+    academicRoster: null, syncStatus: "", canManageCourseAcademic: () => true,
+    render() {}, showToast() {}, applySessionToState() {},
+    fetch: async (url, options) => {
+      mutations++;
+      const result = await admin.request(options.method, url, JSON.parse(options.body));
+      return { ok: true, payload: result.body };
+    },
+    readJsonResponse: async response => response.payload,
+    refreshState: async () => { throw new Error("Offline after confirmed save"); }
+  });
+  vm.runInContext(academicActionSource, browser);
+  await browser.invokeCourseAcademicAction("course-attendance", "member-1", { attendance: 75, evaluation: "Pendiente" });
+  const confirmed = (await admin.request("GET", "/api/state")).body;
+  const newEntries = confirmed.activityLog.filter(item => !oldLogIds.has(item.id));
+  assert.equal(newEntries.length, 1);
+  await admin.request("POST", "/api/state", browser.state);
+  await admin.request("POST", "/api/state", browser.state);
+  const saved = (await admin.request("GET", "/api/state")).body;
+  assert.equal(saved.activityLog.filter(item => item.id === newEntries[0].id).length, 1, "Confirmed academic activity survives later state saves exactly once");
+  assert.equal(findCourse(saved, "course-attendance").attendance["member-1"], 75);
+  assert.equal(mutations, 1);
 }
 
+
+async function checkAcademicDeliveryRace(admin, baseUrl) {
+  let release, reachedData, reachedMessage, messages = 0, holdAcknowledgement = false;
+  let dataReceived = new Promise(resolve => { reachedData = resolve; });
+  const messageReceived = new Promise(resolve => { reachedMessage = resolve; });
+  const smtp = net.createServer(socket => {
+    socket.setEncoding("utf8"); socket.write("220 localhost QA\r\n");
+    let buffer = "", data = false;
+    socket.on("data", chunk => {
+      buffer += chunk;
+      while (buffer.includes("\r\n")) {
+        const end = buffer.indexOf("\r\n"), line = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+        if (data) {
+          if (line === ".") {
+            data = false; messages++;
+            if (holdAcknowledgement) { release = () => socket.write("250 queued\r\n"); reachedMessage(); }
+            else socket.write("250 queued\r\n");
+          }
+          continue;
+        }
+        if (line.startsWith("EHLO")) socket.write("250 localhost\r\n");
+        else if (line === "DATA") { data = true; release = () => socket.write("354 send data\r\n"); reachedData(); }
+        else if (line === "QUIT") socket.end("221 bye\r\n");
+        else socket.write("250 OK\r\n");
+      }
+    });
+  });
+  await new Promise(resolve => smtp.listen(0, "127.0.0.1", resolve));
+  let pending;
+  try {
+    const state = (await admin.request("GET", "/api/state")).body;
+    const course = findCourse(state, "course-attendance");
+    state.courses = [course]; state.emailOutbox = [];
+    Object.assign(course, { id: "course-delivery-race", status: "Cerrado", startDate: "2020-01-01", endDate: "2020-01-02", enrolledIds: ["member-1"],
+      waitingIds: [], attendance: { "member-1": 100 }, evaluations: { "member-1": "Apto" }, diplomaReady: [] });
+    state.settings.smtp = { host: "127.0.0.1", port: smtp.address().port, secure: false, startTls: false,
+      username: "", password: "", fromEmail: "qa@example.test" };
+    state.settings.automation = { autoRunOnSave: false, autoGenerateDiplomas: true, autoSendDiplomas: true,
+      autoPromoteWaitlist: false, autoAdvanceCourseStatus: false, autoSendFeeReminders: false, autoSendFeedbackReminders: false };
+    state.settings.agent = { ...(state.settings.agent || {}), enabled: false };
+    await admin.request("POST", "/api/state", state);
+    pending = admin.request("POST", "/api/automation/run", {});
+    await Promise.race([dataReceived, delay(10000, undefined, { ref: false }).then(() => { throw new Error("Local SMTP not reached"); })]);
+    const endpoint = "/api/courses/" + course.id + "/members/member-1/academic";
+    const correction = await admin.request("PATCH", endpoint, { attendance: 0, evaluation: "No apto" }, true);
+    assert.equal(correction.status, 200, "Academic correction remains available during SMTP negotiation");
+    release(); release = null; await pending; pending = null;
+    const final = (await admin.request("GET", "/api/state")).body;
+    assert.equal(findCourse(final, course.id).evaluations["member-1"], "No apto");
+    assert.ok(!findCourse(final, course.id).diplomaReady.includes("member-1"), "Ineligible participant has no newly issued diploma");
+    assert.equal(messages, 0, "No message bytes are delivered after the concurrent correction");
+    assert.equal(final.emailOutbox.filter(item => item.courseId === course.id && item.status === "sent").length, 0);
+    assert.match(final.emailOutbox.find(item => item.courseId === course.id).deliveryError, /ya no cumple/);
+
+    // Once bytes have been transmitted while eligible, a later correction cannot revoke that issuance.
+    await admin.request("PATCH", endpoint, { attendance: 100, evaluation: "Apto" });
+    dataReceived = new Promise(resolve => { reachedData = resolve; });
+    holdAcknowledgement = true;
+    pending = admin.request("POST", "/api/automation/run", {});
+    await Promise.race([dataReceived, delay(10000, undefined, { ref: false }).then(() => { throw new Error("Second SMTP negotiation not reached"); })]);
+    release(); release = null;
+    await Promise.race([messageReceived, delay(10000, undefined, { ref: false }).then(() => { throw new Error("Eligible message not received"); })]);
+    await admin.request("PATCH", endpoint, { attendance: 0, evaluation: "No apto" });
+    release(); release = null; await pending; pending = null;
+    await admin.request("POST", "/api/automation/run", {});
+    const issued = (await admin.request("GET", "/api/state")).body;
+    assert.equal(findCourse(issued, course.id).evaluations["member-1"], "No apto");
+    assert.ok(findCourse(issued, course.id).diplomaReady.includes("member-1"));
+    assert.equal(messages, 1, "Repeated automation must not resend the issued diploma");
+    assert.equal(issued.emailOutbox.filter(item => item.courseId === course.id && item.status === "sent").length, 1);
+  } finally {
+    release?.();
+    if (pending) await pending;
+    await new Promise(resolve => smtp.close(resolve));
+  }
+}
 
 async function main() {
   mkdirSync(tempDataDir, { recursive: true });
@@ -754,6 +859,7 @@ async function main() {
     assert.equal(findCourse(state, "course-2").title, "Curso editado por endpoint");
     assert.ok(findCourse(state, "course-2").diplomaReady.includes("member-3"));
     assert.equal(findCourse(state, "course-managed").title, "Curso creado por endpoint");
+    await checkAcademicDeliveryRace(restartedAdmin, baseUrl);
   } finally {
     await stopServer(server);
     rmSync(tempRoot, { recursive: true, force: true });

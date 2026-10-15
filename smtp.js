@@ -54,6 +54,8 @@ class SmtpClient {
     await this.command("DATA", [354]);
 
     const rawMessage = buildRawMessage(message);
+    // Synchronous final validation: no await between this callback and the irreversible DATA write.
+    message.beforeData?.();
     this.socket.write(`${rawMessage}\r\n.\r\n`);
     const response = await this.expectResponse([250]);
 
