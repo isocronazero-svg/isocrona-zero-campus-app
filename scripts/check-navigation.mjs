@@ -83,6 +83,7 @@ for (const success of [true, false]) {
     state: { activeView: "overview", selectedMemberId: "another-member" },
     viewRole: "admin",
     roleSwitcher: { disabled: false },
+    campusGroupPendingUploads: 0, campusGroupSaving: false, hasPendingCampusAttachmentBytes: () => false,
     isAdminSession: () => true,
     isAdminView: () => context.viewRole === "admin",
     persistSession: () => {},
@@ -104,6 +105,12 @@ for (const success of [true, false]) {
   assert.equal(context.session.role, "admin");
   assert.equal(context.viewRole, success ? "member-self" : "admin");
   assert.equal(context.roleSwitcher.disabled, false);
+  context.viewRole = "admin";
+  context.hasPendingCampusAttachmentBytes = () => true;
+  context.fetch = () => { throw new Error("Pending attachment must block the mode switch"); };
+  await vm.runInNewContext(app.slice(switchStart, switchEnd) + '\nchangeViewRole("member-self");', context);
+  assert.equal(context.viewRole, "admin");
+  assert.equal(context.roleSwitcher.value, "admin");
 }
 for (const view of ["overview", "test", "join"]) {
   assert.ok(memberButtons.some((tag) => tag.includes(`data-view="${view}"`) && tag.includes('data-action="nav"')));

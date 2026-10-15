@@ -9,7 +9,7 @@ Portal: `https://portal.isocronazero.org`.
 
 Base funcional revisada antes de #259: `44bc5e4bf9424ee0faf8986ebdea345106f359c1` — #247/#258, instructores asociados y selección dinámica, integrado.
 
-Desde esa base, `main` contiene además esta bitácora documental. Por ello PR #260 puede aparecer temporalmente detrás/divergida de `main`; la diferencia conocida es documental y no debe resolverse forzando refs ni reescribiendo historia. Antes del merge funcional, incorporar/rebasar `main` de forma normal y repetir CI si GitHub lo exige.
+`main` documental `719674c` incorporado a #260 mediante merge normal `0ecb012666cc35c8f0b88d10a6c8cb593b983a4e`, sin conflictos ni force push. Sin cambios funcionales adicionales: el codigo coincide con `3917716`. Esta sincronizacion NO fusiona la PR en main.
 
 Integrado previamente:
 - #241: corrección de apertura de inscripción por zona horaria; código terminado, QA manual productiva pendiente.
@@ -22,9 +22,11 @@ No confundir CI verde con producción validada.
 
 ## 2. #259 — persistencia de archivos y almacenamiento — PRIORIDAD DE RELEASE
 
-PR funcional abierta: **#260**.
+PR **#260 integrada** mediante merge normal `cd933d5ad448a054843e1188d0643e81b85c4d89`, autorizado por Carlos. HEAD integrado `4050732343a3e773759feae0fda7cf28f8bdf83b`; App checks #421 SUCCESS y CI de main #427 SUCCESS. #259 permanece abierta: persistencia productiva sin verificar.
 HEAD funcional revisado: `3917716da688f892512cfee430e92c3d6aa3756e`.
 App checks #416 sobre ese HEAD: **SUCCESS**.
+
+Sincronizacion final validada: `0ecb012666cc35c8f0b88d10a6c8cb593b983a4e`; [App checks #420 SUCCESS](https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/38743343295). `npm run check:app` Node22.23.3, `npm run smoke:campus-test` (14 rutas), `git diff --check` y QA Edge390/1440 repetidos: PASS. Sin nuevos P1/P2 ni threads abiertos; READY FOR MERGE tecnico, pendiente decision humana. Este ultimo cambio es solo documental; comprobar tambien su CI antes de fusionar. Normalizacion LF de question-bank.js solo local por harness Windows, fuera del PR.
 
 Cambios revisados en:
 - `public/app.js`;
@@ -52,7 +54,7 @@ Review #260:
 - revisión final de `3917716`: no se identificó un nuevo P1/P2 bloqueante;
 - GitHub no permite que la misma cuenta apruebe formalmente su propia PR; revisión final documentada en la conversación de #260.
 
-**No fusionar #260 sin autorización explícita de Carlos.**
+La autorizacion de merge no incluye operaciones sobre Railway ni QA con datos reales.
 
 ### Bloqueo de infraestructura antes del piloto
 
@@ -107,13 +109,11 @@ No es necesario esperar a #248 para el piloto. #245 tampoco bloquea el acceso in
 
 ## 7. Orden de trabajo vigente
 
-1. Mantener #260 sin merge hasta autorización; antes del merge sincronizar su rama con `main` de forma normal y repetir CI si corresponde.
-2. Verificar Railway en modo lectura cuando exista acceso/conector; no cambiar configuración.
-3. Avanzar #245 en su rama y preparar implementación/PR.
-4. Tras autorización, merge #260 y verificar deploy/Volume/persistencia.
-5. Ejecutar QA productiva mínima y abrir piloto 5–10 socios si PASS.
-6. Completar #245 y después #248.
-7. Actualizar #227 y esta bitácora en cada cambio de estado relevante.
+1. #260 integrada en main; #259 sigue abierta por el gate productivo de persistencia.
+2. Integrar main en #261 mediante merge normal, conservando ambos cambios. Carlos autoriza resolver conflictos y fusionar #261 solo tras tests, CI y revision P1/P2 verdes.
+3. Conflicto de public/app.js: conservar tanto academicRoster/academicBusy como el estado de autoguardado de grupos y beforeunload. Conflicto documental resuelto conservando ambos historiales.
+4. Validacion local de la combinacion: check:app completo, check-course-academic, smoke:campus-test (14 rutas) y git diff --check PASS con Node22.23.3. QA Edge390/1440 admin/instructor asignado/ajeno/socio PASS, sin errores JS ni overflow. Comparacion mecanica de app.js contra ambos padres: mismas lineas funcionales de ambas PR, un solo beforeunload; backend academico y storage identicos a sus respectivos padres. Sin nuevos P1/P2. CI del commit de sincronizacion pendiente; no confundir esta sincronizacion con el merge de #261.
+5. Despues, detenerse: no iniciar #248 ni operaciones productivas. El siguiente gate V1 es verificar Volume/IZ_DATA_DIR y persistencia, con autorizacion especifica; despues QA/piloto autorizado.
 
 ## 8. Reglas de continuidad
 
@@ -128,4 +128,4 @@ No hacer sin autorización explícita:
 
 Sí continuar de forma autónoma con: auditoría, tests, documentación, comentarios/issues, ramas de preparación, revisión P1/P2 y handoffs de Codex.
 
-Última actualización: 15/10/2026, después de CI #416 verde, resolución de los cuatro threads P1/P2 de PR #260 y creación de la bitácora vigente.
+Última actualización: 15/10/2026, #260 integrada y CI de main verde. Conflictos de #261 con main cd933d5 resueltos conservando ambos cambios, tests/QA locales PASS. Pendiente CI remoto y merge autorizado condicionado a verde. Sin operaciones productivas. #259 permanece abierta.

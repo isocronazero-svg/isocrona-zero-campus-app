@@ -6,10 +6,10 @@ Objetivo: decidir con evidencia si el Campus puede abrirse a un primer grupo de 
 
 ## Gate A — código
 
-- [ ] PR #260 sincronizada con `main` sin reescritura forzada.
-- [ ] `npm run check:app` verde sobre el HEAD final.
-- [ ] `npm run smoke:campus-test` verde sobre el HEAD final.
-- [ ] Sin findings P1/P2 abiertos en #260.
+- [x] PR #260 sincronizada con `main` sin reescritura forzada (main719674c, merge0ecb012, sin conflictos).
+- [x] `npm run check:app` verde sobre HEAD0ecb012; cambio posterior solo documental, validar su CI.
+- [x] `npm run smoke:campus-test` verde sobre HEAD0ecb012, 14 rutas sinteticas.
+- [x] Sin findings P1/P2 abiertos en #260 (4 corregidos/resueltos, review3917716 limpia; codigo identico tras sync, CI420 SUCCESS).
 - [ ] Merge de #260 expresamente autorizado.
 - [ ] SHA integrado identificado y registrado.
 
