@@ -5214,3 +5214,13 @@ input[type="file"][name="attachments"] { width: 100%; min-width: 0; box-sizing: 
 .instructor-selection li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .instructor-selection small { display: block; }
 .instructor-selector button { min-height: 44px; flex-shrink: 0; }
+/* Course-scoped academic controls share the existing course workbench. */
+.academic-panel { min-width: 0; scroll-margin-top: 80px; }
+.academic-students { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 12px; margin: 16px 0; }
+.academic-student { min-width: 0; padding: 14px; border: 1px solid #d6dadd; border-radius: 6px; background: #fff; }
+.academic-student h4, .academic-student p, .academic-assigned button { overflow-wrap: anywhere; }
+.academic-student details { margin-top: 12px; }
+.academic-advanced { display: grid; gap: 8px; margin-top: 10px; }
+.academic-advanced label { display: grid; gap: 4px; }
+.academic-advanced input, .academic-advanced select { width: 100%; min-width: 0; box-sizing: border-box; }
+.academic-assigned { margin-bottom: 20px; min-width: 0; }

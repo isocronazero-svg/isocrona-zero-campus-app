@@ -7,9 +7,69 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import http from "node:http";
+import vm from "node:vm";
+
+const { createOnboardingStateAccess } = createRequire(import.meta.url)("../server/onboarding-state.js");
+let stored = { courses: [{ id: "qa", attendance: { pupil: 100 }, evaluations: { pupil: "Apto" }, diplomaReady: [] }] };
+const access = createOnboardingStateAccess({ readState: () => structuredClone(stored), writeState: state => { stored = structuredClone(state); } });
+const staleAutomation = access.readState();
+const corrected = access.readState();
+corrected.courses[0].attendance.pupil = 0;
+corrected.courses[0].evaluations.pupil = "No apto";
+access.writeState(corrected);
+staleAutomation.courses[0].diplomaReady = ["pupil", "unchanged-pupil"];
+access.writeState(staleAutomation);
+assert.equal(stored.courses[0].evaluations.pupil, "No apto");
+assert.deepEqual(stored.courses[0].diplomaReady, ["unchanged-pupil"], "Reject stale grades without losing unrelated valid issuance");
+const beforeClosure = access.readState();
+const closure = access.readState();
+closure.courses[0].attendance.pupil = 100;
+closure.courses[0].evaluations.pupil = "Apto";
+closure.courses[0].diplomaReady = ["unchanged-pupil", "pupil"];
+access.writeState(closure);
+access.writeState(beforeClosure);
+assert.deepEqual(stored.courses[0].diplomaReady, ["unchanged-pupil", "pupil"], "A stale writer cannot lose a confirmed closure");
+const reconstructedBaseline = access.readState();
+const reconstructed = structuredClone(reconstructedBaseline);
+access.reconcileState(reconstructed, reconstructedBaseline);
+const laterCorrection = access.readState();
+laterCorrection.courses[0].attendance.pupil = 0;
+laterCorrection.courses[0].evaluations.pupil = "No apto";
+access.writeState(laterCorrection);
+access.writeState(reconstructed);
+assert.equal(stored.courses[0].evaluations.pupil, "No apto", "Reconstructed payload stays protected across later automation awaits");
+assert.ok(stored.courses[0].diplomaReady.includes("pupil"), "Previously issued diplomas remain valid");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+const serverSource = readFileSync(path.join(repoRoot, "server.js"), "utf8");
+const classifyDiploma = vm.runInNewContext("(" + serverSource.slice(serverSource.indexOf("function isCourseDiplomaEmail("), serverSource.indexOf("function hasSuccessfulSmtpDelivery(")) + ")");
+assert.equal(classifyDiploma({ kind: "course_diploma" }), true);
+assert.equal(classifyDiploma({ courseId: "qa", memberId: "pupil", subject: "Diploma emitido - QA" }), true);
+assert.equal(classifyDiploma({ courseId: "qa", memberId: "pupil", subject: "Valoracion final pendiente - QA" }), false);
+assert.equal(classifyDiploma({ kind: "course_feedback_reminder", courseId: "qa", memberId: "pupil" }), false);
+const appSource = readFileSync(path.join(repoRoot, "public/app.js"), "utf8");
+const academicActionSource = appSource.slice(appSource.indexOf("async function invokeCourseAcademicAction("), appSource.indexOf("function renderOperations("));
+for (const refreshFails of [false, true]) {
+  let requests = 0, refreshes = 0;
+  const updatedCourse = { id: "qa", attendance: { pupil: 100 }, evaluations: { pupil: "Apto" }, diplomaReady: [] };
+  const context = vm.createContext({
+    state: { courses: [{ id: "qa", attendance: { pupil: 0 } }], activityLog: [] }, session: { role: "admin", accountId: "admin" },
+    academicBusy: false, academicRoster: null, syncStatus: "", canManageCourseAcademic: () => true,
+    render() {}, showToast() {}, applySessionToState() {},
+    fetch: async () => { requests++; return { ok: true }; },
+    readJsonResponse: async () => ({ ok: true, course: updatedCourse, students: [], activityLog: [{ id: "confirmed-academic" }] }),
+    refreshState: async () => { refreshes++; if (refreshFails) throw new Error("offline"); }
+  });
+  vm.runInContext(academicActionSource, context);
+  await context.invokeCourseAcademicAction("qa", "pupil", { attendance: 100, evaluation: "Apto" });
+  assert.equal(context.state.courses[0].attendance.pupil, 100, "Confirmed grades survive a later whole-state save, even if refresh fails");
+  assert.equal(refreshes, 1);
+  assert.equal(requests, 1, "A failed refresh never resubmits the confirmed mutation");
+  assert.equal(context.academicBusy, false);
+}
 const bundledDefaultStatePath = path.join(repoRoot, "data", "default-state.json");
 const nodeModulesCandidates = [
   path.join(repoRoot, "node_modules"),
@@ -108,6 +168,16 @@ function buildSeedState() {
   const legacy = { ...untouchedCourse, id: "course-legacy-sessions", sessions: [{ title: "Sesion antigua", duration: 1 }] };
   delete legacy.modules;
   seed.courses.push(legacy);
+  for (const id of ["assigned", "unassigned"]) {
+    seed.associates.push({ ...seed.associates[0], id: "associate-" + id, firstName: id, lastName: "Instructor QA",
+      email: id + "@example.test", instructorEnabled: false, linkedMemberId: "member-" + id, annualAmount: 0 });
+    seed.members.push({ ...seed.members[0], id: "member-" + id, name: id + " Instructor QA", email: id + "@example.test", associateId: "associate-" + id });
+    seed.accounts.push({ id: "account-" + id, name: id + " Instructor QA", email: id + "@example.test",
+      role: "instructor", memberId: "member-" + id, associateId: "associate-" + id, password: passwords.member, passwordHash: "", status: "Activo" });
+  }
+  seed.courses.push({ ...untouchedCourse, id: "course-attendance", title: "Jornada QA presencial", modules: [], resources: [],
+    instructorAssociateIds: ["associate-assigned"], enrolledIds: ["member-1", "member-2"], waitingIds: ["member-3"],
+    attendance: {}, evaluations: {}, diplomaReady: [], contentProgress: {} });
   return seed;
 }
 
@@ -129,8 +199,13 @@ function startServer(port, baseUrl) {
     cwd: repoRoot,
     env: {
       ...process.env,
+      ...Object.fromEntries(Object.keys(process.env).filter(key => key.startsWith("SMTP_")).map(key => [key, ""])),
       ...(nodeModulesPath ? { NODE_PATH: nodeModulesPath } : {}),
       NODE_ENV: "test",
+      HOST: "127.0.0.1",
+      DATABASE_URL: "",
+      IZ_BOOTSTRAP_ADMIN_EMAIL: "",
+      IZ_BOOTSTRAP_ADMIN_PASSWORD: "",
       PORT: String(port),
       IZ_BASE_URL: baseUrl,
       IZ_DATA_DIR: tempDataDir,
@@ -172,6 +247,26 @@ async function waitForServer(baseUrl) {
 function createClient(baseUrl) {
   const cookies = new Map();
   return {
+    async slowStateSave(body, whileReading) {
+      const serialized = JSON.stringify(body);
+      const req = http.request(new URL("/api/state", baseUrl), { method: "POST", headers: {
+        "Content-Type": "application/json", "Content-Length": Buffer.byteLength(serialized),
+        Cookie: Array.from(cookies.entries()).map(([name, value]) => `${name}=${value}`).join("; ")
+      } });
+      const response = new Promise((resolve, reject) => {
+        req.on("error", reject);
+        req.on("response", res => {
+          let text = "";
+          res.on("data", chunk => { text += chunk; });
+          res.on("end", () => resolve({ status: res.statusCode, body: JSON.parse(text) }));
+          res.on("error", reject);
+        });
+      });
+      req.write(serialized.slice(0, 1));
+      await delay(150);
+      try { await whileReading(); } finally { req.end(serialized.slice(1)); }
+      return response;
+    },
     async request(method, requestPath, body, allowFailure = false) {
       const headers = { Accept: "application/json" };
       const cookieHeader = Array.from(cookies.entries()).map(([name, value]) => `${name}=${value}`).join("; ");
@@ -205,6 +300,223 @@ async function login(client, email, password) {
 
 function findCourse(state, courseId) {
   return (state.courses || []).find((course) => course.id === courseId);
+}
+
+async function checkInstructorAcademic(admin, member, anonymous, baseUrl) {
+  const assigned = createClient(baseUrl), unassigned = createClient(baseUrl);
+  await login(assigned, "assigned@example.test", passwords.member);
+  await login(unassigned, "unassigned@example.test", passwords.member);
+  const path = "/api/courses/course-attendance";
+  const operations = [["GET","/academic"],["PATCH","/academic"],["PATCH","/members/member-1/academic"],
+    ["POST","/members/member-1/close"],["POST","/close"]];
+  const changes = { attendance: 100, evaluation: "Apto" };
+  for (const [method,suffix] of operations) {
+    const body = method === "PATCH" ? changes : undefined;
+    assert.equal((await anonymous.request(method,path+suffix,body,true)).status,401);
+    for (const client of [unassigned,member]) assert.equal((await client.request(method,path+suffix,body,true)).status,403);
+    assert.equal((await assigned.request(method,"/api/courses/course-2"+suffix,body,true)).status,403);
+  }
+  const before = (await admin.request("GET","/api/state")).body;
+  const roster = (await assigned.request("GET",path+"/academic")).body;
+  assert.deepEqual(roster.students.map(s=>s.id),["member-1","member-2"]);
+  assert.equal(roster.waitingCount,1);
+  for(const student of roster.students) assert.deepEqual(Object.keys(student).sort(),
+    ["id","name","associateNumber","attendance","evaluation","diplomaReady","blockers"].sort());
+  assert.deepEqual(Object.keys(roster.course).sort(),["id","title"]);
+  for(const [method,suffix] of [["PATCH","/academic"],["POST","/close"]]) {
+    assert.equal((await assigned.request(method,path+"/members/member-3"+suffix,changes,true)).status,400);
+    assert.equal((await assigned.request(method,path+"/members/member-4"+suffix,changes,true)).status,400);
+  }
+  // No privilege widening through general editing, admin diplomas or state.
+  assert.equal((await assigned.request("PATCH",path,{title:"tampered"},true)).status,403);
+  assert.equal((await assigned.request("POST",path+"/diplomas/generate",undefined,true)).status,403);
+  assert.equal((await assigned.request("PATCH","/api/associates/associate-assigned",{firstName:"tampered"},true)).status,403);
+  const scoped = (await assigned.request("GET","/api/state")).body;
+  assert.ok(scoped.members.every(m=>m.id==="member-assigned"));
+  scoped.settings.associationName = "tampered";
+  scoped.courses.find(c=>c.id==="course-attendance").attendance = {"member-1":100};
+  await assigned.request("POST","/api/state",scoped);
+  const protectedState = (await admin.request("GET","/api/state")).body;
+  const otherCourse = structuredClone(findCourse(protectedState,"course-2"));
+  assert.equal(protectedState.settings.associationName,before.settings.associationName);
+  assert.equal(findCourse(protectedState,"course-attendance").attendance["member-1"],undefined);
+
+  const slowSave = await admin.slowStateSave(protectedState, async () => {
+    await assigned.request("PATCH",path+"/members/member-1/academic",changes);
+    await assigned.request("POST",path+"/members/member-1/close");
+  });
+  assert.equal(slowSave.status, 200);
+  const afterSlowSave = findCourse((await admin.request("GET","/api/state")).body,"course-attendance");
+  assert.equal(afterSlowSave.attendance["member-1"], 100, "Slow reconstructed state must preserve a concurrent instructor correction");
+  assert.equal(afterSlowSave.evaluations["member-1"], "Apto");
+  assert.ok(afterSlowSave.diplomaReady.includes("member-1"), "Slow state save must preserve concurrent closure");
+
+  // Concurrent academic requests read latest state after IO; neither student's change is lost.
+  await Promise.all([
+    assigned.request("PATCH",path+"/members/member-1/academic",changes),
+    assigned.request("PATCH",path+"/members/member-2/academic",{attendance:0,evaluation:"No apto"})
+  ]);
+  const marked = (await assigned.request("GET",path+"/academic")).body.students;
+  assert.equal(marked[0].attendance,100); assert.equal(marked[0].evaluation,"Apto");
+  assert.equal(marked[1].attendance,0); assert.equal(marked[1].evaluation,"No apto");
+  assert.equal((await assigned.request("POST",path+"/members/member-2/close",undefined,true)).status,400);
+  await assigned.request("POST",path+"/members/member-1/close");
+  const firstClosed = (await admin.request("GET","/api/state")).body;
+  await Promise.all([assigned.request("POST",path+"/members/member-1/close"),assigned.request("POST",path+"/members/member-1/close")]);
+  await assigned.request("PATCH",path+"/members/member-1/academic",changes);
+  await assigned.request("PATCH",path+"/members/member-2/academic",{attendance:0,evaluation:"No apto"});
+  const repeated = (await admin.request("GET","/api/state")).body;
+  assert.deepEqual(repeated.emailOutbox,firstClosed.emailOutbox);
+  assert.deepEqual(repeated.activityLog,firstClosed.activityLog);
+  assert.deepEqual(findCourse(repeated,"course-attendance").diplomaReady,["member-1"]);
+  const closed = await assigned.request("POST",path+"/close");
+  assert.ok(closed.body.blocked.some(b=>b.memberId==="member-2"));
+  assert.equal(closed.body.students[1].evaluation,"No apto");
+  assert.equal(closed.body.students[1].diplomaReady,false);
+  // Bulk and historical instructor assignment work without instructorEnabled.
+  await assigned.request("PATCH",path+"/academic",changes);
+  await assigned.request("POST",path+"/close");
+  const all = (await admin.request("GET","/api/state")).body;
+  assert.deepEqual(findCourse(all,"course-attendance").diplomaReady,["member-1","member-2"]);
+  assert.equal(findCourse(all,"course-attendance").attendance["member-3"],undefined);
+  assert.equal(findCourse(all,"course-attendance").evaluations["member-3"],undefined);
+  assert.deepEqual(findCourse(all,"course-2"),otherCourse);
+  assert.deepEqual(all.emailOutbox,before.emailOutbox);
+  // Issued diplomas are not revoked by a later correction.
+  await admin.request("PATCH",path+"/members/member-1/academic",{attendance:0,evaluation:"No apto"});
+  assert.equal((await admin.request("POST",path+"/members/member-1/close",undefined,true)).status,400);
+  assert.ok(findCourse((await admin.request("GET","/api/state")).body,"course-attendance").diplomaReady.includes("member-1"));
+
+  // Run the real UI action against the test server, then save its fallback state after a failed refresh.
+  const browserState = (await admin.request("GET", "/api/state")).body;
+  const oldLogIds = new Set(browserState.activityLog.map(item => item.id));
+  let mutations = 0;
+  const browser = vm.createContext({
+    state: browserState, session: { role: "admin", accountId: "account-1" }, academicBusy: false,
+    academicRoster: null, syncStatus: "", canManageCourseAcademic: () => true,
+    render() {}, showToast() {}, applySessionToState() {},
+    fetch: async (url, options) => {
+      mutations++;
+      const result = await admin.request(options.method, url, JSON.parse(options.body));
+      return { ok: true, payload: result.body };
+    },
+    readJsonResponse: async response => response.payload,
+    refreshState: async () => { throw new Error("Offline after confirmed save"); }
+  });
+  vm.runInContext(academicActionSource, browser);
+  await browser.invokeCourseAcademicAction("course-attendance", "member-1", { attendance: 75, evaluation: "Pendiente" });
+  const confirmed = (await admin.request("GET", "/api/state")).body;
+  const newEntries = confirmed.activityLog.filter(item => !oldLogIds.has(item.id));
+  assert.equal(newEntries.length, 1);
+  await admin.request("POST", "/api/state", browser.state);
+  await admin.request("POST", "/api/state", browser.state);
+  const saved = (await admin.request("GET", "/api/state")).body;
+  assert.equal(saved.activityLog.filter(item => item.id === newEntries[0].id).length, 1, "Confirmed academic activity survives later state saves exactly once");
+  assert.equal(findCourse(saved, "course-attendance").attendance["member-1"], 75);
+  assert.equal(mutations, 1);
+}
+
+
+async function checkAcademicDeliveryRace(admin, baseUrl) {
+  let release, reachedData, reachedMessage, messages = 0, holdAcknowledgement = false, pauseNegotiation = true;
+  let dataReceived = new Promise(resolve => { reachedData = resolve; });
+  const messageReceived = new Promise(resolve => { reachedMessage = resolve; });
+  const smtp = net.createServer(socket => {
+    socket.setEncoding("utf8"); socket.write("220 localhost QA\r\n");
+    let buffer = "", data = false;
+    socket.on("data", chunk => {
+      buffer += chunk;
+      while (buffer.includes("\r\n")) {
+        const end = buffer.indexOf("\r\n"), line = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+        if (data) {
+          if (line === ".") {
+            data = false; messages++;
+            if (holdAcknowledgement) { release = () => socket.write("250 queued\r\n"); reachedMessage(); }
+            else socket.write("250 queued\r\n");
+          }
+          continue;
+        }
+        if (line.startsWith("EHLO")) socket.write("250 localhost\r\n");
+        else if (line === "DATA") {
+          data = true;
+          if (pauseNegotiation) { release = () => socket.write("354 send data\r\n"); reachedData(); }
+          else socket.write("354 send data\r\n");
+        }
+        else if (line === "QUIT") socket.end("221 bye\r\n");
+        else socket.write("250 OK\r\n");
+      }
+    });
+  });
+  await new Promise(resolve => smtp.listen(0, "127.0.0.1", resolve));
+  let pending;
+  try {
+    const state = (await admin.request("GET", "/api/state")).body;
+    const course = findCourse(state, "course-attendance");
+    state.courses = [course]; state.emailOutbox = [];
+    Object.assign(course, { id: "course-delivery-race", status: "Cerrado", startDate: "2020-01-01", endDate: "2020-01-02", enrolledIds: ["member-1"],
+      waitingIds: [], attendance: { "member-1": 100 }, evaluations: { "member-1": "Apto" }, diplomaReady: [] });
+    state.settings.smtp = { host: "127.0.0.1", port: smtp.address().port, secure: false, startTls: false,
+      username: "", password: "", fromEmail: "qa@example.test" };
+    state.settings.automation = { autoRunOnSave: false, autoGenerateDiplomas: true, autoSendDiplomas: true,
+      autoPromoteWaitlist: false, autoAdvanceCourseStatus: false, autoSendFeeReminders: false, autoSendFeedbackReminders: false };
+    state.settings.agent = { ...(state.settings.agent || {}), enabled: false };
+    await admin.request("POST", "/api/state", state);
+    pending = admin.request("POST", "/api/automation/run", {});
+    await Promise.race([dataReceived, delay(10000, undefined, { ref: false }).then(() => { throw new Error("Local SMTP not reached"); })]);
+    const endpoint = "/api/courses/" + course.id + "/members/member-1/academic";
+    const correction = await admin.request("PATCH", endpoint, { attendance: 0, evaluation: "No apto" }, true);
+    assert.equal(correction.status, 200, "Academic correction remains available during SMTP negotiation");
+    release(); release = null; await pending; pending = null;
+    const final = (await admin.request("GET", "/api/state")).body;
+    assert.equal(findCourse(final, course.id).evaluations["member-1"], "No apto");
+    assert.ok(!findCourse(final, course.id).diplomaReady.includes("member-1"), "Ineligible participant has no newly issued diploma");
+    assert.equal(messages, 0, "No message bytes are delivered after the concurrent correction");
+    assert.equal(final.emailOutbox.filter(item => item.courseId === course.id && item.status === "sent").length, 0);
+    assert.match(final.emailOutbox.find(item => item.courseId === course.id).deliveryError, /ya no cumple/);
+
+    // Once bytes have been transmitted while eligible, a later correction cannot revoke that issuance.
+    await admin.request("PATCH", endpoint, { attendance: 100, evaluation: "Apto" });
+    dataReceived = new Promise(resolve => { reachedData = resolve; });
+    holdAcknowledgement = true;
+    pending = admin.request("POST", "/api/automation/run", {});
+    await Promise.race([dataReceived, delay(10000, undefined, { ref: false }).then(() => { throw new Error("Second SMTP negotiation not reached"); })]);
+    release(); release = null;
+    await Promise.race([messageReceived, delay(10000, undefined, { ref: false }).then(() => { throw new Error("Eligible message not received"); })]);
+    await admin.request("PATCH", endpoint, { attendance: 0, evaluation: "No apto" });
+    release(); release = null; await pending; pending = null;
+    await admin.request("POST", "/api/automation/run", {});
+    const issued = (await admin.request("GET", "/api/state")).body;
+    assert.equal(findCourse(issued, course.id).evaluations["member-1"], "No apto");
+    assert.ok(findCourse(issued, course.id).diplomaReady.includes("member-1"));
+    assert.equal(messages, 1, "Repeated automation must not resend the issued diploma");
+    assert.equal(issued.emailOutbox.filter(item => item.courseId === course.id && item.status === "sent").length, 1);
+
+    // Feedback requests are not diploma deliveries: their missing feedback must not block the reminder itself.
+    pauseNegotiation = false; holdAcknowledgement = false;
+    const feedbackCourse = { ...findCourse(issued, course.id), id: "course-feedback-manual", diplomaReady: [],
+      attendance: { "member-1": 100 }, evaluations: { "member-1": "Apto" },
+      feedbackEnabled: true, feedbackRequiredForDiploma: true, feedbackResponses: [], feedbackReminderLog: {} };
+    issued.courses = [feedbackCourse]; issued.emailOutbox = [];
+    await admin.request("POST", "/api/state", issued);
+    const reminder = await admin.request("POST", "/api/courses/" + feedbackCourse.id + "/members/member-1/request-feedback-reminder", {});
+    assert.equal(reminder.body.status, "sent");
+    assert.equal(messages, 2);
+    let feedbackState = (await admin.request("GET", "/api/state")).body;
+    assert.ok(feedbackState.emailOutbox.every(item => !item.diplomaCommittedAt));
+    feedbackState.courses = [{ ...feedbackCourse, id: "course-feedback-auto", feedbackReminderLog: {} }];
+    feedbackState.emailOutbox = [];
+    feedbackState.settings.automation.autoSendFeedbackReminders = true;
+    await admin.request("POST", "/api/state", feedbackState);
+    await admin.request("POST", "/api/automation/run", {});
+    feedbackState = (await admin.request("GET", "/api/state")).body;
+    assert.equal(messages, 3);
+    assert.equal(feedbackState.emailOutbox.filter(item => item.status === "sent").length, 1);
+    assert.ok(feedbackState.emailOutbox.every(item => !item.diplomaCommittedAt));
+  } finally {
+    release?.();
+    if (pending) await pending;
+    await new Promise(resolve => smtp.close(resolve));
+  }
 }
 
 async function main() {
@@ -254,6 +566,7 @@ async function main() {
     assert.equal(memberCourseUpdate.status, 403, "Un socio no puede editar cursos");
 
     await login(admin, "admin@isocronazero.org", passwords.admin);
+    await checkInstructorAcademic(admin, member, anonymous, baseUrl);
     const optionalPath = "/api/courses/course-optional";
     const initialState = (await admin.request("GET", "/api/state")).body;
     assert.deepEqual(findCourse(initialState, "course-optional").modules, []);
@@ -275,6 +588,7 @@ async function main() {
     assert.equal((await member.request("GET", optionalPath + "/shared-test", undefined, true)).status, 403);
     const noAutomaticDiploma = await admin.request("POST", optionalPath + "/members/member-1/diploma", undefined, true);
     assert.equal(noAutomaticDiploma.status, 400, "Optional content must not bypass attendance and evaluation");
+    await admin.request("PATCH", optionalPath + "/members/member-1/academic", { attendance: 100, evaluation: "Apto" });
     const practicalClosed = await admin.request("POST", optionalPath + "/members/member-1/close");
     assert.ok(practicalClosed.body.course.diplomaReady.includes("member-1"), "Manual closure works without modules, documents or tests");
     const sharedEndpoint = "/api/courses/course-1/shared-test";
@@ -496,6 +810,15 @@ async function main() {
     );
     assert.equal(waitingMemberClose.status, 400, "No debe cerrar a quien solo esta en espera");
 
+    const pendingContent = await admin.request("POST", closeMemberEndpoint, undefined, true);
+    assert.equal(pendingContent.status, 400);
+    assert.ok(pendingContent.body.blockers.includes("contenido"));
+    let contentState = (await admin.request("GET", "/api/state")).body;
+    assert.deepEqual(findCourse(contentState, "course-1").contentProgress["member-2"].blockIds, []);
+    // Simulate content already completed through the existing learner flow, not through /close.
+    findCourse(contentState, "course-1").contentProgress["member-2"].lessonIds = ["lesson-published"];
+    findCourse(contentState, "course-1").contentProgress["member-2"].blockIds = ["block-required", "block-optional"];
+    await admin.request("POST", "/api/state", contentState);
     const closeMember = await admin.request("POST", closeMemberEndpoint);
     assert.equal(closeMember.status, 200);
     assert.deepEqual(closeMember.body?.blockers, []);
@@ -568,6 +891,7 @@ async function main() {
     assert.equal(findCourse(state, "course-2").title, "Curso editado por endpoint");
     assert.ok(findCourse(state, "course-2").diplomaReady.includes("member-3"));
     assert.equal(findCourse(state, "course-managed").title, "Curso creado por endpoint");
+    await checkAcademicDeliveryRace(restartedAdmin, baseUrl);
   } finally {
     await stopServer(server);
     rmSync(tempRoot, { recursive: true, force: true });

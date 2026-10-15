@@ -17,7 +17,7 @@ const {
   writeState: writeStoredState
 } = require("./storage");
 const { createOnboardingStateAccess } = require("./server/onboarding-state");
-const { readState, writeState } = createOnboardingStateAccess({ readState: readStoredState, writeState: writeStoredState });
+const { readState, writeState, reconcileState } = createOnboardingStateAccess({ readState: readStoredState, writeState: writeStoredState });
 const { sendMail } = require("./smtp");
 const associateOnboardingPreviews = new Map();
 const ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS = 15 * 60 * 1000;
@@ -6500,6 +6500,8 @@ const server = http.createServer(async (req, res) => {
       }
       let summary = null;
 
+      // Preserve academic changes made while reading this body, before automation sees its grades.
+      reconcileState(state, currentState);
       if (state.settings?.automation?.autoRunOnSave !== false) {
         summary = await runAutomationEngine(state);
         recordAutomationRun(state, "Guardado de cambios", summary);
@@ -8982,247 +8984,68 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
-  const courseMemberAcademicMatch = requestUrl.pathname.match(
-    /^\/api\/courses\/([^/]+)\/members\/([^/]+)\/academic$/
-  );
-  if (courseMemberAcademicMatch && req.method === "PATCH") {
-    let state = null;
+  const academicRoute = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)(?:\/members\/([^/]+))?\/(academic|close)$/);
+  if (academicRoute && ((academicRoute[3] === "academic" && ["GET", "PATCH"].includes(req.method)) ||
+      (academicRoute[3] === "close" && req.method === "POST"))) {
+    res.setHeader("Cache-Control", "no-store");
     try {
-      state = readState();
-      const account = requireAdminAccount(req, res, state);
-      if (!account) {
-        return;
-      }
-
-      const payload = await readJsonBody(req, payloadLimitBytes.small);
-      const courseId = decodeURIComponent(courseMemberAcademicMatch[1] || "");
-      const memberId = decodeURIComponent(courseMemberAcademicMatch[2] || "");
-      const course = (state.courses || []).find((item) => item.id === courseId);
-      const member = (state.members || []).find((item) => item.id === memberId);
-      if (!course || !member) {
-        return sendJson(res, 404, { ok: false, error: "Curso o alumno no encontrado" });
-      }
-      if (!(course.enrolledIds || []).includes(memberId)) {
+      if (!requireAuthenticatedAccount(req, res, readState())) return;
+      const payload = req.method === "PATCH" ? await readJsonBody(req, payloadLimitBytes.small) : null;
+      // Resolve identity/enrolment again after body IO; the mutation below is synchronous.
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) return;
+      const courseId = decodeURIComponent(academicRoute[1]);
+      const memberId = academicRoute[2] ? decodeURIComponent(academicRoute[2]) : "";
+      const course = state.courses.find(item => item.id === courseId);
+      if (!canManageCourseAcademic(account, course)) return sendJson(res, 403, { ok: false, error: "No tienes permiso para gestionar este curso" });
+      if (!course) return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
+      const waiting = new Set(course.waitingIds || []);
+      const members = (state.members || []).filter(member =>
+        (course.enrolledIds || []).includes(member.id) && !waiting.has(member.id));
+      const ids = memberId ? [memberId] : members.map(member => member.id);
+      if (memberId && !members.some(member => member.id === memberId)) {
         return sendJson(res, 400, { ok: false, error: "El alumno no esta inscrito en este curso" });
       }
-
-      const changes = normalizeCourseAcademicChanges(payload);
-      const issuedDiplomas = [...(course.diplomaReady || [])];
-      applyCourseAcademicChanges(course, memberId, changes);
-      state.selectedCourseId = course.id;
-      state.selectedMemberId = member.id;
-
-      const activityDetail = [];
-      if (Object.prototype.hasOwnProperty.call(changes, "attendance")) {
-        activityDetail.push(`asistencia al ${changes.attendance}%`);
+      if (req.method === "GET") {
+        return sendJson(res, 200, buildCourseAcademicRoster(state, course));
       }
-      if (Object.prototype.hasOwnProperty.call(changes, "evaluation")) {
-        activityDetail.push(`evaluacion como ${changes.evaluation}`);
-      }
-      appendActivity(
-        state,
-        "admin",
-        account.name,
-        `Ha actualizado ${activityDetail.join(" y ")} de ${member.name} en ${course.title}`
-      );
-
-      const summary = await runCourseAcademicAutomation(state, "Actualizacion academica individual");
-      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
-      writeState(state);
-      const successMessage = `Seguimiento academico actualizado para ${member.name}`;
-      return sendJson(res, 200, {
-        ok: true,
-        message: summary ? buildAutomationMessage(successMessage, summary) : successMessage,
-        course,
-        memberId,
-        changes,
-        summary
-      });
-    } catch (error) {
-      return sendJsonError(res, error, "No se pudo actualizar el seguimiento academico");
-    }
-  }
-
-  const courseAcademicMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/academic$/);
-  if (courseAcademicMatch && req.method === "PATCH") {
-    let state = null;
-    try {
-      state = readState();
-      const account = requireAdminAccount(req, res, state);
-      if (!account) {
-        return;
-      }
-
-      const payload = await readJsonBody(req, payloadLimitBytes.small);
-      const courseId = decodeURIComponent(courseAcademicMatch[1] || "");
-      const course = (state.courses || []).find((item) => item.id === courseId);
-      if (!course) {
-        return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
-      }
-
-      const changes = normalizeCourseAcademicChanges(payload);
-      const existingMemberIds = new Set((state.members || []).map((member) => member.id));
-      const enrolledIds = [...new Set(course.enrolledIds || [])].filter((memberId) => existingMemberIds.has(memberId));
-      if (!enrolledIds.length) {
-        return sendJson(res, 400, { ok: false, error: "El curso no tiene alumnado inscrito" });
-      }
-
-      const issuedDiplomas = [...(course.diplomaReady || [])];
-      enrolledIds.forEach((memberId) => applyCourseAcademicChanges(course, memberId, changes));
-      state.selectedCourseId = course.id;
-      const activityDetail = [];
-      if (Object.prototype.hasOwnProperty.call(changes, "attendance")) {
-        activityDetail.push(`asistencia al ${changes.attendance}%`);
-      }
-      if (Object.prototype.hasOwnProperty.call(changes, "evaluation")) {
-        activityDetail.push(`evaluacion como ${changes.evaluation}`);
-      }
-      appendActivity(
-        state,
-        "admin",
-        account.name,
-        `Ha actualizado ${activityDetail.join(" y ")} de ${enrolledIds.length} alumno(s) en ${course.title}`
-      );
-
-      const summary = await runCourseAcademicAutomation(state, "Actualizacion academica masiva");
-      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
-      writeState(state);
-      const successMessage = `Seguimiento academico actualizado para ${enrolledIds.length} alumno(s)`;
-      return sendJson(res, 200, {
-        ok: true,
-        message: summary ? buildAutomationMessage(successMessage, summary) : successMessage,
-        course,
-        updatedMemberIds: enrolledIds,
-        changes,
-        summary
-      });
-    } catch (error) {
-      return sendJsonError(res, error, "No se pudo actualizar el seguimiento academico del curso");
-    }
-  }
-
-  const closeCourseMemberMatch = requestUrl.pathname.match(
-    /^\/api\/courses\/([^/]+)\/members\/([^/]+)\/close$/
-  );
-  if (closeCourseMemberMatch && req.method === "POST") {
-    let state = null;
-    try {
-      state = readState();
-      const account = requireAdminAccount(req, res, state);
-      if (!account) {
-        return;
-      }
-
-      const courseId = decodeURIComponent(closeCourseMemberMatch[1] || "");
-      const memberId = decodeURIComponent(closeCourseMemberMatch[2] || "");
-      const course = (state.courses || []).find((item) => item.id === courseId);
-      const member = (state.members || []).find((item) => item.id === memberId);
-      if (!course || !member) {
-        return sendJson(res, 404, { ok: false, error: "Curso o alumno no encontrado" });
-      }
-      if (!(course.enrolledIds || []).includes(memberId)) {
-        return sendJson(res, 400, { ok: false, error: "El alumno no esta inscrito en este curso" });
-      }
-
-      const issuedDiplomas = [...(course.diplomaReady || [])];
-      closeCourseMemberAcademicRecord(course, memberId);
-      const blockers = getCourseMemberDiplomaBlockers(state, course, memberId);
-      generateEligibleCourseDiplomas(state, course);
-      state.selectedCourseId = course.id;
-      state.selectedMemberId = member.id;
-      if (!blockers.length) {
-        state.activeView = "campus";
-      }
-
-      appendActivity(
-        state,
-        "admin",
-        account.name,
-        `Ha cerrado academicamente a ${member.name} en ${course.title}`
-      );
-      const summary = await runCourseAcademicAutomation(state, "Cierre academico individual");
-      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
-      writeState(state);
-
-      const generated = (course.diplomaReady || []).includes(memberId);
-      const closureLabel = normalizeCourseClass(course.courseClass) === "practico" ? "practico" : "curso";
-      const message = blockers.length
-        ? `${member.name} queda cerrado en ${closureLabel}, asistencia, evaluacion y contenido. Aun falta: ${blockers.join(", ")}`
-        : generated
-          ? `${member.name} ya queda cerrado y con diploma generado en ${course.title}`
-          : `${member.name} ya queda listo para emitir diploma en ${course.title}`;
-      return sendJson(res, 200, { ok: true, message, course, memberId, blockers, generated, summary });
-    } catch (error) {
-      return sendJsonError(res, error, "No se pudo cerrar academicamente al alumno");
-    }
-  }
-
-  const closeCourseMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/close$/);
-  if (closeCourseMatch && req.method === "POST") {
-    let state = null;
-    try {
-      state = readState();
-      const account = requireAdminAccount(req, res, state);
-      if (!account) {
-        return;
-      }
-
-      const courseId = decodeURIComponent(closeCourseMatch[1] || "");
-      const course = (state.courses || []).find((item) => item.id === courseId);
-      if (!course) {
-        return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
-      }
-
-      const membersById = new Map((state.members || []).map((member) => [member.id, member]));
-      const enrolledIds = [...new Set(course.enrolledIds || [])].filter((memberId) => membersById.has(memberId));
-      if (!enrolledIds.length) {
-        return sendJson(res, 400, { ok: false, error: "El curso no tiene alumnado inscrito" });
-      }
-
-      const issuedDiplomas = [...(course.diplomaReady || [])];
+      if (!ids.length) return sendJson(res, 400, { ok: false, error: "El curso no tiene alumnado inscrito" });
+      const before = JSON.stringify([course.attendance, course.evaluations, course.diplomaReady]);
+      const changes = payload ? normalizeCourseAcademicChanges(payload) : null;
       const blocked = [];
-      enrolledIds.forEach((memberId) => {
-        closeCourseMemberAcademicRecord(course, memberId);
-        const blockers = getCourseMemberDiplomaBlockers(state, course, memberId);
-        if (blockers.length) {
-          blocked.push({ memberId, memberName: membersById.get(memberId).name, blockers });
+      if (changes) {
+        ids.forEach(id => applyCourseAcademicChanges(course, id, changes));
+      } else {
+        for (const id of ids) {
+          const blockers = getCourseMemberDiplomaBlockers(state, course, id);
+          if (blockers.length) blocked.push({ memberId: id, blockers });
         }
-      });
-      generateEligibleCourseDiplomas(state, course);
-      state.selectedCourseId = course.id;
-      if ((course.diplomaReady || []).length || !blocked.length) {
-        state.activeView = "campus";
+        if (memberId && blocked.length) {
+          return sendJson(res, 400, { ok: false, error: "No se puede cerrar: " + blocked[0].blockers.join(", "), blockers: blocked[0].blockers });
+        }
+        const eligible = ids.filter(id => !blocked.some(item => item.memberId === id));
+        course.diplomaReady = mergeDiplomaReadyIds(course.diplomaReady, eligible);
       }
-
-      appendActivity(
-        state,
-        "admin",
-        account.name,
-        `Ha preparado el cierre academico del ${normalizeCourseClass(course.courseClass) === "practico" ? "practico" : "curso"} ${course.title}`
-      );
-      const summary = await runCourseAcademicAutomation(state, "Cierre academico masivo");
-      course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
-      writeState(state);
-
-      const generatedCount = (course.diplomaReady || []).length;
-      const blockedPreview = blocked
-        .slice(0, 2)
-        .map((entry) => `${entry.memberName}: ${entry.blockers.join(", ")}`)
-        .join(" | ");
-      const message = blocked.length
-        ? `Cierre aplicado. Aun faltan requisitos en ${blocked.length} alumno(s): ${blockedPreview}${blocked.length > 2 ? "..." : ""}`
-        : `Cierre aplicado. ${generatedCount} diploma(s) ya quedan generados en ${course.title}`;
+      if (JSON.stringify([course.attendance, course.evaluations, course.diplomaReady]) !== before) {
+        appendActivity(state, account.role, account.name, changes
+          ? "Ha actualizado asistencia/evaluacion en " + course.title
+          : "Ha validado el cierre academico en " + course.title);
+        // SMTP/global automation stays in its existing scheduled/manual flow, never in this academic mutation.
+        writeState(state);
+      }
+      const message = changes ? "Seguimiento academico guardado" : blocked.length
+        ? "Cierre aplicado a los aptos. " + blocked.length + " alumno(s) con requisitos pendientes."
+        : "Cierre academico validado";
       return sendJson(res, 200, {
-        ok: true,
-        message,
-        course,
-        updatedMemberIds: enrolledIds,
-        blocked,
-        generatedCount,
-        summary
+        ...buildCourseAcademicRoster(state, course), message,
+        ...(account.role === "admin" ? { course, activityLog: state.activityLog } : {}),
+        memberId: memberId || undefined, changes, blocked, blockers: [],
+        updatedMemberIds: ids, generated: memberId ? (course.diplomaReady || []).includes(memberId) : undefined,
+        generatedCount: (course.diplomaReady || []).length, summary: null
       });
     } catch (error) {
-      return sendJsonError(res, error, "No se pudo cerrar academicamente el curso");
+      return sendJsonError(res, error, "No se pudo guardar el seguimiento academico");
     }
   }
 
@@ -13579,6 +13402,24 @@ function normalizeCourseAcademicChanges(payload) {
   return changes;
 }
 
+function canManageCourseAcademic(account, course) {
+  return account?.role === "admin" || (account?.role === "instructor" && Boolean(account.associateId) &&
+    (course?.instructorAssociateIds || []).includes(account.associateId));
+}
+
+function buildCourseAcademicRoster(state, course) {
+  const waiting = new Set(course.waitingIds || []);
+  return {
+    ok: true, course: { id: course.id, title: course.title }, waitingCount: waiting.size,
+    students: (state.members || []).filter(member => (course.enrolledIds || []).includes(member.id) && !waiting.has(member.id)).map(member => {
+      const associate = (state.associates || []).find(item => item.id === member.associateId || item.linkedMemberId === member.id);
+      return { id: member.id, name: member.name, associateNumber: associate?.associateNumber || null,
+        attendance: Number(course.attendance?.[member.id] || 0), evaluation: course.evaluations?.[member.id] || "Pendiente",
+        diplomaReady: (course.diplomaReady || []).includes(member.id), blockers: getCourseMemberDiplomaBlockers(state, course, member.id) };
+    })
+  };
+}
+
 function applyCourseAcademicChanges(course, memberId, changes) {
   course.attendance = course.attendance || {};
   course.evaluations = course.evaluations || {};
@@ -13714,27 +13555,6 @@ function getPublishedCourseLessons(course) {
   );
 }
 
-function closeCourseMemberAcademicRecord(course, memberId) {
-  applyCourseAcademicChanges(course, memberId, { attendance: 100, evaluation: "Apto" });
-  const lessons = getPublishedCourseLessons(course);
-  const blocks = lessons.flatMap((lesson) => lesson.blocks || []);
-  course.contentProgress = course.contentProgress || {};
-  const currentEntry = course.contentProgress[memberId] || {};
-  course.contentProgress[memberId] = {
-    lessonIds: [...new Set([...(currentEntry.lessonIds || []), ...lessons.map((lesson) => lesson.id)])],
-    blockIds: [
-      ...new Set([
-        ...(currentEntry.blockIds || []),
-        ...blocks.filter((block) => block.requiredForDiploma !== false).map((block) => block.id)
-      ])
-    ],
-    quizAnswers:
-      currentEntry.quizAnswers && typeof currentEntry.quizAnswers === "object" && !Array.isArray(currentEntry.quizAnswers)
-        ? currentEntry.quizAnswers
-        : {},
-    updatedAt: new Date().toISOString()
-  };
-}
 
 function isCourseMemberContentReadyForClosure(course, memberId) {
   const completedBlockIds = new Set(course.contentProgress?.[memberId]?.blockIds || []);
@@ -15420,11 +15240,18 @@ function isSmtpConfigured(state) {
   return Boolean(smtp.host && smtp.port && smtp.fromEmail);
 }
 
+function isCourseDiplomaEmail(email) {
+  // Keep queued legacy diplomas compatible without treating feedback reminders as diplomas.
+  return Boolean(email.kind === "course_diploma" || (!email.kind && email.courseId && email.memberId &&
+    String(email.subject || "").startsWith("Diploma emitido - ")));
+}
+
 function hasSuccessfulSmtpDelivery(state, courseId, memberId) {
   return (state.emailOutbox || []).some(
     (item) =>
       item.courseId === courseId &&
       item.memberId === memberId &&
+      isCourseDiplomaEmail(item) &&
       item.status === "sent" &&
       item.transport === "smtp"
   );
@@ -15437,6 +15264,7 @@ function createEmailRecord(state, course, member) {
     memberId: member.id,
     to: member.email,
     subject: `Diploma emitido - ${course.title}`,
+    kind: "course_diploma",
     body: buildEmailBody(state, member, course),
     sentAt: new Date().toISOString(),
     status: "queued",
@@ -15523,6 +15351,7 @@ async function deliverEmailRecord(state, email) {
   }
   if (welcome && welcomeDeliveriesInFlight.has(email.associateId)) throw new Error("Bienvenida en curso");
   if (welcome) welcomeDeliveriesInFlight.add(email.associateId);
+  const diploma = isCourseDiplomaEmail(email);
 
   email.transport = "smtp";
   email.attemptCount = Number(email.attemptCount || 0) + 1;
@@ -15548,7 +15377,19 @@ async function deliverEmailRecord(state, email) {
       fromName: smtp.fromName,
       to: email.to,
       subject: email.subject,
-      text: body
+      text: body,
+      beforeData: diploma ? () => {
+        // SMTP negotiation may await IO. Reconcile immediately before sending message bytes.
+        reconcileState(state, state);
+        const course = (state.courses || []).find(item => item.id === email.courseId);
+        if (!course || !(course.enrolledIds || []).includes(email.memberId) ||
+            (course.waitingIds || []).includes(email.memberId) ||
+            getCourseMemberDiplomaBlockers(state, course, email.memberId).length) {
+          throw new Error("Entrega cancelada: el alumno ya no cumple los requisitos del diploma");
+        }
+        // After this synchronous boundary it is an issued diploma, even if the SMTP acknowledgement is lost.
+        email.diplomaCommittedAt = new Date().toISOString();
+      } : undefined
     });
 
     email.status = "sent";
@@ -15822,6 +15663,7 @@ async function maybeSendCourseFeedbackReminder(state, course, member, options = 
     associateId: member.associateId || "",
     to: email,
     subject: `Valoracion final pendiente - ${course.title}`,
+    kind: "course_feedback_reminder",
     body: buildCourseFeedbackReminderEmailBody(state, member, course),
     sentAt: new Date().toISOString(),
     status: "queued",
