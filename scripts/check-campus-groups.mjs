@@ -30,7 +30,7 @@ const context = vm.createContext({
   session: {accountId:"qa-admin"}, campusGroupPendingUploads: 0,
   campusGroupAutosaveIds: new Set(), campusGroupAutosaveRunning: false, campusGroupSessionEpoch: 0,
   campusGroupPendingFileReads: new Set(),
-  campusGroupFileSelections: new Map(), campusGroupAttachmentBases: {},
+  campusGroupFileSelections: new Map(),
   window: { confirm: () => false }, toasts: [],
   state: { campusGroups: [structuredClone(group)] }, selectedCampusGroupModuleId: "module-qa",
   campusGroupAttachmentDrafts: {}, isAdminView: () => true,
@@ -229,7 +229,7 @@ try {
   storage.clear();
   const requests = [];
   const realFetch = async (url, options) => {
-    requests.push(JSON.parse(options.body).group.contentRevision);
+    if (options.method === "PUT") requests.push(JSON.parse(options.body).group.contentRevision);
     return fetch(base + url, { ...options, headers: { ...options.headers, Cookie: admin } });
   };
   context.fetch = realFetch;
@@ -241,6 +241,8 @@ try {
   assert.equal(vm.runInContext("hasPendingCampusAttachmentBytes()", context), false);
   assert.equal(storage.has(group.id), false);
   assert.ok(context.toasts.some(t => t.kind === "success"));
+  context.emptyFile = {name:"empty.txt",type:"text/plain",size:0,contentBase64:""};
+  await assert.rejects(vm.runInContext("applyCampusGroupFileSelection(emptyFile,target)",context),/vacio/i);
   const afterUpload = await (await request("/api/state", admin)).json();
   assert.equal(afterUpload.campusGroups.find(g => g.id === group.id).modules[0].documents[0].attachment.name, "autosaved.txt");
 
@@ -326,6 +328,32 @@ try {
     assert.equal((await (await request(entry.attachment.transportUrl,admin)).arrayBuffer()).byteLength,15_100_000);
   }
 
+  // Reload loses bytes deliberately, but reselecting each failed replacement must recover without discarding metadata.
+  context.campusGroupPendingUploads = 2;
+  context.fetch = async () => { throw new TypeError("Offline"); };
+  for (const id of ["visible","hidden"]) {
+    context.recoveryFile = {...file,name:"recovered-"+id+".txt",
+      ...(id==="hidden" ? {size:11,contentBase64:Buffer.from("Second file").toString("base64")} : {})};
+    context.recoveryTarget = {...context.target,entryId:id};
+    await vm.runInContext("applyCampusGroupFileSelection(recoveryFile,recoveryTarget)",context);
+  }
+  context.campusGroupPendingUploads = 0;
+  assert.equal(await vm.runInContext("flushCampusGroupAutoSaves()",context),false);
+  context.state = await (await request("/api/state",admin)).json();
+  context.campusGroupAttachmentDrafts = {};
+  context.fetch = realFetch;
+  for (const id of ["visible","hidden"]) {
+    context.recoveryFile = {...file,name:"recovered-"+id+".txt",
+      ...(id==="hidden" ? {size:11,contentBase64:Buffer.from("Second file").toString("base64")} : {})};
+    context.recoveryTarget = {...context.target,entryId:id};
+    assert.equal(await vm.runInContext("applyCampusGroupFileSelection(recoveryFile,recoveryTarget)",context),true);
+    if(id==="visible") {
+      const partial = await (await request("/api/state",admin)).json();
+      assert.equal(partial.campusGroups.find(g=>g.id===group.id).modules[0].documents[1].attachment.name,"second.txt","Untouched replacement retains original persisted file");
+      assert.ok(storage.get(group.id).includes("recovered-hidden.txt"),"Keep metadata for the file still needing reselection");
+    }
+  }
+
   const storeMetadata = context.sessionStorage.setItem;
   context.sessionStorage.setItem = () => { throw new Error("QuotaExceededError"); };
   context.fetch = async () => { throw new TypeError("Offline"); };
@@ -343,7 +371,7 @@ try {
   let reloaded = await (await request("/api/state", admin)).json();
   let reloadedGroup = reloaded.campusGroups.find(g => g.id === group.id);
   assert.equal(reloadedGroup.modules[0].documents[0].attachment.name, "quota-safe.txt");
-  assert.equal(reloadedGroup.modules[0].documents[1].attachment.name, "second.txt");
+  assert.equal(reloadedGroup.modules[0].documents[1].attachment.name, "recovered-hidden.txt");
   assert.equal(await (await request(reloadedGroup.modules[0].documents[1].attachment.transportUrl, admin)).text(), "Second file");
   reloadedGroup.summary = "Metadata after autosave";
   assert.equal((await request(endpoint, admin, "PUT", {group:reloadedGroup})).status,200);

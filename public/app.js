@@ -237,7 +237,6 @@ let campusGroupAutosaveRunning = false;
 let campusGroupSessionEpoch = 0;
 let campusGroupPendingFileReads = new Set();
 let campusGroupFileSelections = new Map();
-let campusGroupAttachmentBases = {};
 window.addEventListener("beforeunload", warnPendingCampusAttachments);
 let publicCampusCourses = [];
 let publicCampusStatus = "Cargando cursos abiertos...";
@@ -1405,7 +1404,6 @@ document.addEventListener("click", async (event) => {
         for (const key of Object.keys(campusGroupAttachmentDrafts)) {
           if (key.startsWith(`${group.id}::`)) {
             delete campusGroupAttachmentDrafts[key];
-            delete campusGroupAttachmentBases[key];
           }
         }
         campusGroupAutosaveIds.delete(group.id);
@@ -1545,7 +1543,6 @@ document.addEventListener("click", async (event) => {
     }
     const draftKey = getCampusGroupAttachmentDraftKey(group.id, selectedModule.id, category, entryId);
     delete campusGroupAttachmentDrafts[draftKey];
-    delete campusGroupAttachmentBases[draftKey];
     const nextModules = (draft.modules || []).map((module, moduleIndex) =>
       module.id === selectedModule.id
         ? normalizeCampusGroupModule(
@@ -4884,7 +4881,6 @@ function clearSession() {
   campusGroupPendingUploads = 0;
   campusGroupPendingFileReads.clear();
   campusGroupFileSelections.clear();
-  campusGroupAttachmentBases = {};
   pendingCampusGroupFileTarget = null;
   viewRole = "admin";
   persistSession();
@@ -20843,6 +20839,10 @@ async function applyCampusGroupFileSelection(file, target = pendingCampusGroupFi
   const { groupId, moduleId, category, entryId } = target;
   const draftKey = getCampusGroupAttachmentDraftKey(groupId, moduleId, category, entryId);
   if (target.selectionVersion !== undefined && campusGroupFileSelections.get(draftKey) !== target.selectionVersion) return;
+  if (!file.contentBase64) {
+    if (pendingCampusGroupFileTarget === target) pendingCampusGroupFileTarget = null;
+    throw new Error("El archivo esta vacio. Selecciona un archivo con contenido.");
+  }
   const maxBytes = getCampusGroupFileMaxBytes(category);
   if (maxBytes && Number(file.size || 0) > maxBytes) {
     if (pendingCampusGroupFileTarget === target) pendingCampusGroupFileTarget = null;
@@ -20863,9 +20863,6 @@ async function applyCampusGroupFileSelection(file, target = pendingCampusGroupFi
   }
 
   const draft = group;
-  if (!campusGroupAttachmentDrafts[draftKey]) {
-    campusGroupAttachmentBases[draftKey] = selectedModule[category].find(entry => entry.id === entryId)?.attachment || null;
-  }
   const nextModules = (draft.modules || []).map((module, moduleIndex) =>
     module.id === selectedModule.id
       ? normalizeCampusGroupModule(
@@ -21098,22 +21095,40 @@ async function saveCampusGroupAndRender(draft) {
   const sentDraft = JSON.stringify(loadCampusDraft(draft.id) || draft);
   const sentFiles = Object.entries(campusGroupAttachmentDrafts).filter(([key]) => key.startsWith(`${draft.id}::`)).slice(0, 1);
   const sentKey = sentFiles[0]?.[0];
-  // Keep other replacements at their last persisted version. Their bytes stay in the draft for the next revision.
-  const modules = draft.modules.map(module => {
-    const next = { ...module };
+  const deferredKeys = new Set();
+  for (const module of draft.modules) {
     for (const category of ["documents", "practiceSheets", "videos", "links"]) {
-      next[category] = (module[category] || []).map(entry => {
+      for (const entry of module[category] || []) {
         const key = getCampusGroupAttachmentDraftKey(draft.id, module.id, category, entry.id);
-        return campusGroupAttachmentDrafts[key] && key !== sentKey
-          ? { ...entry, attachment: campusGroupAttachmentBases[key] || null } : entry;
-      });
+        if (key !== sentKey && (campusGroupAttachmentDrafts[key] || entry.attachment?.pendingUpload)) deferredKeys.add(key);
+      }
     }
-    return next;
-  });
+  }
   campusGroupSaving = true;
   syncStatus = "Guardando grupo interno...";
   render();
   try {
+    // Reloaded drafts contain pending metadata, not the last persisted attachment. Read it without rebasing the draft revision.
+    let persistedGroup = null;
+    if (deferredKeys.size) {
+      const response = await fetch("/api/state", { cache: "no-store", signal: AbortSignal.timeout(60000) });
+      const payload = await readJsonResponse(response, "No se pudo comprobar el grupo guardado");
+      if (session?.accountId !== accountId || epoch !== campusGroupSessionEpoch || !isAdminView()) return false;
+      persistedGroup = payload.campusGroups?.find(group => group.id === draft.id);
+      if (!response.ok || !persistedGroup) throw new Error(payload.error || "No se pudo comprobar el grupo guardado");
+    }
+    const modules = draft.modules.map(module => {
+      const next = { ...module };
+      const persistedModule = persistedGroup?.modules?.find(item => item.id === module.id);
+      for (const category of ["documents", "practiceSheets", "videos", "links"]) {
+        next[category] = (module[category] || []).map(entry => {
+          const key = getCampusGroupAttachmentDraftKey(draft.id, module.id, category, entry.id);
+          return deferredKeys.has(key)
+            ? { ...entry, attachment: persistedModule?.[category]?.find(item => item.id === entry.id)?.attachment || null } : entry;
+        });
+      }
+      return next;
+    });
     const response = await fetch(`/api/campus-groups/${encodeURIComponent(draft.id)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -21129,10 +21144,9 @@ async function saveCampusGroupAndRender(draft) {
     for (const [key, file] of sentFiles) {
       if (campusGroupAttachmentDrafts[key] === file) {
         delete campusGroupAttachmentDrafts[key];
-        delete campusGroupAttachmentBases[key];
       }
     }
-    if (changedDuringSave || hasPendingCampusAttachmentBytes(draft.id)) {
+    if (changedDuringSave || deferredKeys.size || hasPendingCampusAttachmentBytes(draft.id)) {
       // A later FileReader/edit is not part of this acknowledgement. Keep it and advance only the revision.
       current.contentRevision = saved.contentRevision;
       for (const module of current.modules || []) {
@@ -21141,7 +21155,6 @@ async function saveCampusGroupAndRender(draft) {
           for (const entry of module[category] || []) {
             const key = getCampusGroupAttachmentDraftKey(draft.id, module.id, category, entry.id);
             const savedEntry = savedModule?.[category]?.find(item => item.id === entry.id);
-            if (key === sentKey && campusGroupAttachmentDrafts[key]) campusGroupAttachmentBases[key] = savedEntry?.attachment || null;
             if (!campusGroupAttachmentDrafts[key] && savedEntry && entry.attachment?.contentBase64) {
               entry.attachment = savedEntry.attachment;
             }
@@ -21154,8 +21167,9 @@ async function saveCampusGroupAndRender(draft) {
       clearCampusDraft(draft.id, accountId);
     }
     if (hasPendingCampusAttachmentBytes(draft.id)) campusGroupAutosaveIds.add(draft.id);
-    syncStatus = hasPendingCampusAttachmentBytes(draft.id) ? "Archivo pendiente de guardar." : "Grupo interno guardado";
-    showToast(syncStatus, hasPendingCampusAttachmentBytes(draft.id) ? "info" : "success");
+    syncStatus = hasPendingCampusAttachmentBytes(draft.id) ? "Archivo pendiente de guardar."
+      : deferredKeys.size ? "Cambios guardados. Vuelve a seleccionar los archivos pendientes del borrador." : "Grupo interno guardado";
+    showToast(syncStatus, hasPendingCampusAttachmentBytes(draft.id) || deferredKeys.size ? "info" : "success");
     return true;
   } catch (error) {
     if (epoch !== campusGroupSessionEpoch || session?.accountId !== accountId) return false;
