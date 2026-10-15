@@ -232,6 +232,8 @@ let pendingCampusGroupFileTarget = null;
 let pendingCampusGroupDraftClearGroupId = "";
 let campusGroupSaving = false;
 let campusGroupPendingUploads = 0;
+let academicRoster = null;
+let academicBusy = false;
 let publicCampusCourses = [];
 let publicCampusStatus = "Cargando cursos abiertos...";
 let associateDeleteDialog = null;
@@ -1221,6 +1223,45 @@ document.addEventListener("click", async (event) => {
     syncStatus = "Curso abierto en la zona central";
     render();
     requestAnimationFrame(() => focusCoursesWorkbench());
+    return;
+  }
+
+  if (action === "open-course-academic" && courseId) {
+    const course = state.courses.find(item => item.id === courseId);
+    if (!canManageCourseAcademic(course) || academicBusy) return;
+    const identity = session;
+    academicBusy = true;
+    try {
+      await loadCourseAcademicRoster(courseId);
+      if (identity !== session) return;
+      state.selectedCourseId = courseId;
+      state.activeView = "campus";
+      campusSectionMode = "courses";
+      coursesSectionMode = "workbench";
+      courseWorkbenchMode = "students";
+      syncStatus = "Alumnado actualizado";
+    } catch (error) {
+      if (identity === session) { syncStatus = error.message; showToast(syncStatus, "error"); }
+    } finally {
+      if (identity === session) {
+        academicBusy = false;
+        render();
+        requestAnimationFrame(() => focusElementById("courseAcademicPanel"));
+      }
+    }
+    return;
+  }
+
+  if (["academic-present", "academic-absent", "academic-advanced", "academic-close", "academic-all-present", "academic-close-all"].includes(action) && courseId) {
+    if (!canManageCourseAcademic(state.courses.find(item => item.id === courseId)) || academicBusy) return;
+    if (action.endsWith("all") || action === "academic-all-present") {
+      if (!window.confirm(action === "academic-all-present" ? "¿Marcar a todos los inscritos con 100% y Apto? No afecta a la espera." : "¿Validar el cierre de los inscritos que cumplan todos los requisitos?")) return;
+    }
+    const card = actionTarget.closest("[data-academic-student]");
+    const changes = action === "academic-present" || action === "academic-all-present" ? { attendance: 100, evaluation: "Apto" }
+      : action === "academic-absent" ? { attendance: 0, evaluation: "No apto" }
+      : action === "academic-advanced" ? { attendance: card.querySelector("[data-academic-attendance]").value, evaluation: card.querySelector("[data-academic-evaluation]").value } : null;
+    await invokeCourseAcademicAction(courseId, memberId || "", changes);
     return;
   }
 
@@ -4818,6 +4859,8 @@ function persistViewRole() {
 }
 
 function clearSession() {
+  academicRoster = null;
+  academicBusy = false;
   getFrontendBridge()?.resetTestView?.();
   session = null;
   campusGroupAttachmentDrafts = {};
@@ -10510,6 +10553,7 @@ function renderCourses() {
   const totalPublishedLessons = state.courses.reduce((sum, course) => sum + getPublishedLessonCount(course), 0);
   return `
     <div class="panel-stack">
+      ${session?.role === "instructor" ? `<section class="academic-assigned"><h3>Cursos que imparto</h3><div class="chip-row">${state.courses.filter(canManageCourseAcademic).map(course => `<button class="ghost-button" type="button" data-action="open-course-academic" data-course-id="${escapeHtml(course.id)}">${escapeHtml(course.title)} · Asistencia y certificación</button>`).join("") || `<p class="muted">Sin cursos asignados.</p>`}</div>${canManageCourseAcademic(selectedCourse) && academicRoster?.course?.id === selectedCourse?.id ? renderOperations(selectedCourse) : ""}</section>` : ""}
       <div class="panel-header">
         <div>
           <p class="eyebrow">Campus · Cursos</p>
@@ -10942,147 +10986,93 @@ function renderAdminCourseCatalog() {
   `;
 }
 
-function renderOperations(course) {
-  if (!course) {
-    return `<div class="empty-state">Selecciona un curso para ver asistencia y evaluacion.</div>`;
+function canManageCourseAcademic(course) {
+  return isAdminView() || (session?.role === "instructor" && Boolean(session.associateId) &&
+    (course?.instructorAssociateIds || []).includes(session.associateId));
+}
+
+async function loadCourseAcademicRoster(courseId) {
+  const identity = session;
+  const response = await fetch("/api/courses/" + encodeURIComponent(courseId) + "/academic", { cache: "no-store" });
+  const payload = await readJsonResponse(response, "No se pudo cargar el alumnado");
+  if (session !== identity) return;
+  if (!response.ok || payload.ok !== true) {
+    academicRoster = null;
+    throw new Error(payload.error || "No se pudo cargar el alumnado");
   }
+  academicRoster = { ...payload, accountId: session.accountId };
+}
 
-  const enrolledMembers = course.enrolledIds.map(findMember).filter(Boolean);
-  const showOperationsSection = (section) =>
-    operationsSectionMode === "all" || operationsSectionMode === section;
-  const averageAttendance = enrolledMembers.length
-    ? Math.round(
-        enrolledMembers.reduce((sum, member) => sum + Number(course.attendance[member.id] || 0), 0) /
-          enrolledMembers.length
-      )
-    : 0;
-  const approvedMembers = enrolledMembers.filter(
-    (member) => String(course.evaluations[member.id] || "").toLowerCase() === "apto"
-  ).length;
-  const pendingEvaluations = enrolledMembers.filter(
-    (member) =>
-      !course.evaluations[member.id] ||
-      String(course.evaluations[member.id] || "").toLowerCase() === "pendiente"
-  ).length;
-  const feedbackPendingMembers = enrolledMembers.filter(
-    (member) => course.feedbackRequiredForDiploma && !getCourseFeedbackResponse(course, member.id)
-  ).length;
-  const diplomaEligibleMembers = enrolledMembers.filter((member) => {
-    const attendance = Number(course.attendance?.[member.id] || 0);
-    const evaluation = String(course.evaluations?.[member.id] || "").toLowerCase();
-    const feedbackReady = !course.feedbackRequiredForDiploma || Boolean(getCourseFeedbackResponse(course, member.id));
-    return attendance >= 75 && evaluation === "apto" && isMemberContentReadyForDiploma(course, member.id) && feedbackReady;
-  }).length;
-  const pendingDiplomaGeneration = Math.max(diplomaEligibleMembers - (course.diplomaReady || []).length, 0);
+async function invokeCourseAcademicAction(courseId, memberId, changes = null) {
+  const course = state.courses.find(item => item.id === courseId);
+  if (!canManageCourseAcademic(course) || academicBusy) return;
+  const identity = session;
+  academicBusy = true;
+  syncStatus = "Guardando seguimiento academico...";
+  render();
+  try {
+    const url = "/api/courses/" + encodeURIComponent(courseId) +
+      (memberId ? "/members/" + encodeURIComponent(memberId) : "") + (changes ? "/academic" : "/close");
+    const response = await fetch(url, {
+      method: changes ? "PATCH" : "POST", headers: { "Content-Type": "application/json" },
+      ...(changes ? { body: JSON.stringify(changes) } : {})
+    });
+    const payload = await readJsonResponse(response, "No se pudo confirmar el guardado. Actualiza el alumnado antes de reintentar.");
+    if (session !== identity) return;
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || "Accion rechazada");
+    // Keep roster data outside /api/state. A confirmed mutation is never resubmitted by a refresh.
+    academicRoster = { ...payload, accountId: session.accountId };
+    syncStatus = payload.message || "Seguimiento guardado";
+    showToast(syncStatus, payload.blocked?.length ? "info" : "success");
+  } catch (error) {
+    if (session === identity) {
+      syncStatus = error.message;
+      showToast(syncStatus, "error");
+    }
+  } finally {
+    if (session === identity) {
+      academicBusy = false;
+      render();
+    }
+  }
+}
 
-  return `
-    <div class="panel-stack">
-      <div class="panel-header associate-anchor" id="operationsSectionSummary">
-        <div>
-          <p class="eyebrow">Campus · Operativa</p>
-          <h3>${course.title}</h3>
-          <p class="muted">Cierra asistencia, aptos y diplomas desde una sola mesa de trabajo.</p>
-        </div>
-        <div class="chip-row">
-          <span class="status-chip">${course.status}</span>
-          ${
-            isAdminView()
-              ? `
-                <button class="ghost-button" data-action="nav-section" data-view="campus" data-section-id="campusSectionCourses">Curso activo</button>
-                <button class="ghost-button" data-action="set-campus-section-mode" data-mode="diplomas">Ir a diplomas</button>
-              `
-              : ""
-          }
-        </div>
-      </div>
-
-      ${
-        isAdminView()
-          ? `
-            <div class="status-note info">
-              Ahora mismo: ${enrolledMembers.length} inscrito(s), ${approvedMembers} apto(s), ${pendingEvaluations} evaluacion(es) pendiente(s) y ${pendingDiplomaGeneration} diploma(s) por generar.
-            </div>
-            <div class="chip-row">
-              <button class="ghost-button" data-action="set-all-attendance" data-course-id="${course.id}" ${enrolledMembers.length ? "" : "disabled"}>Todo al 100%</button>
-              <button class="ghost-button" data-action="set-all-evaluations-apt" data-course-id="${course.id}" ${enrolledMembers.length ? "" : "disabled"}>Marcar aptos</button>
-              <button class="primary-button" data-action="close-all-member-courses" data-course-id="${course.id}" ${enrolledMembers.length ? "" : "disabled"}>Cerrar alumnado</button>
-              <button class="ghost-button" data-action="set-campus-section-mode" data-mode="diplomas">Ir a diplomas</button>
-            </div>
-          `
-          : ""
-      }
-
-      ${
-        isAdminView()
-          ? `
-            <div class="table-card associate-anchor" id="operationsSectionAttendance">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Alumno</th>
-                    <th>Asistencia</th>
-                    <th>Contenido</th>
-                    <th>Evaluacion</th>
-                    <th>Valoracion</th>
-                    <th>Diploma</th>
-                    <th>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${
-                    enrolledMembers.length
-                      ? enrolledMembers
-                          .map((member) => {
-                            const attendance = course.attendance[member.id] ?? 0;
-                            const evaluation = course.evaluations[member.id] ?? "Pendiente";
-                            const progress = getLearnerCourseContentStats(course, member.id);
-                            const feedbackSent = Boolean(getCourseFeedbackResponse(course, member.id));
-                            const readyForDiploma =
-                              attendance >= 75 &&
-                              String(evaluation).toLowerCase() === "apto" &&
-                              isMemberContentReadyForDiploma(course, member.id) &&
-                              (!course.feedbackRequiredForDiploma || feedbackSent);
-                            const diplomaGenerated = course.diplomaReady.includes(member.id);
-                            const diplomaState = diplomaGenerated ? "Generado" : readyForDiploma ? "Listo" : "Falta cerrar";
-                            const diplomaActionLabel = diplomaGenerated
-                              ? "Ver diploma"
-                              : readyForDiploma
-                                ? "Emitir diploma"
-                                : "Ver requisitos";
-                            const diplomaAction = diplomaGenerated
-                              ? "open-member-diploma-preview"
-                              : readyForDiploma
-                                ? "generate-member-diploma"
-                                : "open-member-diploma-preview";
-                            return `
-                              <tr>
-                                <td>${member.name}</td>
-                                <td>${attendance}%</td>
-                                <td>${progress.blockProgress}%<br><span class="muted">${progress.blocksCompleted}/${progress.blocksTotal} bloques</span></td>
-                                <td>${evaluation}</td>
-                                <td>${course.feedbackRequiredForDiploma ? (feedbackSent ? "Enviada" : "Pendiente") : "Opcional"}</td>
-                                <td>${diplomaState}</td>
-                                <td>
-                                  <div class="chip-row">
-                                    <button class="mini-button" data-action="set-course-preview-member" data-course-id="${course.id}" data-member-id="${member.id}" data-mode="learner">Abrir alumno</button>
-                                    <button class="mini-button" data-action="close-member-course" data-course-id="${course.id}" data-member-id="${member.id}">Cerrar curso</button>
-                                    <button class="mini-button" data-action="${diplomaAction}" data-course-id="${course.id}" data-member-id="${member.id}">${diplomaActionLabel}</button>
-                                  </div>
-                                </td>
-                              </tr>
-                            `;
-                          })
-                          .join("")
-                      : `<tr><td colspan="7">Todavia no hay inscritos confirmados en este curso.</td></tr>`
-                  }
-                </tbody>
-              </table>
-            </div>
-          `
-          : renderMemberOperationCard(course)
-      }
-    </div>
-  `;
+function renderOperations(course) {
+  if (!course) return '<div class="empty-state">Selecciona un curso para ver asistencia y evaluacion.</div>';
+  if (!canManageCourseAcademic(course)) return renderMemberOperationCard(course);
+  const loaded = academicRoster?.accountId === session?.accountId && academicRoster?.course?.id === course.id;
+  const students = loaded ? academicRoster.students : isAdminView()
+    ? (course.enrolledIds || []).filter(id => !(course.waitingIds || []).includes(id)).map(findMember).filter(Boolean).map(member => ({
+      id: member.id, name: member.name,
+      associateNumber: state.associates.find(a => a.id === member.associateId || a.linkedMemberId === member.id)?.associateNumber,
+      attendance: course.attendance?.[member.id] || 0, evaluation: course.evaluations?.[member.id] || "Pendiente",
+      diplomaReady: (course.diplomaReady || []).includes(member.id), blockers: getMemberDiplomaBlockingLabels(course, member.id)
+    })) : [];
+  const waitingCount = loaded ? academicRoster.waitingCount : course.waitingCount ?? course.waitingIds?.length ?? 0;
+  const id = escapeHtml(course.id);
+  return '<section class="academic-panel associate-anchor" id="courseAcademicPanel">' +
+    '<div class="module-head"><div><h3>Asistencia y certificación</h3><p>' + escapeHtml(course.title) + '</p></div>' +
+    '<button class="ghost-button" type="button" data-action="open-course-academic" data-course-id="' + id + '" ' + (academicBusy ? 'disabled' : '') + '>Actualizar alumnado</button></div>' +
+    '<p class="status-note" role="status">' + escapeHtml(syncStatus) + '</p>' +
+    '<div class="chip-row"><button class="mini-button" type="button" data-action="academic-all-present" data-course-id="' + id + '" ' + (!students.length || academicBusy ? 'disabled' : '') + '>Marcar presentes</button>' +
+    '<button class="mini-button" type="button" data-action="academic-close-all" data-course-id="' + id + '" ' + (!students.length || academicBusy ? 'disabled' : '') + '>Cerrar aptos</button></div>' +
+    '<div class="academic-students">' + students.map(student => {
+      const attrs = ' data-course-id="' + id + '" data-member-id="' + escapeHtml(student.id) + '"';
+      const disabled = academicBusy ? " disabled" : "";
+      return '<article class="academic-student" data-academic-student="' + escapeHtml(student.id) + '">' +
+        '<h4>' + escapeHtml(student.name) + '</h4><p class="muted">Nº socio: ' + escapeHtml(student.associateNumber || "—") + '</p>' +
+        '<p>' + Number(student.attendance) + '% · ' + escapeHtml(student.evaluation) + '</p>' +
+        '<p>Diploma: ' + (student.diplomaReady ? 'Disponible' : student.blockers.length ? 'Pendiente: ' + escapeHtml(student.blockers.join(", ")) : 'Listo para cierre') + '</p>' +
+        '<div class="chip-row"><button class="mini-button" type="button" data-action="academic-present"' + attrs + disabled + '>Asistió</button>' +
+        '<button class="mini-button" type="button" data-action="academic-absent"' + attrs + disabled + '>No asistió</button>' +
+        '<button class="mini-button" type="button" data-action="academic-close"' + attrs + (academicBusy || student.blockers.length || student.diplomaReady ? ' disabled' : '') + '>Validar cierre</button></div>' +
+        '<details><summary>Ajuste avanzado</summary><div class="academic-advanced">' +
+        '<label>Asistencia (%)<input data-academic-attendance type="number" min="0" max="100" step="0.5" value="' + Number(student.attendance) + '"></label>' +
+        '<label>Evaluación<select data-academic-evaluation>' + ["Pendiente","Apto","No apto"].map(value => '<option' + (value === student.evaluation ? ' selected' : '') + '>' + value + '</option>').join("") + '</select></label>' +
+        '<button class="mini-button" type="button" data-action="academic-advanced"' + attrs + disabled + '>Guardar ajuste</button></div></details></article>';
+    }).join("") + '</div>' +
+    (!students.length ? '<p class="empty-state">' + (loaded ? 'No hay inscritos confirmados.' : 'Actualiza el alumnado para consultar los inscritos.') + '</p>' : '') +
+    '<p class="muted">Lista de espera: ' + Number(waitingCount) + '. Sin acciones académicas.</p></section>';
 }
 
 function renderMemberOperationCard(course) {
@@ -14107,74 +14097,6 @@ function renderCourseWorkbench(course) {
         })
         .join("")
     : `<p class="muted">No hay solicitudes pendientes ahora mismo. El curso esta limpio en inscripcion y pagos.</p>`;
-  const instructorStudentRows = enrolledMembers.length
-    ? enrolledMembers
-        .map((member) => {
-          const journey = getLearnerCourseJourney(course, member.id);
-          const progress = getLearnerCourseContentStats(course, member.id);
-          const feedbackSent = Boolean(getCourseFeedbackResponse(course, member.id));
-          const readyForDiploma = isMemberReadyForDiploma(course, member.id);
-          const diplomaBlockers = getMemberDiplomaBlockingLabels(course, member.id);
-          const diplomaGenerated = course.diplomaReady.includes(member.id);
-          const diplomaState = diplomaGenerated
-            ? "Generado"
-            : readyForDiploma
-              ? "Listo"
-              : `Pendiente: ${diplomaBlockers[0] || "revision"}`;
-          const diplomaActionLabel = diplomaGenerated
-            ? "Ver diploma"
-            : readyForDiploma
-              ? "Emitir diploma"
-              : "Ver requisitos";
-          const diplomaAction = diplomaGenerated
-            ? "open-member-diploma-preview"
-            : readyForDiploma
-              ? "generate-member-diploma"
-              : "open-member-diploma-preview";
-          if (isPracticalCourse) {
-            return `
-              <tr>
-                <td>
-                  <strong>${escapeHtml(member.name)}</strong><br>
-                  <span class="muted">${escapeHtml(member.email || "Sin email")}</span>
-                </td>
-                <td>${progress.blockProgress}%<br><span class="muted">${progress.blocksCompleted}/${progress.blocksTotal} bloques</span></td>
-                <td>${escapeHtml(journey.evaluation)}</td>
-                <td>${feedbackSent ? "Enviada" : "Pendiente"}</td>
-                <td>${escapeHtml(diplomaState)}</td>
-                <td>
-                  <div class="chip-row">
-                    <button class="mini-button" type="button" data-action="set-course-preview-member" data-course-id="${course.id}" data-member-id="${member.id}" data-mode="learner">Abrir alumno</button>
-                    <button class="mini-button" type="button" data-action="close-member-course" data-course-id="${course.id}" data-member-id="${member.id}">Cerrar practico</button>
-                    <button class="mini-button" type="button" data-action="${diplomaAction}" data-course-id="${course.id}" data-member-id="${member.id}">${diplomaActionLabel}</button>
-                  </div>
-                </td>
-              </tr>
-            `;
-          }
-          return `
-            <tr>
-              <td>
-                <strong>${escapeHtml(member.name)}</strong><br>
-                <span class="muted">${escapeHtml(member.email || "Sin email")}</span>
-              </td>
-              <td>${journey.attendance}%</td>
-              <td>${escapeHtml(journey.evaluation)}</td>
-              <td>${progress.blockProgress}%<br><span class="muted">${progress.blocksCompleted}/${progress.blocksTotal} bloques</span></td>
-              <td>${feedbackSent ? "Enviada" : "Pendiente"}</td>
-              <td>${escapeHtml(diplomaState)}</td>
-              <td>
-                <div class="chip-row">
-                  <button class="mini-button" type="button" data-action="set-course-preview-member" data-course-id="${course.id}" data-member-id="${member.id}" data-mode="learner">Abrir alumno</button>
-                  <button class="mini-button" type="button" data-action="close-member-course" data-course-id="${course.id}" data-member-id="${member.id}">Cerrar curso</button>
-                  <button class="mini-button" type="button" data-action="${diplomaAction}" data-course-id="${course.id}" data-member-id="${member.id}">${diplomaActionLabel}</button>
-                </div>
-              </td>
-            </tr>
-          `;
-        })
-        .join("")
-    : "";
   const navigator = renderCourseStudioNavigator(
     course,
     normalizedWorkbenchMode,
@@ -14651,52 +14573,7 @@ function renderCourseWorkbench(course) {
           <div class="status-note info course-students-summary">
             ${enrolledMembers.length} inscrito(s), ${pendingEnrollmentSubmissions.length} pendiente(s) de revisar, ${proofPendingSubmissions.length} con justificante pendiente y ${waitingMembers.length || waitingEnrollmentSubmissions.length} en espera.
           </div>
-          <div class="mail-card" id="courseStudentsControlBoard">
-            <div class="row-between">
-              <div>
-                <h4>Mesa de control del instructor</h4>
-                <p class="muted">${isPracticalCourse ? "Cierra el practico por alumno desde una sola tabla: documentacion, evaluacion, valoracion y diploma." : "Desde aqui puedes ver el paso de cada alumno y cerrar asistencia o evaluacion sin ir saltando por otras pantallas."}</p>
-              </div>
-              <div class="chip-row">
-                ${
-                  isPracticalCourse
-                    ? `
-                      <button class="mini-button" type="button" data-action="close-all-member-courses" data-course-id="${course.id}">Cerrar alumnado</button>
-                      <button class="mini-button" type="button" data-action="generate-diplomas" data-course-id="${course.id}">Emitir pendientes</button>
-                    `
-                    : `
-                      <button class="mini-button" type="button" data-action="set-all-attendance" data-course-id="${course.id}">Todo al 100%</button>
-                      <button class="mini-button" type="button" data-action="set-all-evaluations-apt" data-course-id="${course.id}">Marcar aptos</button>
-                      <button class="mini-button" type="button" data-action="generate-diplomas" data-course-id="${course.id}">Revisar diplomas</button>
-                    `
-                }
-              </div>
-            </div>
-            ${
-              instructorStudentRows
-                ? `
-                  <div class="table-card instructor-students-table">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Alumno</th>
-                          ${isPracticalCourse ? "" : "<th>Asistencia</th>"}
-                          <th>Evaluacion</th>
-                          <th>${isPracticalCourse ? "Documentacion" : "Contenido"}</th>
-                          <th>Valoracion</th>
-                          <th>Diploma</th>
-                          <th>Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${instructorStudentRows}
-                      </tbody>
-                    </table>
-                  </div>
-                `
-                : `<p class="muted">Todavia no hay alumnado confirmado para activar el seguimiento del instructor.</p>`
-            }
-          </div>
+          ${renderOperations(course)}
           <div class="course-grid course-grid-tight">
             <div class="mail-card" id="courseStudentsQueue">
               <div class="row-between">

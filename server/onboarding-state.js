@@ -7,6 +7,9 @@ const memberFields = ["id", "associateId", "email", "name", "source"];
 function capture(state) {
   const associates = (state.associates || []).filter(item => item.campusOnboardingCreatedAt);
   return {
+    academicCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
+      attendance: course.attendance, evaluations: course.evaluations, diplomaReady: course.diplomaReady
+    })])),
     instructorFlags: new Map((state.associates || []).map(item => [item.id, item.instructorEnabled === true])),
     smtp: structuredClone(state.settings?.smtp),
     associates: new Map(associates.map(item => [item.id, structuredClone(item)])),
@@ -17,6 +20,25 @@ function capture(state) {
 }
 
 function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdateId) {
+  // An async writer may predate a synchronous academic correction/closure. Never roll it back or issue from its stale grades.
+  if (baseline) for (const course of state.courses || []) {
+    const before = baseline.academicCourses.get(course.id);
+    const latest = current.academicCourses.get(course.id);
+    if (!latest || JSON.stringify(before) === JSON.stringify(latest)) continue;
+    if (!before) { Object.assign(course, structuredClone(latest)); continue; }
+    const changedGrades = new Set();
+    for (const field of ["attendance", "evaluations"]) {
+      for (const id of new Set([...Object.keys(before[field] || {}), ...Object.keys(latest[field] || {})])) {
+        if (JSON.stringify(before[field]?.[id]) === JSON.stringify(latest[field]?.[id])) continue;
+        changedGrades.add(id);
+        course[field] = course[field] || {};
+        if (Object.hasOwn(latest[field] || {}, id)) course[field][id] = latest[field][id];
+        else delete course[field][id];
+      }
+    }
+    course.diplomaReady = [...new Set([...(latest.diplomaReady || []),
+      ...(course.diplomaReady || []).filter(id => !changedGrades.has(id))])];
+  }
   if (baseline && JSON.stringify(baseline.smtp) !== JSON.stringify(current.smtp)) {
     state.settings = { ...(state.settings || {}), smtp: structuredClone(current.smtp) };
   }
