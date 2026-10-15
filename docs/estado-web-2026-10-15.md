@@ -5,6 +5,23 @@ Portal: `https://portal.isocronazero.org`.
 
 > Esta es la bitácora operativa vigente desde el 15/10/2026. Conserva `docs/estado-web-2026-10-09.md` como histórico. Antes de trabajar: leer este documento y revisar commits, PR, CI y comentarios posteriores.
 
+## Corrección del dominio y cierre de persistencia — 15/10/2026
+
+Carlos autorizó específicamente a las 21:57 Europe/Madrid cambiar SOLO `IZ_BASE_URL` a `https://portal.isocronazero.org` y aplicar el redespliegue necesario. Railway mostró exactamente un cambio pendiente de una variable, revisado antes de desplegar.
+
+- Valor aplicado y confirmado dentro del nuevo contenedor: `https://portal.isocronazero.org`, sin salto final.
+- Despliegue `69e8ec1c-880e-4dd9-b1b4-a7fb915cb22b`: ACTIVE / Deployment successful. SHA conservado `6cb7577fd9773da2a8dba41c2e9884407c56f472`, Node 22.23.3.
+- Portal recargado: sesión administrativa recuperada y adjunto ficticio visible. El enlace normal Descargar usa ahora el dominio oficial. Clic real en ese enlace después del redeploy: descarga completada, 208 bytes idénticos al original y SHA-256 `26338a62592d090077326f460c7b1b93bc75ea11514c6123089824d73e0b3039`.
+- Ver online abre la vista previa con el texto ficticio correcto desde un blob del origen oficial. Los enlaces existentes de certificado, PDF y Validar este diploma también usan `portal.isocronazero.org`; solo se inspeccionaron sus URL, sin emitir, cerrar ni enviar diplomas. Esto no sustituye la QA completa de certificados/permisos de Gate C.
+- Comprobación a las `2026-10-15T20:01:52Z`: salud interna HTTP 200 con `ok:true`, SQLite abierto en solo lectura con `quick_check=ok`, snapshot idéntico a app_state.
+- `IZ_DATA_DIR` y `RAILWAY_VOLUME_MOUNT_PATH` siguen en `/var/data/isocrona-zero`; montaje real ext4 rw confirmado. DB, snapshot, uploads y backups comparten el dispositivo del Volume.
+- 153 associates, 7 members, 3 courses y 5 campusGroups. Los cuatro hashes de dominio coinciden exactamente con el baseline anterior al restart/redeploy, incluido el adjunto sintético ya autorizado. Outbox sigue en 7 queued y 0 sending/sent/failed.
+- No se modificaron socios/cursos, SMTP, bootstrap, Volume ni el proyecto paralelo. No se enviaron correos ni se crearon cuentas.
+
+**Resultado: #259 y #263 verificadas y cerradas; Gate B COMPLETO.** La copia externa recuperable ya validada, el autosave y la conservación tras restart y redeploy quedan acreditados. El antiguo 502 de la sección histórica siguiente queda resuelto por esta intervención.
+
+**Pendiente:** Gate C conserva el resto de la QA productiva sin ejecutar; Gate D/piloto y #248 siguen fuera del alcance autorizado. PR #262 continúa en borrador, solo documentación en rama separada; no fusionar por inercia porque main dispara autodeploy.
+
 ## Resultado de la intervención autorizada — 15/10/2026, 21:50 Europe/Madrid
 
 Carlos autorizó expresamente la copia privada, un adjunto ficticio y un reinicio controlado del servicio. Operación realizada sobre el mismo servicio productivo; SIN cambio de variables, Volume, código, SMTP ni proyecto paralelo.

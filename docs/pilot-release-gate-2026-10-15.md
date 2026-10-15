@@ -33,10 +33,10 @@ Bloqueante para socios reales.
 - [x] Backup externo recuperable realizado antes de operaciones reales.
 - [x] Archivo sintético subido y recuperable antes del reinicio/redeploy.
 - [x] Restart/redeploy solo tras autorización expresa.
-- [ ] Descarga normal del mismo archivo después del restart/redeploy: bytes y visibilidad PASS, enlace normal 502 por #263; repetir tras corregir IZ_BASE_URL.
+- [x] Descarga normal del mismo archivo después del restart/redeploy: enlace oficial, 208 bytes y SHA-256 idénticos tras corregir IZ_BASE_URL (#263).
 - [x] Estado de socios/cursos no cambia tras la prueba.
 
-Evidencia autenticada 15/10, 21:12 Europe/Madrid:
+Evidencia inicial autenticada 15/10, 21:12 Europe/Madrid (histórica; resultado final debajo):
 - `zealous-warmth / production / isocrona-zero-campus-test`, dominio `https://portal.isocronazero.org`.
 - SHA activo `6cb7577fd9773da2a8dba41c2e9884407c56f472`; despliegue `1ec54a54-e130-458e-a364-6f6025f1f2c9`.
 - Mount Path del Volume e `IZ_DATA_DIR`: `/var/data/isocrona-zero`. Montaje real ext4 rw confirmado desde el contenedor.
@@ -44,17 +44,26 @@ Evidencia autenticada 15/10, 21:12 Europe/Madrid:
 - Baseline orientativo: 153 socios, 7 members, 3 cursos y 5 grupos internos.
 - 30 snapshots locales; Railway Backups muestra `No Backups`. Copia externa y restauración todavía NO verificadas.
 
-**Gate B: PARCIAL — persistencia física y backup recuperable PASS; descarga normal pendiente de #263.** Copia externa cifrada y kit privados guardados, descifrado/inventario de 366 archivos/SQLite/3 uploads/arranque aislado verificados. Adjunto ficticio de 208 bytes guardado por autosave y conservado idéntico tras el único Restart autorizado (~21:46). Socios/members/cursos/grupos con hashes idénticos antes/después; salud HTTP 200 y SHA 6cb7577. La UI genera Descargar contra campustest.isocronazero.org (502). Falta autorización específica para cambiar SOLO IZ_BASE_URL al dominio oficial y aplicar despliegue, y después repetir descarga por la UI. Ver bitácora del 15/10 y #263. No cerrar #259 ni abrir piloto todavía.
+**Gate B: COMPLETO — #259 y #263 verificadas y cerradas.**
 
-Handoff en PR #262, rama separada: el Restart de prueba ya fue autorizado y ejecutado una vez. La corrección de IZ_BASE_URL y cualquier autodeploy por merge documental siguen sin autorización específica.
+Evidencia final tras autorización específica de Carlos (21:57 Europe/Madrid):
+- Copia externa cifrada y kit privados guardados; descifrado, inventario de 366 archivos, SQLite, 3 uploads y arranque aislado verificados antes de reiniciar.
+- Adjunto ficticio de 208 bytes guardado por autosave y conservado tras el Restart autorizado (~21:46), reload y posterior redeploy de configuración.
+- Se cambió SOLO `IZ_BASE_URL` al dominio oficial, sin salto final. Railway mostró exactamente una variable; despliegue `69e8ec1c-880e-4dd9-b1b4-a7fb915cb22b` ACTIVE / successful, mismo SHA `6cb7577`.
+- Descarga mediante clic en el enlace normal del campus después del redeploy: PASS, bytes idénticos y SHA-256 `26338a62592d090077326f460c7b1b93bc75ea11514c6123089824d73e0b3039`. Ver online muestra el contenido ficticio desde el origen oficial.
+- A las 20:01:52 UTC: salud HTTP 200 con `ok:true`, SQLite `quick_check=ok`, snapshot idéntico. Montaje real ext4 rw en `/var/data/isocrona-zero`; DB/snapshot/uploads/backups en el mismo dispositivo.
+- Hashes de associates/members/courses/campusGroups idénticos al baseline anterior; recuentos 153/7/3/5. Outbox 7 queued, 0 sending/sent/failed. No correos ni altas.
+- Enlaces existentes de certificado/PDF/validación inspeccionados: dominio oficial. No se emitieron ni enviaron diplomas; no equivale a validar el recorrido completo de certificados/permisos.
 
-Si cualquiera de estas comprobaciones falla: NO abrir piloto; #259 permanece P1 de release.
+Handoff en PR #262, rama separada y borrador. La autorización cubrió un Restart y este redeploy de configuración; no autoriza merge documental ni piloto. Ver bitácora del 15/10 para el histórico y la evidencia.
+
+Si una comprobación de persistencia vuelve a fallar, reabrir #259 y Gate B antes de abrir el piloto.
 
 ## Gate C — QA productiva corta
 
 Registrar PASS / FAIL reproducible / BLOQUEADO / NO APLICA.
 
-- [x] `/healthz` correcto y SHA desplegado conocido (15/10 21:12, SHA 6cb7577; no acredita el resto de Gate C).
+- [x] `/healthz` correcto y SHA desplegado conocido (15/10 20:01:52 UTC tras redeploy, SHA 6cb7577; no acredita el resto de Gate C).
 - [ ] Login/logout admin.
 - [ ] Login/logout socio de prueba.
 - [ ] Modo socio desde administración y permisos visibles correctos.
@@ -64,7 +73,7 @@ Registrar PASS / FAIL reproducible / BLOQUEADO / NO APLICA.
 - [ ] #241: apertura configurada a 3–5 minutos; rechazo antes y aceptación desde el minuto correcto; edición muestra hora local correcta.
 - [ ] Certificados/instructores: permisos, curso cerrado/finalizado y descarga correcta.
 - [x] Grupos internos: adjunto ficticio seleccionado queda realmente persistido y reaparece tras reload con sesión recuperada y restart (bytes comprobados).
-- [ ] Grupos internos: enlace Descargar/Ver online usa el dominio oficial y descarga correcta después del restart (#263).
+- [x] Grupos internos: Descargar usa el dominio oficial y devuelve bytes/hash idénticos después del redeploy; Ver online muestra el texto correcto desde el origen oficial (#263).
 - [ ] No aparecen errores JS bloqueantes en los recorridos anteriores.
 
 ## Gate D — piloto
