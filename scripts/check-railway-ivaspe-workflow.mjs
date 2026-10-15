@@ -25,6 +25,17 @@ function assertBefore(first, second, message) {
   assert.ok(firstIndex < secondIndex, message || `${first} must appear before ${second}`);
 }
 
+assertBefore(
+  'printf \'%s\\n\' "$RAILWAY_SSH_PRIVATE_KEY" > "$ssh_key"',
+  "ssh-keyscan ssh.railway.app >> ~/.ssh/known_hosts",
+  "Railway known_hosts setup must happen after writing the SSH key"
+);
+assertBefore(
+  "ssh-keyscan ssh.railway.app >> ~/.ssh/known_hosts",
+  'railway ssh "${railway_args[@]}" --identity-file "$ssh_key" -- "$@"',
+  "Railway known_hosts setup must happen before railway ssh"
+);
+
 assertIncludes("workflow_dispatch:");
 assertMatches(/dry_run:[\s\S]*?type:\s*boolean[\s\S]*?default:\s*true/, "dry_run must be a boolean input defaulting to true");
 assertIncludes("RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}");
@@ -35,8 +46,14 @@ assertIncludes('if [ -z "${RAILWAY_TOKEN:-}" ]; then');
 assertIncludes("Using Railway project token authentication.");
 assertIncludes("RAILWAY_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_SSH_PRIVATE_KEY }}");
 assertIncludes("Missing required GitHub secret RAILWAY_SSH_PRIVATE_KEY");
+assertIncludes("mkdir -p ~/.ssh");
+assertIncludes("chmod 700 ~/.ssh");
+assertIncludes("ssh-keyscan ssh.railway.app >> ~/.ssh/known_hosts");
+assertIncludes("ssh-keyscan railway.app || true");
+assertIncludes("chmod 600 ~/.ssh/known_hosts");
 assertIncludes("--identity-file \"$ssh_key\"");
 assertIncludes("railway ssh");
+assertNotMatches(/StrictHostKeyChecking\s*=\s*no/i, "Workflow must not disable SSH host key checking");
 assertIncludes("Skipping railway whoami for token-based CI auth.");
 assertNotMatches(/^\s*railway whoami\b/m, "railway whoami must not run as a blocking CI command");
 assertIncludes("Skipping railway status because Railway CLI status does not accept project/service/environment flags in CI.");
