@@ -20,7 +20,7 @@ Carlos autorizó comenzar por acceso, permisos visibles y vista móvil. Se revis
 - Consola del recorrido: los 12 errores registrados en este intervalo comparten `Error sending browser metadata to extension: Object`; no se identificó un error JS específico del portal en las vistas visitadas. La comprobación global de errores de Gate C sigue pendiente.
 - Baseline leído en SQLite en solo lectura a las `2026-10-15T20:11:17.609Z`: hashes de associates/members/courses/campusGroups sin cambios; recuentos 153/7/3/5; outbox conserva 7 queued. Sin altas, correos, modificaciones de fichas, cursos ni recursos.
 
-Límite de permisos: se ha comprobado la UI de modo socio dentro de una sesión autenticada como administrador. Esto NO acredita el aislamiento backend de una cuenta independiente con rol socio. Falta login/logout con una cuenta de prueba existente, sin crearla ni cambiar permisos por esta revisión. Gate C continúa PARCIAL; piloto cerrado. PR #262 permanece en borrador, sin merge ni nuevo despliegue.
+Límite de permisos: se ha comprobado la UI de modo socio dentro de una sesión autenticada como administrador. Esto NO acredita el aislamiento backend de una cuenta independiente con rol socio. El acceso de una cuenta socio independiente sigue pendiente; la ampliación autorizada para crear una identidad ficticia se detalla a continuación. Gate C continúa PARCIAL; piloto cerrado. PR #262 permanece en borrador, sin merge ni nuevo despliegue.
 
 
 ### Alta ficticia solicitada por Carlos: preparada, todavía SIN enviar
