@@ -13,7 +13,7 @@ const nodeModulesCandidates = [
 const nodeModulesPath = nodeModulesCandidates.find((candidate) => existsSync(candidate)) || "";
 const allowFlag = "IZ_ALLOW_EPHEMERAL_STORAGE_IN_PRODUCTION";
 
-function startProductionServerWithoutStorage() {
+function startProductionServer({ databaseUrl = "", dataDir = "", allowEphemeral = false } = {}) {
   const env = { ...process.env };
   delete env.DATABASE_URL;
   delete env.IZ_DATA_DIR;
@@ -28,7 +28,10 @@ function startProductionServerWithoutStorage() {
       IZ_BASE_URL: "http://127.0.0.1:0",
       AUTOMATION_INTERVAL_MS: "3600000",
       IZ_RECOVERY_ADMIN_EMAIL: "",
-      IZ_RECOVERY_ADMIN_PASSWORD: ""
+      IZ_RECOVERY_ADMIN_PASSWORD: "",
+      ...(databaseUrl ? { DATABASE_URL: databaseUrl } : {}),
+      ...(dataDir ? { IZ_DATA_DIR: dataDir } : {}),
+      ...(allowEphemeral ? { [allowFlag]: "true" } : {})
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -65,8 +68,8 @@ async function stopServer(child) {
   });
 }
 
-async function assertProductionRequiresStorage() {
-  const child = startProductionServerWithoutStorage();
+async function captureExit(options) {
+  const child = startProductionServer(options);
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk) => {
@@ -78,15 +81,30 @@ async function assertProductionRequiresStorage() {
 
   try {
     const exit = await waitForExit(child);
-    assert.notEqual(exit.code, 0, "Produccion sin DATABASE_URL ni IZ_DATA_DIR debe bloquear el arranque");
-    const combinedOutput = `${stdout}\n${stderr}`;
-    assert.match(combinedOutput, /Arranque bloqueado: produccion necesita persistencia real/);
-    assert.match(combinedOutput, /DATABASE_URL/);
-    assert.match(combinedOutput, /IZ_DATA_DIR/);
-    assert.match(combinedOutput, new RegExp(allowFlag));
+    return { exit, output: `${stdout}\n${stderr}` };
   } finally {
     await stopServer(child);
   }
+}
+
+function assertBlocked(result, message) {
+  assert.notEqual(result.exit.code, 0, message);
+  assert.match(result.output, /Arranque bloqueado: produccion necesita persistencia real/);
+  assert.match(result.output, /IZ_DATA_DIR/);
+  assert.match(result.output, new RegExp(allowFlag));
+}
+
+async function assertProductionRequiresStorage() {
+  const result = await captureExit();
+  assertBlocked(result, "Produccion sin IZ_DATA_DIR debe bloquear el arranque");
+}
+
+async function assertDatabaseUrlDoesNotReplaceLocalStateStorage() {
+  const result = await captureExit({ databaseUrl: "postgresql://example.invalid/isocrona" });
+  assertBlocked(
+    result,
+    "DATABASE_URL no debe permitir produccion sin IZ_DATA_DIR: app_state y uploads siguen siendo locales"
+  );
 }
 
 function assertEmergencyBypassIsExplicitAndLoud() {
@@ -98,6 +116,7 @@ function assertEmergencyBypassIsExplicitAndLoud() {
 
 async function main() {
   await assertProductionRequiresStorage();
+  await assertDatabaseUrlDoesNotReplaceLocalStateStorage();
   assertEmergencyBypassIsExplicitAndLoud();
   console.log("Production storage guard check passed.");
 }
