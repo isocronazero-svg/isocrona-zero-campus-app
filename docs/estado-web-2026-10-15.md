@@ -5,6 +5,44 @@ Portal: `https://portal.isocronazero.org`.
 
 > Esta es la bitácora operativa vigente desde el 15/10/2026. Conserva `docs/estado-web-2026-10-09.md` como histórico. Antes de trabajar: leer este documento y revisar commits, PR, CI y comentarios posteriores.
 
+## Resultado de la intervención autorizada — 15/10/2026, 21:50 Europe/Madrid
+
+Carlos autorizó expresamente la copia privada, un adjunto ficticio y un reinicio controlado del servicio. Operación realizada sobre el mismo servicio productivo; SIN cambio de variables, Volume, código, SMTP ni proyecto paralelo.
+
+### Copia externa recuperable: PASS
+- Captura coherente creada a las `2026-10-15T19:33:57.360Z`: API nativa de backup online de SQLite, estado antes/copia/después idéntico y uploads comprobados por bytes/hashes.
+- Incluye `campus.db` (app_state y sesiones recordadas), snapshot equivalente, los 3 archivos externos de uploads y el runtime desplegado. No incluye variables de entorno ni los 30 snapshots históricos; se excluyó el enlace auxiliar de `node_modules/.bin`, innecesario para arrancar.
+- Cifrado AES-256-GCM con clave envuelta mediante RSA-OAEP/SHA-256; clave privada separada, nunca enviada a Railway.
+- Copia y kit guardados de forma privada fuera de Railway: `Respaldo_Campus_2026-10-15.tar.gz` y `Clave_recuperacion_Campus_2026-10-15.zip`. No adjuntar estos archivos ni claves a GitHub.
+- El ensayo local descifró la copia, comprobó los hashes de los 366 archivos, integridad SQLite y equivalencia de snapshot. Verificó los 3 uploads.
+- Arranque aislado del mismo código `6cb7577`: salud correcta y datos de socios/members/cursos/grupos idénticos, con SMTP vaciado exclusivamente en la copia de ensayo, automatización diferida y conexiones salientes bloqueadas.
+- Límite del ensayo: Node local 24.19.0; producción Node 22.23.3. No se conectó la copia a recursos productivos ni se ensayó una restauración sobre producción.
+
+### Adjunto y reinicio: persistencia PASS
+- Carga por la UI, SIN pulsar Guardar después de seleccionar archivo; el autosave terminó en `Grupo interno guardado`.
+- Recurso ficticio `PRUEBA TÉCNICA — Persistencia Railway #259`, en Multidisciplinar → Apertura de puertas → Documentos.
+- Archivo `prueba-persistencia-railway-2026-10-15.txt`, 208 bytes, sin datos personales.
+- SHA-256 antes y después del restart: `26338a62592d090077326f460c7b1b93bc75ea11514c6123089824d73e0b3039`.
+- ID `campus-group-entry-documents-1792093305695-0`; grupo `campus-group-multidisciplinary`, módulo `group-module-multi-door-entry`.
+- Descarga autenticada ANTES del restart usando el dominio correcto: bytes idénticos al fichero original.
+- Un único `Restart` de Railway confirmado mediante su diálogo, aproximadamente 21:46 Europe/Madrid. No Redeploy ni merge. Despliegue `1ec54a54-e130-458e-a364-6f6025f1f2c9`, SHA `6cb7577fd9773da2a8dba41c2e9884407c56f472` conservados.
+- Nuevo proceso servidor PID 89, uptime 208 s a las 19:49:27 UTC, acredita el nuevo arranque.
+- DESPUÉS: portal recargado con sesión administrativa recuperada y recurso visible; SQLite de solo lectura confirma los mismos bytes del adjunto. Integridad `quick_check=ok`, snapshot igual a app_state, DB y montaje todavía en `/var/data/isocrona-zero`; salud interna HTTP 200.
+- Recuentos: 153 associates, 7 members, 3 courses, 5 campusGroups. Los cuatro hashes de dominio coinciden exactamente antes/después del restart; socios/members/cursos también coinciden con la copia anterior a la prueba. Outbox conserva 7 queued, 0 sending/sent/failed. No hubo envíos ni altas.
+- El archivo ficticio queda identificado en la biblioteca; no se han borrado recursos existentes.
+
+### Bloqueo reproducido: enlace al dominio antiguo — #263
+- El enlace Descargar normal de la UI apunta a `https://campustest.isocronazero.org/api/campus-groups/attachment` y devuelve 502 / Connection refused.
+- `IZ_BASE_URL` se confirmó en el contenedor y en Railway Variables: `https://campustest.isocronazero.org` con salto final. El dominio oficial es `https://portal.isocronazero.org`.
+- El contenido NO está perdido: la ruta autenticada en el dominio oficial funcionó antes del restart y los bytes/estado/UI permanecen idénticos después.
+- La descarga normal sigue FAIL. No marcar PASS de descarga posterior al restart: una pestaña de descarga quedó en una página interna de error y no pudo reutilizarse; se verificaron bytes y visibilidad por las vías autenticadas anteriores, sin eludir restricciones del navegador.
+- [Issue #263](https://github.com/isocronazero-svg/isocrona-zero-campus-app/issues/263) contiene la intervención mínima propuesta: cambiar SOLO `IZ_BASE_URL` a `https://portal.isocronazero.org`, sin salto final; aplicar el despliegue necesario y repetir Descargar/Ver online y hashes/baseline.
+- Ese cambio de variable y el despliegue adicional NO están ejecutados: requieren autorización específica. No tocar bootstrap, SMTP, Volume ni el segundo proyecto.
+- #259 permanece ABIERTA hasta validar la descarga normal tras resolver #263. Gate B acredita persistencia física pero conserva pendiente su última descarga; Gate C/piloto siguen sin aprobar.
+
+### Continuidad
+La PR documental #262 conserva ambos historiales y esta evidencia en una rama separada. No fusionarla automáticamente: un push a main dispara autodeploy. No iniciar #248, onboarding, correos ni piloto por este resultado.
+
 ## Auditoría Railway — 15/10/2026, 21:12 Europe/Madrid
 
 Comprobación autenticada y de solo lectura en Railway. Esta evidencia sustituye las referencias de rutas pendientes de confirmar; NO acredita todavía supervivencia a un reinicio.

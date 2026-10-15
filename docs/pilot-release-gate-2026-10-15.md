@@ -30,11 +30,11 @@ Bloqueante para socios reales.
 - [x] `IZ_DATA_DIR` no vacío.
 - [x] `IZ_DATA_DIR` apunta dentro de un Railway Volume persistente.
 - [x] Evidencia autenticada de almacenamiento confirma DB/app_state/uploads dentro del volumen.
-- [ ] Backup externo recuperable realizado antes de operaciones reales.
-- [ ] Archivo sintético subido y recuperable antes del reinicio/redeploy.
-- [ ] Restart/redeploy solo tras autorización expresa.
-- [ ] El mismo archivo sintético sigue disponible después del restart/redeploy.
-- [ ] Estado de socios/cursos no cambia tras la prueba.
+- [x] Backup externo recuperable realizado antes de operaciones reales.
+- [x] Archivo sintético subido y recuperable antes del reinicio/redeploy.
+- [x] Restart/redeploy solo tras autorización expresa.
+- [ ] Descarga normal del mismo archivo después del restart/redeploy: bytes y visibilidad PASS, enlace normal 502 por #263; repetir tras corregir IZ_BASE_URL.
+- [x] Estado de socios/cursos no cambia tras la prueba.
 
 Evidencia autenticada 15/10, 21:12 Europe/Madrid:
 - `zealous-warmth / production / isocrona-zero-campus-test`, dominio `https://portal.isocronazero.org`.
@@ -44,9 +44,9 @@ Evidencia autenticada 15/10, 21:12 Europe/Madrid:
 - Baseline orientativo: 153 socios, 7 members, 3 cursos y 5 grupos internos.
 - 30 snapshots locales; Railway Backups muestra `No Backups`. Copia externa y restauración todavía NO verificadas.
 
-**Gate B: PARCIAL.** No cerrar #259 ni abrir piloto. Falta copia externa privada y prueba de adjunto antes/después de reinicio autorizado. Ver bitácora del 15/10 para evidencia y secuencia.
+**Gate B: PARCIAL — persistencia física y backup recuperable PASS; descarga normal pendiente de #263.** Copia externa cifrada y kit privados guardados, descifrado/inventario de 366 archivos/SQLite/3 uploads/arranque aislado verificados. Adjunto ficticio de 208 bytes guardado por autosave y conservado idéntico tras el único Restart autorizado (~21:46). Socios/members/cursos/grupos con hashes idénticos antes/después; salud HTTP 200 y SHA 6cb7577. La UI genera Descargar contra campustest.isocronazero.org (502). Falta autorización específica para cambiar SOLO IZ_BASE_URL al dominio oficial y aplicar despliegue, y después repetir descarga por la UI. Ver bitácora del 15/10 y #263. No cerrar #259 ni abrir piloto todavía.
 
-Handoff en rama separada: fusionar documentación en main dispara autodeploy; no hacerlo sin autorización específica.
+Handoff en PR #262, rama separada: el Restart de prueba ya fue autorizado y ejecutado una vez. La corrección de IZ_BASE_URL y cualquier autodeploy por merge documental siguen sin autorización específica.
 
 Si cualquiera de estas comprobaciones falla: NO abrir piloto; #259 permanece P1 de release.
 
@@ -63,7 +63,8 @@ Registrar PASS / FAIL reproducible / BLOQUEADO / NO APLICA.
 - [ ] Inscripción a curso: estados, espera y justificante/reintento.
 - [ ] #241: apertura configurada a 3–5 minutos; rechazo antes y aceptación desde el minuto correcto; edición muestra hora local correcta.
 - [ ] Certificados/instructores: permisos, curso cerrado/finalizado y descarga correcta.
-- [ ] Grupos internos: adjunto seleccionado queda realmente persistido y reaparece tras reload/relogin.
+- [x] Grupos internos: adjunto ficticio seleccionado queda realmente persistido y reaparece tras reload con sesión recuperada y restart (bytes comprobados).
+- [ ] Grupos internos: enlace Descargar/Ver online usa el dominio oficial y descarga correcta después del restart (#263).
 - [ ] No aparecen errores JS bloqueantes en los recorridos anteriores.
 
 ## Gate D — piloto
