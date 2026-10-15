@@ -11010,6 +11010,7 @@ async function invokeCourseAcademicAction(courseId, memberId, changes = null) {
   academicBusy = true;
   syncStatus = "Guardando seguimiento academico...";
   render();
+  let confirmed = false;
   try {
     const url = "/api/courses/" + encodeURIComponent(courseId) +
       (memberId ? "/members/" + encodeURIComponent(memberId) : "") + (changes ? "/academic" : "/close");
@@ -11020,13 +11021,19 @@ async function invokeCourseAcademicAction(courseId, memberId, changes = null) {
     const payload = await readJsonResponse(response, "No se pudo confirmar el guardado. Actualiza el alumnado antes de reintentar.");
     if (session !== identity) return;
     if (!response.ok || payload.ok === false) throw new Error(payload.error || "Accion rechazada");
+    confirmed = true;
     // Keep roster data outside /api/state. A confirmed mutation is never resubmitted by a refresh.
     academicRoster = { ...payload, accountId: session.accountId };
+    // Retain the authoritative admin course even if the subsequent refresh cannot reach the server.
+    if (identity.role === "admin" && payload.course?.id === courseId) Object.assign(course, payload.course);
+    await refreshState();
+    if (session !== identity) return;
+    applySessionToState();
     syncStatus = payload.message || "Seguimiento guardado";
     showToast(syncStatus, payload.blocked?.length ? "info" : "success");
   } catch (error) {
     if (session === identity) {
-      syncStatus = error.message;
+      syncStatus = confirmed ? "Guardado confirmado. No se pudo actualizar la pantalla; recarga antes de continuar." : error.message;
       showToast(syncStatus, "error");
     }
   } finally {

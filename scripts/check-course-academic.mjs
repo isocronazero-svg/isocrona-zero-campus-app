@@ -8,6 +8,8 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import http from "node:http";
+import vm from "node:vm";
 
 const { createOnboardingStateAccess } = createRequire(import.meta.url)("../server/onboarding-state.js");
 let stored = { courses: [{ id: "qa", attendance: { pupil: 100 }, evaluations: { pupil: "Apto" }, diplomaReady: [] }] };
@@ -29,9 +31,39 @@ closure.courses[0].diplomaReady = ["unchanged-pupil", "pupil"];
 access.writeState(closure);
 access.writeState(beforeClosure);
 assert.deepEqual(stored.courses[0].diplomaReady, ["unchanged-pupil", "pupil"], "A stale writer cannot lose a confirmed closure");
+const reconstructedBaseline = access.readState();
+const reconstructed = structuredClone(reconstructedBaseline);
+access.reconcileState(reconstructed, reconstructedBaseline);
+const laterCorrection = access.readState();
+laterCorrection.courses[0].attendance.pupil = 0;
+laterCorrection.courses[0].evaluations.pupil = "No apto";
+access.writeState(laterCorrection);
+access.writeState(reconstructed);
+assert.equal(stored.courses[0].evaluations.pupil, "No apto", "Reconstructed payload stays protected across later automation awaits");
+assert.ok(stored.courses[0].diplomaReady.includes("pupil"), "Previously issued diplomas remain valid");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
+const appSource = readFileSync(path.join(repoRoot, "public/app.js"), "utf8");
+const academicActionSource = appSource.slice(appSource.indexOf("async function invokeCourseAcademicAction("), appSource.indexOf("function renderOperations("));
+for (const refreshFails of [false, true]) {
+  let requests = 0, refreshes = 0;
+  const updatedCourse = { id: "qa", attendance: { pupil: 100 }, evaluations: { pupil: "Apto" }, diplomaReady: [] };
+  const context = vm.createContext({
+    state: { courses: [{ id: "qa", attendance: { pupil: 0 } }] }, session: { role: "admin", accountId: "admin" },
+    academicBusy: false, academicRoster: null, syncStatus: "", canManageCourseAcademic: () => true,
+    render() {}, showToast() {}, applySessionToState() {},
+    fetch: async () => { requests++; return { ok: true }; },
+    readJsonResponse: async () => ({ ok: true, course: updatedCourse, students: [] }),
+    refreshState: async () => { refreshes++; if (refreshFails) throw new Error("offline"); }
+  });
+  vm.runInContext(academicActionSource, context);
+  await context.invokeCourseAcademicAction("qa", "pupil", { attendance: 100, evaluation: "Apto" });
+  assert.equal(context.state.courses[0].attendance.pupil, 100, "Confirmed grades survive a later whole-state save, even if refresh fails");
+  assert.equal(refreshes, 1);
+  assert.equal(requests, 1, "A failed refresh never resubmits the confirmed mutation");
+  assert.equal(context.academicBusy, false);
+}
 const bundledDefaultStatePath = path.join(repoRoot, "data", "default-state.json");
 const nodeModulesCandidates = [
   path.join(repoRoot, "node_modules"),
@@ -208,6 +240,26 @@ async function waitForServer(baseUrl) {
 function createClient(baseUrl) {
   const cookies = new Map();
   return {
+    async slowStateSave(body, whileReading) {
+      const serialized = JSON.stringify(body);
+      const req = http.request(new URL("/api/state", baseUrl), { method: "POST", headers: {
+        "Content-Type": "application/json", "Content-Length": Buffer.byteLength(serialized),
+        Cookie: Array.from(cookies.entries()).map(([name, value]) => `${name}=${value}`).join("; ")
+      } });
+      const response = new Promise((resolve, reject) => {
+        req.on("error", reject);
+        req.on("response", res => {
+          let text = "";
+          res.on("data", chunk => { text += chunk; });
+          res.on("end", () => resolve({ status: res.statusCode, body: JSON.parse(text) }));
+          res.on("error", reject);
+        });
+      });
+      req.write(serialized.slice(0, 1));
+      await delay(150);
+      try { await whileReading(); } finally { req.end(serialized.slice(1)); }
+      return response;
+    },
     async request(method, requestPath, body, allowFailure = false) {
       const headers = { Accept: "application/json" };
       const cookieHeader = Array.from(cookies.entries()).map(([name, value]) => `${name}=${value}`).join("; ");
@@ -281,6 +333,16 @@ async function checkInstructorAcademic(admin, member, anonymous, baseUrl) {
   const otherCourse = structuredClone(findCourse(protectedState,"course-2"));
   assert.equal(protectedState.settings.associationName,before.settings.associationName);
   assert.equal(findCourse(protectedState,"course-attendance").attendance["member-1"],undefined);
+
+  const slowSave = await admin.slowStateSave(protectedState, async () => {
+    await assigned.request("PATCH",path+"/members/member-1/academic",changes);
+    await assigned.request("POST",path+"/members/member-1/close");
+  });
+  assert.equal(slowSave.status, 200);
+  const afterSlowSave = findCourse((await admin.request("GET","/api/state")).body,"course-attendance");
+  assert.equal(afterSlowSave.attendance["member-1"], 100, "Slow reconstructed state must preserve a concurrent instructor correction");
+  assert.equal(afterSlowSave.evaluations["member-1"], "Apto");
+  assert.ok(afterSlowSave.diplomaReady.includes("member-1"), "Slow state save must preserve concurrent closure");
 
   // Concurrent academic requests read latest state after IO; neither student's change is lost.
   await Promise.all([

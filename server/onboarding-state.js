@@ -83,6 +83,12 @@ function createOnboardingStateAccess(storage) {
       snapshots.set(state, capture(state));
       return state;
     },
+    reconcileState(state, baselineState) {
+      const latest = capture(storage.readState());
+      mergeConcurrentAccessChanges(state, snapshots.get(baselineState), latest);
+      // Reconstructed whole-state payloads need a baseline too, including across automation awaits.
+      snapshots.set(state, latest);
+    },
     writeState(state, { instructorUpdateId } = {}) {
       const latest = capture(storage.readState());
       mergeConcurrentAccessChanges(state, snapshots.get(state), latest, instructorUpdateId);

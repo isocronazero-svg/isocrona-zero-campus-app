@@ -17,7 +17,7 @@ const {
   writeState: writeStoredState
 } = require("./storage");
 const { createOnboardingStateAccess } = require("./server/onboarding-state");
-const { readState, writeState } = createOnboardingStateAccess({ readState: readStoredState, writeState: writeStoredState });
+const { readState, writeState, reconcileState } = createOnboardingStateAccess({ readState: readStoredState, writeState: writeStoredState });
 const { sendMail } = require("./smtp");
 const associateOnboardingPreviews = new Map();
 const ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS = 15 * 60 * 1000;
@@ -6500,6 +6500,8 @@ const server = http.createServer(async (req, res) => {
       }
       let summary = null;
 
+      // Preserve academic changes made while reading this body, before automation sees its grades.
+      reconcileState(state, currentState);
       if (state.settings?.automation?.autoRunOnSave !== false) {
         summary = await runAutomationEngine(state);
         recordAutomationRun(state, "Guardado de cambios", summary);
