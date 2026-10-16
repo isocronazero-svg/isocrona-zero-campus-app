@@ -49,24 +49,24 @@ document.addEventListener("submit", async (event) => {
   if (!currentApplication || !currentToken) {
     return;
   }
-
+  const token = currentToken;
+  const note = document.getElementById("applicationReplyNote").value.trim();
+  const documentInput = document.getElementById("applicationReplyDocument");
+  const documentInput2 = document.getElementById("applicationReplyDocument2");
+  const paymentProofInput = document.getElementById("applicationReplyPaymentProof");
   applicationStatus.textContent = "Enviando documentacion...";
-
-  const replyDocumentFile = await readFileInput(document.getElementById("applicationReplyDocument"));
-  const replyDocumentFile2 = await readFileInput(document.getElementById("applicationReplyDocument2"));
-  const payload = {
-    note: document.getElementById("applicationReplyNote").value.trim(),
-    replyDocumentFile,
-    replyDocumentFile2
-  };
-
   try {
-    const response = await fetch(`/api/associates/applications/public/${encodeURIComponent(currentToken)}/reply`, {
+    const [replyDocumentFile, replyDocumentFile2, paymentProofFile] = await Promise.all([
+      readFileInput(documentInput), readFileInput(documentInput2), readFileInput(paymentProofInput)
+    ]);
+    if (currentToken !== token) return;
+    const response = await fetch(`/api/associates/applications/public/${encodeURIComponent(token)}/reply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ note, replyDocumentFile, replyDocumentFile2, paymentProofFile })
     });
     const result = await response.json();
+    if (currentToken !== token) return;
     if (!response.ok || result.ok === false) {
       throw new Error(result.error || "No se pudo registrar la respuesta");
     }
@@ -75,7 +75,7 @@ document.addEventListener("submit", async (event) => {
     currentApplication = result.application;
     renderApplication();
   } catch (error) {
-    applicationStatus.textContent = error.message || "No se pudo registrar la documentacion";
+    if (currentToken === token) applicationStatus.textContent = error.message || "No se pudo registrar la documentacion";
   }
 });
 
@@ -217,6 +217,13 @@ function renderApplication() {
           <form id="applicationReplyForm" class="mail-card stack">
             <p class="eyebrow">Responder ahora</p>
             <h3 style="margin: 0;">Aporta la documentacion o aclaracion solicitada</h3>
+            ${!String(currentApplication.paymentProof || "").trim() ? `
+              <label class="inline-field">
+                Justificante de pago pendiente
+                <input id="applicationReplyPaymentProof" type="file" accept=".pdf,image/*" />
+                <span class="muted">Necesario para aprobar el alta. Usa este campo para el justificante y los documentos adicionales para otras aclaraciones.</span>
+              </label>
+            ` : ""}
             <label class="inline-field">
               Aclaracion
               <textarea id="applicationReplyNote" placeholder="Describe aqui la aclaracion o los documentos que estas aportando"></textarea>
@@ -267,7 +274,7 @@ function formatDateTime(value) {
 }
 
 async function readFileInput(input) {
-  const file = input.files && input.files[0];
+  const file = input?.files && input.files[0];
   if (!file) {
     return null;
   }

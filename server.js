@@ -6444,10 +6444,14 @@ const server = http.createServer(async (req, res) => {
       // Reports are written only through the scoped moderation API.
       const latestQuestionState = readState();
       preserveAssociateOnboardingState(latestQuestionState, state);
-      // Application identity is owned by submission/completion, not old whole-state forms.
-      const currentApplicationDnis = new Map((latestQuestionState.associateApplications || []).map(item => [item.id, item.dni]));
+      // Application identity/proof is owned by submission/completion, not old whole-state forms.
+      const currentApplications = new Map((latestQuestionState.associateApplications || []).map(item => [item.id, item]));
       for (const application of state.associateApplications || []) {
-        if (currentApplicationDnis.has(application.id)) application.dni = currentApplicationDnis.get(application.id);
+        const current = currentApplications.get(application.id);
+        if (current) {
+          application.dni = current.dni;
+          application.paymentProof = current.paymentProof;
+        }
       }
       // Historical proof references are owned by the reviewed workbook import, not whole-state forms.
       const currentProofs = new Map((latestQuestionState.associates || []).map(item => [item.id, item.legacyPaymentProofs]));
@@ -12584,7 +12588,12 @@ function submitAssociateApplicationReply(state, publicAccessToken, payload) {
   }
 
   const replyNote = String(payload.note || "").trim();
+  if (payload.paymentProofFile && String(application.paymentProof || "").trim()) {
+    throw new Error("El justificante principal ya esta registrado. Usa los documentos adicionales para otras aclaraciones");
+  }
+  const paymentProof = storeAssociateAttachment(payload.paymentProofFile, "payment-proof");
   const replyDocuments = [
+    paymentProof,
     storeAssociateAttachment(payload.replyDocumentFile, "associate-application-reply"),
     storeAssociateAttachment(payload.replyDocumentFile2, "associate-application-reply-2")
   ].filter(Boolean);
@@ -12594,6 +12603,7 @@ function submitAssociateApplicationReply(state, publicAccessToken, payload) {
   }
 
   application.applicantReplyNote = replyNote;
+  if (paymentProof) application.paymentProof = paymentProof;
   application.applicantReplyAt = new Date().toISOString();
   application.applicantReplyDocuments = [
     ...new Set([...(application.applicantReplyDocuments || []), ...replyDocuments])

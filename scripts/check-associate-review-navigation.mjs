@@ -247,4 +247,79 @@ releaseCompletion({ ok: true, json: async () => ({ ok: true, application: { id: 
 await pendingCompletion;
 assert.equal(completionContext.currentApplication.id, "second");
 
+for (const [status, paymentProof, visible] of [
+  ["Pendiente de documentacion", "", true], ["Pendiente de documentacion", "existing.pdf", false],
+  ["Pendiente de revision", "", false], ["Aprobada", "", false], ["Rechazada", "", false]
+]) {
+  const detail = { innerHTML: "" };
+  vm.runInNewContext(`${tracking.slice(trackingRenderStart, trackingRenderEnd)}; renderApplication();`, {
+    currentApplication: { ...completeApplication, status, paymentProof }, applicationDetail: detail,
+    getApplicationStatusLabel: value => value, getApplicationNextStep: () => "Revision",
+    getApplicantName: () => "Synthetic QA", formatDateTime: () => "", escapeHtml: value => String(value || "")
+  });
+  assert.equal(detail.innerHTML.includes('id="applicationReplyPaymentProof"'), visible);
+}
+
+const replyStart = tracking.indexOf('  if (event.target.id !== "applicationReplyForm")');
+const replyEnd = tracking.indexOf('\n});\n\nasync function bootstrap', replyStart);
+assert.ok(replyStart >= 0 && replyEnd > replyStart);
+const fileInputStart = tracking.indexOf("async function readFileInput(input) {");
+const fileInputEnd = tracking.indexOf("\nfunction readFileAsBase64", fileInputStart);
+assert.equal(await vm.runInNewContext(`${tracking.slice(fileInputStart, fileInputEnd)}; readFileInput(null);`), null, "El formulario con justificante previo funciona sin el campo opcional");
+function createReplyContext(overrides = {}) {
+  return {
+    event: { target: { id: "applicationReplyForm" }, preventDefault() {} },
+    currentApplication: { id: "first" }, currentToken: "first-token", applicationStatus: {},
+    document: { getElementById: id => ({ id, value: "Captured note" }) },
+    readFileInput: async input => input.id === "applicationReplyPaymentProof" ? { name: "synthetic.pdf" } : null,
+    renderApplication() {}, encodeURIComponent, ...overrides
+  };
+}
+function submitReply(context) {
+  vm.createContext(context);
+  return vm.runInContext(`(async () => { ${tracking.slice(replyStart, replyEnd)} })()`, context);
+}
+let sentReply;
+const successfulReply = createReplyContext({ fetch: async (url, options) => {
+  sentReply = { url, body: JSON.parse(options.body) };
+  return { ok: true, json: async () => ({ application: { id: "first", paymentProof: "stored.pdf" } }) };
+} });
+await submitReply(successfulReply);
+assert.equal(sentReply.url, "/api/associates/applications/public/first-token/reply");
+assert.deepEqual(sentReply.body.paymentProofFile, { name: "synthetic.pdf" });
+assert.equal(sentReply.body.note, "Captured note");
+assert.equal(successfulReply.currentApplication.paymentProof, "stored.pdf");
+
+let releaseFiles;
+const fileRead = new Promise(resolve => { releaseFiles = resolve; });
+const switchingWhileReading = createReplyContext({
+  readFileInput: () => fileRead,
+  fetch: () => assert.fail("Los archivos de una solicitud no se envian a otra al cambiar de token")
+});
+const pendingFiles = submitReply(switchingWhileReading);
+switchingWhileReading.currentToken = "second-token";
+switchingWhileReading.currentApplication = { id: "second" };
+releaseFiles(null);
+await pendingFiles;
+assert.equal(switchingWhileReading.currentApplication.id, "second");
+
+let releaseReply;
+const switchingWhileSending = createReplyContext({
+  fetch: () => new Promise(resolve => { releaseReply = resolve; }),
+  renderApplication: () => assert.fail("Una respuesta antigua no reemplaza la solicitud actual")
+});
+const pendingReply = submitReply(switchingWhileSending);
+while (!releaseReply) await Promise.resolve();
+switchingWhileSending.currentToken = "second-token";
+switchingWhileSending.currentApplication = { id: "second" };
+releaseReply({ ok: true, json: async () => ({ application: { id: "first" } }) });
+await pendingReply;
+assert.equal(switchingWhileSending.currentApplication.id, "second");
+const unreadableFile = createReplyContext({
+  readFileInput: async () => { throw new Error("No se pudo leer el archivo"); },
+  fetch: () => assert.fail("Un error de lectura no envia una solicitud incompleta")
+});
+await submitReply(unreadableFile);
+assert.equal(unreadableFile.applicationStatus.textContent, "No se pudo leer el archivo");
+
 console.log("Associate review navigation check passed.");

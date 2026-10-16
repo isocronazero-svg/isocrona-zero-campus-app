@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -10,15 +10,17 @@ import { fileURLToPath } from "node:url";
 import { createOnboardingStateAccess } from "../server/onboarding-state.js";
 
 {
-  let stored = { associateApplications: [{ id: "qa", dni: "", notes: "" }] };
+  let stored = { associateApplications: [{ id: "qa", dni: "", paymentProof: "", notes: "" }] };
   const access = createOnboardingStateAccess({ readState: () => structuredClone(stored), writeState: value => { stored = structuredClone(value); } });
   const stale = access.readState();
   const completed = access.readState();
   completed.associateApplications[0].dni = "QA20261016";
+  completed.associateApplications[0].paymentProof = "new-proof.pdf";
   access.writeState(completed);
   stale.associateApplications[0].notes = "Unrelated writer";
   access.writeState(stale);
   assert.equal(stored.associateApplications[0].dni, "QA20261016", "Un escritor asincrono no borra un DNI completado despues de su lectura");
+  assert.equal(stored.associateApplications[0].paymentProof, "new-proof.pdf", "Un escritor asincrono no borra un justificante aportado despues de su lectura");
   assert.equal(stored.associateApplications[0].notes, "Unrelated writer");
 }
 
@@ -59,7 +61,8 @@ function buildSeedState() {
   };
   seed.associateApplications = [pendingApplication,
     { ...pendingApplication, id: "application-duplicate-dni", publicAccessToken: "synthetic-duplicate-token", email: "duplicate-application@example.test", dni: "QA000002" },
-    { ...pendingApplication, id: "application-rejected-dni", publicAccessToken: "synthetic-rejected-token", email: "rejected-application@example.test", status: "Rechazada" }
+    { ...pendingApplication, id: "application-rejected-dni", publicAccessToken: "synthetic-rejected-token", email: "rejected-application@example.test", status: "Rechazada" },
+    { ...pendingApplication, id: "application-missing-proof", publicAccessToken: "synthetic-missing-proof-token", email: "proof@example.test", dni: "QA2026P1", paymentProof: "", status: "Pendiente de documentacion" }
   ];
   return seed;
 }
@@ -238,6 +241,49 @@ async function main() {
     assert.equal(approvedApplication.status, 200, "El recorrido termina con aprobacion administrativa normal");
     const finalized = await anonymous.request("POST", applicationPath + "/reply", { action: "complete-dni", dni: "QA20261016" }, true);
     assert.equal(finalized.status, 400, "La solicitud resuelta es inmutable desde el seguimiento");
+
+    // An extra document can be an ID scan: only the explicit payment-proof field satisfies approval.
+    const proofPath = "/api/associates/applications/public/synthetic-missing-proof-token";
+    const proofAdminPath = "/api/associates/applications/application-missing-proof";
+    const proofBytes = Buffer.from("%PDF-1.4\nSynthetic QA: no real payment\n%%EOF\n");
+    const proofFile = { name: "synthetic-proof.pdf", type: "application/pdf", contentBase64: proofBytes.toString("base64") };
+    const extraDocument = await anonymous.request("POST", proofPath + "/reply", { replyDocumentFile: proofFile });
+    assert.equal(extraDocument.body.application.status, "Pendiente de revision");
+    assert.equal(extraDocument.body.application.paymentProof, "");
+    assert.equal(extraDocument.body.application.applicantReplyDocuments.length, 1);
+    const blockedProof = await admin.request("POST", proofAdminPath + "/approve", undefined, true);
+    assert.equal(blockedProof.status, 400);
+    assert.match(blockedProof.body.error, /falta justificante principal/);
+    await admin.request("POST", proofAdminPath + "/request-info", { message: "Aporta el justificante de pago en el campo correspondiente" });
+    const beforeProof = (await admin.request("GET", "/api/state")).body;
+    const proofReply = await anonymous.request("POST", proofPath + "/reply", {
+      paymentProofFile: proofFile, email: "forged@example.test", status: "Aprobada", paymentProof: "forged.pdf"
+    });
+    const storedProof = proofReply.body.application.paymentProof;
+    assert.match(storedProof, /^payment-proof-.+\.pdf$/);
+    assert.ok(proofReply.body.application.applicantReplyDocuments.includes(storedProof));
+    assert.equal(proofReply.body.application.status, "Pendiente de revision");
+    assert.equal(proofReply.body.application.email, "proof@example.test");
+    const uploadsDir = path.join(tempDataDir, "uploads", "associates");
+    assert.deepEqual(readFileSync(path.join(uploadsDir, storedProof)), proofBytes, "El justificante registrado conserva los bytes del adjunto");
+    const afterProof = (await admin.request("GET", "/api/state")).body;
+    for (const key of ["associates", "accounts", "members"]) {
+      assert.deepEqual(afterProof[key], beforeProof[key], "Aportar justificante no da de alta ni crea acceso");
+    }
+    assert.deepEqual(afterProof.associateApplications.filter(item => item.id !== "application-missing-proof"), beforeProof.associateApplications.filter(item => item.id !== "application-missing-proof"));
+    await admin.request("POST", "/api/state", beforeProof);
+    assert.equal((await anonymous.request("GET", proofPath)).body.application.paymentProof, storedProof, "Un formulario administrativo antiguo conserva el justificante confirmado");
+    await admin.request("POST", proofAdminPath + "/request-info", { message: "Aporta otra aclaracion" });
+    const filesBeforeReplacement = readdirSync(uploadsDir).sort();
+    const replacementProof = await anonymous.request("POST", proofPath + "/reply", { paymentProofFile: proofFile }, true);
+    assert.equal(replacementProof.status, 400, "El enlace publico no sustituye el justificante principal existente");
+    assert.deepEqual(readdirSync(uploadsDir).sort(), filesBeforeReplacement, "Un intento de sustitucion no crea archivos huerfanos");
+    const clarification = await anonymous.request("POST", proofPath + "/reply", { note: "Aclaracion sintetica", replyDocumentFile: proofFile });
+    assert.equal(clarification.body.application.paymentProof, storedProof, "Los documentos adicionales conservan el justificante principal");
+    assert.equal((await anonymous.request("POST", proofAdminPath + "/approve", undefined, true)).status, 401);
+    const approvedProof = await admin.request("POST", proofAdminPath + "/approve");
+    assert.equal(approvedProof.status, 200, "Subsanar el justificante permite la aprobacion administrativa normal");
+    assert.equal((await anonymous.request("POST", proofPath + "/reply", { paymentProofFile: proofFile }, true)).status, 400, "Una solicitud resuelta no admite mas adjuntos");
     const update = await admin.request("PATCH", "/api/associates/associate-1", updatePayload);
     assert.equal(update.status, 200);
     assert.equal(update.body?.associate?.firstName, "Laura corregida");

@@ -8,6 +8,7 @@ function capture(state) {
   const associates = (state.associates || []).filter(item => item.campusOnboardingCreatedAt);
   return {
     applicationDnis: new Map((state.associateApplications || []).map(item => [item.id, item.dni])),
+    applicationProofs: new Map((state.associateApplications || []).map(item => [item.id, item.paymentProof])),
     academicCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
       attendance: course.attendance, evaluations: course.evaluations, diplomaReady: course.diplomaReady
     })])),
@@ -27,6 +28,10 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
     if (current.applicationDnis.has(application.id) &&
         baseline.applicationDnis.get(application.id) !== current.applicationDnis.get(application.id)) {
       application.dni = current.applicationDnis.get(application.id);
+    }
+    if (current.applicationProofs.has(application.id) &&
+        baseline.applicationProofs.get(application.id) !== current.applicationProofs.get(application.id)) {
+      application.paymentProof = current.applicationProofs.get(application.id);
     }
   }
   // An async writer may predate a synchronous academic correction/closure. Never roll it back or issue from its stale grades.
