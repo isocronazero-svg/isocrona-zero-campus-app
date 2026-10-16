@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 const require = createRequire(import.meta.url);
 const time = require('../public/enrollment-time.js');
+const { formatDate } = await import('../public/assets/js/app/ui/formatters.js');
 const server = readFileSync('server.js', 'utf8');
 const start = server.indexOf('function getCourseEnrollmentOpensAtTimestamp(course)');
 const end = server.indexOf('function formatCourseEnrollmentOpensAt', start);
@@ -131,3 +132,26 @@ for (const course of [
   assert.doesNotMatch(card, /prepare-course-enrollment|Ver apertura|Inscribirme ahora|Inscripcion abierta/);
 }
 console.log('Enrollment close PASS: exact boundaries, fallback, DST/TZ, mutation validation, legacy compatibility and real member cards.');
+
+// A date-only course day is a calendar date, including in browsers west of UTC.
+for (const tz of ['UTC', 'Europe/Madrid', 'America/New_York', 'Pacific/Honolulu', 'Pacific/Kiritimati']) {
+  process.env.TZ = tz;
+  for (const [day, expected] of [
+    ['2026-10-17', '17 oct 2026'], ['2026-01-10', '10 ene 2026'],
+    ['2026-03-29', '29 mar 2026'], ['2026-10-25', '25 oct 2026'],
+    ['2026-12-31', '31 dic 2026'], ['2027-01-01', '01 ene 2027']
+  ]) assert.equal(formatDate(day), expected, `${tz}: the course day must not move`);
+
+  const timestamp = '2026-10-17T00:30:00Z';
+  const localTimestamp = new Date(timestamp).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+  for (const value of [timestamp, new Date(timestamp), Date.parse(timestamp)]) {
+    assert.equal(formatDate(value), localTimestamp, `${tz}: real timestamps retain their local rendering`);
+  }
+  ui.formatDate = formatDate;
+  ui.course = { id: 'calendar-card', title: 'Synthetic calendar QA', startDate: '2099-10-17', endDate: '2099-10-18',
+    status: 'Inscripcion abierta', enrolledIds: [], waitingIds: [], diplomaReady: [], capacity: 4 };
+  const card = vm.runInContext('renderCompactCourseCard(course)', ui);
+  assert.match(card, /17 oct 2099/, `${tz}: the real course card keeps the configured day`);
+  assert.doesNotMatch(card, /16 oct 2099/);
+}
+console.log('Calendar date rendering PASS: five timezones, DST/year boundaries, real member cards and unchanged timestamp behavior.');

@@ -167,3 +167,11 @@ La prueba autorizada de alta con adjunto revela un bloqueo poco visible: el DNI/
 - No se aprueba la solicitud productiva, no se procesan avisos a otros socios y no se abre el piloto por estas pruebas. Consultar la PR de `fix/application-proof-reply` para resultados finales de CI y despliegue.
 
 - Validacion de esta correccion: reproduccion antes/despues con las funciones exactas del servidor, `check:associate-update`, `check:associate-review-navigation`, sintaxis frontend, `git diff --check` y `check:app` completo PASS. Publicacion/despliegue pendientes al registrar esta evidencia; el resultado productivo se documenta en la PR.
+
+## 16/10/2026 - Inscripcion QA y fechas de calendario
+
+- El usuario confirma primer acceso, logout/relogin y navegacion como socio. El seguimiento productivo muestra la solicitud QA aprobada con identificador y adjunto conservados; el estado de envio de resolucion es `sent`.
+- Ensayo productivo autorizado: curso `PRUEBA QA - Inscripcion gratuita - 16/10/2026`, cinco plazas, 0 euros, solo socios, marcado como prueba tecnica sin actividad/pago/acreditacion real. Con la cuenta QA en sesion independiente se confirma la inscripcion gratuita: solicitud confirmada, una plaza ocupada y cuatro libres; reload conserva una sola matricula visible y `1/5`. No se editaron los otros tres cursos.
+- En ese recorrido el formulario conserva inicio/fin `2026-10-17`, pero un navegador al oeste de UTC muestra el dia 16. Reproduccion automatizada con el formateador real: New York produce `16 oct 2026` para una fecha de calendario `2026-10-17`.
+- El formateador compartido conserva ahora el dia para cadenas `YYYY-MM-DD` en cualquier zona del navegador; los timestamps, objetos Date y valores numericos mantienen su visualizacion local anterior. No cambia datos guardados ni las reglas de apertura/cierre de inscripcion.
+- Regresiones en la suite existente de horarios: UTC, Madrid, New York, Honolulu y Kiritimati; limites de cambio horario y ano; tarjeta real de curso; compatibilidad de timestamps. Gate C sigue parcial: pendientes apertura programada productiva, espera/pago y certificados/instructores. No se abre el piloto por estas pruebas parciales. CI/despliegue y evidencia final se registran en la PR de `fix/calendar-date-display`.
