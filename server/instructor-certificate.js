@@ -1,4 +1,5 @@
 // Certifiable identities are association records, never campus names or coordinator text.
+const EnrollmentTime = require('../public/enrollment-time');
 const pendingInstructorAssignments = new Map();
 
 function reserveInstructorAssignments(ids, existingIds = []) {
@@ -67,7 +68,7 @@ function canDownloadInstructorCertificate(state, account, associateId, resolvedA
       (state.members || []).some(m => m.id === account.memberId && m.associateId === associate.id)));
 }
 
-function isInstructorCertificateAvailable(course, today = new Date().toISOString().slice(0, 10)) {
+function isInstructorCertificateAvailable(course, today = EnrollmentTime.calendarDateInMadrid(new Date())) {
   const end = String(course?.endDate || "");
   return course?.status === "Cerrado" && /^\d{4}-\d{2}-\d{2}$/.test(end) &&
     Number.isFinite(Date.parse(end)) && new Date(end).toISOString().slice(0, 10) === end && end < today;

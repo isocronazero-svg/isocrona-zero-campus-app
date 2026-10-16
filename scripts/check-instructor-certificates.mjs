@@ -11,6 +11,7 @@ import { request as httpRequest } from 'node:http';
 import vm from 'node:vm';
 import { buildInstructorPickerModel, addInstructorSelection, removeInstructorSelection } from '../public/assets/js/app/campus/instructorPicker.js';
 const require = createRequire(import.meta.url);
+const EnrollmentTime = require('../public/enrollment-time');
 const { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require('../server/instructor-certificate');
 const { buildActivityCertificate } = require('../server/activity-certificate');
 const { buildDiplomaLayout } = require('../server/diploma-layout');
@@ -88,7 +89,7 @@ const course = { id:'course-teaching', title:'Curso docencia QA', type:'Curso', 
 const blockedCourses = ['Planificacion','Inscripcion abierta','En curso','Cierre pendiente'].map((status,i) =>
   ({...course,id:`course-blocked-${i}`,status}));
 blockedCourses.push({...course,id:'course-future',endDate:'2999-01-01'}, {...course,id:'course-no-date',endDate:''},
-  {...course,id:'course-ends-today',endDate:new Date().toISOString().slice(0,10)});
+  {...course,id:'course-ends-today',endDate:EnrollmentTime.calendarDateInMadrid(new Date())});
 seed.courses = [course, { ...course,id:'course-legacy',instructorAssociateIds:[] },
   {...course,id:'course-legacy-owners',accessScope:'members',instructorAssociateIds:['legacy-email','legacy-name']},
   {...course,id:'course-namesakes',instructorAssociateIds:['namesake-own','linkednamesake-own']},
@@ -136,6 +137,7 @@ assert.equal(canDownloadInstructorCertificate(seed,seed.accounts.find(a=>a.id===
 const app = readFileSync('public/app.js','utf8');
 const helpers = app.slice(app.indexOf('function renderInstructorSelector('),app.indexOf('function renderMemberDiplomas('));
 const ui = vm.createContext({ state:seed,escapeHtml:s=>String(s),getCurrentAssociate:()=>seed.associates[0],
+  EnrollmentTime,
   buildInstructorPickerModel, addInstructorSelection, removeInstructorSelection,
   document:{ getElementById:()=>({dataset:{instructorIds:JSON.stringify(['socio-one','socio-two'])}}) } });
 vm.runInContext(helpers,ui);
@@ -175,12 +177,50 @@ for (const blocked of blockedCourses) {
   assert.equal(vm.runInContext('renderInstructorCertificates(blocked)',ui),'');
   assert.equal(vm.runInContext('renderInstructorCertificates(blocked,member)',ui),'');
 }
-ui.Date=class extends Date {constructor(...args){super(...(args.length?args:['2026-10-02T23:59:59.999Z']));}};
+ui.Date=class extends Date {constructor(...args){super(...(args.length?args:['2026-10-02T23:59:59.999+02:00']));}};
 assert.equal(vm.runInContext('renderInstructorCertificates(course)',ui),'');
 assert.equal(vm.runInContext('renderInstructorCertificates(course,member)',ui),'');
-ui.Date=class extends Date {constructor(...args){super(...(args.length?args:['2026-10-03T00:00:00.000Z']));}};
+ui.Date=class extends Date {constructor(...args){super(...(args.length?args:['2026-10-03T00:00:00.000+02:00']));}};
 assert.match(vm.runInContext('renderInstructorCertificates(course,member)',ui),/socio-one.pdf/);
 delete ui.Date;
+// A course day ends in Madrid, independently of the server/browser timezone.
+// In summer, 00:00 Madrid is still the preceding UTC day for two hours.
+const instructorSource=readFileSync('server/instructor-certificate.js','utf8');
+const availabilitySource=instructorSource.slice(instructorSource.indexOf('function isInstructorCertificateAvailable('),
+  instructorSource.indexOf('\nfunction buildInstructorCertificateModel('));
+const originalTimezone=process.env.TZ;
+try {
+  for (const timezone of ['UTC','Europe/Madrid','America/Los_Angeles','Pacific/Kiritimati']) {
+    process.env.TZ=timezone;
+    for (const [endDate,midnight] of [
+      ['2026-10-15','2026-10-16T00:00:00+02:00'],
+      ['2026-01-10','2026-01-11T00:00:00+01:00'],
+      ['2026-03-29','2026-03-30T00:00:00+02:00'],
+      ['2026-10-25','2026-10-26T00:00:00+01:00']
+    ]) {
+      for (const delta of [-1,0,1]) {
+        const now=Date.parse(midnight)+delta;
+        const FixedDate=class extends Date { constructor(...args){super(...(args.length?args:[now]));} };
+        const backend=vm.createContext({EnrollmentTime,Date:FixedDate});
+        vm.runInContext(availabilitySource,backend);
+        backend.course={...course,endDate};
+        const expected=delta>=0;
+        assert.equal(vm.runInContext('isInstructorCertificateAvailable(course)',backend),expected,
+          `${timezone}/${midnight}/${delta}: backend uses the completed Madrid day`);
+        ui.Date=FixedDate;
+        ui.course={...course,endDate};
+        for (const expression of ['renderInstructorCertificates(course)','renderInstructorCertificates(course,member)']) {
+          assert.equal(Boolean(vm.runInContext(expression,ui)),expected,
+            `${timezone}/${midnight}/${delta}: ${expression} matches the backend`);
+        }
+      }
+    }
+  }
+} finally {
+  if(originalTimezone===undefined) delete process.env.TZ;
+  else process.env.TZ=originalTimezone;
+  delete ui.Date;
+}
 ui.course=seed.courses.find(c=>c.id==='course-legacy-owners');
 ui.getCurrentAssociate=()=>seed.associates.find(a=>a.id==='legacy-email');
 ui.member=seed.members.find(m=>m.id==='legacyemail');
@@ -265,6 +305,7 @@ try {
     const visible=scoped.courses.find(c=>c.id==='course-legacy-owners');
     assert.ok(visible,'Legacy owner can reach the certificate through member state');
     const ownerUi=vm.createContext({state:scoped,course:visible,member:scoped.members.find(m=>m.id===id),
+      EnrollmentTime,
       getCurrentAssociate:()=>scoped.associates.find(a=>a.id===associateId),escapeHtml:s=>String(s)});
     vm.runInContext(helpers,ownerUi);
     assert.match(vm.runInContext('renderInstructorCertificates(course,member)',ownerUi),new RegExp(associateId+'.pdf'));
