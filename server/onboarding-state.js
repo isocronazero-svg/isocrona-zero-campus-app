@@ -15,7 +15,9 @@ function capture(state) {
     associates: new Map(associates.map(item => [item.id, structuredClone(item)])),
     members: new Map((state.members || []).filter(item => associates.some(a => a.linkedMemberId === item.id)).map(item => [item.id, structuredClone(item)])),
     accounts: new Map((state.accounts || []).filter(item => associates.some(a => a.linkedAccountId === item.id)).map(item => [item.id, structuredClone(item)])),
-    emailOutbox: new Map((state.emailOutbox || []).filter(item => item.kind === "associate_welcome").map(item => [item.id, structuredClone(item)]))
+    emailOutbox: new Map((state.emailOutbox || []).filter(item => item.kind === "associate_welcome" ||
+      item.kind === "course_diploma" || (!item.kind && item.courseId && item.memberId &&
+        String(item.subject || "").startsWith("Diploma emitido - "))).map(item => [item.id, structuredClone(item)]))
   };
 }
 

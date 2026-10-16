@@ -12270,7 +12270,7 @@ function renderAutomation() {
                     <div class="timeline-item compact-timeline-item">
                       <strong>${mail.to}</strong>
                       <p>${mail.subject}</p>
-                      <p>${formatDateTime(mail.sentAt)} | ${mail.status || "queued"} | ${mail.transport || "manual"}</p>
+                      <p>${formatDateTime(mail.sentAt)} | ${mail.status === "superseded" ? "Omitido: diploma ya enviado" : mail.status || "queued"} | ${mail.transport || "manual"}</p>
                       ${mail.deliveryError ? `<p class="muted">Error: ${mail.deliveryError}</p>` : ""}
                       <div class="chip-row">
                         <a class="mini-button" href="/api/emails/${mail.id}.eml">Descargar .eml</a>
@@ -21598,7 +21598,7 @@ function resendMail(mailId) {
 }
 
 function getLatestMailForMemberCourse(courseId, memberId) {
-  return state.emailOutbox.find((mail) => mail.courseId === courseId && mail.memberId === memberId) || null;
+  return state.emailOutbox.find((mail) => mail.courseId === courseId && mail.memberId === memberId && mail.status !== "superseded") || null;
 }
 
 function hasVerifiedDiplomaDelivery(course, memberId) {
