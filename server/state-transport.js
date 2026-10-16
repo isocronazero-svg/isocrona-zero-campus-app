@@ -9,6 +9,7 @@ function createStateTransport(dependencies = {}) {
     buildTestZoneResultAudiencePayload,
     canAccessCampusGroup,
     findAssociateForAccount,
+    getMailDeliveryStatus,
     isAssociateAccessLimitedByQuota,
     isCoursePublicAccess,
     listTestZoneResultsForOwner,
@@ -117,6 +118,8 @@ function createStateTransport(dependencies = {}) {
     if (!nextState || typeof nextState !== "object") {
       return nextState;
     }
+    // Derived from server configuration; never accept it back as persisted state.
+    delete nextState.mailDelivery;
 
     const currentAccounts = new Map((currentState.accounts || []).map((item) => [item.id, item]));
     nextState.accounts = (nextState.accounts || []).map((account) => {
@@ -481,6 +484,7 @@ function createStateTransport(dependencies = {}) {
     const baseState = sanitizeStateForTransport(sanitizeStateForAccount(state, account));
     return {
       ...baseState,
+      mailDelivery: account?.role === "admin" ? getMailDeliveryStatus?.(state) : undefined,
       campusGroups: compactCampusGroupsForTransport(baseState.campusGroups || []),
       manualCampusNotices: (baseState.manualCampusNotices || []).map(notice => compactNotice(notice, "campus")),
       memberNotifications: (baseState.memberNotifications || []).map(notice => compactNotice(notice, "member"))

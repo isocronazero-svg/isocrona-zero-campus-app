@@ -18,11 +18,12 @@ const {
 } = require("./storage");
 const { createOnboardingStateAccess } = require("./server/onboarding-state");
 const { readState, writeState, reconcileState } = createOnboardingStateAccess({ readState: readStoredState, writeState: writeStoredState });
-const { sendMail } = require("./smtp");
+const { sendMail, getMailSettings, getMailDeliveryStatus, isMailConfigured, isMailReady } = require("./server/mail-delivery");
 const associateOnboardingPreviews = new Map();
 const ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS = 15 * 60 * 1000;
 let associateOnboardingRunning = false;
 const welcomeDeliveriesInFlight = new Set();
+const diplomaDeliveriesInFlight = new Set();
 const {
   authenticateUser,
   createUser,
@@ -4281,6 +4282,7 @@ const {
   prepareStateForTransport,
   restoreTransportSanitizedSecrets
 } = createStateTransport({
+  getMailDeliveryStatus,
   buildCampusGroupAttachmentUrl,
   buildIndependentTestAttemptAudiencePayload,
   buildMemberNotificationAudiencePayload,
@@ -7239,7 +7241,7 @@ const server = http.createServer(async (req, res) => {
         message:
           result.status === "sent"
             ? `Aviso de justificante reenviado a ${getAssociateFullName(associate)}`
-            : `El aviso del justificante queda pendiente hasta configurar el SMTP`,
+            : `El aviso del justificante queda pendiente hasta configurar el correo saliente`,
         result
       });
     } catch (error) {
@@ -7404,7 +7406,7 @@ const server = http.createServer(async (req, res) => {
         message:
           result.status === "sent"
             ? `Aviso de actualizacion reenviado a ${getAssociateFullName(associate)}`
-            : `El aviso de actualizacion queda pendiente hasta configurar el SMTP`,
+            : `El aviso de actualizacion queda pendiente hasta configurar el correo saliente`,
         result
       });
     } catch (error) {
@@ -7843,7 +7845,7 @@ const server = http.createServer(async (req, res) => {
       if (!ids.length || ids.length > 20 || ids.some(id => typeof id !== "string" || !currentPreview.items.some(item => item.id === id && item.executable))) {
         throw new Error("Selecciona entre 1 y 20 socios ejecutables de esta vista previa");
       }
-      if (!isSmtpConfigured(state)) throw new Error("Configura y comprueba SMTP antes de procesar accesos");
+      if (!isSmtpConfigured(state)) throw new Error("Configura y comprueba el correo saliente antes de procesar accesos");
       if (associateOnboardingRunning) throw new Error("Ya hay un lote en curso; espera a que termine");
       associateOnboardingRunning = true;
       ownsBatch = true;
@@ -7853,7 +7855,7 @@ const server = http.createServer(async (req, res) => {
         // Re-read after each SMTP await. Never persist a whole pre-send snapshot.
         const latest = readState();
         if (!isSmtpConfigured(latest) || savedPreview.smtpFingerprint !== fingerprintOnboardingSmtp(latest)) {
-          results.push({ id, outcome: "skipped", reason: "SMTP ha cambiado desde la revision; compruebalo y genera una nueva vista previa" });
+          results.push({ id, outcome: "skipped", reason: "El correo saliente ha cambiado desde la revision; compruebalo y genera una nueva vista previa" });
           continue;
         }
         const associate = latest.associates.find(entry => entry.id === id);
@@ -7914,7 +7916,7 @@ const server = http.createServer(async (req, res) => {
         message:
           result.status === "sent"
             ? `Bienvenida enviada a ${getAssociateFullName(associate)}`
-            : `La bienvenida queda pendiente hasta configurar el SMTP o completar el acceso`,
+            : `La bienvenida queda pendiente hasta configurar el correo saliente o completar el acceso`,
         result
       });
     } catch (error) {
@@ -8192,7 +8194,7 @@ const server = http.createServer(async (req, res) => {
         message:
           result.status === "sent"
             ? `Correo de solicitud procesado para ${application.email}`
-            : `El correo de solicitud queda pendiente hasta configurar el SMTP`,
+            : `El correo de solicitud queda pendiente hasta configurar el correo saliente`,
         result
       });
     } catch (error) {
@@ -8237,7 +8239,7 @@ const server = http.createServer(async (req, res) => {
         message:
           result.status === "sent"
             ? `Aviso interno de respuesta procesado para ${application.email}`
-            : `El aviso interno queda pendiente hasta configurar el SMTP`,
+            : `El aviso interno queda pendiente hasta configurar el correo saliente`,
         result,
         summary
       });
@@ -8367,10 +8369,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const smtp = getSmtpSettings(state);
-      if (!smtp.host || !smtp.port || !smtp.fromEmail || !smtp.testTo) {
+      if (!isMailConfigured(smtp) || !smtp.testTo) {
         return sendJson(res, 400, {
           ok: false,
-          error: "Configura host, puerto, remitente y destinatario de prueba"
+          error: "Configura el correo saliente, el remitente y el destinatario de prueba"
         });
       }
 
@@ -8378,15 +8380,15 @@ const server = http.createServer(async (req, res) => {
         from: smtp.fromEmail,
         fromName: smtp.fromName,
         to: smtp.testTo,
-        subject: `Prueba SMTP - ${state.settings.organization || "Isocrona Zero Campus"}`,
-        text: "Esta es una prueba de configuracion SMTP del campus."
-      });
+        subject: `Prueba de correo - ${state.settings.organization || "Isocrona Zero Campus"}`,
+        text: "Esta es una prueba de configuracion del correo del campus."
+      }, { testOnly: true });
 
-      appendActivity(state, "system", "Servidor", `Correo de prueba SMTP enviado a ${smtp.testTo}`);
+      appendActivity(state, "system", "Servidor", `Correo de prueba aceptado por ${smtp.provider} para ${smtp.testTo}`);
       writeState(state);
       return sendJson(res, 200, { ok: true, message: "Correo de prueba enviado" });
     } catch (error) {
-      return sendJson(res, 500, { ok: false, error: error.message || "Fallo SMTP" });
+      return sendJson(res, 500, { ok: false, error: error.message || "Fallo de correo" });
     }
   }
 
@@ -8477,7 +8479,7 @@ const server = http.createServer(async (req, res) => {
       for (const item of actionableItems) {
         if (!smtpReady && ["pending_diplomas", "failed_email", "renewal", "associate_welcome", "associate_fee", "course_feedback_reminder", "associate_payment_notification", "associate_profile_notification", "associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision"].includes(item.type)) {
           skipped += 1;
-          details.push(`${item.title}: omitido hasta configurar SMTP`);
+          details.push(`${item.title}: omitido hasta configurar el correo saliente`);
           continue;
         }
 
@@ -9165,9 +9167,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
       const email = createEmailRecord(state, course, member);
       await deliverEmailRecord(state, email);
-      appendActivity(state, "system", "Servidor", `Envio SMTP individual para ${member.name} en ${course.title}`);
+      appendActivity(state, "system", "Servidor", `Envio de correo individual para ${member.name} en ${course.title}`);
       const summary = await runAutomationEngine(state);
-      recordAutomationRun(state, "Envio SMTP individual", summary);
+      recordAutomationRun(state, "Envio de correo individual", summary);
       writeState(state);
       return sendJson(res, 200, { ok: true, email, summary });
     } catch (error) {
@@ -9228,6 +9230,10 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
       }
 
+      if (!isSmtpConfigured(state)) {
+        return sendJson(res, 400, { ok: false, error: "El correo saliente no esta disponible; revisa su configuracion y si esta en pausa" });
+      }
+      let failureReason = "";
       let sentCount = 0;
       let failedCount = 0;
       for (const memberId of course.diplomaReady || []) {
@@ -9248,18 +9254,20 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
           }
         } catch (error) {
           failedCount += 1;
+          failureReason ||= error.message || "No se pudo enviar el correo";
         }
       }
 
-      appendActivity(state, "system", "Servidor", `Lote SMTP procesado para ${course.title}`);
+      appendActivity(state, "system", "Servidor", `Lote de correo procesado para ${course.title}`);
       const summary = await runAutomationEngine(state);
-      recordAutomationRun(state, "Envio SMTP por lote", summary);
+      recordAutomationRun(state, "Envio de correo por lote", summary);
       writeState(state);
       return sendJson(res, 200, {
         ok: true,
         sentCount,
         failedCount,
-        message: `Lote SMTP procesado: ${sentCount} enviado(s), ${failedCount} fallido(s)`,
+        failureReason,
+        message: `Lote de correo procesado: ${sentCount} enviado(s), ${failedCount} fallido(s)${failureReason ? `. ${failureReason}` : ""}`,
         summary
       });
     } catch (error) {
@@ -9278,7 +9286,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if (!isSmtpConfigured(state)) {
         return sendJson(res, 400, {
           ok: false,
-          error: "Configura SMTP antes de enviar la bandeja"
+          error: "Configura y activa el correo saliente antes de enviar la bandeja"
         });
       }
 
@@ -9288,6 +9296,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
           String(email.to || "").trim()
       );
       const batch = pendingEmails.slice(0, 200);
+      let failureReason = "";
       let sentCount = 0;
       let failedCount = 0;
 
@@ -9301,6 +9310,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
           }
         } catch (error) {
           failedCount += 1;
+          failureReason ||= error.message || "No se pudo enviar el correo";
         }
       }
 
@@ -9308,16 +9318,17 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         state,
         "system",
         "Servidor",
-        `Bandeja SMTP procesada: ${sentCount} enviado(s), ${failedCount} fallido(s)`
+        `Bandeja de correo procesada: ${sentCount} enviado(s), ${failedCount} fallido(s)`
       );
       const summary = await runAutomationEngine(state);
-      recordAutomationRun(state, "Envio SMTP de bandeja", summary);
+      recordAutomationRun(state, "Envio de bandeja de correo", summary);
       writeState(state);
       return sendJson(res, 200, {
         ok: true,
         sentCount,
         failedCount,
-        message: `Bandeja SMTP procesada: ${sentCount} enviado(s), ${failedCount} fallido(s)`,
+        failureReason,
+        message: `Bandeja de correo procesada: ${sentCount} enviado(s), ${failedCount} fallido(s)${failureReason ? `. ${failureReason}` : ""}`,
         summary
       });
     } catch (error) {
@@ -9347,8 +9358,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Correo no encontrado" });
       }
 
-      const retryWelcome = sourceEmail.kind === "associate_welcome" && sourceEmail.status !== "sent";
-      const email = retryWelcome ? sourceEmail : {
+      const retryPending = sourceEmail.status !== "sent";
+      const email = retryPending ? sourceEmail : {
         ...sourceEmail,
         id: `mail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         sentAt: new Date().toISOString(),
@@ -9356,13 +9367,15 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         transport: "smtp",
         attemptCount: 0,
         deliveryError: "",
+        providerMessageId: "",
+        smtpMessageId: "",
         deliveredAt: null
       };
-      if (!retryWelcome) state.emailOutbox.unshift(email);
+      if (!retryPending) state.emailOutbox.unshift(email);
       await deliverEmailRecord(state, email);
-      appendActivity(state, "system", "Servidor", `Reenvio SMTP solicitado para ${email.to}`);
+      appendActivity(state, "system", "Servidor", `Reenvio de correo solicitado para ${email.to}`);
       const summary = await runAutomationEngine(state);
-      recordAutomationRun(state, "Reenvio SMTP", summary);
+      recordAutomationRun(state, "Reenvio de correo", summary);
       writeState(state);
       return sendJson(res, 200, { ok: true, email, summary });
     } catch (error) {
@@ -12714,7 +12727,7 @@ function buildAssociateOnboardingPreview(state) {
       verifyLegacyAccountPassword(identity.account, associate.temporaryPassword);
     if (retryWelcome) detail = "Reintentar bienvenida sin crear cuenta ni cambiar credencial";
     if ((state.emailOutbox || []).some(mail => mail.kind === "associate_welcome" && mail.associateId === associate.id && mail.status === "sending")) {
-      detail = "Entrega SMTP pendiente de confirmar; requiere reconciliacion manual antes de reintentar";
+      detail = "Entrega de correo pendiente de confirmar; requiere reconciliacion manual antes de reintentar";
     }
     return {
       id: associate.id,
@@ -12723,7 +12736,7 @@ function buildAssociateOnboardingPreview(state) {
       email,
       category,
       detail,
-      error: associate.welcomeEmailStatus === "failed" ? "Fallo de entrega SMTP; revisa la configuracion y reintenta" : "",
+      error: associate.welcomeEmailStatus === "failed" ? "Fallo de entrega de correo; revisa la configuracion y reintenta" : "",
       status: getAssociateOnboardingVisibleStatus(associate),
       executable: category === "eligible" || retryWelcome
     };
@@ -12996,7 +13009,7 @@ async function maybeSendAssociateWelcomeEmail(state, associate, options = {}) {
   if (!isSmtpConfigured(state)) {
     associate.welcomeEmailStatus = "pending";
     if (strict) {
-      throw new Error("Configura el SMTP antes de enviar la bienvenida del campus");
+      throw new Error("Configura y activa el correo saliente antes de enviar la bienvenida del campus");
     }
     return { status: "pending", reason: "smtp_missing" };
   }
@@ -13017,12 +13030,12 @@ async function maybeSendAssociateWelcomeEmail(state, associate, options = {}) {
     return { status: "sent", emailId: email.id };
   } catch (error) {
     associate.welcomeEmailStatus = "failed";
-    associate.welcomeEmailError = "Fallo de entrega SMTP; revisa la configuracion y reintenta";
+    associate.welcomeEmailError = "Fallo de entrega de correo; revisa la configuracion y reintenta";
     appendActivity(
       state,
       "system",
       actor,
-      `Fallo al enviar la bienvenida del campus al socio #${associate.associateNumber}: revisa SMTP`
+      `Fallo al enviar la bienvenida del campus al socio #${associate.associateNumber}: revisa el correo saliente`
     );
     if (strict) {
       throw new Error(associate.welcomeEmailError);
@@ -13844,7 +13857,7 @@ async function runAutomationEngine(state, options = {}) {
               state,
               "system",
               "Motor de automatizacion",
-              `Fallo en envio automatico a ${member.name}: ${error.message || "Error SMTP"}`
+              `Fallo en envio automatico a ${member.name}: ${error.message || "Error de correo"}`
             );
           }
         }
@@ -13852,7 +13865,7 @@ async function runAutomationEngine(state, options = {}) {
         pushAutomationItem(state, {
           type: "smtp_missing",
           title: "Falta configurar el correo saliente",
-          detail: "Hay diplomas listos para envio automatico, pero el SMTP no esta configurado.",
+          detail: "Hay diplomas listos para envio automatico, pero el correo saliente no esta disponible.",
           courseId: course.id,
           key: "smtp_missing"
         });
@@ -14162,7 +14175,7 @@ async function runAutomationEngine(state, options = {}) {
         pushAutomationItem(state, {
           type: "failed_email",
           title: `Correo fallido a ${mail.to}`,
-          detail: mail.deliveryError || "El envio SMTP no se completo correctamente.",
+          detail: mail.deliveryError || "El envio de correo no se completo correctamente.",
           courseId: mail.courseId,
           memberId: mail.memberId,
           emailId: mail.id,
@@ -14482,7 +14495,7 @@ async function requestCourseFeedbackReminderForMember(state, courseId, memberId,
       course,
       member,
       message: `No se pudo enviar el recordatorio a ${member.name}. Se ha dejado en bandeja automatica.`,
-      error: error.message || "Error SMTP"
+      error: error.message || "Error de correo"
     };
   }
 }
@@ -14661,7 +14674,7 @@ async function resolvePendingDiplomasItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de enviar diplomas pendientes");
+    throw new Error("Configura y activa el correo saliente antes de enviar diplomas pendientes");
   }
 
   const course = (state.courses || []).find((entry) => entry.id === item.courseId);
@@ -14714,7 +14727,7 @@ async function resolveFailedEmailItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de reintentar un correo");
+    throw new Error("Configura y activa el correo saliente antes de reintentar un correo");
   }
 
   const sourceEmail = (state.emailOutbox || []).find((entry) => entry.id === item.emailId) ||
@@ -14748,7 +14761,7 @@ async function resolveFailedEmailItem(state, item) {
     state,
     "system",
     "Bandeja automatica",
-    `Reintento de correo SMTP hacia ${email.to}`
+    `Reintento de correo hacia ${email.to}`
   );
 
   return {
@@ -14763,7 +14776,7 @@ async function resolveRenewalItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de avisar renovaciones");
+    throw new Error("Configura y activa el correo saliente antes de avisar renovaciones");
   }
 
   const member = (state.members || []).find((entry) => entry.id === item.memberId);
@@ -14861,7 +14874,7 @@ async function resolveAssociateApplicationReceiptItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de enviar el acuse de solicitud");
+    throw new Error("Configura y activa el correo saliente antes de enviar el acuse de solicitud");
   }
 
   const application = (state.associateApplications || []).find(
@@ -14892,7 +14905,7 @@ async function resolveAssociateApplicationInfoRequestItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de enviar la solicitud de documentacion");
+    throw new Error("Configura y activa el correo saliente antes de enviar la solicitud de documentacion");
   }
 
   const application = (state.associateApplications || []).find(
@@ -14923,7 +14936,7 @@ async function resolveAssociateApplicationReplyReceiptItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de enviar el acuse al solicitante");
+    throw new Error("Configura y activa el correo saliente antes de enviar el acuse al solicitante");
   }
 
   const application = (state.associateApplications || []).find(
@@ -14954,7 +14967,7 @@ async function resolveAssociateApplicationReplyNotificationItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de avisar a administracion");
+    throw new Error("Configura y activa el correo saliente antes de avisar a administracion");
   }
 
   const application = (state.associateApplications || []).find(
@@ -14985,7 +14998,7 @@ async function resolveAssociateApplicationDecisionItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de enviar la resolucion de solicitud");
+    throw new Error("Configura y activa el correo saliente antes de enviar la resolucion de solicitud");
   }
 
   const application = (state.associateApplications || []).find(
@@ -15022,7 +15035,7 @@ async function resolveAssociatePaymentNotificationItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de avisar la revision del justificante");
+    throw new Error("Configura y activa el correo saliente antes de avisar la revision del justificante");
   }
 
   const submission = (state.associatePaymentSubmissions || []).find(
@@ -15065,7 +15078,7 @@ async function resolveAssociateProfileNotificationItem(state, item) {
   }
 
   if (!isSmtpConfigured(state)) {
-    throw new Error("Configura el SMTP antes de avisar la revision de la ficha");
+    throw new Error("Configura y activa el correo saliente antes de avisar la revision de la ficha");
   }
 
   const request = (state.associateProfileRequests || []).find(
@@ -15221,23 +15234,12 @@ function sanitizeFilename(value) {
 }
 
 function getSmtpSettings(state) {
-  return {
-    host: "",
-    port: 465,
-    secure: true,
-    startTls: false,
-    username: "",
-    password: "",
-    fromEmail: "",
-    fromName: "Isocrona Zero Campus",
-    testTo: "",
-    ...(state.settings?.smtp || {})
-  };
+  return getMailSettings(state);
 }
 
 function isSmtpConfigured(state) {
   const smtp = getSmtpSettings(state);
-  return Boolean(smtp.host && smtp.port && smtp.fromEmail);
+  return isMailReady(smtp);
 }
 
 function isCourseDiplomaEmail(email) {
@@ -15253,11 +15255,14 @@ function hasSuccessfulSmtpDelivery(state, courseId, memberId) {
       item.memberId === memberId &&
       isCourseDiplomaEmail(item) &&
       item.status === "sent" &&
-      item.transport === "smtp"
+      ["smtp", "resend"].includes(item.transport)
   );
 }
 
 function createEmailRecord(state, course, member) {
+  const previous = (state.emailOutbox || []).find(item => item.courseId === course.id &&
+    item.memberId === member.id && isCourseDiplomaEmail(item) && ["queued", "failed"].includes(item.status));
+  if (previous) return previous;
   const email = {
     id: `mail-${Date.now()}-${member.id}-${Math.random().toString(36).slice(2, 7)}`,
     courseId: course.id,
@@ -15314,8 +15319,10 @@ function createAssociateWelcomeEmailRecord(state, associate) {
 
 async function deliverEmailRecord(state, email) {
   const smtp = getSmtpSettings(state);
-  if (!smtp.host || !smtp.port || !smtp.fromEmail) {
-    throw new Error("Falta configuracion SMTP minima");
+  if (!isMailReady(smtp)) {
+    throw new Error(isMailConfigured(smtp)
+      ? "El correo saliente esta en pausa; completa la prueba antes de activarlo"
+      : "Falta configurar el correo saliente (proveedor y remitente)");
   }
   const welcome = email.kind === "associate_welcome";
   if (welcome) {
@@ -15346,14 +15353,17 @@ async function deliverEmailRecord(state, email) {
           JSON.stringify((latest[collection] || []).find(item => item.id === id));
       })
     )) {
-      throw new Error("La ficha ya no es elegible o ha cambiado su identidad, credencial o SMTP; revisa el estado actual antes de reintentar");
+      throw new Error("La ficha ya no es elegible o ha cambiado su identidad, credencial o correo saliente; revisa el estado actual antes de reintentar");
     }
   }
   if (welcome && welcomeDeliveriesInFlight.has(email.associateId)) throw new Error("Bienvenida en curso");
-  if (welcome) welcomeDeliveriesInFlight.add(email.associateId);
   const diploma = isCourseDiplomaEmail(email);
+  const diplomaDeliveryKey = diploma ? `${email.courseId}\n${email.memberId}` : "";
+  if (diploma && diplomaDeliveriesInFlight.has(diplomaDeliveryKey)) throw new Error("Este diploma ya se esta enviando; espera a que termine");
+  if (welcome) welcomeDeliveriesInFlight.add(email.associateId);
+  if (diploma) diplomaDeliveriesInFlight.add(diplomaDeliveryKey);
 
-  email.transport = "smtp";
+  email.transport = smtp.provider;
   email.attemptCount = Number(email.attemptCount || 0) + 1;
   email.lastAttemptAt = new Date().toISOString();
 
@@ -15378,6 +15388,7 @@ async function deliverEmailRecord(state, email) {
       to: email.to,
       subject: email.subject,
       text: body,
+      deliveryId: email.id,
       beforeData: diploma ? () => {
         // SMTP negotiation may await IO. Reconcile immediately before sending message bytes.
         reconcileState(state, state);
@@ -15395,7 +15406,8 @@ async function deliverEmailRecord(state, email) {
     email.status = "sent";
     email.deliveredAt = new Date().toISOString();
     email.deliveryError = "";
-    email.smtpMessageId = result.messageId || "";
+    email.providerMessageId = result.messageId || "";
+    if (smtp.provider === "smtp") email.smtpMessageId = result.messageId || "";
     if (welcome) {
       const associate = (state.associates || []).find(item => item.id === email.associateId);
       associate.welcomeEmailStatus = "sent";
@@ -15406,7 +15418,7 @@ async function deliverEmailRecord(state, email) {
 
   } catch (error) {
     email.status = "failed";
-    email.deliveryError = welcome ? "Fallo de entrega SMTP; revisa la configuracion y reintenta" : error.message || "Error SMTP";
+    email.deliveryError = welcome ? "Fallo de entrega de correo; revisa la configuracion y reintenta" : error.message || "Error de correo";
     if (welcome) {
       const associate = (state.associates || []).find(item => item.id === email.associateId);
       if (associate) {
@@ -15418,6 +15430,7 @@ async function deliverEmailRecord(state, email) {
     throw welcome ? new Error(email.deliveryError) : error;
   } finally {
     if (welcome) welcomeDeliveriesInFlight.delete(email.associateId);
+    if (diploma) diplomaDeliveriesInFlight.delete(diplomaDeliveryKey);
   }
 }
 
@@ -15448,7 +15461,8 @@ function buildAssociateWelcomeEmailBody(state, associate, account, member) {
   const hasTemporaryPassword = Boolean(account?.mustChangePassword);
   const tempPassword = hasTemporaryPassword ? associate.temporaryPassword || "" : "";
   const service = String(associate.service || "").trim();
-  const contactEmail = state.settings?.smtp?.fromEmail || "administracion@isocronazero.org";
+  const mail = getSmtpSettings(state);
+  const contactEmail = mail.replyTo || mail.fromEmail || "administracion@isocronazero.org";
 
   return [
     `Hola ${displayName},`,
@@ -15578,7 +15592,7 @@ async function maybeSendAssociateFeeReminder(state, associate, options = {}) {
 
   if (!isSmtpConfigured(state)) {
     if (strict) {
-      throw new Error("Configura el SMTP antes de enviar recordatorios de cuota");
+      throw new Error("Configura y activa el correo saliente antes de enviar recordatorios de cuota");
     }
     return { status: "pending", reason: "smtp_missing" };
   }
@@ -15651,7 +15665,7 @@ async function maybeSendCourseFeedbackReminder(state, course, member, options = 
 
   if (!isSmtpConfigured(state)) {
     if (strict) {
-      throw new Error("Configura el SMTP antes de enviar recordatorios de valoracion final");
+      throw new Error("Configura y activa el correo saliente antes de enviar recordatorios de valoracion final");
     }
     return { status: "pending", reason: "smtp_missing" };
   }
@@ -15748,9 +15762,9 @@ async function maybeSendAssociatePaymentSubmissionNotification(
       state,
       "system",
       reviewerName || "Socios",
-      `Fallo al avisar la revision del justificante del socio #${associate.associateNumber}: ${error.message || "Error SMTP"}`
+      `Fallo al avisar la revision del justificante del socio #${associate.associateNumber}: ${error.message || "Error de correo"}`
     );
-    return { status: "failed", error: error.message || "Error SMTP" };
+    return { status: "failed", error: error.message || "Error de correo" };
   }
 }
 
@@ -15812,9 +15826,9 @@ async function maybeSendAssociateApplicationReceiptEmail(state, application, opt
       state,
       "system",
       actor,
-      `Fallo al enviar el acuse de solicitud a ${application.email}: ${error.message || "Error SMTP"}`
+      `Fallo al enviar el acuse de solicitud a ${application.email}: ${error.message || "Error de correo"}`
     );
-    return { status: "failed", error: error.message || "Error SMTP" };
+    return { status: "failed", error: error.message || "Error de correo" };
   }
 }
 
@@ -15876,9 +15890,9 @@ async function maybeSendAssociateApplicationInfoRequestEmail(state, application,
       state,
       "system",
       actor,
-      `Fallo al enviar la solicitud de documentacion a ${application.email}: ${error.message || "Error SMTP"}`
+      `Fallo al enviar la solicitud de documentacion a ${application.email}: ${error.message || "Error de correo"}`
     );
-    return { status: "failed", error: error.message || "Error SMTP" };
+    return { status: "failed", error: error.message || "Error de correo" };
   }
 }
 
@@ -15940,9 +15954,9 @@ async function maybeSendAssociateApplicationReplyReceiptEmail(state, application
       state,
       "system",
       actor,
-      `Fallo al enviar el acuse de respuesta a ${application.email}: ${error.message || "Error SMTP"}`
+      `Fallo al enviar el acuse de respuesta a ${application.email}: ${error.message || "Error de correo"}`
     );
-    return { status: "failed", error: error.message || "Error SMTP" };
+    return { status: "failed", error: error.message || "Error de correo" };
   }
 }
 
@@ -16014,9 +16028,9 @@ async function maybeSendAssociateApplicationReplyNotification(state, application
       state,
       "system",
       actor,
-      `Fallo al avisar la respuesta de solicitud de ${application.email}: ${error.message || "Error SMTP"}`
+      `Fallo al avisar la respuesta de solicitud de ${application.email}: ${error.message || "Error de correo"}`
     );
-    return { status: "failed", error: error.message || "Error SMTP" };
+    return { status: "failed", error: error.message || "Error de correo" };
   }
 }
 
@@ -16085,9 +16099,9 @@ async function maybeSendAssociateApplicationDecisionEmail(
       state,
       "system",
       reviewerName || "Socios",
-      `Fallo al enviar la resolucion de solicitud a ${application.email}: ${error.message || "Error SMTP"}`
+      `Fallo al enviar la resolucion de solicitud a ${application.email}: ${error.message || "Error de correo"}`
     );
-    return { status: "failed", error: error.message || "Error SMTP" };
+    return { status: "failed", error: error.message || "Error de correo" };
   }
 }
 
@@ -16295,9 +16309,9 @@ async function maybeSendAssociateProfileRequestNotification(
       state,
       "system",
       reviewerName || "Socios",
-      `Fallo al avisar la actualizacion de ficha del socio #${associate.associateNumber}: ${error.message || "Error SMTP"}`
+      `Fallo al avisar la actualizacion de ficha del socio #${associate.associateNumber}: ${error.message || "Error de correo"}`
     );
-    return { status: "failed", error: error.message || "Error SMTP" };
+    return { status: "failed", error: error.message || "Error de correo" };
   }
 }
 

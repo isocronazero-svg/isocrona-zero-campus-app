@@ -377,7 +377,7 @@ async function main() {
       const result = await configBatch;
       assert.equal(result.body.created, 1);
       assert.equal(result.body.results[1].outcome, "skipped");
-      assert.match(result.body.results[1].reason, /SMTP ha cambiado/);
+      assert.match(result.body.results[1].reason, /correo saliente ha cambiado/);
       const afterConfig = (await admin.call("GET", "/api/state")).body;
       assert.equal(afterConfig.associates.find(item => item.id === nextId).linkedAccountId, "");
       assert.equal(afterConfig.emailOutbox.some(item => item.associateId === nextId), false);

@@ -3448,14 +3448,14 @@ document.addEventListener("click", async (event) => {
   }
 
   if (action === "smtp-send-course" && isAdminSession() && courseId) {
-    await invokeServerAction(`/api/courses/${courseId}/send-pending`, "Envio SMTP por lote completado");
+    await invokeServerAction(`/api/courses/${courseId}/send-pending`, "Envio de correos por lote completado");
     return;
   }
 
   if (action === "smtp-send-member" && isAdminSession() && courseId && memberId) {
     await invokeServerAction(
       `/api/courses/${courseId}/send-member/${memberId}`,
-      "Envio SMTP individual completado"
+      "Envio de correo individual completado"
     );
     return;
   }
@@ -3514,17 +3514,17 @@ document.addEventListener("click", async (event) => {
 
   if (action === "resend-mail" && isAdminSession()) {
     const mailId = actionTarget.dataset.mailId;
-    await invokeServerAction(`/api/emails/${mailId}/send`, "Correo reenviado por SMTP");
+    await invokeServerAction(`/api/emails/${mailId}/send`, "Correo reenviado");
     return;
   }
 
   if (action === "smtp-test" && isAdminSession()) {
-    await invokeServerAction("/api/smtp/test", "Correo de prueba SMTP enviado");
+    await invokeServerAction("/api/smtp/test", "Correo de prueba enviado");
     return;
   }
 
   if (action === "send-queued-emails" && isAdminSession()) {
-    await invokeServerAction("/api/emails/send-queued", "Bandeja SMTP procesada");
+    await invokeServerAction("/api/emails/send-queued", "Bandeja de correo procesada");
     return;
   }
 
@@ -5464,9 +5464,9 @@ async function invokeServerAction(url, successMessage, method = "POST") {
     applySessionToState();
     syncAssociateSelectionTargets();
     syncStatus = payload.message || successMessage;
-    showToast(payload.message || successMessage, "success");
+    showToast(payload.message || successMessage, Number(payload.failedCount || 0) > 0 ? "error" : "success");
     render();
-    return true;
+    return !Number(payload.failedCount || 0);
   } catch (error) {
     syncStatus = error.message || "Error en accion de servidor";
     showToast(syncStatus, "error");
@@ -8059,7 +8059,7 @@ function renderAssociates() {
             </tbody></table>
           </div>
           <p class="status-note warning">La ejecucion requiere backup recuperable y autorizacion expresa. Las credenciales no se muestran en este listado.</p>
-          ${!associateOnboardingPreview.smtpReady ? '<p class="status-note warning">SMTP no configurado. El lote esta bloqueado.</p>' : ""}
+          ${!associateOnboardingPreview.smtpReady ? '<p class="status-note warning">Correo saliente no disponible. El lote esta bloqueado.</p>' : ""}
           <button class="primary-button" type="button" data-action="execute-associate-onboarding" ${associateOnboardingBusy || !associateOnboardingSelection.size || !associateOnboardingPreview.smtpReady ? "disabled" : ""}>Procesar ${associateOnboardingSelection.size} seleccionados</button>
         ` : ""}
         ${associateOnboardingBusy ? '<p role="status">Procesando...</p>' : ""}
@@ -9339,9 +9339,7 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
     return `<p class="muted">Selecciona un socio para editar su ficha y cuotas.</p>`;
   }
 
-  const smtpReady = Boolean(
-    state.settings?.smtp?.host && state.settings?.smtp?.port && state.settings?.smtp?.fromEmail
-  );
+  const smtpReady = isOutgoingMailReady();
   const canSendWelcome = Boolean(campusAccount && associate.email);
   const welcomeActionLabel = canSendWelcome ? "Enviar bienvenida" : "Crear acceso";
   const welcomePreview = buildAssociateWelcomePreviewText(associate, campusAccount, campusMember);
@@ -9526,7 +9524,7 @@ function renderAssociateWorkbench(associate, campusAccount, campusMember, associ
             !campusAccount
               ? `<p class="status-note warning">Todavia no existe acceso completo al campus. Primero hay que crear la cuenta del socio.</p>`
               : !smtpReady
-                ? `<p class="status-note warning">Ahora mismo la bienvenida quedara en pendiente porque no hay SMTP configurado.</p>`
+                ? `<p class="status-note warning">La bienvenida quedara pendiente hasta configurar y activar el correo saliente.</p>`
                 : `<p class="status-note">La bienvenida se enviara al correo de la ficha del socio con el mensaje institucional del campus.</p>`
           }
           ${
@@ -11451,7 +11449,7 @@ function renderDiplomas(course) {
               <article class="metric-card compact-card ${failedDeliveries ? "metric-card-warning" : ""}">
                 <p class="eyebrow">Fallidos de envio</p>
                 <strong>${failedDeliveries}</strong>
-                <span class="muted">Ultimo intento SMTP con error</span>
+                <span class="muted">Ultimo intento de correo con error</span>
               </article>
             </div>
             <div class="chip-row">
@@ -11552,7 +11550,7 @@ function renderDiplomas(course) {
                               <a class="mini-button" href="/api/diplomas/${course.id}/${member.id}.docx">Descargar Word</a>
                               ${
                                 isAdminView() && isReady
-                                  ? `<button class="mini-button" data-action="smtp-send-member" data-course-id="${course.id}" data-member-id="${member.id}">Enviar SMTP</button>`
+                                  ? `<button class="mini-button" data-action="smtp-send-member" data-course-id="${course.id}" data-member-id="${member.id}">Enviar correo</button>`
                                   : ""
                               }
                               ${
@@ -11938,7 +11936,7 @@ function renderManualCampusNoticesManager() {
             <input id="manualNoticeSendEmail" type="checkbox" />
             <span>Registrar tambien en salida de correo</span>
           </label>
-          <span class="field-hint">No envia al instante si no hay SMTP. Lo deja preparado en la bandeja de salida.</span>
+          <span class="field-hint">Si el correo saliente no esta disponible, el mensaje queda preparado en la bandeja de salida.</span>
         </label>
       </div>
 
@@ -11996,7 +11994,26 @@ function renderManualCampusNoticesManager() {
   `;
 }
 
+function isOutgoingMailReady() {
+  return state.mailDelivery
+    ? state.mailDelivery.ready === true
+    : Boolean(state.settings?.smtp?.host && state.settings?.smtp?.port && state.settings?.smtp?.fromEmail);
+}
+
 function renderSmtpSettingsCard() {
+  const delivery = state.mailDelivery;
+  if (delivery && delivery.provider !== "smtp") {
+    const provider = delivery.provider === "resend" ? "Resend" : "Proveedor pendiente de revisar";
+    return `<div class="mail-card associate-anchor" id="reportSectionSmtp">
+      <div class="panel-header"><div><p class="eyebrow">Correo saliente</p><h4>Correo del campus</h4></div>
+        <span class="small-chip">${delivery.ready ? "Activo" : delivery.configured ? "En pausa" : "Pendiente"}</span></div>
+      <p>${escapeHtml(provider)} · ${escapeHtml(delivery.fromEmail || "Remitente pendiente")}</p>
+      <p class="muted">Respuestas: ${escapeHtml(delivery.replyTo || delivery.fromEmail || "Pendiente")}</p>
+      <p class="muted">Correo de prueba: ${escapeHtml(delivery.testTo || "Pendiente")}</p>
+      ${!delivery.ready ? '<p class="status-note warning">Los envios a socios estan detenidos. Completa la configuracion y comprueba el correo de prueba antes de activarlos.</p>' : ""}
+      <button class="ghost-button" type="button" data-action="smtp-test" ${!delivery.configured || !delivery.testTo ? "disabled" : ""}>Probar correo</button>
+    </div>`;
+  }
   const smtp = state.settings?.smtp || {};
   const isHostingerLike = !smtp.host || String(smtp.host).includes("hostinger");
   return `
@@ -12053,7 +12070,7 @@ function renderSmtpSettingsCard() {
 
         <div class="inline-actions">
           <button class="primary-button" type="submit">Guardar SMTP</button>
-          <button class="ghost-button" type="button" data-action="smtp-test">Probar SMTP</button>
+          <button class="ghost-button" type="button" data-action="smtp-test">Probar correo</button>
         </div>
       </form>
     </div>
@@ -12239,7 +12256,7 @@ function renderAutomation() {
             <span class="small-chip">${queuedEmailCount} pendiente(s)</span>
             ${
               isAdminView()
-                ? `<button class="ghost-button" data-action="send-queued-emails" ${queuedEmailCount ? "" : "disabled"}>Enviar pendientes por SMTP</button>`
+                ? `<button class="ghost-button" data-action="send-queued-emails" ${queuedEmailCount ? "" : "disabled"}>Enviar correos pendientes</button>`
                 : ""
             }
           </div>
@@ -12259,7 +12276,7 @@ function renderAutomation() {
                         <a class="mini-button" href="/api/emails/${mail.id}.eml">Descargar .eml</a>
                         ${
                           isAdminView()
-                            ? `<button class="mini-button" data-action="resend-mail" data-mail-id="${mail.id}">Reenviar SMTP</button>`
+                            ? `<button class="mini-button" data-action="resend-mail" data-mail-id="${mail.id}">Reenviar correo</button>`
                             : ""
                         }
                       </div>
@@ -15692,7 +15709,8 @@ function renderSettings() {
             <textarea id="settingAssociateNotice">${escapeHtml(state.settings.associates.applicationFormNotice)}</textarea>
           </label>
         </div>
-        <div class="table-card">
+        ${state.mailDelivery && state.mailDelivery.provider !== "smtp" ? renderSmtpSettingsCard() : ""}
+        <div class="table-card" ${state.mailDelivery && state.mailDelivery.provider !== "smtp" ? "hidden" : ""}>
           <table>
             <tbody>
               <tr>
@@ -15722,7 +15740,7 @@ function renderSettings() {
         <div class="chip-row">
           <button class="primary-button" type="submit">Guardar cambios</button>
           <button class="ghost-button" type="button" data-action="fill-demo-settings">Cargar ejemplo</button>
-          <button class="ghost-button" type="button" data-action="smtp-test">Probar SMTP</button>
+          <button class="ghost-button" type="button" data-action="smtp-test">Probar correo</button>
         </div>
       </form>
     </div>
@@ -21370,9 +21388,7 @@ function pickNextAgentItem() {
   }
 
   const priorities = ["associate_legacy_access", "associate_legacy_review", "associate_application_receipt", "associate_application_info_request", "associate_application_reply_receipt", "associate_application_reply_notification", "associate_application_decision", "associate_welcome", "associate_profile_notification", "associate_payment_notification", "associate_fee", "course_feedback_reminder", "failed_email", "pending_diplomas", "renewal", "course_ready"];
-  const smtpReady = Boolean(
-    state.settings?.smtp?.host && state.settings?.smtp?.port && state.settings?.smtp?.fromEmail
-  );
+  const smtpReady = isOutgoingMailReady();
 
   for (const type of priorities) {
     const item = (state.automationInbox || []).find((entry) => entry.type === type);
@@ -21558,8 +21574,8 @@ function queueManualNoticeEmails(notice) {
       subject: `${notice.title || "Novedad del campus"} - Isocrona Zero`,
       body: buildManualNoticeEmailBody(recipient, notice, linkedCourse),
       sentAt: new Date().toISOString(),
-      status: state.settings?.smtp?.host ? "queued" : "manual",
-      transport: state.settings?.smtp?.host ? "smtp-pending" : "manual"
+      status: isOutgoingMailReady() ? "queued" : "manual",
+      transport: isOutgoingMailReady() ? `${state.mailDelivery?.provider || "smtp"}-pending` : "manual"
     });
   });
 
@@ -21609,7 +21625,7 @@ function getDiplomaDeliveryStatus(course, memberId, latestMail = getLatestMailFo
     return {
       statusKey: "failed",
       label: "Fallido",
-      detail: latestMail.deliveryError || "El ultimo intento SMTP ha fallado."
+      detail: latestMail.deliveryError || "El ultimo intento de correo ha fallado."
     };
   }
 
@@ -21634,7 +21650,7 @@ function getDiplomaDeliveryStatus(course, memberId, latestMail = getLatestMailFo
     return {
       statusKey: "issued_pending",
       label: "Emitido sin enviar",
-      detail: "Hay un correo preparado en salida pendiente de entrega SMTP."
+      detail: "Hay un correo preparado en salida pendiente de envio."
     };
   }
 

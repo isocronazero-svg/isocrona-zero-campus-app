@@ -1,4 +1,5 @@
 const { randomUUID } = require('node:crypto');
+const { getMailSettings, isMailReady } = require('./mail-delivery');
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
@@ -15,6 +16,8 @@ function isActiveAssociate(associate) {
 }
 
 function queueNoticeEmails(state, notice, baseUrl) {
+  const mail = getMailSettings(state);
+  const mailReady = isMailReady(mail);
   const members = (state.members || []).map(member => {
     const associate = (state.associates || []).find(item => item.id === member.associateId || item.linkedMemberId === member.id ||
       (item.email && String(item.email).toLowerCase() === String(member.email || '').toLowerCase()));
@@ -42,7 +45,7 @@ function queueNoticeEmails(state, notice, baseUrl) {
       courseId: notice.courseId, memberId: recipient.memberId, associateId: recipient.associateId, to: email,
       subject: `${notice.title} - Isocrona Zero`, sentAt: new Date().toISOString(),
       body: `Hola ${recipient.name || 'socio'},\n\n${notice.title}\n\n${notice.detail}\n\nConsulta el aviso y sus adjuntos en el portal:\n${baseUrl}/aviso.html?kind=campus&id=${encodeURIComponent(notice.id)}\n\nIsócrona Zero`,
-      status: state.settings?.smtp?.host ? 'queued' : 'manual', transport: state.settings?.smtp?.host ? 'smtp-pending' : 'manual' });
+      status: mailReady ? 'queued' : 'manual', transport: mailReady ? `${mail.provider}-pending` : 'manual' });
   }
   return seen.size;
 }
