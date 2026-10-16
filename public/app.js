@@ -221,6 +221,7 @@ let campusGroupSearchQuery = "";
 let campusGroupResourceFilter = "all";
 let selectedCampusGroupModuleId = "";
 let coursesSectionMode = "catalog";
+let courseCatalogFilter = "all";
 let courseWorkbenchMode = "overview";
 let courseCurriculumMode = "modules";
 let learnerCourseDetailsMode = "overview";
@@ -1124,6 +1125,12 @@ document.addEventListener("click", async (event) => {
       render();
       return;
     }
+
+  if (action === "set-course-catalog-filter") {
+    courseCatalogFilter = actionTarget.dataset.filter || "all";
+    render();
+    return;
+  }
 
   if (action === "set-course-section-mode") {
     const nextMode = actionTarget.dataset.mode || "all";
@@ -5901,6 +5908,7 @@ function getChromeProfile() {
   const isOverview = state.activeView === "overview";
   const isJoin = state.activeView === "join";
   const isCampusGroups = state.activeView === "campus" && campusSectionMode === "groups";
+  const isCampusCourses = state.activeView === "campus" && campusSectionMode === "courses";
   const focusedWorkspaceViews = ["associates", "members", "campus", "reports", "activity", "automation"];
 
   return {
@@ -5908,7 +5916,7 @@ function getChromeProfile() {
     hideAssistantCard: false,
     hideHero: Boolean(session),
     hideMetrics: !isAdminView() || !isOverview || state.activeView === "campus",
-    hideSidePanel: isMemberLike || isJoin || isOverview || isCampusGroups || state.activeView === "test-add",
+    hideSidePanel: isMemberLike || isJoin || isOverview || isCampusGroups || isCampusCourses || state.activeView === "test-add",
     singleWorkspace: (isOverview && isMemberLike) || isJoin || isCampusGroups || focusedWorkspaceViews.includes(state.activeView)
   };
 }
@@ -10347,7 +10355,7 @@ function renderCampus() {
 
   return `
     <div class="panel-stack">
-      <div class="content-module campus-shell-head">
+      ${effectiveCampusSectionMode !== "courses" ? `<div class="content-module campus-shell-head">
         <div class="panel-header">
           <div>
             <p class="eyebrow">Campus</p>
@@ -10394,6 +10402,7 @@ function renderCampus() {
         </div>
       </div>
 
+      ` : ""}
       ${effectiveCampusSectionMode === "all" ? renderCampusHub() : ""}
       ${showCampusSection("alerts") ? `<section class="associate-anchor" id="campusSectionAlerts">${isAdminView() ? renderManualCampusNoticesManager() : renderMemberAlerts(getCurrentMember()?.id) + renderMemberNotifications(getCurrentMember()?.id)}</section>` : ""}
       ${showCampusSection("courses") ? `<section class="associate-anchor" id="campusSectionCourses">${renderCourses()}</section>` : ""}
@@ -10418,6 +10427,7 @@ function renderCampusSide() {
     !isAdminView() && ["operations", ...(campusOnlySession ? ["groups"] : [])].includes(campusSectionMode)
       ? "courses"
       : campusSectionMode;
+  if (effectiveCampusSectionMode === "courses") return "";
   const selectedGroupItems = selectedGroup
     ? (selectedGroup.documents || []).length +
       (selectedGroup.practiceSheets || []).length +
@@ -10527,329 +10537,54 @@ function renderCourseTemplateShowcase(selectedTemplate = "operativo") {
   `;
 }
 
-function renderCourseStudioNavigator(
-  course,
-  normalizedWorkbenchMode,
-  readiness,
-  deliverySessions,
-  enrolledMembers,
-  waitingMembers,
-  certificateSections,
-  publishedLessons,
-  totalLessons
-) {
-  const isPracticalCourse = normalizeCourseClass(course.courseClass) === "practico";
-  const cards = [
-    {
-      mode: "ficha",
-      eyebrow: "Base",
-      title: "Ficha",
-      meta: `${escapeHtml(getCourseClassLabel(course.courseClass))} · ${escapeHtml(course.status)}`
-    },
-    {
-      mode: "curriculum",
-      eyebrow: isPracticalCourse ? "Documentacion" : "Contenido",
-      title: isPracticalCourse ? "Documentacion" : "Contenido",
-      meta: isPracticalCourse
-        ? `${readiness.visibleResources} recurso(s) visibles`
-        : `${publishedLessons}/${totalLessons} lecciones publicadas`
-    },
-    ...(!isPracticalCourse
-      ? [{
-          mode: "sessions",
-          eyebrow: "Calendario",
-          title: "Sesiones",
-          meta: `${deliverySessions.length} jornada(s) previstas`
-        }]
-      : []),
-    {
-      mode: "students",
-      eyebrow: "Alumnado",
-      title: "Inscritos",
-      meta: `${enrolledMembers.length} inscritos · ${waitingMembers.length} en espera`
-    },
-    {
-      mode: "certificate",
-      eyebrow: "Cierre",
-      title: "Certificado",
-      meta: `${certificateSections.length} bloque(s) acreditados`
-    },
-    {
-      mode: "learner",
-      eyebrow: "Experiencia",
-      title: "Vista alumno",
-      meta: isPracticalCourse ? `${readiness.visibleResources} recurso(s) para el alumno` : `${readiness.readiness}% listo para alumnado`
-    }
-  ];
-
-  return `
-    <div class="chip-row studio-summary-strip">
-      ${cards
-        .map(
-          (card) => `
-            <button
-              class="${normalizedWorkbenchMode === card.mode ? "primary-button" : "ghost-button"}"
-              type="button"
-              data-action="set-course-workbench-mode"
-              data-mode="${card.mode}"
-            >
-              ${card.title}
-            </button>
-          `
-        )
-        .join("")}
-    </div>
-  `;
-}
-
 function renderCourses() {
   const selectedMember = findMember(state.selectedMemberId);
   const selectedCourse = getSelectedCourse();
   const memberBuckets = !isAdminView() ? getMemberCourseBuckets(selectedMember?.id) : null;
-  const memberPrimaryCourse = !isAdminView() ? getPrimaryMemberCourse(selectedMember?.id) : null;
-  const memberCatalogCourse = !isAdminView() ? selectedCourse || memberPrimaryCourse : null;
-  const memberActiveCourse = !isAdminView() ? memberPrimaryCourse : null;
-  const memberActiveIsPractical = Boolean(
-    memberActiveCourse && normalizeCourseClass(memberActiveCourse.courseClass) === "practico"
-  );
-  const memberCourseSteps = !isAdminView()
-    ? [
-        {
-          eyebrow: "Paso 1",
-          title: memberBuckets?.enrollmentOpenCourses?.length ? "Ver cursos abiertos" : "Revisar mis cursos",
-          target: memberBuckets?.enrollmentOpenCourses?.length ? "courseBucketOpen" : "courseBucketEnrolled",
-          detail: memberBuckets?.enrollmentOpenCourses?.length
-            ? `${memberBuckets.enrollmentOpenCourses.length} curso(s) con inscripcion visible o programada`
-            : `${memberBuckets?.activeCourses?.length || 0} curso(s) ya dentro de tu area`
-        },
-        {
-          eyebrow: "Paso 2",
-          title: memberActiveCourse ? "Entrar al aula" : "Abrir resumen",
-          target: memberActiveCourse ? "courseSectionWorkbench" : "courseSectionDetails",
-          detail: memberActiveCourse
-            ? `Curso actual: ${memberActiveCourse.title}`
-            : "Revisa programa, sesiones y requisitos antes de inscribirte"
-        },
-        {
-          eyebrow: "Paso 3",
-          title: "Ver mis diplomas",
-          target: "campusSectionDiplomas",
-          detail: `${state.courses.filter((course) => course.diplomaReady.includes(selectedMember?.id)).length} diploma(s) disponibles o en camino`
-        }
-      ]
-    : [];
-  const effectiveSelectedCourse = isAdminView() ? selectedCourse : memberCatalogCourse || memberActiveCourse;
+  const memberActiveCourse = !isAdminView() ? getPrimaryMemberCourse(selectedMember?.id) : null;
+  const memberCatalogCourse = selectedCourse || memberActiveCourse;
   const learnerStudyMode = !isAdminView() && coursesSectionMode === "workbench" && Boolean(memberActiveCourse);
-  const showCourseSection = (section) => (isAdminView() && coursesSectionMode === "all") || coursesSectionMode === section;
-  const totalLessons = state.courses.reduce((sum, course) => sum + getCourseLessonCount(course), 0);
-  const totalPublishedLessons = state.courses.reduce((sum, course) => sum + getPublishedLessonCount(course), 0);
+  // Legacy navigation targets still open the catalogue, never every editor at once.
+  const showCourseSection = (section) => (coursesSectionMode === "all" ? "catalog" : coursesSectionMode) === section;
   return `
-    <div class="panel-stack">
+    <div class="panel-stack courses-area">
       ${session?.role === "instructor" ? `<section class="academic-assigned"><h3>Cursos que imparto</h3><div class="chip-row">${state.courses.filter(canManageCourseAcademic).map(course => `<button class="ghost-button" type="button" data-action="open-course-academic" data-course-id="${escapeHtml(course.id)}">${escapeHtml(course.title)} · Asistencia y certificación</button>`).join("") || `<p class="muted">Sin cursos asignados.</p>`}</div>${canManageCourseAcademic(selectedCourse) && academicRoster?.course?.id === selectedCourse?.id ? renderOperations(selectedCourse) : ""}</section>` : ""}
-      <div class="panel-header">
+      <div class="panel-header courses-page-header">
         <div>
-          <p class="eyebrow">Campus · Cursos</p>
-          <h3>${isAdminView() ? "Estudio de cursos, plazas y experiencia del aula" : "Aula, inscripciones e historial formativo"}</h3>
-          ${
-            !isAdminView() && selectedMember
-              ? `<p class="muted">Sesion de ${selectedMember.name}.</p>`
-              : isAdminView()
-                ? `<p class="muted">Gestiona altas, plazas, aula y cierre desde un solo sitio.</p>`
-              : ""
-          }
+          <p class="eyebrow">Campus</p>
+          <h3>${isAdminView() ? "Gestión de cursos" : "Cursos"}</h3>
+          <p class="muted">${isAdminView() ? "Elige un curso para editarlo, revisar inscripciones o preparar certificados." : "Encuentra tu próxima formación o continúa en tus cursos."}</p>
         </div>
+        ${isAdminView() ? `
+          <nav class="course-page-actions" aria-label="Gestión de cursos">
+            <button type="button" class="${showCourseSection("catalog") ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="catalog">Cursos</button>
+            <button type="button" class="${showCourseSection("create") ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="create">Crear curso</button>
+            <button type="button" class="${showCourseSection("import") ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="import">Importar CSV</button>
+          </nav>
+        ` : !showCourseSection("catalog") ? `
+          <div class="course-page-actions">
+            <button type="button" class="ghost-button" data-action="set-course-section-mode" data-mode="catalog">Volver a cursos</button>
+            ${learnerStudyMode ? `<button type="button" class="ghost-button" data-action="set-course-section-mode" data-mode="details">Ver ficha del curso</button>` : ""}
+            <button type="button" class="ghost-button" data-action="set-campus-section-mode" data-mode="diplomas">Mis diplomas</button>
+          </div>
+        ` : ""}
       </div>
-
-      ${
-        isAdminView()
-          ? `
-            <div class="status-note info course-admin-summary-row">
-              ${state.courses.length} curso(s) en catalogo, ${state.courses.filter((course) => course.status === "Inscripcion abierta").length} con inscripcion abierta, ${totalPublishedLessons}/${totalLessons} leccion(es) publicadas y curso activo ${effectiveSelectedCourse ? escapeHtml(effectiveSelectedCourse.title) : "sin seleccionar"}.
-            </div>
-
-            <div class="chip-row">
-              <button class="${coursesSectionMode === "all" ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="all">Todo</button>
-              <button class="${coursesSectionMode === "workbench" ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="workbench">Curso activo</button>
-              <button class="${coursesSectionMode === "create" ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="create">Alta</button>
-              <button class="${coursesSectionMode === "import" ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="import">Importacion</button>
-              <button class="${coursesSectionMode === "catalog" ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="catalog">Catalogo</button>
-            </div>
-
-            ${
-              showCourseSection("workbench")
-                ? `
-            <section class="mail-card associate-anchor" id="courseSectionWorkbench">
-              <div class="panel-header">
-                <div>
-                  <p class="eyebrow">Curso activo</p>
-                  <h4>${selectedCourse ? escapeHtml(selectedCourse.title) : "Selecciona un curso"}</h4>
-                </div>
-              </div>
-              ${renderCourseWorkbench(selectedCourse)}
-            </section>
-            `
-                : ""
-            }
-            `
-          : ""
-      }
-
-      ${
-        !isAdminView()
-          ? `
-            ${
-              learnerStudyMode
-                ? `
-                  <div class="chip-row learner-study-toolbar">
-                    <button class="ghost-button" data-action="set-course-section-mode" data-mode="catalog">Volver a cursos</button>
-                    <button class="ghost-button" data-action="set-course-section-mode" data-mode="details">Resumen</button>
-                    <button class="ghost-button" data-action="set-campus-section-mode" data-mode="diplomas">Mis diplomas</button>
-                  </div>
-                `
-                : `
-                  <div class="status-note info course-summary-row">
-                    Aula actual: ${memberActiveCourse ? escapeHtml(memberActiveCourse.title) : "sin curso activo"} · Cursos inscritos: ${state.courses.filter((course) => course.enrolledIds.includes(selectedMember?.id)).length} · Diplomas disponibles: ${state.courses.filter((course) => course.diplomaReady.includes(selectedMember?.id)).length}.
-                  </div>
-
-                  <div class="chip-row">
-                    <button class="${coursesSectionMode === "all" ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="all">Todo</button>
-                    <button class="${coursesSectionMode === "details" ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="details">Resumen del curso</button>
-                    <button class="${coursesSectionMode === "workbench" ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="workbench">Mi aula</button>
-                    <button class="${coursesSectionMode === "catalog" ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="catalog">Cursos e historial</button>
-                  </div>
-                `
-            }
-
-            ${
-              showCourseSection("all")
-                ? `
-                  <div class="panel-stack">
-                    ${renderLearnerCourseCatalogOverview(memberBuckets)}
-                    <div class="course-grid">
-                     ${renderCompactCourseBucket(
-                       "Mis matriculas",
-                       "Cursos en los que ya estas inscrito o pendiente de plaza.",
-                       memberBuckets?.activeCourses || [],
-                       { role: "member", emptyMessage: "Todavia no tienes cursos activos.", sectionId: "courseBucketEnrolled" }
-                     )}
-                     ${renderCompactCourseBucket(
-                       "Inscripcion abierta",
-                       "Cursos disponibles para matricula inmediata.",
-                       memberBuckets?.enrollmentOpenCourses || [],
-                       { role: "member", emptyMessage: "No hay cursos abiertos ahora mismo.", quickEnroll: true, sectionId: "courseBucketOpen" }
-                     )}
-                     ${renderCompactCourseBucket(
-                       "Proximos cursos",
-                       "Formaciones anunciadas o cercanas al inicio.",
-                       memberBuckets?.upcomingCourses || [],
-                       { role: "member", emptyMessage: "No hay proximos cursos publicados.", sectionId: "courseBucketUpcoming" }
-                     )}
-                     ${renderCompactCourseBucket(
-                       "Cursos cerrados e historial",
-                       "Formaciones ya cerradas dentro de tu recorrido.",
-                       memberBuckets?.historyCourses || [],
-                       { role: "member", emptyMessage: "Todavia no tienes historial cerrado.", sectionId: "courseBucketHistory" }
-                     )}
-                    </div>
-                  </div>
-                `
-                : ""
-            }
-
-            ${
-              showCourseSection("details")
-                ? `
-                  <section class="mail-card associate-anchor" id="courseSectionDetails">
-                    ${memberCatalogCourse ? renderSelectedCourse(memberCatalogCourse) : `<div class="empty-state">Selecciona un curso del catalogo para ver su resumen completo y la accion de matricula.</div>`}
-                  </section>
-                `
-                : ""
-            }
-
-            ${
-              showCourseSection("workbench")
-                ? `
-                  <section class="mail-card associate-anchor ${learnerStudyMode ? "learner-study-shell" : ""}" id="courseSectionWorkbench">
-                    ${
-                      learnerStudyMode
-                        ? ""
-                        : `
-                          <div class="panel-header">
-                            <div>
-                              <p class="eyebrow">Mi aula actual</p>
-                              <h4>${memberActiveCourse ? escapeHtml(memberActiveCourse.title) : "Sin curso activo"}</h4>
-                              <p class="muted">${memberActiveIsPractical ? "Entra al practico como alumno: documentacion visible, estado del curso y requisitos reales del certificado." : "Entra al curso como alumno: siguiente paso, contenidos publicados, sesiones, recursos y requisitos reales del certificado."}</p>
-                            </div>
-                          </div>
-                        `
-                    }
-                    ${memberActiveCourse ? renderMemberCourseWorkspace(memberActiveCourse, { focusMode: learnerStudyMode }) : `<div class="empty-state">Todavia no tienes un curso activo asignado.</div>`}
-                  </section>
-                `
-                : ""
-            }
-
-            ${
-              showCourseSection("catalog")
-                ? `
-                  <div class="mail-card compact-panel">
-                    <h4>Catalogo del Campus</h4>
-                    <p class="muted">Como en las plataformas grandes: primero ves que puedes cursar ahora, que viene despues y que ya forma parte de tu historial.</p>
-                    ${renderLearnerCourseCatalogOverview(memberBuckets)}
-                  </div>
-
-                  ${renderMemberCourseListSection(
-                    "Mis matriculas",
-                    "Tus cursos activos o pendientes de plaza. Desde aqui entras al aula o revisas el estado de tu matricula.",
-                    memberBuckets?.activeCourses || [],
-                    {
-                      role: "member",
-                      emptyMessage: "Todavia no tienes cursos activos o en espera."
-                    }
-                  )}
-
-                  ${renderMemberCourseListSection(
-                    "Inscripcion abierta",
-                    "Cursos que muestran matricula abierta y a los que puedes inscribirte ahora mismo.",
-                    memberBuckets?.enrollmentOpenCourses || [],
-                    {
-                      role: "member",
-                      emptyMessage: "Ahora mismo no hay cursos nuevos con inscripcion abierta."
-                    }
-                  )}
-
-                  ${renderMemberCourseListSection(
-                    "Proximos cursos",
-                    "Formaciones anunciadas o proximas al inicio para que puedas verlas antes de que abran la matricula.",
-                    memberBuckets?.upcomingCourses || [],
-                    {
-                      role: "member",
-                      emptyMessage: "No hay proximos cursos anunciados en este momento."
-                    }
-                  )}
-
-                  <div class="mail-card">
-                    <h4>Historial de curso</h4>
-                    <p class="muted">Linea temporal de tu recorrido: accesos, avances, cierres y movimientos de formacion dentro del campus.</p>
-                    ${renderMemberHistory(memberBuckets?.timelineHistory || [])}
-                  </div>
-
-                  ${renderMemberCourseListSection(
-                    "Cursos cerrados e historial",
-                    "Formaciones finalizadas o cerradas con acceso a su ficha, resultados y estado final.",
-                    memberBuckets?.historyCourses || [],
-                    {
-                      role: "member",
-                      emptyMessage: "Todavia no tienes cursos cerrados en tu historial."
-                    }
-                  )}
-                `
-                : ""
-            }
-          `
-          : ""
-      }
-
+      ${showCourseSection("catalog") ? renderCourseCatalog(memberBuckets) : ""}
+      ${isAdminView() && showCourseSection("workbench") ? `
+        <section class="associate-anchor" id="courseSectionWorkbench">
+          ${renderCourseWorkbench(selectedCourse)}
+        </section>
+      ` : ""}
+      ${!isAdminView() && showCourseSection("details") ? `
+        <section class="mail-card associate-anchor" id="courseSectionDetails">
+          ${memberCatalogCourse ? renderSelectedCourse(memberCatalogCourse) : `<div class="empty-state">Elige un curso para ver sus detalles e inscripción.</div>`}
+        </section>
+      ` : ""}
+      ${!isAdminView() && showCourseSection("workbench") ? `
+        <section class="mail-card associate-anchor ${learnerStudyMode ? "learner-study-shell" : ""}" id="courseSectionWorkbench">
+          ${memberActiveCourse ? renderMemberCourseWorkspace(memberActiveCourse, { focusMode: learnerStudyMode }) : `<div class="empty-state">Todavía no tienes un aula activa. Revisa los cursos disponibles.</div>`}
+        </section>
+      ` : ""}
       ${
         isAdminView()
           ? `
@@ -10969,11 +10704,11 @@ function renderCourses() {
               <div class="course-grid">
                 <div class="timeline-item">
                   <span class="eyebrow">Despues del alta</span>
-                  <p>Al crear, el curso se abre en Curso activo para desarrollar contenido, recursos, sesiones, alumnado y certificado final.</p>
+                  <p>Después de crear el curso podrás configurar su contenido, inscripciones y certificados.</p>
                 </div>
               </div>
               <div class="chip-row">
-                <button class="primary-button" type="submit">Crear y abrir estudio</button>
+                <button class="primary-button" type="submit">Crear curso</button>
               </div>
             </form>
             </section>
@@ -11005,76 +10740,39 @@ function renderCourses() {
           : ""
       }
 
-      ${
-        isAdminView() && showCourseSection("catalog")
-          ? `
-            <div class="course-list associate-anchor" id="courseSectionCatalog">
-              ${
-                isAdminView()
-                  ? renderAdminCourseCatalog()
-                  : renderMemberCourseListSection(
-                      "Mis cursos",
-                      "Cursos activos o en espera que tienes vinculados ahora mismo.",
-                      memberBuckets?.activeCourses || [],
-                      {
-                        role: "member",
-                        emptyMessage: "Todavia no tienes cursos activos o en espera."
-                      }
-                    )
-              }
-            </div>
-          `
-          : ""
-      }
     </div>
   `;
 }
 
-function renderAdminCourseCatalog() {
-  const plannedCourses = state.courses.filter((course) => course.status === "Planificacion");
-  const openCourses = state.courses.filter((course) => course.status === "Inscripcion abierta");
-  const closingCourses = state.courses.filter((course) => course.status === "Cierre pendiente");
-  const closedCourses = state.courses.filter((course) => course.status === "Cerrado");
-
+function renderCourseCatalog(memberBuckets = null) {
+  const admin = isAdminView();
+  const groups = admin ? [
+    { id: "all", label: "Todos", courses: state.courses },
+    { id: "open", label: "Inscripción abierta", courses: state.courses.filter(course => course.status === "Inscripcion abierta") },
+    { id: "planned", label: "En preparación", courses: state.courses.filter(course => course.status === "Planificacion") },
+    { id: "closing", label: "Por cerrar", courses: state.courses.filter(course => course.status === "Cierre pendiente") },
+    { id: "history", label: "Cerrados", courses: state.courses.filter(course => course.status === "Cerrado") }
+  ] : [
+    { id: "all", label: "Disponibles", courses: [...(memberBuckets?.enrollmentOpenCourses || []), ...(memberBuckets?.upcomingCourses || [])] },
+    { id: "mine", label: "Mis cursos", courses: memberBuckets?.activeCourses || [] },
+    { id: "history", label: "Historial", courses: memberBuckets?.historyCourses || [] }
+  ];
+  const selected = groups.find(group => group.id === courseCatalogFilter) || groups[0];
+  const courses = [...new Map(selected.courses.map(course => [course.id, course])).values()];
+  const emptyMessage = admin
+    ? "No hay cursos en este estado. Puedes crear uno desde Crear curso."
+    : selected.id === "mine"
+      ? "Todavía no tienes cursos activos ni solicitudes en espera."
+      : selected.id === "history"
+        ? "Aquí aparecerán tus cursos finalizados."
+        : "Ahora mismo no hay nuevas formaciones disponibles. Revisa Mis cursos si ya estás inscrito.";
   return `
-    <div class="panel-stack">
-      ${renderMemberCourseListSection(
-        "Inscripcion abierta",
-        "Cursos visibles y listos para recibir alumnado ahora mismo.",
-        openCourses,
-        {
-          role: "admin",
-          emptyMessage: "No hay cursos con inscripcion abierta ahora mismo."
-        }
-      )}
-      ${renderMemberCourseListSection(
-        "Planificacion y borrador",
-        "Cursos que todavia estan en construccion o pendientes de abrir.",
-        plannedCourses,
-        {
-          role: "admin",
-          emptyMessage: "No hay cursos en planificacion."
-        }
-      )}
-      ${renderMemberCourseListSection(
-        "Pendientes de cierre",
-        "Cursos que ya han terminado y necesitan rematar asistencia, evaluacion o diplomas.",
-        closingCourses,
-        {
-          role: "admin",
-          emptyMessage: "No hay cursos pendientes de cierre."
-        }
-      )}
-      ${renderMemberCourseListSection(
-        "Cerrados",
-        "Cursos ya finalizados y cerrados administrativamente.",
-        closedCourses,
-        {
-          role: "admin",
-          emptyMessage: "No hay cursos cerrados todavia."
-        }
-      )}
-    </div>
+    <section class="course-catalog associate-anchor" id="courseSectionCatalog" aria-label="Catálogo de cursos">
+      <div class="course-catalog-filters" role="group" aria-label="Filtrar cursos">
+        ${groups.map(group => `<button type="button" class="course-filter ${selected.id === group.id ? "is-active" : ""}" data-action="set-course-catalog-filter" data-filter="${group.id}" aria-pressed="${selected.id === group.id}">${group.label}<span>${new Set(group.courses.map(course => course.id)).size}</span></button>`).join("")}
+      </div>
+      ${courses.length ? `<div class="course-catalog-grid">${courses.map(course => renderCompactCourseCard(course, admin ? "admin" : "member")).join("")}</div>` : `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`}
+    </section>
   `;
 }
 
@@ -14218,17 +13916,6 @@ function renderCourseWorkbench(course) {
         })
         .join("")
     : `<p class="muted">No hay solicitudes pendientes ahora mismo. El curso esta limpio en inscripcion y pagos.</p>`;
-  const navigator = renderCourseStudioNavigator(
-    course,
-    normalizedWorkbenchMode,
-    readiness,
-    deliverySessions,
-    enrolledMembers,
-    waitingMembers,
-    certificateSections,
-    publishedLessons,
-    totalLessons
-  );
   const workbenchTabs = isPracticalCourse
     ? [
         { mode: "ficha", label: "Ficha" },
@@ -14264,6 +13951,9 @@ function renderCourseWorkbench(course) {
             <button class="ghost-button danger-button" type="button" data-action="delete-course" data-course-id="${course.id}">Eliminar curso</button>
           </div>
         </div>
+        <details class="course-review-details">
+          <summary>Preparación y cierre <span>${completedChecks}/${workbenchChecks.length} comprobaciones · ${readyClosureCount} listo(s) para certificar</span></summary>
+          <div class="panel-stack">
         ${
           isPracticalCourse
             ? ""
@@ -14384,6 +14074,8 @@ function renderCourseWorkbench(course) {
               : `<p class="muted">Todavia no hay alumnado inscrito para revisar el cierre del curso.</p>`
           }
         </div>
+          </div>
+        </details>
         <div class="workbench-tabs">
           ${workbenchTabs
             .map(
@@ -14397,10 +14089,8 @@ function renderCourseWorkbench(course) {
         </div>
       </div>
 
-      ${isPracticalCourse ? "" : navigator}
-
       <form id="courseEditForm" class="stack">
-        ${renderCourseSharedTestEditor(course, state.testZoneQuestions || [])}
+        ${showWorkbenchSection("curriculum") ? renderCourseSharedTestEditor(course, state.testZoneQuestions || []) : ""}
         ${
           showWorkbenchSection("ficha")
             ? `
@@ -19045,96 +18735,39 @@ function renderMemberCourseListSection(title, description, courses, options = {}
 }
 
 function renderCompactCourseCard(course, role = "member") {
-  const currentMemberId = state.selectedMemberId;
-  const isEnrolled = currentMemberId && course.enrolledIds.includes(currentMemberId);
-  const isWaiting = currentMemberId && course.waitingIds.includes(currentMemberId);
-  const hasDiploma = currentMemberId && course.diplomaReady.includes(currentMemberId);
-  const enrollmentCall = role === "member" ? getCourseEnrollmentCall(course) : null;
-  const accessScopeLabel = COURSE_ACCESS_SCOPE_LABELS[normalizeCourseAccessScope(course.accessScope, course.audience)] || "Solo socios";
-  const canEnroll =
-      role === "member" &&
-      !hasDiploma &&
-      !isEnrolled &&
-      !isWaiting &&
-      isCourseOpenForEnrollment(course) &&
-      !isMemberPreviewSession();
-  const primaryAction =
-        role === "member"
-          ? hasDiploma
-            ? "Ir a Mis diplomas"
-            : isEnrolled
-            ? "Entrar al aula"
-            : isWaiting
-              ? "Ver solicitud"
-            : canEnroll
-              ? enrollmentCall.ctaLabel
-              : enrollmentCall?.scheduledMode
-                ? "Ver apertura"
-              : "Ver curso"
-        : "Gestionar";
-  const courseMetaChips = [
-    formatDate(course.startDate),
-    `${course.hours} h`,
-    `${course.capacity} plazas`
-  ];
-  if (course.enrollmentFee > 0) {
-    courseMetaChips.push(`${course.enrollmentFee} €`);
-  }
-  if (role === "member" && hasDiploma) {
-    courseMetaChips.push("Diploma disponible");
-  } else if (role === "member" && isWaiting) {
-    courseMetaChips.push("En espera");
-  } else if (role === "member" && isEnrolled) {
-    courseMetaChips.push("Ya estás inscrito");
-  } else if (role === "member" && course.status === "Inscripcion abierta") {
-    courseMetaChips.push(enrollmentCall.waitlistMode ? "Curso completo" : enrollmentCall.statusLabel);
-  }
-
+  const memberId = state.selectedMemberId;
+  const isMember = role === "member";
+  const isEnrolled = isMember && memberId && course.enrolledIds.includes(memberId);
+  const isWaiting = isMember && memberId && course.waitingIds.includes(memberId);
+  const hasDiploma = isMember && memberId && course.diplomaReady.includes(memberId);
+  const enrollmentCall = isMember ? getCourseEnrollmentCall(course) : null;
+  const canEnroll = isMember && !hasDiploma && !isEnrolled && !isWaiting && isCourseOpenForEnrollment(course) && !isMemberPreviewSession();
+  const primaryLabel = !isMember ? "Gestionar curso" : hasDiploma ? "Ver diploma" : isEnrolled ? "Entrar al aula" : isWaiting ? "Ver solicitud" : canEnroll ? enrollmentCall.ctaLabel : enrollmentCall.scheduledMode ? "Ver apertura" : "Ver curso";
+  const primaryAction = hasDiploma ? "set-campus-section-mode" : isEnrolled ? "open-course-workbench-tab" : canEnroll ? "prepare-course-enrollment" : "select-course";
+  const statusLabel = hasDiploma ? "Diploma disponible" : isWaiting ? "En espera" : isEnrolled ? "Inscrito" : !isMember ? course.status : enrollmentCall.closedMode ? "Inscripción cerrada" : enrollmentCall.scheduledMode ? "Apertura programada" : canEnroll ? enrollmentCall.waitlistMode ? "Lista de espera" : "Inscripción abierta" : course.status;
+  const accessLabel = COURSE_ACCESS_SCOPE_LABELS[normalizeCourseAccessScope(course.accessScope, course.audience)] || "Solo socios";
+  const dateLabel = course.startDate ? `${formatDate(course.startDate)}${course.endDate && course.endDate !== course.startDate ? ` — ${formatDate(course.endDate)}` : ""}` : "Fecha por confirmar";
+  const fee = Number(course.enrollmentFee) || 0;
   return `
-    <article class="compact-course-card ${isEnrolled ? "compact-course-card-active" : ""}">
-      <div class="row-between">
-        <span class="small-chip">${escapeHtml(describeCourseType(course))}</span>
-        <div class="chip-row compact-chip-row">
-          <span class="small-chip">${escapeHtml(accessScopeLabel)}</span>
-          <span class="small-chip">${escapeHtml(enrollmentCall?.closedMode ? "Inscripción cerrada" : course.status)}</span>
-          ${role === "member" && String(course.status || "") === "Inscripcion abierta" && !hasDiploma ? `<span class="small-chip">${escapeHtml(enrollmentCall.occupancyLabel)}</span>` : ""}
-        </div>
+    <article class="compact-course-card course-preview-card ${normalizeCourseClass(course.courseClass) === "practico" ? "course-preview-practical" : ""} ${isEnrolled ? "compact-course-card-active" : ""}" data-course-card-id="${escapeHtml(course.id)}">
+      <div class="course-preview-band">
+        <span>${escapeHtml(describeCourseType(course))}</span>
+        <span class="course-preview-status">${escapeHtml(statusLabel)}</span>
       </div>
-      <strong>${escapeHtml(course.title)}</strong>
-      <p class="muted compact-course-summary">${escapeHtml(course.summary || (normalizeCourseClass(course.courseClass) === "practico" ? "Curso practico con documentacion, seguimiento y certificado final." : "Curso del campus con contenido, sesiones y certificado final."))}</p>
-      <div class="compact-course-meta compact-course-meta-chips">
-        ${courseMetaChips.map((item) => `<span class="small-chip">${escapeHtml(item)}</span>`).join("")}
-      </div>
-      <div class="compact-course-footer">
-        <div class="chip-row">
-          <button class="primary-button" data-action="${
-              role === "member" && hasDiploma
-              ? "set-campus-section-mode"
-              : role === "member" && isEnrolled
-              ? "open-course-workbench-tab"
-              : role === "member" && isWaiting
-                ? "select-course"
-              : canEnroll
-                ? "prepare-course-enrollment"
-                : role === "member" && enrollmentCall?.scheduledMode
-                  ? "select-course"
-                : "select-course"
-          }" data-course-id="${course.id}" ${role === "member" && hasDiploma ? 'data-mode="diplomas"' : role === "member" && isEnrolled ? 'data-mode="learner"' : role === "member" && isWaiting ? 'data-mode="status"' : ""}>${primaryAction}</button>
-          ${
-            canEnroll
-              ? `<button class="ghost-button" data-action="select-course" data-course-id="${course.id}">Resumen</button>`
-            : role === "member" && hasDiploma
-              ? `<button class="ghost-button" data-action="select-course" data-course-id="${course.id}">Resumen</button>`
-            : role === "member" && isWaiting
-              ? `<button class="ghost-button" data-action="select-course" data-course-id="${course.id}">Resumen</button>`
-            : ""
-          }
+      <div class="course-preview-body">
+        <p class="course-preview-date"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 2v6M17 2v6M3 11h18"/></svg>${escapeHtml(dateLabel)}</p>
+        <h4>${escapeHtml(course.title)}</h4>
+        ${course.summary ? `<p class="muted compact-course-summary">${escapeHtml(course.summary)}</p>` : ""}
+        <dl class="course-preview-facts">
+          <div><dt>Duración</dt><dd>${escapeHtml(course.hours)} h</dd></div>
+          <div><dt>Plazas ocupadas</dt><dd>${getCourseEnrolledCount(course)} / ${escapeHtml(course.capacity)}</dd></div>
+          <div><dt>Importe</dt><dd>${fee > 0 ? `${escapeHtml(fee)} €` : "Gratuito"}</dd></div>
+        </dl>
+        <p class="course-preview-access">${escapeHtml(accessLabel)}${isMember && !isEnrolled && !isWaiting && !hasDiploma && (canEnroll || enrollmentCall.scheduledMode) ? ` · ${escapeHtml(enrollmentCall.statusLabel)}` : ""}</p>
+        <div class="compact-course-footer course-preview-actions">
+          <button type="button" class="primary-button" data-action="${primaryAction}" data-course-id="${escapeHtml(course.id)}" ${hasDiploma ? 'data-mode="diplomas"' : isEnrolled ? 'data-mode="learner"' : isWaiting ? 'data-mode="status"' : ""}>${escapeHtml(primaryLabel)}</button>
+          ${canEnroll || hasDiploma || isWaiting ? `<button type="button" class="ghost-button" data-action="select-course" data-course-id="${escapeHtml(course.id)}">Ver detalles</button>` : ""}
         </div>
-        ${
-          role === "member"
-            ? `<span class="small-chip">${hasDiploma ? "Curso completado" : isEnrolled ? "Inscrito" : isWaiting ? "En espera" : canEnroll ? enrollmentCall.waitlistMode ? "Lista de espera" : "Inscripcion abierta" : enrollmentCall?.scheduledMode ? "Apertura programada" : "Sin inscripcion"}</span>`
-            : ""
-        }
       </div>
     </article>
   `;
