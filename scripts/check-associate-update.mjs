@@ -7,6 +7,20 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { createOnboardingStateAccess } from "../server/onboarding-state.js";
+
+{
+  let stored = { associateApplications: [{ id: "qa", dni: "", notes: "" }] };
+  const access = createOnboardingStateAccess({ readState: () => structuredClone(stored), writeState: value => { stored = structuredClone(value); } });
+  const stale = access.readState();
+  const completed = access.readState();
+  completed.associateApplications[0].dni = "QA20261016";
+  access.writeState(completed);
+  stale.associateApplications[0].notes = "Unrelated writer";
+  access.writeState(stale);
+  assert.equal(stored.associateApplications[0].dni, "QA20261016", "Un escritor asincrono no borra un DNI completado despues de su lectura");
+  assert.equal(stored.associateApplications[0].notes, "Unrelated writer");
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -215,6 +229,9 @@ async function main() {
     assert.deepEqual((await admin.request("GET", "/api/state")).body.activityLog, afterCompletion.activityLog, "Reintentar no duplica actividad");
     const overwriteDni = await anonymous.request("POST", applicationPath + "/reply", { action: "complete-dni", dni: "QA999999" }, true);
     assert.equal(overwriteDni.status, 400, "El DNI existente no se puede sustituir desde el enlace publico");
+    await admin.request("POST", "/api/state", beforeCompletion);
+    const afterStaleSave = (await admin.request("GET", "/api/state")).body;
+    assert.equal(afterStaleSave.associateApplications.find(item => item.id === "application-missing-dni").dni, "QA20261016", "Un formulario administrativo antiguo no puede borrar el DNI completado");
     const anonymousApproval = await anonymous.request("POST", "/api/associates/applications/application-missing-dni/approve", undefined, true);
     assert.equal(anonymousApproval.status, 401);
     const approvedApplication = await admin.request("POST", "/api/associates/applications/application-missing-dni/approve");

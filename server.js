@@ -6444,6 +6444,11 @@ const server = http.createServer(async (req, res) => {
       // Reports are written only through the scoped moderation API.
       const latestQuestionState = readState();
       preserveAssociateOnboardingState(latestQuestionState, state);
+      // Application identity is owned by submission/completion, not old whole-state forms.
+      const currentApplicationDnis = new Map((latestQuestionState.associateApplications || []).map(item => [item.id, item.dni]));
+      for (const application of state.associateApplications || []) {
+        if (currentApplicationDnis.has(application.id)) application.dni = currentApplicationDnis.get(application.id);
+      }
       // Historical proof references are owned by the reviewed workbook import, not whole-state forms.
       const currentProofs = new Map((latestQuestionState.associates || []).map(item => [item.id, item.legacyPaymentProofs]));
       for (const associate of state.associates || []) {
