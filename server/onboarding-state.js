@@ -7,6 +7,7 @@ const memberFields = ["id", "associateId", "email", "name", "source"];
 function capture(state) {
   const associates = (state.associates || []).filter(item => item.campusOnboardingCreatedAt);
   return {
+    applicationDnis: new Map((state.associateApplications || []).map(item => [item.id, item.dni])),
     academicCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
       attendance: course.attendance, evaluations: course.evaluations, diplomaReady: course.diplomaReady
     })])),
@@ -22,6 +23,12 @@ function capture(state) {
 }
 
 function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdateId) {
+  if (baseline) for (const application of state.associateApplications || []) {
+    if (current.applicationDnis.has(application.id) &&
+        baseline.applicationDnis.get(application.id) !== current.applicationDnis.get(application.id)) {
+      application.dni = current.applicationDnis.get(application.id);
+    }
+  }
   // An async writer may predate a synchronous academic correction/closure. Never roll it back or issue from its stale grades.
   if (baseline) for (const course of state.courses || []) {
     const before = baseline.academicCourses.get(course.id);

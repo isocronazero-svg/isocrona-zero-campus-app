@@ -7,6 +7,20 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { createOnboardingStateAccess } from "../server/onboarding-state.js";
+
+{
+  let stored = { associateApplications: [{ id: "qa", dni: "", notes: "" }] };
+  const access = createOnboardingStateAccess({ readState: () => structuredClone(stored), writeState: value => { stored = structuredClone(value); } });
+  const stale = access.readState();
+  const completed = access.readState();
+  completed.associateApplications[0].dni = "QA20261016";
+  access.writeState(completed);
+  stale.associateApplications[0].notes = "Unrelated writer";
+  access.writeState(stale);
+  assert.equal(stored.associateApplications[0].dni, "QA20261016", "Un escritor asincrono no borra un DNI completado despues de su lectura");
+  assert.equal(stored.associateApplications[0].notes, "Unrelated writer");
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -38,6 +52,15 @@ function buildSeedState() {
         : `Unused-${randomUUID()}`;
     return { ...account, password, passwordHash: "" };
   });
+  const pendingApplication = {
+    id: "application-missing-dni", publicAccessToken: "synthetic-missing-dni-token",
+    firstName: "Synthetic", lastName: "Application", email: "application@example.test", phone: "600000000",
+    dni: "", service: "Synthetic QA", paymentProof: "synthetic-proof.pdf", status: "Pendiente de revision"
+  };
+  seed.associateApplications = [pendingApplication,
+    { ...pendingApplication, id: "application-duplicate-dni", publicAccessToken: "synthetic-duplicate-token", email: "duplicate-application@example.test", dni: "QA000002" },
+    { ...pendingApplication, id: "application-rejected-dni", publicAccessToken: "synthetic-rejected-token", email: "rejected-application@example.test", status: "Rechazada" }
+  ];
   return seed;
 }
 
@@ -169,6 +192,52 @@ async function main() {
     assert.equal(memberUpdate.status, 403, "Un socio no puede editar el censo");
 
     await login(admin, "admin@isocronazero.org", testPasswords.admin);
+    const applicationPath = "/api/associates/applications/public/synthetic-missing-dni-token";
+    const publicApplication = await anonymous.request("GET", applicationPath);
+    assert.equal(publicApplication.body.application.needsDni, true);
+    assert.equal(Object.hasOwn(publicApplication.body.application, "dni"), false, "El seguimiento no publica el DNI/NIE");
+    const blockedApproval = await admin.request("POST", "/api/associates/applications/application-missing-dni/approve", undefined, true);
+    assert.equal(blockedApproval.status, 400);
+    assert.match(blockedApproval.body.error, /falta DNI\/NIE/);
+    for (const dni of ["", "invalid!", "QA000002"]) {
+      const invalid = await anonymous.request("POST", applicationPath + "/reply", { action: "complete-dni", dni }, true);
+      assert.equal(invalid.status, 400);
+      assert.equal((await anonymous.request("GET", applicationPath)).body.application.needsDni, true);
+    }
+    for (const token of ["unknown-token", "application-missing-dni", "synthetic-rejected-token"]) {
+      const wrong = await anonymous.request("POST", `/api/associates/applications/public/${token}/reply`, { action: "complete-dni", dni: "QA20261016" }, true);
+      assert.equal(wrong.status, 400, "Solo un token de solicitud pendiente permite completar el DNI");
+    }
+    const beforeCompletion = (await admin.request("GET", "/api/state")).body;
+    const completed = await anonymous.request("POST", applicationPath + "/reply", {
+      action: "complete-dni", dni: " qa20261016 ", status: "Aprobada", email: "other@example.test", paymentProof: "forged.pdf"
+    });
+    assert.equal(completed.body.application.needsDni, false);
+    assert.equal(Object.hasOwn(completed.body.application, "dni"), false);
+    assert.equal(completed.body.application.status, "Pendiente de revision", "Completar datos nunca aprueba el alta");
+    const afterCompletion = (await admin.request("GET", "/api/state")).body;
+    const completedApplication = afterCompletion.associateApplications.find(item => item.id === "application-missing-dni");
+    assert.equal(completedApplication.dni, "QA20261016");
+    assert.equal(completedApplication.email, "application@example.test");
+    assert.equal(completedApplication.paymentProof, "synthetic-proof.pdf");
+    for (const key of ["associates", "accounts", "members", "emailOutbox", "settings"]) {
+      assert.deepEqual(afterCompletion[key], beforeCompletion[key], `Completar DNI no altera ${key} ni ejecuta automatismos`);
+    }
+    assert.deepEqual(afterCompletion.associateApplications.slice(1), beforeCompletion.associateApplications.slice(1));
+    const retry = await anonymous.request("POST", applicationPath + "/reply", { action: "complete-dni", dni: "QA20261016" });
+    assert.equal(retry.status, 200);
+    assert.deepEqual((await admin.request("GET", "/api/state")).body.activityLog, afterCompletion.activityLog, "Reintentar no duplica actividad");
+    const overwriteDni = await anonymous.request("POST", applicationPath + "/reply", { action: "complete-dni", dni: "QA999999" }, true);
+    assert.equal(overwriteDni.status, 400, "El DNI existente no se puede sustituir desde el enlace publico");
+    await admin.request("POST", "/api/state", beforeCompletion);
+    const afterStaleSave = (await admin.request("GET", "/api/state")).body;
+    assert.equal(afterStaleSave.associateApplications.find(item => item.id === "application-missing-dni").dni, "QA20261016", "Un formulario administrativo antiguo no puede borrar el DNI completado");
+    const anonymousApproval = await anonymous.request("POST", "/api/associates/applications/application-missing-dni/approve", undefined, true);
+    assert.equal(anonymousApproval.status, 401);
+    const approvedApplication = await admin.request("POST", "/api/associates/applications/application-missing-dni/approve");
+    assert.equal(approvedApplication.status, 200, "El recorrido termina con aprobacion administrativa normal");
+    const finalized = await anonymous.request("POST", applicationPath + "/reply", { action: "complete-dni", dni: "QA20261016" }, true);
+    assert.equal(finalized.status, 400, "La solicitud resuelta es inmutable desde el seguimiento");
     const update = await admin.request("PATCH", "/api/associates/associate-1", updatePayload);
     assert.equal(update.status, 200);
     assert.equal(update.body?.associate?.firstName, "Laura corregida");

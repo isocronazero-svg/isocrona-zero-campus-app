@@ -144,3 +144,15 @@ No hacer sin autorización explícita:
 Sí continuar de forma autónoma con: auditoría, tests, documentación, comentarios/issues, ramas de preparación, revisión P1/P2 y handoffs de Codex.
 
 Última actualización: 15/10/2026, #260 integrada y CI de main verde. Conflictos de #261 con main cd933d5 resueltos conservando ambos cambios, tests/QA locales PASS. Pendiente CI remoto y merge autorizado condicionado a verde. Sin operaciones productivas. #259 permanece abierta.
+
+## 16/10/2026 - Aprobacion bloqueada por DNI/NIE pendiente
+
+La prueba autorizada de alta con adjunto revela un bloqueo poco visible: el DNI/NIE vacio impide aprobar, pero la portada lo muestra como `DNI OK`. El formulario publico no exigia el dato y el seguimiento no permitia completarlo.
+
+- El alta publica exige ahora DNI/NIE. Las solicitudes anteriores pueden completar unicamente el DNI/NIE pendiente desde su enlace de seguimiento; se conserva la revision administrativa y la aprobacion exclusiva de administracion.
+- La operacion usa el token de la solicitud, valida formato y duplicados, rechaza solicitudes resueltas y no permite sustituir un DNI/NIE existente. El dato no se publica en la respuesta del seguimiento. Reintentar el mismo valor no duplica actividad.
+- Completar el dato no envia correos ni ejecuta el motor global; no crea socio, cuenta ni acceso. Los datos adicionales enviados por el cliente se ignoran.
+- El DNI/NIE completado se conserva ante formularios administrativos antiguos y escritores asincronos iniciados antes de la correccion; las demas operaciones conservan sus permisos y requisitos.
+- La portada muestra los motivos concretos de bloqueo y permite abrir la solicitud. Email, telefono y DNI/NIE vacios se marcan como pendientes, con los requisitos de aprobacion preservados.
+- Regresiones en las suites existentes de revision y actualizacion: indicadores, formulario, respuesta obsoleta, token incorrecto, formato/duplicados, inmutabilidad, ausencia de efectos ajenos y aprobacion administrativa posterior.
+- Validacion local: `check:app` completo PASS, `check:associate-update`, `check:associate-review-navigation`, sintaxis frontend y `git diff --check` PASS. Rama `fix/associate-approval-blocked`. Publicacion y comprobacion productiva pendientes; no marcar el piloto como abierto por estas pruebas aisladas.
