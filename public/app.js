@@ -131,31 +131,43 @@ let campusPdfJsPromise = null;
 let campusPreviewRenderToken = 0;
 
 const nativeFetch = window.fetch.bind(window);
-window.fetch = (input, init = {}) => {
+window.fetch = async (input, init = {}) => {
   const requestUrl =
     typeof input === "string"
       ? input
       : input instanceof Request
         ? input.url
-        : String(input?.url || "");
-  const isSameOriginRequest =
-    !requestUrl ||
-    requestUrl.startsWith("/") ||
-    requestUrl.startsWith(window.location.origin);
+        : String(input?.url || input || "");
+  let target;
+  try {
+    target = new URL(requestUrl, window.location.href);
+  } catch {
+    return nativeFetch(input, init);
+  }
+  const isSameOriginRequest = target.origin === window.location.origin;
 
   if (!isSameOriginRequest) {
     return nativeFetch(input, init);
   }
 
+  const identity = session;
   const requestCredentials = init.credentials || (input instanceof Request ? input.credentials : undefined);
-  if (requestCredentials || !session?.accountId) {
-    return nativeFetch(input, init);
-  }
-
-  return nativeFetch(input, {
-    ...init,
-    credentials: "same-origin"
+  const response = await nativeFetch(input, requestCredentials || !identity?.accountId ? init : {
+    ...init, credentials: "same-origin"
   });
+  const privateApi = target.pathname.startsWith("/api/") &&
+    !["/api/login", "/api/logout", "/api/session", "/api/verify",
+      "/api/auth/login", "/api/auth/register", "/api/recovery-admin"].includes(target.pathname) &&
+    !/^\/api\/public(?:[-/]|$)/.test(target.pathname) &&
+    !/^\/api\/test-zone\/live-sessions\/[^/]+\/(answer|participant)$/.test(target.pathname) &&
+    !target.pathname.startsWith("/api/associates/applications/public/");
+  // A response from an older login must never invalidate the current account.
+  // Preserve the response for its caller; never replay rejected mutations.
+  if (privateApi && requestCredentials !== "omit" && response.status === 401 &&
+      identity?.accountId && session === identity) {
+    expireCampusSession();
+  }
+  return response;
 };
 
 const ASSOCIATE_PAGE_SIZE = {
@@ -4932,6 +4944,18 @@ function clearSession() {
     sessionStorage.removeItem(UI_SNAPSHOT_KEY);
   } catch (error) {
   }
+}
+
+function expireCampusSession() {
+  clearSession();
+  state = structuredClone(fallbackState);
+  storageMeta = null;
+  associateOnboardingPreview = null;
+  associateOnboardingSelection.clear();
+  associateOnboardingResults = [];
+  loginStatus = "La sesión ha caducado. Vuelve a entrar para continuar.";
+  syncStatus = loginStatus;
+  showToast(loginStatus, "error");
 }
 
 function applySessionToState() {

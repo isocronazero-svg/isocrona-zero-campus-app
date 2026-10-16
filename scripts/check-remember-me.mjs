@@ -8,8 +8,128 @@ import net from "node:net";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
+import vm from "node:vm";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const app = readFileSync(path.join(root, "public/app.js"), "utf8");
+function appFunction(name) {
+  const start = app.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, name);
+  return app.slice(start, app.indexOf("\nfunction ", start + 1));
+}
+function sessionHarness(respond) {
+  const requests = [], storage = new Map(), classes = new Map();
+  let renders = 0, resets = 0;
+  const element = id => ({ textContent: "", classList: { toggle: (name, active) => classes.set(`${id}:${name}`, active) } });
+  const savedStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
+  const context = vm.createContext({
+    URL, Request, structuredClone,
+    window: { location: { origin: "https://campus.example.test", href: "https://campus.example.test/" }, fetch: async (...args) => { requests.push(args); return respond(...args); } },
+    session: { accountId: "old", role: "admin" }, viewRole: "admin",
+    state: { courses: [{ id: "qa", attendance: { pupil: 0 } }], accounts: [{ id: "old" }], members: [{ id: "pupil" }] },
+    fallbackState: { courses: [], accounts: [], members: [], role: "admin" }, storageMeta: { private: true },
+    academicRoster: { students: [{ id: "pupil" }] }, academicBusy: false, syncStatus: "", loginStatus: "", passwordChangeStatus: "",
+    campusGroupAttachmentDrafts: {}, campusGroupSessionEpoch: 0, campusGroupAutosaveIds: new Set(), campusGroupAutosaveRunning: false,
+    campusGroupSaving: false, campusGroupPendingUploads: 0, campusGroupPendingFileReads: new Set(), campusGroupFileSelections: new Map(), pendingCampusGroupFileTarget: null,
+    associateOnboardingPreview: {}, associateOnboardingSelection: new Set(["pupil"]), associateOnboardingResults: [{}],
+    getFrontendBridge: () => ({ resetTestView: () => resets++ }), sessionStorage: savedStorage, localStorage: savedStorage,
+    SESSION_KEY: "session", SESSION_BACKUP_KEY: "session-backup", VIEW_ROLE_KEY: "view", VIEW_ROLE_BACKUP_KEY: "view-backup", UI_SNAPSHOT_KEY: "snapshot",
+    loginScreen: element("login"), loginStatusElement: element("login-status"), publicCampusStatusElement: null,
+    passwordScreen: element("password"), changePasswordStatusElement: element("password-status"), renderPublicCampusCourseList() {},
+    normalizeCampusAccountRole: role => role, canManageCourseAcademic: () => true,
+    render: () => { renders++; context.renderLoginOverlay(); }, showToast: () => { renders++; context.renderLoginOverlay(); },
+    refreshState: () => { throw new Error("A rejected mutation must not be retried or refreshed"); }
+  });
+  for (const key of ["session", "session-backup", "view", "view-backup", "snapshot"]) storage.set(key, "old-session");
+  storage.set("campus_draft_old_qa", "account-scoped draft");
+  vm.runInContext(["persistSession", "persistViewRole", "clearSession", "expireCampusSession", "renderLoginOverlay"].map(appFunction).join("\n"), context);
+  vm.runInContext(app.slice(app.indexOf("const nativeFetch ="), app.indexOf("const ASSOCIATE_PAGE_SIZE =")), context);
+  context.fetch = (...args) => context.window.fetch(...args);
+  return { context, requests, storage, classes, renders: () => renders, resets: () => resets };
+}
+const unauthorized = () => new Response(JSON.stringify({ ok: false, error: "Inicia sesion para acceder al campus" }), { status: 401 });
+for (const role of ["admin", "member", "instructor"]) {
+  const h = sessionHarness(unauthorized);
+  h.context.session.role = role;
+  const response = await h.context.window.fetch("/api/courses/qa/academic", { cache: "no-store" });
+  assert.equal(h.context.session, null, `${role}: a private 401 opens login instead of retaining the old view`);
+  assert.equal(h.classes.get("login:visible"), true);
+  assert.match(h.context.loginStatusElement.textContent, /sesión ha caducado/);
+  assert.equal(h.context.academicRoster, null);
+  assert.deepEqual(Array.from(h.context.state.accounts), []);
+  assert.equal(h.context.storageMeta, null);
+  for (const key of ["session", "session-backup", "view", "view-backup", "snapshot"]) assert.equal(h.storage.has(key), false);
+  assert.equal(h.storage.get("campus_draft_old_qa"), "account-scoped draft");
+  assert.equal(h.requests.length, 1, "Never replay a rejected request");
+  assert.equal((await response.json()).error, "Inicia sesion para acceder al campus", "The caller can still consume the response");
+}
+for (const [url, options, status] of [
+  ["/api/login", {}, 401], ["/api/session", {}, 401], ["/api/logout", {}, 401],
+  ["/api/auth/login", {}, 401], ["/api/auth/register", {}, 401], ["/api/recovery-admin", {}, 401],
+  ["/api/public-campus/register", {}, 401], ["/api/public/banners", {}, 401],
+  ["/api/verify", {}, 401], ["/api/associates/applications/public/qa", {}, 401],
+  ["/api/test-zone/live-sessions/qa/participant", {}, 401], ["/api/test-zone/live-sessions/qa/answer", {}, 401],
+  ["/api/courses/qa/academic", { credentials: "omit" }, 401],
+  [new Request("https://campus.example.test/api/courses/qa/academic", { credentials: "omit" }), {}, 401],
+  ["https://campus.example.test.evil.test/api/private", {}, 401], ["//other.example.test/api/private", {}, 401],
+  ["/template.jpg", {}, 401], ["/api/courses/qa/academic", {}, 403], ["/api/courses/qa/academic", {}, 500]
+]) {
+  const h = sessionHarness(() => new Response("{}", { status }));
+  const identity = h.context.session;
+  await h.context.window.fetch(url, options);
+  assert.equal(h.context.session, identity, `${url}/${status}: does not invalidate the current campus session`);
+}
+for (const request of [new URL("https://campus.example.test/api/courses/qa/academic"), new Request("https://campus.example.test/api/courses/qa/academic")]) {
+  const h = sessionHarness(unauthorized);
+  await h.context.window.fetch(request);
+  assert.equal(h.context.session, null, "URL and Request inputs use the same session handling");
+}
+for (const accountId of ["old", "new"]) {
+  let finish;
+  const h = sessionHarness(() => new Promise(resolve => { finish = resolve; }));
+  const pending = h.context.window.fetch("/api/courses/qa/academic");
+  const newer = { accountId, role: "member" };
+  h.context.session = newer;
+  finish(unauthorized()); await pending;
+  assert.equal(h.context.session, newer, "A late 401 cannot sign out a newer login");
+  assert.equal(h.resets(), 0);
+}
+{
+  const finishes = [];
+  const h = sessionHarness(() => new Promise(resolve => finishes.push(resolve)));
+  const a = h.context.window.fetch("/api/courses/qa/academic"), b = h.context.window.fetch("/api/storage");
+  finishes[0](unauthorized()); await a;
+  finishes[1](unauthorized()); await b;
+  assert.equal(h.resets(), 1, "Concurrent 401 responses clear the expired session once");
+}
+{
+  const h = sessionHarness(() => { throw new TypeError("offline"); });
+  const identity = h.context.session;
+  await assert.rejects(h.context.window.fetch("/api/courses/qa/academic"), /offline/);
+  assert.equal(h.context.session, identity, "A connection error does not sign out the user");
+}
+{
+  const h = sessionHarness(unauthorized);
+  vm.runInContext(app.slice(app.indexOf("async function loadCourseAcademicRoster("), app.indexOf("async function invokeCourseAcademicAction(")), h.context);
+  h.context.readJsonResponse = response => response.json();
+  await h.context.loadCourseAcademicRoster("qa");
+  assert.equal(h.context.session, null);
+  assert.equal(h.context.academicRoster, null);
+  assert.equal(h.classes.get("login:visible"), true);
+  assert.equal(h.requests.length, 1, "Updating the roster opens login without retrying");
+}
+{
+  const h = sessionHarness(unauthorized);
+  vm.runInContext(appFunction("invokeCourseAcademicAction").replace(/^function /, "async function "), h.context);
+  h.context.readJsonResponse = response => response.json();
+  await h.context.invokeCourseAcademicAction("qa", "pupil", { attendance: 100, evaluation: "Apto" });
+  assert.equal(h.context.session, null);
+  assert.equal(h.context.academicBusy, false);
+  assert.equal(h.context.academicRoster, null);
+  assert.equal(h.requests.length, 1, "Rejected academic mutation is never repeated automatically");
+  assert.equal(h.requests[0][1].method, "PATCH");
+}
+console.log("Expired-session UI checks passed (private 401, login screen, role/storage cleanup, no mutation replay, late responses and network/permission errors).");
 const dir = mkdtempSync(path.join(tmpdir(), "iz-remember-"));
 const seedPath = path.join(dir, "seed.json");
 const seed = JSON.parse(readFileSync(path.join(root, "data/default-state.json"), "utf8"));
