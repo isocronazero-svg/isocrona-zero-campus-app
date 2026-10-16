@@ -6640,7 +6640,9 @@ function renderOverview() {
         <p>${escapeHtml(item.email || "-")} | ${escapeHtml(item.service || "-")}</p>
         <p class="muted">${formatDateTime(item.submittedAt)} | ${escapeHtml(item.status || "Pendiente")}</p>
         <div class="chip-row">${renderAssociateApplicationValidationChips(item)}</div>
+        ${readiness.ready ? "" : `<p class="status-note warning">${escapeHtml(readiness.blockers.join(" - "))}</p>`}
         <div class="chip-row">
+          <button class="mini-button" type="button" data-action="select-associate-application" data-application-id="${item.id}">Abrir solicitud</button>
           <button class="mini-button" type="button" data-action="approve-associate" data-application-id="${item.id}" ${readiness.ready ? "" : "disabled"}>Aprobar</button>
           <button class="mini-button" type="button" data-action="reject-associate" data-application-id="${item.id}">Rechazar</button>
         </div>
@@ -16355,19 +16357,22 @@ function getAssociateApplicationReadiness(application) {
 
 function renderAssociateApplicationValidationChips(application) {
   const flags = getAssociateApplicationValidationFlags(application);
+  const hasEmail = Boolean(String(application?.email || "").trim());
+  const hasPhone = Boolean(normalizePhone(application?.phone));
+  const hasDni = Boolean(normalizeDniValue(application?.dni));
   const hasPaymentProof = Boolean(String(application?.paymentProof || "").trim());
   const chips = [
     {
-      label: flags.validEmail ? "Email OK" : "Email dudoso",
-      tone: flags.validEmail ? "success" : "warning"
+      label: !hasEmail ? "Sin email" : flags.validEmail ? "Email OK" : "Email dudoso",
+      tone: hasEmail && flags.validEmail ? "success" : "warning"
     },
     {
-      label: flags.validPhone ? "Telefono OK" : "Telefono dudoso",
-      tone: flags.validPhone ? "success" : "warning"
+      label: !hasPhone ? "Sin telefono" : flags.validPhone ? "Telefono OK" : "Telefono dudoso",
+      tone: hasPhone && flags.validPhone ? "success" : "warning"
     },
     {
-      label: flags.validDni ? "DNI OK" : "DNI dudoso",
-      tone: flags.validDni ? "success" : "warning"
+      label: !hasDni ? "Sin DNI/NIE" : flags.validDni ? "DNI OK" : "DNI dudoso",
+      tone: hasDni && flags.validDni ? "success" : "warning"
     },
     {
       label: hasPaymentProof ? "Justificante OK" : "Sin justificante",

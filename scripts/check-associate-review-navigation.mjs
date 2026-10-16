@@ -180,4 +180,71 @@ for (const readiness of [[], [true], [false], [true, false]]) {
   assert.equal(ready + blocked, readiness.length, "Pending categories must not overlap");
 }
 
+// Empty fields must not appear green while they still block approval.
+const validationStart = app.indexOf("function getAssociateApplicationReviewIssues(application) {");
+const validationEnd = app.indexOf("\nfunction isAssociateApplicationPending", validationStart);
+const validationContext = {
+  state: { associates: [], associateApplications: [] },
+  escapeHtml: value => String(value).replaceAll("<", "&lt;")
+};
+vm.createContext(validationContext);
+vm.runInContext(app.slice(validationStart, validationEnd), validationContext);
+const completeApplication = {
+  id: "application-required-fields", firstName: "Synthetic", lastName: "QA", email: "qa@example.test",
+  phone: "600000000", dni: "QA20261016", service: "Synthetic", paymentProof: "synthetic.pdf"
+};
+assert.equal(validationContext.getAssociateApplicationReadiness(completeApplication).ready, true);
+for (const [field, label] of [["dni", "Sin DNI/NIE"], ["email", "Sin email"], ["phone", "Sin telefono"]]) {
+  const incomplete = { ...completeApplication, [field]: "" };
+  assert.equal(validationContext.getAssociateApplicationReadiness(incomplete).ready, false);
+  assert.match(validationContext.renderAssociateApplicationValidationChips(incomplete), new RegExp(`validation-chip warning">${label}`));
+}
+const previewStart = app.indexOf("  const renderApplicationPreview = (item) => {");
+const previewEnd = app.indexOf("\n  const renderProfileRequestPreview", previewStart);
+Object.assign(validationContext, {
+  getAssociateApplicantName: item => item.firstName,
+  formatDateTime: value => String(value || ""),
+  application: { ...completeApplication, dni: "" }
+});
+const preview = vm.runInContext(`(() => { ${app.slice(previewStart, previewEnd)}; return renderApplicationPreview(application); })()`, validationContext);
+assert.match(preview, /Falta DNI\/NIE/);
+assert.match(preview, /data-action="approve-associate"[^>]*disabled/);
+assert.match(preview, /data-action="select-associate-application"/);
+assert.doesNotMatch(preview, /DNI OK/);
+const join = readFileSync(new URL("../public/join.html", import.meta.url), "utf8");
+assert.match(join, /id="joinDni"[^>]*required/);
+
+const tracking = readFileSync(new URL("../public/application.js", import.meta.url), "utf8");
+const trackingRenderStart = tracking.indexOf("function renderApplication() {");
+const trackingRenderEnd = tracking.indexOf("\nfunction getApplicantName", trackingRenderStart);
+for (const [status, needsDni, visible] of [
+  ["Pendiente de revision", true, true], ["Pendiente de documentacion", true, true],
+  ["Pendiente de revision", false, false], ["Aprobada", true, false], ["Rechazada", true, false]
+]) {
+  const detail = { innerHTML: "" };
+  vm.runInNewContext(`${tracking.slice(trackingRenderStart, trackingRenderEnd)}; renderApplication();`, {
+    currentApplication: { ...completeApplication, status, needsDni }, applicationDetail: detail,
+    getApplicationStatusLabel: value => value, getApplicationNextStep: () => "Revision",
+    getApplicantName: () => "Synthetic QA", formatDateTime: () => "", escapeHtml: value => String(value || "")
+  });
+  assert.equal(detail.innerHTML.includes('id="applicationDniForm"'), visible);
+}
+const completionStart = tracking.indexOf('  if (event.target.id === "applicationDniForm") {');
+const completionEnd = tracking.indexOf('  if (event.target.id !== "applicationReplyForm")', completionStart);
+let releaseCompletion;
+const completionContext = {
+  event: { target: { id: "applicationDniForm" }, preventDefault() {} },
+  currentApplication: { id: "first" }, currentToken: "first-token", applicationStatus: {},
+  document: { getElementById: () => ({ value: "QA20261016" }) },
+  fetch: () => new Promise(resolve => { releaseCompletion = resolve; }),
+  renderApplication: () => assert.fail("Una respuesta antigua no debe reemplazar otra solicitud"), encodeURIComponent
+};
+vm.createContext(completionContext);
+const pendingCompletion = vm.runInContext(`(async () => { ${tracking.slice(completionStart, completionEnd)} })()`, completionContext);
+completionContext.currentToken = "second-token";
+completionContext.currentApplication = { id: "second" };
+releaseCompletion({ ok: true, json: async () => ({ ok: true, application: { id: "first" } }) });
+await pendingCompletion;
+assert.equal(completionContext.currentApplication.id, "second");
+
 console.log("Associate review navigation check passed.");

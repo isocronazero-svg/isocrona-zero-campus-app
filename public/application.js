@@ -19,6 +19,28 @@ loadApplicationButton.addEventListener("click", async () => {
 });
 
 document.addEventListener("submit", async (event) => {
+  if (event.target.id === "applicationDniForm") {
+    event.preventDefault();
+    if (!currentApplication || !currentToken) return;
+    const token = currentToken;
+    applicationStatus.textContent = "Guardando DNI/NIE...";
+    try {
+      const response = await fetch(`/api/associates/applications/public/${encodeURIComponent(token)}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "complete-dni", dni: document.getElementById("applicationDni").value.trim() })
+      });
+      const result = await response.json();
+      if (currentToken !== token) return;
+      if (!response.ok || result.ok === false) throw new Error(result.error || "No se pudo completar el DNI/NIE");
+      currentApplication = result.application;
+      applicationStatus.textContent = result.message;
+      renderApplication();
+    } catch (error) {
+      if (currentToken === token) applicationStatus.textContent = error.message || "No se pudo completar el DNI/NIE";
+    }
+    return;
+  }
   if (event.target.id !== "applicationReplyForm") {
     return;
   }
@@ -94,6 +116,8 @@ function renderApplication() {
   }
 
   const canReply = currentApplication.status === "Pendiente de documentacion";
+  const canCompleteDni = currentApplication.needsDni &&
+    ["Pendiente de revision", "Pendiente de documentacion"].includes(currentApplication.status);
   const statusLabel = getApplicationStatusLabel(currentApplication.status);
   const nextStepLabel = getApplicationNextStep(currentApplication);
   const replyDocuments = Array.isArray(currentApplication.applicantReplyDocuments)
@@ -179,6 +203,14 @@ function renderApplication() {
       }
     </div>
 
+    ${canCompleteDni ? `
+      <form id="applicationDniForm" class="mail-card stack">
+        <h3>Completa el DNI/NIE pendiente</h3>
+        <p>Administracion necesita este dato para poder aprobar tu solicitud.</p>
+        <label class="inline-field">DNI/NIE<input id="applicationDni" required /></label>
+        <button class="primary-button" type="submit">Completar DNI/NIE</button>
+      </form>
+    ` : ""}
     ${
       canReply
         ? `

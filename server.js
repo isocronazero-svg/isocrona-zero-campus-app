@@ -7020,6 +7020,15 @@ const server = http.createServer(async (req, res) => {
     try {
       const payload = await readJsonBody(req);
       state = readState();
+      if (payload.action === "complete-dni") {
+        const application = completeAssociateApplicationDni(state, publicAssociateApplicationReplyMatch[1], payload.dni);
+        writeState(state);
+        return sendJson(res, 200, {
+          ok: true,
+          message: "DNI/NIE completado. La solicitud sigue pendiente de revision administrativa.",
+          application: buildPublicAssociateApplicationPayload(application)
+        });
+      }
       const application = submitAssociateApplicationReply(
         state,
         publicAssociateApplicationReplyMatch[1],
@@ -12538,6 +12547,28 @@ function reopenAssociateApplicationReview(state, applicationId, reviewerName, no
   return application;
 }
 
+function completeAssociateApplicationDni(state, publicAccessToken, value) {
+  const application = findAssociateApplicationByToken(state, publicAccessToken);
+  if (!application) throw new Error("Solicitud no encontrada");
+  if (!isAssociateApplicationPending(application)) throw new Error("La solicitud ya esta resuelta");
+  const dni = normalizeDniValue(value);
+  if (!dni || !/^[0-9XYZ][0-9]{7}[A-Z]$|^[A-Z0-9]{6,12}$/.test(dni)) {
+    throw new Error("Introduce un DNI/NIE con formato valido");
+  }
+  const currentDni = normalizeDniValue(application.dni);
+  if (currentDni) {
+    if (currentDni === dni) return application;
+    throw new Error("El DNI/NIE ya consta en la solicitud. Solicita su revision a administracion");
+  }
+  const duplicates = getAssociateApplicationApprovalBlockers(state, { ...application, dni })
+    .filter((issue) => issue.startsWith("posible duplicado"));
+  if (duplicates.length) throw new Error(duplicates.join(", "));
+  application.dni = dni;
+  application.notes = [application.notes, "DNI/NIE completado desde el seguimiento publico"].filter(Boolean).join(" | ");
+  appendActivity(state, "system", "Socios", "DNI/NIE completado en una solicitud pendiente de revision");
+  return application;
+}
+
 function submitAssociateApplicationReply(state, publicAccessToken, payload) {
   const application = findAssociateApplicationByToken(state, publicAccessToken);
   if (!application) {
@@ -12655,6 +12686,7 @@ function buildPublicAssociateApplicationPayload(application) {
     email: application.email,
     phone: application.phone,
     service: application.service,
+    needsDni: !normalizeDniValue(application.dni),
     paymentProof: application.paymentProof || "",
     paymentProof2: application.paymentProof2 || "",
     infoRequestMessage: application.infoRequestMessage || "",
