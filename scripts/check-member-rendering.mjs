@@ -254,5 +254,104 @@ for (const admin of [true, false]) {
   const visible = vm.runInNewContext(`${sectionRule} ["all", "catalog", "details", "workbench"].filter(showCourseSection);`, {
     isAdminView: () => admin, coursesSectionMode: "all"
   });
-  assert.deepEqual(Array.from(visible), admin ? ["all", "catalog", "details", "workbench"] : ["all"]);
+  assert.deepEqual(Array.from(visible), ["catalog"], "Legacy Todo opens a single catalogue, without mounting editors");
 }
+
+const catalogueCourse = (id, extra = {}) => ({
+  id, title: `Curso ${id}`, summary: "Resumen", startDate: "2099-01-17", endDate: "2099-01-18",
+  hours: 8, capacity: 5, enrollmentFee: 0, courseClass: "practico", status: "Inscripcion abierta",
+  enrolledIds: [], waitingIds: [], diplomaReady: [], ...extra
+});
+const catalogueCourses = [
+  catalogueCourse("available"),
+  catalogueCourse("mine", { enrolledIds: ["member"] }),
+  catalogueCourse("waiting", { waitingIds: ["member"] }),
+  catalogueCourse("history", { status: "Cerrado", diplomaReady: ["member"], enrolledIds: ["member"] }),
+  catalogueCourse("draft", { status: "Planificacion" }),
+  catalogueCourse("closing", { status: "Cierre pendiente" })
+];
+const buckets = {
+  enrollmentOpenCourses: [catalogueCourses[0]], upcomingCourses: [catalogueCourses[0], catalogueCourses[4]],
+  activeCourses: [catalogueCourses[1], catalogueCourses[2]], historyCourses: [catalogueCourses[3]]
+};
+const originalCourses = JSON.stringify(catalogueCourses);
+for (const admin of [true, false]) {
+  const filters = admin ? ["all", "open", "planned", "closing", "history", "unknown"] : ["all", "mine", "history", "unknown"];
+  for (const filter of filters) {
+    const c = {
+      state: { courses: catalogueCourses }, courseCatalogFilter: filter, memberBuckets: buckets,
+      isAdminView: () => admin, escapeHtml,
+      renderCompactCourseCard: course => `<article data-qa-course="${course.id}"></article>`
+    };
+    const html = vm.runInNewContext(`${source("renderCourseCatalog")}\nrenderCourseCatalog(memberBuckets);`, c);
+    const ids = [...html.matchAll(/data-qa-course="([^"]+)"/g)].map(match => match[1]);
+    assert.equal(new Set(ids).size, ids.length, "Each course appears only once in the selected view");
+    assert.equal((html.match(/aria-pressed="true"/g) || []).length, 1);
+    if (!admin) {
+      assert.doesNotMatch(html, /Crear curso|En preparación|Por cerrar/);
+      assert.deepEqual(ids, filter === "mine" ? ["mine", "waiting"] : filter === "history" ? ["history"] : ["available", "draft"]);
+    } else if (filter === "closing") assert.deepEqual(ids, ["closing"]);
+  }
+}
+assert.equal(JSON.stringify(catalogueCourses), originalCourses, "Filtering never mutates academic data");
+
+for (const admin of [true, false]) {
+  for (const mode of ["all", "catalog", "details", "workbench", ...(admin ? ["create", "import"] : [])]) {
+    const html = vm.runInNewContext(`${source("renderCourses")}\nrenderCourses();`, {
+      session: { role: admin ? "admin" : "member" }, state: { selectedMemberId: "member" }, coursesSectionMode: mode,
+      isAdminView: () => admin, findMember: () => ({ id: "member" }), getSelectedCourse: () => catalogueCourses[1],
+      getMemberCourseBuckets: () => buckets, getPrimaryMemberCourse: () => catalogueCourses[1],
+      renderCourseCatalog: () => "CATALOGUE_ONLY", renderCourseWorkbench: () => "WORKBENCH_ONLY",
+      renderSelectedCourse: () => "DETAILS_ONLY", renderMemberCourseWorkspace: () => "LEARNER_ONLY",
+      renderCourseTemplateShowcase: () => "TEMPLATES", renderInstructorSelector: () => "INSTRUCTORS", escapeHtml,
+      INTENSIVE_DAY_TITLES: [], COURSE_CLASS_LABELS: {}, COURSE_TEMPLATE_LABELS: {}, COURSE_ACCESS_SCOPE_LABELS: {}
+    });
+    if (["all", "catalog"].includes(mode)) {
+      assert.match(html, /CATALOGUE_ONLY/);
+      assert.doesNotMatch(html, /WORKBENCH_ONLY|LEARNER_ONLY|DETAILS_ONLY|id="courseForm"|id="courseImportForm"/);
+    }
+    assert.doesNotMatch(html, />Todo<|Cursos e historial|Como en las plataformas grandes/);
+    if (!admin) assert.doesNotMatch(html, /Gestión de cursos|Crear curso|Importar CSV/);
+  }
+}
+
+for (const scenario of ["available", "mine", "waiting", "history", "full", "scheduled", "closed", "preview", "paid", "admin"]) {
+  const course = structuredClone(catalogueCourses.find(c => c.id === scenario) || catalogueCourses[0]);
+  if (scenario === "paid") course.enrollmentFee = 25;
+  const member = scenario !== "admin";
+  const ctx = {
+    course, role: member ? "member" : "admin", state: { selectedMemberId: "member" }, escapeHtml,
+    normalizeCourseClass: v => v, describeCourseType: () => "Práctico", formatDate: v => v,
+    normalizeCourseAccessScope: () => "members", COURSE_ACCESS_SCOPE_LABELS: { members: "Solo socios" },
+    getCourseEnrolledCount: c => c.enrolledIds.length,
+    isMemberPreviewSession: () => scenario === "preview",
+    isCourseOpenForEnrollment: () => !["scheduled", "closed"].includes(scenario),
+    getCourseEnrollmentCall: () => ({
+      scheduledMode: scenario === "scheduled", closedMode: scenario === "closed", waitlistMode: scenario === "full",
+      ctaLabel: scenario === "full" ? "Unirme a lista de espera" : "Inscribirme ahora", statusLabel: "Estado real"
+    })
+  };
+  const html = vm.runInNewContext(`${source("renderCompactCourseCard")}\nrenderCompactCourseCard(course, role);`, ctx);
+  assert.equal((html.match(/class="primary-button"/g) || []).length, 1, "Exactly one primary action per card");
+  if (scenario === "mine") assert.match(html, /data-action="open-course-workbench-tab"[^>]+data-mode="learner"/);
+  if (scenario === "waiting") assert.match(html, /data-action="select-course"[^>]+data-mode="status"/);
+  if (scenario === "history") assert.match(html, /data-action="set-campus-section-mode"[^>]+data-mode="diplomas"/);
+  if (["scheduled", "closed", "preview", "admin"].includes(scenario)) assert.doesNotMatch(html, /data-action="prepare-course-enrollment"/);
+  if (scenario === "scheduled") assert.match(html, /Ver apertura/);
+  if (scenario === "full") assert.match(html, /Unirme a lista de espera/);
+  if (scenario === "paid") assert.match(html, /25 €/);
+  if (scenario === "available") assert.match(html, /Gratuito/);
+}
+const filterStart = app.indexOf('  if (action === "set-course-catalog-filter") {');
+const filterEnd = app.indexOf('\n  if (action ===', filterStart + 1);
+const filterContext = { action: "set-course-catalog-filter", actionTarget: { dataset: { filter: "mine" } }, courseCatalogFilter: "all", render() {} };
+vm.runInNewContext(`(() => {${app.slice(filterStart, filterEnd)}})();`, filterContext);
+assert.equal(filterContext.courseCatalogFilter, "mine");
+for (const mode of ["courses", "operations", "groups", "diplomas"]) {
+  const profile = vm.runInNewContext(`${source("getChromeProfile")}\ngetChromeProfile();`, {
+    state: { activeView: "campus" }, campusSectionMode: mode, session: { role: "admin" },
+    isAdminView: () => true, isMemberPreviewSession: () => false
+  });
+  assert.equal(profile.hideSidePanel, ["courses", "groups"].includes(mode), "Course navigation hides the duplicate summary without removing diploma previews elsewhere");
+}
+console.log("Focused course catalogue, role-specific filters, single cards and enrollment actions passed.");
