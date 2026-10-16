@@ -203,9 +203,8 @@ try {
     sendingAdmin("POST", "/api/courses/course-1/send-pending"),
     sendingAdmin("POST", "/api/courses/course-1/send-pending")
   ]);
-  assert.equal(sent.body.sentCount, 1);
-  assert.equal(sent.body.failedCount, 0);
-  assert.equal(simultaneous.body.sentCount, 0);
+  assert.deepEqual([sent.body.sentCount, simultaneous.body.sentCount].sort(), [0, 1]);
+  assert.equal([sent, simultaneous].find(item => item.body.sentCount === 1).body.failedCount, 0);
   assert.equal(logged().length, retryCount + 1, "Concurrent sends for a diploma transmit only one provider request");
   const delivered = (await sendingAdmin("GET", "/api/state")).body;
   assert.equal(delivered.emailOutbox.length, 1, "Retry uses the pending record instead of creating another diploma email");
@@ -216,6 +215,73 @@ try {
   const count = logged().length;
   assert.equal((await sendingAdmin("POST", "/api/courses/course-1/send-pending")).body.sentCount, 0);
   assert.equal(logged().length, count, "A Resend-accepted diploma is not delivered again by send-pending");
+
+  const queueState = (await sendingAdmin("GET", "/api/state")).body;
+  const secondCourse = { ...structuredClone(queueState.courses.find(item => item.id === "course-1")),
+    id: "course-duplicate-qa", title: "Second diploma QA" };
+  queueState.courses.push(secondCourse);
+  const legacy = (id, courseId, title, status = "queued") => ({ id, courseId, memberId: "member-1",
+    to: "pupil@example.test", subject: `Diploma emitido - ${title}`, body: "Legacy diploma QA",
+    sentAt: new Date().toISOString(), status, transport: "smtp", deliveryError: "" });
+  queueState.emailOutbox.unshift(
+    ...Array.from({ length: 5 }, (_, i) => legacy(`duplicate-new-${i}`, secondCourse.id, secondCourse.title)),
+    ...Array.from({ length: 4 }, (_, i) => legacy(`duplicate-accepted-${i}`, "course-1", "Accepted diploma", i === 1 ? "failed" : i === 2 ? "manual" : "queued")),
+    ...Array.from({ length: 2 }, (_, i) => ({ ...legacy(`feedback-${i}`, secondCourse.id, secondCourse.title),
+      kind: "course_feedback", subject: "Feedback reminder QA" }))
+  );
+  assert.equal((await sendingAdmin("POST", "/api/state", queueState)).status, 200);
+  const beforeQueue = logged().length;
+  const queueDelivery = sendingAdmin("POST", "/api/emails/send-queued");
+  // Wait until the batch has committed its diploma and is awaiting the next, unrelated mail.
+  for (let i = 0; i < 100 && logged().length < beforeQueue + 2; i++) await delay(10);
+  assert.equal(logged().length, beforeQueue + 2);
+  const concurrentCourse = await sendingAdmin("POST", `/api/courses/${secondCourse.id}/send-pending`);
+  assert.equal(concurrentCourse.body.sentCount, 0, "Acceptance is durable before the rest of the queue finishes");
+  assert.equal((await sendingAdmin("POST", "/api/state", queueState)).status, 200);
+  const queueResult = await queueDelivery;
+  assert.equal(queueResult.body.sentCount, 3, "One new diploma and two unrelated reminders are delivered");
+  assert.equal(queueResult.body.failedCount, 0);
+  assert.equal(logged().length, beforeQueue + 3, "Legacy copies do not produce repeated provider requests");
+  const deduplicated = (await sendingAdmin("GET", "/api/state")).body;
+  assert.equal(deduplicated.emailOutbox.length, queueState.emailOutbox.length, "All historical records are retained");
+  assert.equal(deduplicated.emailOutbox.filter(item => item.status === "superseded").length, 8);
+  assert.equal(deduplicated.emailOutbox.find(item => item.id === "duplicate-new-0").status, "sent");
+  assert.equal(deduplicated.emailOutbox.find(item => item.id === "duplicate-new-1").supersededBy, "duplicate-new-0");
+  context.state = deduplicated;
+  vm.runInContext(source.slice(source.indexOf("function getLatestMailForMemberCourse("), source.indexOf("function hasVerifiedDiplomaDelivery(")), context);
+  assert.equal(context.getLatestMailForMemberCourse("course-1", "member-1").status, "sent", "Omitted copies do not hide the actual delivery in the UI");
+  const stableCount = logged().length;
+  assert.equal((await sendingAdmin("POST", "/api/emails/send-queued")).body.sentCount, 0);
+  assert.equal(logged().length, stableCount, "A second batch leaves accepted diplomas and superseded copies alone");
+  const resend = await sendingAdmin("POST", `/api/emails/${failedId}/send`);
+  assert.equal(resend.status, 200);
+  assert.equal(logged().length, stableCount + 1, "An explicit resend still creates one intentional new delivery");
+  assert.notEqual(resend.body.email.id, failedId);
+
+  await stop();
+  await start(true, 403);
+  const duplicateFailureAdmin = client();
+  await duplicateFailureAdmin("POST", "/api/login", { email: "admin@isocronazero.org", password: adminPassword });
+  const failedQueue = (await duplicateFailureAdmin("GET", "/api/state")).body;
+  const failureCourse = { ...structuredClone(secondCourse), id: "course-duplicate-failure-qa" };
+  failedQueue.courses.push(failureCourse);
+  failedQueue.emailOutbox.unshift(...Array.from({ length: 5 }, (_, i) => legacy(`duplicate-failure-${i}`, failureCourse.id, failureCourse.title)));
+  await duplicateFailureAdmin("POST", "/api/state", failedQueue);
+  const beforeDuplicateFailure = logged().length;
+  const rejectedQueue = await duplicateFailureAdmin("POST", "/api/emails/send-queued");
+  assert.equal(rejectedQueue.body.failedCount, 1);
+  assert.equal(logged().length, beforeDuplicateFailure + 1, "A provider rejection does not try the other legacy copies");
+  const rejectedKey = logged().at(-1).key;
+  await stop();
+  await start(true);
+  const finalAdmin = client();
+  await finalAdmin("POST", "/api/login", { email: "admin@isocronazero.org", password: adminPassword });
+  assert.equal((await finalAdmin("POST", "/api/emails/send-queued")).body.sentCount, 1);
+  assert.equal(logged().length, beforeDuplicateFailure + 2);
+  assert.equal(logged().at(-1).key, rejectedKey, "The grouped queue retries the same delivery after restart");
+  const finalQueue = (await finalAdmin("GET", "/api/state")).body.emailOutbox;
+  assert.equal(finalQueue.find(item => item.id === "duplicate-failure-0").status, "sent");
+  assert.equal(finalQueue.filter(item => item.supersededBy === "duplicate-failure-0").length, 4);
   console.log("Mail HTTP checks passed (roles, pause/test, credential isolation, provider failure, restart retry and diploma deduplication; no external network).");
 } finally {
   await stop();

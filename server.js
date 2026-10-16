@@ -9248,8 +9248,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
         const email = createEmailRecord(state, course, member);
         try {
-          await deliverEmailRecord(state, email);
-          if (email.status === "sent") {
+          const delivery = await deliverEmailRecord(state, email);
+          if (email.status === "sent" && !delivery?.skipped) {
             sentCount += 1;
           }
         } catch (error) {
@@ -9295,7 +9295,14 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
           ["queued", "manual", "failed"].includes(String(email.status || "").trim()) &&
           String(email.to || "").trim()
       );
-      const batch = pendingEmails.slice(0, 200);
+      const diplomaKeys = new Set();
+      const batch = pendingEmails.filter(email => {
+        if (!isCourseDiplomaEmail(email)) return true;
+        const key = `${email.courseId}\n${email.memberId}`;
+        if (diplomaKeys.has(key)) return false;
+        diplomaKeys.add(key);
+        return true;
+      }).slice(0, 200);
       let failureReason = "";
       let sentCount = 0;
       let failedCount = 0;
@@ -9304,8 +9311,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         try {
           if (email.kind !== "associate_welcome") email.status = "queued";
           email.transport = "smtp";
-          await deliverEmailRecord(state, email);
-          if (email.status === "sent") {
+          const delivery = await deliverEmailRecord(state, email);
+          if (email.status === "sent" && !delivery?.skipped) {
             sentCount += 1;
           }
         } catch (error) {
@@ -9358,7 +9365,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Correo no encontrado" });
       }
 
-      const retryPending = sourceEmail.status !== "sent";
+      const retryPending = !["sent", "superseded"].includes(sourceEmail.status);
       const email = retryPending ? sourceEmail : {
         ...sourceEmail,
         id: `mail-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -9367,12 +9374,13 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         transport: "smtp",
         attemptCount: 0,
         deliveryError: "",
+        supersededBy: "",
         providerMessageId: "",
         smtpMessageId: "",
         deliveredAt: null
       };
       if (!retryPending) state.emailOutbox.unshift(email);
-      await deliverEmailRecord(state, email);
+      await deliverEmailRecord(state, email, { allowDiplomaResend: !retryPending });
       appendActivity(state, "system", "Servidor", `Reenvio de correo solicitado para ${email.to}`);
       const summary = await runAutomationEngine(state);
       recordAutomationRun(state, "Reenvio de correo", summary);
@@ -12812,6 +12820,14 @@ function preserveAssociateOnboardingState(current, next) {
   const welcomeRecords = (current.emailOutbox || []).filter(item => item.kind === "associate_welcome");
   const ids = new Set(welcomeRecords.map(item => item.id));
   next.emailOutbox = [...welcomeRecords, ...(next.emailOutbox || []).filter(item => !ids.has(item.id) && item.kind !== "associate_welcome")];
+  // Whole-state forms do not own the outcome of server-side diploma deliveries.
+  const courseIds = new Set((next.courses || []).map(course => course.id));
+  const diplomas = new Map((current.emailOutbox || []).filter(item => isCourseDiplomaEmail(item) &&
+    courseIds.has(item.courseId)).map(item => [item.id, item]));
+  next.emailOutbox = next.emailOutbox.map(item => diplomas.get(item.id) || item);
+  for (const [id, item] of diplomas) {
+    if (!next.emailOutbox.some(mail => mail.id === id)) next.emailOutbox.push(item);
+  }
 }
 
 async function sendAssociateOnboardingWelcome(associateId) {
@@ -15317,7 +15333,24 @@ function createAssociateWelcomeEmailRecord(state, associate) {
   return email;
 }
 
-async function deliverEmailRecord(state, email) {
+function persistDiplomaEmailDelivery(state, email, accepted) {
+  const latest = readState();
+  if (!latest.emailOutbox.some(item => item.id === email.id)) latest.emailOutbox.unshift(email);
+  else Object.assign(latest.emailOutbox.find(item => item.id === email.id), email);
+  for (const item of latest.emailOutbox) {
+    if (item.id !== accepted.id && isCourseDiplomaEmail(item) &&
+        item.courseId === accepted.courseId && item.memberId === accepted.memberId &&
+        ["queued", "manual", "failed"].includes(item.status)) {
+      item.status = "superseded";
+      item.supersededBy = accepted.id;
+      item.deliveryError = "";
+    }
+  }
+  writeState(latest);
+  reconcileState(state, state);
+}
+
+async function deliverEmailRecord(state, email, { allowDiplomaResend = false } = {}) {
   const smtp = getSmtpSettings(state);
   if (!isMailReady(smtp)) {
     throw new Error(isMailConfigured(smtp)
@@ -15360,6 +15393,21 @@ async function deliverEmailRecord(state, email) {
   const diploma = isCourseDiplomaEmail(email);
   const diplomaDeliveryKey = diploma ? `${email.courseId}\n${email.memberId}` : "";
   if (diploma && diplomaDeliveriesInFlight.has(diplomaDeliveryKey)) throw new Error("Este diploma ya se esta enviando; espera a que termine");
+  if (diploma && !allowDiplomaResend) {
+    reconcileState(state, state);
+    const accepted = (state.emailOutbox || []).find(item => item.courseId === email.courseId &&
+      item.memberId === email.memberId && isCourseDiplomaEmail(item) && item.status === "sent" &&
+      ["smtp", "resend"].includes(item.transport));
+    if (accepted) {
+      if (email.id !== accepted.id) {
+        email.status = "superseded";
+        email.supersededBy = accepted.id;
+        email.deliveryError = "";
+      }
+      persistDiplomaEmailDelivery(state, email, accepted);
+      return { skipped: true };
+    }
+  }
   if (welcome) welcomeDeliveriesInFlight.add(email.associateId);
   if (diploma) diplomaDeliveriesInFlight.add(diplomaDeliveryKey);
 
@@ -15408,6 +15456,9 @@ async function deliverEmailRecord(state, email) {
     email.deliveryError = "";
     email.providerMessageId = result.messageId || "";
     if (smtp.provider === "smtp") email.smtpMessageId = result.messageId || "";
+    // Commit the acceptance before releasing the lock or awaiting another email.
+    // A second request must not see an old queued copy of this diploma.
+    if (diploma) persistDiplomaEmailDelivery(state, email, email);
     if (welcome) {
       const associate = (state.associates || []).find(item => item.id === email.associateId);
       associate.welcomeEmailStatus = "sent";
@@ -15415,6 +15466,7 @@ async function deliverEmailRecord(state, email) {
       associate.welcomeEmailError = "";
       persistOnboardingWelcomeDelivery(state, email);
     }
+    return { skipped: false };
 
   } catch (error) {
     email.status = "failed";
