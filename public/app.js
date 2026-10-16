@@ -5279,9 +5279,17 @@ async function persistAndRender(successMessage) {
 }
 
 async function persistAdminSettingsAndRender(successMessage, section, form) {
+  // Banners and other assets have their own save route and can exceed this form's limit.
+  const keys = section === "smtp"
+    ? ["smtp"]
+    : ["certificateCity", "diplomaSignerA", "diplomaSignerB", "emailTemplate", "automationTone",
+      "smtp", "automation", "agent", "associates"];
+  const settings = Object.fromEntries(keys
+    .filter((key) => Object.hasOwn(state.settings, key))
+    .map((key) => [key, structuredClone(state.settings[key])]));
   return invokeJsonAction(
     "/api/admin/settings",
-    { section, settings: structuredClone(state.settings) },
+    { section, settings },
     successMessage,
     "PATCH",
     form

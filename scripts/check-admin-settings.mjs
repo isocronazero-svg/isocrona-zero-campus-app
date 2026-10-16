@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +26,27 @@ const passwords = {
   admin: `Admin-${randomUUID()}`,
   member: `Member-${randomUUID()}`
 };
+
+// Run the shipped browser helper so this check covers the actual request body.
+const frontendSource = readFileSync(path.join(repoRoot, "public", "app.js"), "utf8");
+const helperStart = frontendSource.indexOf("async function persistAdminSettingsAndRender(");
+const helperEnd = frontendSource.indexOf("function mergeScopedMemberChangesIntoFullState(", helperStart);
+assert.ok(helperStart >= 0 && helperEnd > helperStart);
+const settingsSaveHelper = frontendSource.slice(helperStart, helperEnd);
+
+async function frontendSettingsPayload(settings, section) {
+  const context = vm.createContext({
+    state: { settings },
+    structuredClone,
+    invokeJsonAction(url, payload, message, method) {
+      assert.equal(url, "/api/admin/settings");
+      assert.equal(method, "PATCH");
+      return JSON.parse(JSON.stringify(payload));
+    }
+  });
+  vm.runInContext(settingsSaveHelper, context);
+  return context.persistAdminSettingsAndRender("Guardado", section);
+}
 
 function buildSeedState() {
   const seed = JSON.parse(readFileSync(bundledDefaultStatePath, "utf8"));
@@ -175,8 +197,13 @@ async function main() {
     await login(admin, "admin@isocronazero.org", passwords.admin);
     const staleState = (await admin.request("GET", "/api/state")).body;
     const display = {enabled:true,slots:2,intervalSeconds:7};
+    // An uploaded PNG with trailing padding models a banner larger than the settings route's 16 KB limit.
+    const largeBannerImage = "data:image/png;base64," + Buffer.concat([
+      Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHZkAAAAASUVORK5CYII=", "base64"),
+      Buffer.alloc(60_000)
+    ]).toString("base64");
     const banners = [
-      { enabled: true, title: "Campana QA", imageUrl: "/assets/isocrona-brand.png", targetUrl: "/join.html" },
+      { enabled: true, title: "Campana QA", imageUrl: largeBannerImage, targetUrl: "/join.html" },
       { enabled: false, title: "Borrador privado", imageUrl: "" }
     ];
     const bannerSave = await admin.request("PUT", "/api/admin/banners", { banners, display, expectedRevision:0 });
@@ -193,6 +220,48 @@ async function main() {
     await admin.request("POST", "/api/state", staleState);
     assert.equal((await anonymous.request("GET", "/api/public/banners")).body.banners.length,1,"Old state saves cannot remove sponsors");
     assert.equal((await member.request("GET", "/api/admin/banners", undefined, true)).status,403);
+
+    const browserSettings = (await admin.request("GET", "/api/state")).body.settings;
+    const fullSettingsSave = await admin.request("PATCH", "/api/admin/settings", {
+      section: "general", settings: browserSettings
+    }, true);
+    assert.equal(fullSettingsSave.status, 413, "The oversized whole-settings save reproduces the reported failure");
+    assert.equal(fullSettingsSave.body.maxBytes, 16 * 1024, "Keep the route's payload limit");
+    const formSettings = {
+      ...browserSettings,
+      certificateCity: "Madrid",
+      automation: { ...browserSettings.automation, autoRunOnSave: false, autoSendDiplomas: false,
+        autoSendFeeReminders: false, autoSendFeedbackReminders: false },
+      agent: { ...browserSettings.agent, enabled: false, canSendDiplomas: false }
+    };
+    const generalPayload = await frontendSettingsPayload(formSettings, "general");
+    assert.ok(Buffer.byteLength(JSON.stringify(generalPayload)) < 16 * 1024);
+    assert.deepEqual(Object.keys(generalPayload.settings).sort(), ["certificateCity", "diplomaSignerA",
+      "diplomaSignerB", "emailTemplate", "automationTone", "smtp", "automation", "agent", "associates"].sort());
+    const formSave = await admin.request("PATCH", "/api/admin/settings", generalPayload);
+    assert.equal(formSave.status, 200, "The actual browser save succeeds with a large banner stored");
+    assert.equal(formSave.body.automation, null, "Disabling execute-on-save must prevent automation during this save");
+    for (const key of ["autoRunOnSave", "autoSendDiplomas", "autoSendFeeReminders", "autoSendFeedbackReminders"]) {
+      assert.equal(formSave.body.state.settings.automation[key], false);
+    }
+    assert.equal(formSave.body.state.settings.agent.enabled, false);
+    assert.equal(formSave.body.state.settings.agent.canSendDiplomas, false);
+    assert.equal(formSave.body.state.settings.banners[0].imageUrl, largeBannerImage);
+    assert.equal(formSave.body.state.settings.bannersRevision, 1);
+    assert.deepEqual(formSave.body.state.settings.bannerDisplay, display);
+    assert.equal(formSave.body.state.settings.organization, browserSettings.organization);
+
+    const smtpPayload = await frontendSettingsPayload({ ...browserSettings,
+      certificateCity: "Unrelated stale draft", smtp: { ...browserSettings.smtp, host: "smtp.scoped.test" }
+    }, "smtp");
+    assert.deepEqual(Object.keys(smtpPayload.settings), ["smtp"], "SMTP saves only its own form");
+    const smtpSave = await admin.request("PATCH", "/api/admin/settings", smtpPayload);
+    assert.equal(smtpSave.body.state.settings.smtp.host, "smtp.scoped.test");
+    assert.equal(smtpSave.body.state.settings.certificateCity, "Madrid", "SMTP must preserve other settings");
+    assert.equal(smtpSave.body.state.settings.automation.autoSendDiplomas, false);
+    assert.equal(smtpSave.body.state.settings.agent.enabled, false);
+    assert.equal(smtpSave.body.state.settings.banners[0].imageUrl, largeBannerImage);
+
     settingsPayload.settings.banners=[];
     settingsPayload.settings.bannerDisplay={enabled:false};
     const update = await admin.request("PATCH", "/api/admin/settings", settingsPayload);
