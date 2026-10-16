@@ -25,6 +25,7 @@ const ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS = 15 * 60 * 1000;
 let associateOnboardingRunning = false;
 const welcomeDeliveriesInFlight = new Set();
 const diplomaDeliveriesInFlight = new Set();
+const profileNotificationsInFlight = new Set();
 const {
   authenticateUser,
   createUser,
@@ -8438,8 +8439,9 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 404, { ok: false, error: "Aviso automatico no encontrado" });
       }
 
-      const result = await resolveAutomationItem(state, item);
-      const summary = await runAutomationEngine(state);
+      // A single admin click is a manual action; bulk and agent routes keep their policy checks.
+      const result = await resolveAutomationItem(state, item, { manualAdmin: true, actorName: account.name });
+      const summary = await runAutomationEngine(state, { detectOnly: item.type === "associate_profile_notification" });
       recordAutomationRun(state, `Resolver bandeja: ${item.type}`, summary);
       writeState(state);
       return sendJson(res, 200, {
@@ -14648,7 +14650,7 @@ function logAgentDecision(state, item, outcome, detail) {
   state.agentLog = state.agentLog.slice(0, 200);
 }
 
-async function resolveAutomationItem(state, item) {
+async function resolveAutomationItem(state, item, context = {}) {
   switch (item.type) {
     case "pending_diplomas":
       return resolvePendingDiplomasItem(state, item);
@@ -14671,7 +14673,7 @@ async function resolveAutomationItem(state, item) {
     case "associate_application_decision":
       return resolveAssociateApplicationDecisionItem(state, item);
     case "associate_profile_notification":
-      return resolveAssociateProfileNotificationItem(state, item);
+      return resolveAssociateProfileNotificationItem(state, item, context);
     case "associate_payment_notification":
       return resolveAssociatePaymentNotificationItem(state, item);
     case "associate_legacy_access":
@@ -15091,8 +15093,8 @@ async function resolveAssociatePaymentNotificationItem(state, item) {
   };
 }
 
-async function resolveAssociateProfileNotificationItem(state, item) {
-  if (!state.settings?.agent?.canSendDiplomas) {
+async function resolveAssociateProfileNotificationItem(state, item, { manualAdmin = false, actorName = "Bandeja automatica" } = {}) {
+  if (!manualAdmin && !state.settings?.agent?.canSendDiplomas) {
     throw new Error("El agente no tiene permiso para enviar avisos de ficha de socio");
   }
 
@@ -15100,8 +15102,12 @@ async function resolveAssociateProfileNotificationItem(state, item) {
     throw new Error("Configura y activa el correo saliente antes de avisar la revision de la ficha");
   }
 
+  const itemKey = String(item.key || "");
+  const requestId = item.requestId || (itemKey.startsWith("associate_profile_notification:")
+    ? itemKey.slice("associate_profile_notification:".length) : "");
   const request = (state.associateProfileRequests || []).find(
     (entry) =>
+      entry.id === requestId &&
       entry.associateId === item.memberId &&
       ["Aprobado", "Rechazado"].includes(entry.status) &&
       entry.notificationStatus !== "sent"
@@ -15116,13 +15122,16 @@ async function resolveAssociateProfileNotificationItem(state, item) {
   }
 
   const approved = request.status === "Aprobado";
-  const result = await maybeSendAssociateProfileRequestNotification(
-    state,
-    request,
-    associate,
-    approved,
-    "Bandeja automatica"
-  );
+  if (profileNotificationsInFlight.has(request.id)) {
+    throw new Error("Este aviso de ficha ya se esta enviando; espera a que termine");
+  }
+  profileNotificationsInFlight.add(request.id);
+  let result;
+  try {
+    result = await maybeSendAssociateProfileRequestNotification(state, request, associate, approved, actorName);
+  } finally {
+    profileNotificationsInFlight.delete(request.id);
+  }
 
   if (result.status === "failed") {
     throw new Error(result.error || "No se pudo enviar el aviso de actualizacion");
