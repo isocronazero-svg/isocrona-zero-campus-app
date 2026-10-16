@@ -11245,7 +11245,7 @@ function renderInstructorCertificates(course, ownMember = null) {
   const end = String(course.endDate || "");
   if (course.status !== "Cerrado" || !/^\d{4}-\d{2}-\d{2}$/.test(end) ||
       !Number.isFinite(Date.parse(end)) || new Date(end).toISOString().slice(0, 10) !== end ||
-      end >= new Date().toISOString().slice(0, 10)) return "";
+      end >= EnrollmentTime.calendarDateInMadrid(new Date())) return "";
   const ownAssociate = ownMember ? getCurrentAssociate() : null;
   const instructors = (course.instructorAssociateIds || [])
     .map(id => (state.associates || []).find(a => a.id === id)).filter(Boolean)

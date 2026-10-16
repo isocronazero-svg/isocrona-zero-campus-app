@@ -50,6 +50,10 @@
     const pad = n => String(n).padStart(2, "0");
     return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
+  function calendarDateInMadrid(value = Date.now()) {
+    const parts = Object.fromEntries(madrid.formatToParts(value).map(part => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
   function courseStartTimestamp(course) {
     const day = String(course?.startDate || "").trim();
     return /^\d{4}-\d{2}-\d{2}$/.test(day) ? timestamp(`${day}T00:00`) : null;
@@ -89,7 +93,7 @@
       throw new Error("La apertura de inscripción debe ser anterior al cierre de inscripción");
     }
   }
-  const api = { timestamp, canonical, fromLocalInput, localInput,
+  const api = { timestamp, canonical, fromLocalInput, localInput, calendarDateInMadrid,
     courseStartTimestamp, courseCloseTimestamp, courseWindowState, validateCourseWindow };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.EnrollmentTime = api;
