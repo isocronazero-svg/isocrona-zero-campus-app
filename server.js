@@ -19,6 +19,7 @@ const {
 const { createOnboardingStateAccess } = require("./server/onboarding-state");
 const { readState, writeState, reconcileState } = createOnboardingStateAccess({ readState: readStoredState, writeState: writeStoredState });
 const { sendMail, getMailSettings, getMailDeliveryStatus, isMailConfigured, isMailReady } = require("./server/mail-delivery");
+const { buildRawMessage } = require("./smtp");
 const associateOnboardingPreviews = new Map();
 const ASSOCIATE_ONBOARDING_PREVIEW_TTL_MS = 15 * 60 * 1000;
 let associateOnboardingRunning = false;
@@ -9944,7 +9945,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       return sendJson(res, 403, { ok: false, error: "No tienes acceso a este correo" });
     }
 
-    const eml = buildEml(email, state);
+    let eml;
+    try { eml = buildEml(email, state); }
+    catch (error) { return sendJsonError(res, error, "No se pudo preparar el correo"); }
     res.writeHead(200, {
       "Content-Type": "message/rfc822; charset=utf-8",
       "Content-Disposition": `attachment; filename="${sanitizeFilename(email.subject || email.id)}.eml"`
@@ -15225,17 +15228,23 @@ function buildEml(email, state) {
   const smtp = getSmtpSettings(state);
   const fromAddress = smtp.fromEmail || "no-reply@isocronazero.local";
   const fromName = smtp.fromName || (state.settings && state.settings.organization) || "Isocrona Zero";
-  return [
-    `From: ${fromName} <${fromAddress}>`,
-    `To: ${email.to}`,
-    `Subject: ${email.subject}`,
-    `Date: ${new Date(email.sentAt || Date.now()).toUTCString()}`,
-    "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="utf-8"',
-    "Content-Transfer-Encoding: 8bit",
-    "",
-    email.body || ""
-  ].join("\r\n");
+  return buildRawMessage({ from: fromAddress, fromName, to: email.to, subject: email.subject,
+    date: new Date(email.sentAt || Date.now()), text: email.body || "",
+    attachments: isCourseDiplomaEmail(email) ? buildDiplomaEmailAttachments(state, email) : [] });
+}
+
+function buildDiplomaEmailAttachments(state, email) {
+  const course = (state.courses || []).find(item => item.id === email.courseId);
+  const member = (state.members || []).find(item => item.id === email.memberId);
+  if (!course || !member || !(course.diplomaReady || []).includes(member.id)) {
+    throw new Error("No se puede adjuntar un diploma que no esta emitido");
+  }
+  const pdf = buildDiplomaPdf(state, course.id, member.id);
+  if (!Buffer.isBuffer(pdf) || !pdf.length || pdf.subarray(0, 5).toString() !== "%PDF-") {
+    throw new Error("No se pudo generar el PDF del diploma; el correo no se ha enviado");
+  }
+  return [{ filename: `diploma-${sanitizeFilename(course.title)}-${sanitizeFilename(member.name)}.pdf`,
+    contentType: "application/pdf", content: pdf }];
 }
 
 function sanitizeFilename(value) {
@@ -15430,7 +15439,7 @@ async function deliverEmailRecord(state, email, { allowDiplomaResend = false } =
       email.status = "sending";
       persistOnboardingWelcomeDelivery(state, email);
     }
-    const result = await sendMail(smtp, {
+    const message = {
       from: smtp.fromEmail,
       fromName: smtp.fromName,
       to: email.to,
@@ -15446,10 +15455,13 @@ async function deliverEmailRecord(state, email, { allowDiplomaResend = false } =
             getCourseMemberDiplomaBlockers(state, course, email.memberId).length) {
           throw new Error("Entrega cancelada: el alumno ya no cumple los requisitos del diploma");
         }
+        // Generate the same issued PDF as the portal, after the final academic reconciliation.
+        message.attachments = buildDiplomaEmailAttachments(state, email);
         // After this synchronous boundary it is an issued diploma, even if the SMTP acknowledgement is lost.
         email.diplomaCommittedAt = new Date().toISOString();
       } : undefined
-    });
+    };
+    const result = await sendMail(smtp, message);
 
     email.status = "sent";
     email.deliveredAt = new Date().toISOString();
