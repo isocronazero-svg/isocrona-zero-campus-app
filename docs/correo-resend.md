@@ -62,6 +62,7 @@ Referencia del proveedor: https://resend.com/docs/api-reference/emails/send-emai
 ## Fallos y reintentos
 
 - **Avisar ficha** en una tarjeta individual exige administración y envía solo la resolución de esa solicitud. Funciona con el agente desactivado, sin habilitar sus permisos ni los automatismos. El agente y la resolución masiva mantienen su política de permisos; el envío manual no procesa las demás tarjetas.
+- Los avisos pendientes conservan su identificador y fecha de creación al refrescar la página o ejecutar una revisión. Su texto y elegibilidad se recalculan. Un aviso resuelto desaparece y su botón antiguo no vuelve a enviar el correo.
 
 - Se muestran errores de configuración/pausa antes de intentar un lote. Si falla una entrega, el aviso del lote se muestra como error y conserva el primer motivo legible.
 - Errores HTTP de clave, dominio, cuota o servicio no se registran como enviados. No se guardan respuestas crudas del proveedor ni se exponen secretos en los errores.

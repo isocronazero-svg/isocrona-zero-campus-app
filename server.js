@@ -13691,6 +13691,7 @@ async function runAutomationEngine(state, options = {}) {
   const today = new Date().toISOString().slice(0, 10);
   let missingSmtpNotice = false;
 
+  const previousInbox = new Map((state.automationInbox || []).map(item => [item.key, item]));
   state.automationInbox = [];
 
   for (const course of state.courses || []) {
@@ -14205,6 +14206,11 @@ async function runAutomationEngine(state, options = {}) {
       });
   }
 
+  // Refresh task contents and eligibility without invalidating buttons already shown in another tab.
+  state.automationInbox = state.automationInbox.map(item => {
+    const previous = previousInbox.get(item.key);
+    return { ...item, id: previous?.id || item.id, createdAt: previous?.createdAt || item.createdAt };
+  });
   summary.inboxItems = state.automationInbox.length;
   return summary;
 }
@@ -14575,7 +14581,7 @@ function pushAutomationItem(state, item) {
   }
 
   state.automationInbox.push({
-    id: `automation-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    id: `automation-${createHash("sha256").update(key).digest("hex")}`,
     key,
     status: "open",
     createdAt: new Date().toISOString(),
