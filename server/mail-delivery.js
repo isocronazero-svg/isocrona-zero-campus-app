@@ -54,11 +54,17 @@ function createMailSender({ fetchImpl = (...args) => fetch(...args), smtpSend = 
     }
     if (config.provider === "smtp") return smtpSend(config, message);
 
+    // Revalidate and prepare any generated attachments synchronously before serializing the request.
+    message.beforeData?.();
     const payload = {
       from: config.fromName ? `${config.fromName} <${config.fromEmail}>` : config.fromEmail,
       to: [message.to],
       subject: message.subject,
       text: String(message.text || ""),
+      ...(message.attachments?.length ? { attachments: message.attachments.map(file => {
+        if (!Buffer.isBuffer(file.content) || !file.content.length) throw new Error("El adjunto del correo esta vacio o no es valido");
+        return { filename: file.filename, content: file.content.toString("base64") };
+      }) } : {}),
       ...(config.replyTo ? { reply_to: config.replyTo } : {})
     };
     const body = JSON.stringify(payload);
@@ -78,8 +84,6 @@ function createMailSender({ fetchImpl = (...args) => fetch(...args), smtpSend = 
       redirect: "error"
     };
 
-    // Keep the academic revalidation synchronous, immediately before transmission.
-    message.beforeData?.();
     let response;
     try {
       response = await fetchImpl("https://api.resend.com/emails", options);

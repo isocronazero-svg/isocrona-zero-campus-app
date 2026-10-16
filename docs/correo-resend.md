@@ -49,6 +49,16 @@ Las variables opcionales no se rellenan con datos SMTP antiguos. Un proveedor de
 6. Activar `IZ_EMAIL_ENABLED=true` con el despliegue autorizado. Enviar el único diploma aprobado y comprobar su enlace desde el dominio oficial. Revisar la bandeja antes de reactivar cada automatización.
 7. Una aceptación de Resend se registra como `sent`, con `transport=resend` y `providerMessageId`. Significa que el proveedor aceptó el correo; no confirma recepción en la bandeja del socio. Esta versión no implementa webhooks de rebotes/entrega.
 
+## Diploma adjunto
+
+Los correos de diploma incluyen un PDF con el mismo documento emitido que se descarga desde el portal. Se genera en memoria tras la comprobación académica final y se adjunta tanto por Resend (contenido Base64) como por SMTP (MIME multipart). No se guardan los bytes del PDF en la configuración ni en la bandeja. Si el diploma no está emitido o falla la generación del PDF, el correo falla antes de transmitir; no se sustituye por un mensaje de texto sin adjunto.
+
+La descarga `.eml` también prepara el PDF vigente como adjunto. Es una reconstrucción al descargar, no una copia de los bytes aceptados anteriormente por el proveedor. Los avisos de valoración, bienvenidas y pruebas de configuración mantienen su contenido sin añadir diplomas.
+
+Un correo enviado antes de esta corrección permanece en el historial con su aceptación original. Para entregar el adjunto que faltaba, usar **Reenviar** en ese registro concreto después de comprobar curso y destinatario. El reenvío deliberado crea una entrega nueva; no hay reenvíos automáticos de mensajes ya aceptados ni hay que procesar toda la bandeja.
+
+Referencia del proveedor: https://resend.com/docs/api-reference/emails/send-email (campo `attachments`, contenido Base64 y nombre del archivo).
+
 ## Fallos y reintentos
 
 - Se muestran errores de configuración/pausa antes de intentar un lote. Si falla una entrega, el aviso del lote se muestra como error y conserva el primer motivo legible.

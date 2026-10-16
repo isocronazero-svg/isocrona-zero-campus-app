@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 
 const { getMailSettings, getMailDeliveryStatus, isMailReady, createMailSender } = createRequire(import.meta.url)("../server/mail-delivery.js");
+const { sendMail: sendSmtpMail } = createRequire(import.meta.url)("../smtp.js");
 const env = {
   IZ_EMAIL_PROVIDER: "resend", RESEND_API_KEY: "re_qa_fake_only",
   IZ_EMAIL_FROM: "campus@example.test", IZ_EMAIL_FROM_NAME: "Campus QA",
@@ -59,6 +60,19 @@ assert.deepEqual(JSON.parse(request.options.body), {
 });
 await sender(enabled, message);
 assert.equal(requests.at(-1).options.headers["Idempotency-Key"], request.options.headers["Idempotency-Key"], "Retries retain the key");
+const pdfFixture = Buffer.from("%PDF-1.4\nDiploma QA\n\x00\xff\n%%EOF", "latin1");
+const attached = { ...message, beforeData() {
+  attached.attachments = [{ filename: "diploma-qa.pdf", contentType: "application/pdf", content: pdfFixture }];
+} };
+await sender(enabled, attached);
+const attachedRequest = requests.at(-1);
+assert.deepEqual(JSON.parse(attachedRequest.options.body).attachments,
+  [{ filename: "diploma-qa.pdf", content: pdfFixture.toString("base64") }], "Late-generated PDF bytes are included in the Resend request");
+await sender(enabled, attached);
+assert.equal(requests.at(-1).options.headers["Idempotency-Key"], attachedRequest.options.headers["Idempotency-Key"]);
+await sender(enabled, { ...message, attachments: [{ filename: "diploma-qa.pdf", content: Buffer.from("different PDF") }] });
+assert.notEqual(requests.at(-1).options.headers["Idempotency-Key"], attachedRequest.options.headers["Idempotency-Key"], "The provider key includes the attachment bytes");
+await assert.rejects(sender(enabled, { ...message, attachments: [{ filename: "empty.pdf", content: Buffer.alloc(0) }] }), /adjunto/);
 await sender(enabled, { ...message, deliveryId: "explicit-new-delivery" });
 assert.notEqual(requests.at(-1).options.headers["Idempotency-Key"], request.options.headers["Idempotency-Key"], "An intentional new delivery has its own key");
 const beforeBlock = requests.length;
@@ -80,6 +94,50 @@ let smtpCalls = 0;
 const smtpSender = createMailSender({ smtpSend: async (_config, mail) => { smtpCalls++; mail.beforeData(); return { messageId: "smtp-qa" }; } });
 await smtpSender(getMailSettings(state, {}), { ...message, beforeData() {} });
 assert.equal(smtpCalls, 1);
+
+function attachedPdfFromMime(raw) {
+  assert.match(raw, /Content-Type: multipart\/mixed; boundary="[^"]+"/i);
+  assert.match(raw, /Content-Type: application\/pdf/i);
+  assert.match(raw, /Content-Disposition: attachment; filename="[^"]+\.pdf"/i);
+  const encoded = raw.match(/Content-Disposition: attachment;[^\r\n]+\r\nContent-Transfer-Encoding: base64\r\n\r\n([A-Za-z0-9+/=\r\n]+)\r\n--/i)?.[1];
+  assert.ok(encoded, "A MIME PDF attachment must have a Base64 body");
+  assert.ok(encoded.split("\r\n").every(line => line.length <= 76), "MIME Base64 lines stay within 76 characters");
+  return Buffer.from(encoded.replace(/\s/g, ""), "base64");
+}
+
+// Exercise the real SMTP DATA path, including attachments generated at the final validation hook.
+let smtpRaw = "";
+const smtpSockets = new Set();
+const smtpServer = net.createServer(socket => {
+  smtpSockets.add(socket); socket.once("close", () => smtpSockets.delete(socket));
+  socket.setEncoding("utf8"); socket.write("220 localhost QA\r\n");
+  let buffer = "", data = false;
+  socket.on("data", chunk => {
+    buffer += chunk;
+    while (buffer.includes("\r\n")) {
+      const end = buffer.indexOf("\r\n"), line = buffer.slice(0, end); buffer = buffer.slice(end + 2);
+      if (data) {
+        if (line === ".") { data = false; socket.write("250 queued\r\n"); }
+        else smtpRaw += line + "\r\n";
+      } else if (line.startsWith("EHLO")) socket.write("250 localhost\r\n");
+      else if (line === "DATA") { data = true; socket.write("354 send data\r\n"); }
+      else if (line === "QUIT") socket.end("221 bye\r\n");
+      else socket.write("250 OK\r\n");
+    }
+  });
+});
+await new Promise(resolve => smtpServer.listen(0, "127.0.0.1", resolve));
+try {
+  const smtpMessage = { ...message, from: "qa@example.test", text: ".Primera linea\nTexto con acentos: formación", beforeData() {
+    smtpMessage.attachments = [{ filename: "diploma-qa.pdf", contentType: "application/pdf", content: pdfFixture }];
+  } };
+  await sendSmtpMail({ host: "127.0.0.1", port: smtpServer.address().port, secure: false, startTls: false }, smtpMessage);
+  assert.deepEqual(attachedPdfFromMime(smtpRaw), pdfFixture, "The SMTP attachment round-trips binary PDF bytes");
+  assert.ok(smtpRaw.includes("..Primera linea\r\nTexto con acentos: formación"), "SMTP still dot-stuffs text correctly");
+} finally {
+  for (const socket of smtpSockets) socket.destroy();
+  await new Promise(resolve => smtpServer.close(resolve));
+}
 
 const source = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 const functionSource = source.slice(source.indexOf("async function invokeServerAction("), source.indexOf("function setFormSaveStatus("));
@@ -156,7 +214,8 @@ function client() {
     const response = await fetch(`${base}${route}`, { method, headers: { Cookie: cookie, "Content-Type": "application/json" },
       ...(payload !== undefined ? { body: JSON.stringify(payload) } : {}) });
     if (response.headers.get("set-cookie")) cookie = response.headers.get("set-cookie").split(";")[0];
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: response.headers.get("Content-Type")?.includes("application/json")
+      ? await response.json() : Buffer.from(await response.arrayBuffer()) };
   };
 }
 const logged = () => readFileSync(requestLog, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
@@ -177,6 +236,7 @@ try {
   assert.equal((await admin("POST", "/api/smtp/test")).status, 200);
   assert.equal(logged().length, 1);
   assert.equal(logged()[0].body.to[0], env.IZ_EMAIL_TEST_TO);
+  assert.equal(logged()[0].body.attachments, undefined, "An isolated mail configuration test has no diploma attached");
   await admin("POST", "/api/state", { ...paused, mailDelivery: { ready: true, apiKey: "forged" } });
   const stored = JSON.parse(readFileSync(path.join(dataDir, "state.json"), "utf8"));
   assert.equal(stored.mailDelivery, undefined, "Computed server configuration is not accepted in whole-state saves");
@@ -212,6 +272,16 @@ try {
   assert.equal(delivered.emailOutbox[0].providerMessageId, "qa-provider-id");
   assert.equal(delivered.emailOutbox[0].transport, "resend");
   assert.equal(logged().at(-1).key, failedKey, "A retry after restart keeps the same provider idempotency key");
+  const actualAttachment = logged().at(-1).body.attachments;
+  assert.equal(actualAttachment.length, 1, "A diploma email always includes its PDF");
+  assert.match(actualAttachment[0].filename, /^diploma-.+\.pdf$/);
+  const portalPdf = await sendingAdmin("GET", "/api/diplomas/course-1/member-1.pdf");
+  assert.equal(portalPdf.status, 200);
+  assert.deepEqual(Buffer.from(actualAttachment[0].content, "base64"), portalPdf.body, "Email contains exactly the issued PDF available in the portal");
+  const exportedEmail = await sendingAdmin("GET", `/api/emails/${failedId}.eml`);
+  assert.equal(exportedEmail.status, 200);
+  assert.deepEqual(attachedPdfFromMime(exportedEmail.body.toString("utf8")), portalPdf.body, "Exported .eml also contains the real diploma");
+  assert.equal(JSON.stringify(delivered.emailOutbox).includes(actualAttachment[0].content), false, "PDF bytes never inflate the persisted state");
   const count = logged().length;
   assert.equal((await sendingAdmin("POST", "/api/courses/course-1/send-pending")).body.sentCount, 0);
   assert.equal(logged().length, count, "A Resend-accepted diploma is not delivered again by send-pending");
@@ -242,6 +312,9 @@ try {
   assert.equal(queueResult.body.sentCount, 3, "One new diploma and two unrelated reminders are delivered");
   assert.equal(queueResult.body.failedCount, 0);
   assert.equal(logged().length, beforeQueue + 3, "Legacy copies do not produce repeated provider requests");
+  const batchRequests = logged().slice(beforeQueue);
+  assert.equal(batchRequests[0].body.attachments.length, 1, "Legacy diploma records also attach the PDF");
+  assert.ok(batchRequests.slice(1).every(request => !request.body.attachments), "Feedback reminders do not acquire diploma attachments");
   const deduplicated = (await sendingAdmin("GET", "/api/state")).body;
   assert.equal(deduplicated.emailOutbox.length, queueState.emailOutbox.length, "All historical records are retained");
   assert.equal(deduplicated.emailOutbox.filter(item => item.status === "superseded").length, 8);
@@ -257,6 +330,7 @@ try {
   assert.equal(resend.status, 200);
   assert.equal(logged().length, stableCount + 1, "An explicit resend still creates one intentional new delivery");
   assert.notEqual(resend.body.email.id, failedId);
+  assert.deepEqual(logged().at(-1).body.attachments, actualAttachment, "An intentional resend includes the diploma, preserving the old delivery record");
 
   await stop();
   await start(true, 403);
@@ -282,6 +356,16 @@ try {
   const finalQueue = (await finalAdmin("GET", "/api/state")).body.emailOutbox;
   assert.equal(finalQueue.find(item => item.id === "duplicate-failure-0").status, "sent");
   assert.equal(finalQueue.filter(item => item.supersededBy === "duplicate-failure-0").length, 4);
+  const unissued = (await finalAdmin("GET", "/api/state")).body;
+  unissued.courses.push({ ...structuredClone(secondCourse), id: "course-unissued-qa", diplomaReady: [] });
+  await finalAdmin("POST", "/api/state", unissued);
+  const beforeUnissued = logged().length;
+  const unissuedSend = await finalAdmin("POST", "/api/courses/course-unissued-qa/send-member/member-1");
+  assert.equal(unissuedSend.status, 500);
+  assert.match(unissuedSend.body.error, /no esta emitido/);
+  assert.equal(logged().length, beforeUnissued, "A missing issued PDF fails before transmission instead of sending text only");
+  const unissuedMail = (await finalAdmin("GET", "/api/state")).body.emailOutbox.find(item => item.courseId === "course-unissued-qa");
+  assert.equal((await finalAdmin("GET", `/api/emails/${unissuedMail.id}.eml`)).status, 400, "An unavailable PDF gives a controlled export error");
   console.log("Mail HTTP checks passed (roles, pause/test, credential isolation, provider failure, restart retry and diploma deduplication; no external network).");
 } finally {
   await stop();

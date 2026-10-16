@@ -1,5 +1,6 @@
 const net = require("net");
 const tls = require("tls");
+const { randomUUID } = require("node:crypto");
 
 async function sendMail(config, message) {
   const client = new SmtpClient(normalizeConfig(config));
@@ -53,9 +54,10 @@ class SmtpClient {
     await this.command(`RCPT TO:<${message.to}>`, [250, 251]);
     await this.command("DATA", [354]);
 
-    const rawMessage = buildRawMessage(message);
     // Synchronous final validation: no await between this callback and the irreversible DATA write.
     message.beforeData?.();
+    const rawMessage = buildRawMessage(message)
+      .split("\r\n").map(line => line.startsWith(".") ? `.${line}` : line).join("\r\n");
     this.socket.write(`${rawMessage}\r\n.\r\n`);
     const response = await this.expectResponse([250]);
 
@@ -201,19 +203,25 @@ function buildRawMessage(message) {
     `From: ${message.fromName ? `${message.fromName} <${message.from}>` : message.from}`,
     `To: ${message.to}`,
     `Subject: ${message.subject}`,
-    `Date: ${new Date().toUTCString()}`,
-    "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="utf-8"',
-    "Content-Transfer-Encoding: 8bit"
+    `Date: ${(message.date || new Date()).toUTCString()}`,
+    "MIME-Version: 1.0"
   ];
+  const body = String(message.text || "").replace(/\r?\n/g, "\r\n");
+  const textHeaders = ['Content-Type: text/plain; charset="utf-8"', "Content-Transfer-Encoding: 8bit"];
+  if (!message.attachments?.length) return [...headers, ...textHeaders, "", body].join("\r\n");
 
-  const body = String(message.text || "")
-    .replace(/\r?\n/g, "\r\n")
-    .split("\r\n")
-    .map((line) => (line.startsWith(".") ? `.${line}` : line))
-    .join("\r\n");
-
-  return `${headers.join("\r\n")}\r\n\r\n${body}`;
+  const boundary = `isocrona-${randomUUID()}`;
+  const parts = [`--${boundary}`, ...textHeaders, "", body];
+  for (const file of message.attachments) {
+    if (!Buffer.isBuffer(file.content) || !file.content.length) throw new Error("El adjunto del correo esta vacio o no es valido");
+    const filename = String(file.filename || "adjunto").replace(/[\r\n"\\]/g, "_");
+    const contentType = /^[\w.+-]+\/[\w.+-]+$/.test(file.contentType || "") ? file.contentType : "application/octet-stream";
+    parts.push(`--${boundary}`, `Content-Type: ${contentType}`,
+      `Content-Disposition: attachment; filename="${filename}"`, "Content-Transfer-Encoding: base64", "",
+      file.content.toString("base64").match(/.{1,76}/g).join("\r\n"));
+  }
+  parts.push(`--${boundary}--`, "");
+  return [...headers, `Content-Type: multipart/mixed; boundary="${boundary}"`, "", ...parts].join("\r\n");
 }
 
 function supportsExtension(response, extension) {
@@ -260,5 +268,5 @@ function upgradeToTls(socket, config) {
 }
 
 module.exports = {
-  sendMail
+  sendMail, buildRawMessage
 };
