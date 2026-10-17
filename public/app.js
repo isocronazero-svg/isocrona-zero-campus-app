@@ -246,6 +246,9 @@ let pendingCampusGroupDraftClearGroupId = "";
 let campusGroupSaving = false;
 let campusGroupPendingUploads = 0;
 let academicRoster = null;
+let journeyReport = null;
+let journeyReportRequest = null;
+let journeyReportFilters = {courseId:"",type:"",q:"",order:"asc"};
 let academicBusy = false;
 let campusGroupAutosaveIds = new Set();
 let campusGroupAutosaveRunning = false;
@@ -1126,6 +1129,15 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
+  if (action === "open-journey-history") {
+    if (!['admin','instructor'].includes(session?.role)) return;
+    const scopeId = actionTarget.dataset.courseId || '';
+    if (isAdminView()) { state.activeView = 'reports'; reportsSectionMode = 'journeys'; }
+    await loadJourneyReport(scopeId);
+    render();
+    return;
+  }
+
   if (action === "set-course-catalog-filter") {
     courseCatalogFilter = actionTarget.dataset.filter || "all";
     render();
@@ -1348,6 +1360,7 @@ document.addEventListener("click", async (event) => {
 
   if (action === "set-reports-section-mode") {
     reportsSectionMode = actionTarget.dataset.mode || "all";
+    if (reportsSectionMode === "journeys") await loadJourneyReport();
     render();
     return;
   }
@@ -3642,7 +3655,7 @@ document.addEventListener("keydown", (event) => {
   openAssociateFromSearch(event.target.value || "");
 });
 
-document.addEventListener("change", (event) => {
+document.addEventListener("change", async (event) => {
   if (event.target.dataset.onboardingId && isAdminSession()) {
     const id = event.target.dataset.onboardingId;
     if (!associateOnboardingBusy && associateOnboardingPreview?.items.some(item => item.id === id && item.executable)) {
@@ -3652,6 +3665,12 @@ document.addEventListener("change", (event) => {
     render();
     return;
   }
+  if (event.target.id === 'journeyHistoryType' && isAdminView()) {
+    await loadJourneyReport('', {type:event.target.value});
+    render();
+    return;
+  }
+  if (event.target.id === 'intensiveDayTitle') { syncCourseCreationMode(); return; }
   if (event.target.id === "courseCreationMode") {
     syncCourseCreationMode(event.target.form);
     return;
@@ -4257,10 +4276,23 @@ document.addEventListener("submit", async (event) => {
     await persistAdminSettingsAndRender("Configuracion guardada", "general", event.target);
   }
 
+  if (event.target.id === 'journeyHistoryForm') {
+    event.preventDefault();
+    await loadJourneyReport(isAdminView() ? document.getElementById('journeyHistoryEdition').value : event.target.dataset.courseId, {
+      type:document.getElementById('journeyHistoryType')?.value || journeyReportFilters.type,
+      q:document.getElementById('journeyHistorySearch').value,
+      order:document.getElementById('journeyHistoryOrder').value
+    });
+    render();
+    return;
+  }
+
   if (event.target.id === "courseForm" && isAdminSession()) {
     event.preventDefault();
     const intensive = document.getElementById("courseCreationMode")?.value === "intensive";
-    const title = (intensive ? document.getElementById("intensiveDayTitle") : document.getElementById("courseTitle")).value.trim();
+    const intensiveChoice = document.getElementById("intensiveDayTitle").value;
+    const intensiveLabel = intensiveChoice === '__custom' ? document.getElementById('intensiveDayCustomTitle').value.trim() : intensiveChoice;
+    const title = intensive ? intensiveLabel : document.getElementById("courseTitle").value.trim();
     const courseClass = intensive ? "practico" : document.getElementById("courseClass").value;
     const type = intensive ? "Jornada intensiva" : document.getElementById("courseType").value.trim();
     const startDate = (intensive ? document.getElementById("intensiveDayDate") : document.getElementById("courseStart")).value;
@@ -4303,6 +4335,8 @@ document.addEventListener("submit", async (event) => {
     const draftCourse = normalizeCourse({
       id,
       title,
+      journeyTypeId: intensive ? journeyTypeIdForLabel(intensiveLabel) : "",
+      journeyTypeLabel: intensive ? intensiveLabel : "",
       courseClass,
       type,
       status: "Planificacion",
@@ -4569,6 +4603,7 @@ document.addEventListener("submit", async (event) => {
       `/api/courses/${encodeURIComponent(course.id)}`,
       {
         title,
+        ...readJourneyClassification(course),
         courseClass,
         type,
         status,
@@ -4932,6 +4967,8 @@ function persistViewRole() {
 
 function clearSession() {
   academicRoster = null;
+  journeyReport = null;
+  journeyReportRequest = null;
   academicBusy = false;
   getFrontendBridge()?.resetTestView?.();
   session = null;
@@ -5909,6 +5946,7 @@ function getChromeProfile() {
   const isJoin = state.activeView === "join";
   const isCampusGroups = state.activeView === "campus" && campusSectionMode === "groups";
   const isCampusCourses = state.activeView === "campus" && campusSectionMode === "courses";
+  const isJourneyHistory = state.activeView === "reports" && reportsSectionMode === "journeys";
   const focusedWorkspaceViews = ["associates", "members", "campus", "reports", "activity", "automation"];
 
   return {
@@ -5916,7 +5954,7 @@ function getChromeProfile() {
     hideAssistantCard: false,
     hideHero: Boolean(session),
     hideMetrics: !isAdminView() || !isOverview || state.activeView === "campus",
-    hideSidePanel: isMemberLike || isJoin || isOverview || isCampusGroups || isCampusCourses || state.activeView === "test-add",
+    hideSidePanel: isMemberLike || isJoin || isOverview || isCampusGroups || isCampusCourses || isJourneyHistory || state.activeView === "test-add",
     singleWorkspace: (isOverview && isMemberLike) || isJoin || isCampusGroups || focusedWorkspaceViews.includes(state.activeView)
   };
 }
@@ -10560,6 +10598,7 @@ function renderCourses() {
             <button type="button" class="${showCourseSection("catalog") ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="catalog">Cursos</button>
             <button type="button" class="${showCourseSection("create") ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="create">Crear curso</button>
             <button type="button" class="${showCourseSection("import") ? "primary-button" : "ghost-button"}" data-action="set-course-section-mode" data-mode="import">Importar CSV</button>
+            <button type="button" class="ghost-button" data-action="open-journey-history">Historial de jornadas</button>
           </nav>
         ` : !showCourseSection("catalog") ? `
           <div class="course-page-actions">
@@ -10622,8 +10661,12 @@ function renderCourses() {
                     Nombre de la jornada
                     <select id="intensiveDayTitle">
                       <option value="">Selecciona una opción</option>
-                      ${INTENSIVE_DAY_TITLES.map((title) => `<option value="${escapeHtml(title)}">${escapeHtml(title)}</option>`).join("")}
+                      ${journeyTypesForForms().map((type) => `<option value="${escapeHtml(type.label)}">${escapeHtml(type.label)}</option>`).join("")}<option value="__custom">Guardar otro nombre…</option>
                     </select>
+                  </label>
+                  <label class="inline-field studio-full" data-course-mode="intensive" hidden>
+                    Otro nombre (solo si eliges Guardar otro nombre)
+                    <input id="intensiveDayCustomTitle" maxlength="80" placeholder="Ej.: Rescate en espacios confinados" />
                   </label>
                   <label class="inline-field" data-course-mode="intensive" hidden>
                     Fecha
@@ -10853,6 +10896,7 @@ function renderOperations(course) {
   return '<section class="academic-panel associate-anchor" id="courseAcademicPanel">' +
     '<div class="module-head"><div><h3>Asistencia y certificación</h3><p>' + escapeHtml(course.title) + '</p></div>' +
     '<button class="ghost-button" type="button" data-action="open-course-academic" data-course-id="' + id + '" ' + (academicBusy ? 'disabled' : '') + '>Actualizar alumnado</button></div>' +
+    (course.journeyTypeId ? '<button class="ghost-button" type="button" data-action="open-journey-history" data-course-id="' + id + '">Historial y asistentes de esta jornada</button>' : '') +
     '<p class="status-note" role="status">' + escapeHtml(syncStatus) + '</p>' +
     '<div class="chip-row"><button class="mini-button" type="button" data-action="academic-all-present" data-course-id="' + id + '" ' + (!students.length || academicBusy ? 'disabled' : '') + '>Marcar presentes</button>' +
     '<button class="mini-button" type="button" data-action="academic-close-all" data-course-id="' + id + '" ' + (!students.length || academicBusy ? 'disabled' : '') + '>Cerrar aptos</button></div>' +
@@ -10872,7 +10916,8 @@ function renderOperations(course) {
         '<button class="mini-button" type="button" data-action="academic-advanced"' + attrs + disabled + '>Guardar ajuste</button></div></details></article>';
     }).join("") + '</div>' +
     (!students.length ? '<p class="empty-state">' + (loaded ? 'No hay inscritos confirmados.' : 'Actualiza el alumnado para consultar los inscritos.') + '</p>' : '') +
-    '<p class="muted">Lista de espera: ' + Number(waitingCount) + '. Sin acciones académicas.</p></section>';
+    '<p class="muted">Lista de espera: ' + Number(waitingCount) + '. Sin acciones académicas.</p>' +
+    (!isAdminView() && course.journeyTypeId ? renderJourneyHistoryForCourse(course) : '') + '</section>';
 }
 
 function renderMemberOperationCard(course) {
@@ -11309,9 +11354,79 @@ function renderDiplomas(course) {
   `;
 }
 
+function journeyTypeIdForLabel(label) {
+  return 'journey-' + String(label || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function journeyTypesForForms() {
+  const types = new Map(INTENSIVE_DAY_TITLES.map(label => [journeyTypeIdForLabel(label), label]));
+  for (const course of state.courses || []) if (course.journeyTypeId && course.journeyTypeLabel && !types.has(course.journeyTypeId)) types.set(course.journeyTypeId, course.journeyTypeLabel);
+  return [...types].map(([id,label]) => ({id,label}));
+}
+
+function readJourneyClassification(course = {}) {
+  const input = document.getElementById('editCourseJourneyType');
+  if (!input) return {journeyTypeId:course.journeyTypeId || '',journeyTypeLabel:course.journeyTypeLabel || ''};
+  if (!input.value) return {journeyTypeId:'',journeyTypeLabel:''};
+  const type = journeyTypesForForms().find(t => t.id === input.value);
+  return {journeyTypeId:type?.id || '',journeyTypeLabel:type?.label || ''};
+}
+
+async function loadJourneyReport(courseId = '', options = {}) {
+  const identity = session;
+  if (!identity) return;
+  const requestKey = {};
+  journeyReportRequest = requestKey;
+  const params = new URLSearchParams({courseId,type:options.type || '',q:options.q || '',order:options.order || 'asc'});
+  journeyReportFilters = {courseId,type:options.type || '',q:options.q || '',order:options.order || 'asc'};
+  journeyReport = null;
+  try {
+    const response = await fetch('/api/reports/journey-participation?' + params, {cache:'no-store'});
+    const payload = await readJsonResponse(response, 'No se pudo cargar el historial de jornadas');
+    if (session !== identity || journeyReportRequest !== requestKey) return;
+    if (!response.ok || !payload.ok) throw new Error(payload.error || 'No se pudo consultar el historial');
+    journeyReport = {...payload,accountId:identity.accountId};
+    journeyReportFilters.type = payload.selectedType || '';
+  } catch (error) {
+    if (session !== identity || journeyReportRequest !== requestKey) return;
+    journeyReport = {error:error.message,accountId:identity.accountId};
+  }
+}
+
+function renderJourneyHistoryForCourse(course) {
+  return journeyReport?.course?.id === course.id ? renderJourneyHistory() : '';
+}
+
+function renderJourneyHistory() {
+  if (!session || !['admin','instructor'].includes(session.role)) return '';
+  if (!journeyReport || journeyReport.accountId !== session.accountId) return '<p class="empty-state">Abre el historial para consultar la participación en jornadas.</p>';
+  if (journeyReport.error) return `<p class="status-note warning">${escapeHtml(journeyReport.error)}</p>`;
+  const report = journeyReport, filters = journeyReportFilters;
+  const params = new URLSearchParams({...filters});
+  const exportUrl = '/api/reports/journey-participation.csv?' + params;
+  return `<section class="mail-card journey-history" aria-label="Historial de jornadas">
+    <h3>Historial de jornadas</h3>
+    <p class="muted">Para priorizar plazas, consulta el mismo tipo de jornada. Cuenta participación validada como alumno; la selección sigue siendo manual.</p>
+    <form id="journeyHistoryForm" class="journey-history-filters" data-course-id="${escapeHtml(filters.courseId)}">
+      ${isAdminView() ? `<label>Tipo de jornada<select id="journeyHistoryType"><option value="">Todos los tipos</option>${report.types.map(t=>`<option value="${escapeHtml(t.id)}" ${t.id===report.selectedType?'selected':''}>${escapeHtml(t.label)}</option>`).join('')}</select></label>
+      <label>Edición / fecha<select id="journeyHistoryEdition"><option value="">Todas las ediciones</option>${report.editions.map(c=>`<option value="${escapeHtml(c.id)}" ${c.id===filters.courseId?'selected':''}>${escapeHtml(formatDate(c.date))} · ${escapeHtml(c.title)}</option>`).join('')}</select></label>` : `<p>${escapeHtml(report.course?.title || '')}</p>`}
+      <label>Nombre o nº de socio<input id="journeyHistorySearch" type="search" maxlength="120" value="${escapeHtml(filters.q)}" /></label>
+      <label>Orden<select id="journeyHistoryOrder"><option value="asc" ${filters.order==='asc'?'selected':''}>Menos participaciones</option><option value="desc" ${filters.order==='desc'?'selected':''}>Más participaciones</option></select></label>
+      <button type="submit" class="primary-button">Consultar</button>
+    </form>
+    <div class="chip-row"><a class="button-link" href="${escapeHtml(exportUrl)}">Descargar historial CSV / Excel</a>${report.course?`<a class="ghost-button button-link" href="${escapeHtml(exportUrl+'&mode=attendees')}">Asistentes validados de esta edición (CSV)</a>`:''}</div>
+    ${report.course?'<p class="muted">Los recuentos muestran las otras jornadas realizadas del mismo tipo, sin incluir esta edición. El CSV de asistentes incluye únicamente el alumnado con cierre validado de esta jornada, una vez alcanzada su fecha.</p>':''}
+    ${report.unclassifiedCount?`<details><summary>${report.unclassifiedCount} jornada(s) sin tipo: revisar antes de usar el historial</summary>${report.unclassifiedCourses.map(c=>`<button type="button" class="ghost-button" data-action="select-course" data-course-id="${escapeHtml(c.id)}">Clasificar · ${escapeHtml(c.title)}</button>`).join('')}</details>`:''}
+    <div class="journey-history-rows">${report.rows.map(row=>`<article class="journey-history-row"><div><strong>${escapeHtml(row.name)}</strong><p class="muted">Nº socio: ${escapeHtml(row.associateNumber || '—')} · Última: ${escapeHtml(row.lastDate?formatDate(row.lastDate):'Sin participaciones registradas')}</p></div><span class="journey-history-count">${row.journeyCount} ${report.course?(row.journeyCount===1?'otra jornada':'otras jornadas'):(row.journeyCount===1?'jornada':'jornadas')}</span>${row.details.length?`<details><summary>Ver jornadas realizadas</summary><ul>${row.details.map(d=>`<li>${escapeHtml(formatDate(d.date))} · ${escapeHtml(d.title)} · ${escapeHtml(d.typeLabel)}</li>`).join('')}</ul></details>`:''}</article>`).join('') || '<p class="empty-state">No hay personas que coincidan con la consulta.</p>'}</div>
+  </section>`;
+}
+
 function renderReports() {
   if (!isAdminView()) {
     return `<div class="empty-state">Los informes globales y exportaciones solo estan disponibles para administracion.</div>`;
+  }
+  if (reportsSectionMode === "journeys") {
+    return `<div class="panel-stack"><div class="chip-row"><button class="ghost-button" data-action="set-reports-section-mode" data-mode="exports">Volver a informes</button></div>${renderJourneyHistory()}</div>`;
   }
 
   const selectedCourse = getSelectedCourse();
@@ -11337,6 +11452,7 @@ function renderReports() {
       </div>
 
       <div class="chip-row">
+        <button class="ghost-button" data-action="open-journey-history">Historial de jornadas</button>
         <button class="${reportsSectionMode === "exports" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="exports">Exportaciones</button>
         <button class="${reportsSectionMode === "validation" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="validation">Validacion</button>
         <button class="${reportsSectionMode === "sponsors" ? "primary-button" : "ghost-button"}" data-action="set-reports-section-mode" data-mode="sponsors">Patrocinadores</button>
@@ -11349,6 +11465,8 @@ function renderReports() {
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionStorage">Almacenamiento</button>
         <button class="mini-button" data-action="nav-section" data-view="reports" data-section-id="reportSectionAgent">Agente</button>
       </div>
+
+      ${showReportsSection("journeys") ? renderJourneyHistory() : ""}
 
       ${showReportsSection("sponsors") ? `<section class="mail-card associate-anchor" id="reportSectionSponsors">${renderBannerSettings(state.settings.banners, state.settings.bannerDisplay)}</section>` : ""}
 
@@ -14107,6 +14225,10 @@ function renderCourseWorkbench(course) {
               Titulo
               <input id="editCourseTitle" value="${escapeHtml(course.title)}" />
             </label>
+            <label class="inline-field studio-full">Tipo para el historial de jornadas
+              <select id="editCourseJourneyType"><option value="">Sin clasificar / curso normal</option>${journeyTypesForForms().map(t=>`<option value="${escapeHtml(t.id)}" ${course.journeyTypeId===t.id?'selected':''}>${escapeHtml(t.label)}</option>`).join('')}</select>
+              <span class="field-hint">Agrupa las ediciones de la misma especialidad. La prioridad se consulta por este tipo, aunque cambies el título del curso.</span>
+            </label>
             <label class="inline-field">
               Clase del curso
               <select id="editCourseClass">
@@ -14369,6 +14491,7 @@ function renderCourseWorkbench(course) {
         ${
           showWorkbenchSection("students")
             ? `
+        ${course.journeyTypeId ? `<button type="button" class="ghost-button" data-action="open-journey-history" data-course-id="${escapeHtml(course.id)}">Historial y asistentes de esta jornada</button>` : ""}
         <div class="content-module">
           <div class="module-head">
             <div>
@@ -16243,6 +16366,8 @@ function syncCourseCreationMode(form = document.getElementById("courseForm")) {
       control.disabled = section.hidden;
     });
   });
+  const custom = document.getElementById('intensiveDayCustomTitle');
+  if (custom?.closest) custom.closest('label').hidden = !intensive || document.getElementById('intensiveDayTitle')?.value !== '__custom';
 }
 
 const COURSE_CLASS_LABELS = {
@@ -16468,6 +16593,8 @@ function normalizeCourse(course) {
   return {
     id: course.id || `course-${Date.now()}`,
     title: escapeHtml.normalizeDisplayText(course.title || ""),
+    journeyTypeId: String(course.journeyTypeId || ""),
+    journeyTypeLabel: String(course.journeyTypeLabel || ""),
     courseClass: normalizeCourseClass(course.courseClass || course.classType),
     type: escapeHtml.normalizeDisplayText(course.type || ""),
     status: escapeHtml.normalizeDisplayText(course.status || "Planificacion"),
@@ -19577,6 +19704,7 @@ function readCourseEditorDraft(course) {
     ...course,
     ...readCourseSharedTestSelection(course),
     title: readCourseTrimmedValue("editCourseTitle", course.title),
+    ...readJourneyClassification(course),
     courseClass: readCourseFieldValue("editCourseClass", course.courseClass),
     type: readCourseTrimmedValue("editCourseType", course.type),
     status: readCourseFieldValue("editCourseStatus", course.status),

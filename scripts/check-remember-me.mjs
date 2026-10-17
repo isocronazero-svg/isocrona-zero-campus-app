@@ -28,6 +28,7 @@ function sessionHarness(respond) {
     session: { accountId: "old", role: "admin" }, viewRole: "admin",
     state: { courses: [{ id: "qa", attendance: { pupil: 0 } }], accounts: [{ id: "old" }], members: [{ id: "pupil" }] },
     fallbackState: { courses: [], accounts: [], members: [], role: "admin" }, storageMeta: { private: true },
+    journeyReport: {private:true}, journeyReportRequest: {},
     academicRoster: { students: [{ id: "pupil" }] }, academicBusy: false, syncStatus: "", loginStatus: "", passwordChangeStatus: "",
     campusGroupAttachmentDrafts: {}, campusGroupSessionEpoch: 0, campusGroupAutosaveIds: new Set(), campusGroupAutosaveRunning: false,
     campusGroupSaving: false, campusGroupPendingUploads: 0, campusGroupPendingFileReads: new Set(), campusGroupFileSelections: new Map(), pendingCampusGroupFileTarget: null,
@@ -56,6 +57,7 @@ for (const role of ["admin", "member", "instructor"]) {
   assert.equal(h.classes.get("login:visible"), true);
   assert.match(h.context.loginStatusElement.textContent, /sesión ha caducado/);
   assert.equal(h.context.academicRoster, null);
+  assert.equal(h.context.journeyReport, null, "Expired sessions discard private participation history");
   assert.deepEqual(Array.from(h.context.state.accounts), []);
   assert.equal(h.context.storageMeta, null);
   for (const key of ["session", "session-backup", "view", "view-backup", "snapshot"]) assert.equal(h.storage.has(key), false);

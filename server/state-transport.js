@@ -118,6 +118,12 @@ function createStateTransport(dependencies = {}) {
     if (!nextState || typeof nextState !== "object") {
       return nextState;
     }
+    // Jornada classification is edited through the dedicated course endpoint, not old whole-state snapshots.
+    const classifiedCourses = new Map((currentState.courses || []).map(course => [course.id, course]));
+    nextState.courses = (nextState.courses || []).map(course => {
+      const current = classifiedCourses.get(course.id);
+      return current ? {...course,journeyTypeId:current.journeyTypeId || '',journeyTypeLabel:current.journeyTypeLabel || ''} : course;
+    });
     // Derived from server configuration; never accept it back as persisted state.
     delete nextState.mailDelivery;
 

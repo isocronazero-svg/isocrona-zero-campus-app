@@ -1,4 +1,5 @@
 const EnrollmentTime = require("./public/enrollment-time.js");
+const JourneyParticipation = require("./server/journey-participation");
 const http = require("http");
 const { createPublicLiveFlow, answerDistribution } = require("./server/public-live-flow");
 const publicLiveFlow = createPublicLiveFlow();
@@ -83,6 +84,7 @@ const {
   verifyLegacyAccountPassword
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
+const handleJourneyReports = JourneyParticipation.createJourneyReportHandler({readState, requireAuthenticatedAccount, sendJson, sendJsonError});
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
 const { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
@@ -8854,6 +8856,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
+  if (await handleJourneyReports(req, res, requestUrl)) return;
+
   if (requestUrl.pathname === "/api/courses" && req.method === "POST") {
     let state = null;
     let releaseInstructors = () => {};
@@ -8866,7 +8870,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
       const payload = await readJsonBody(req, payloadLimitBytes.testAttempt);
       state = readState();
-      const course = { ...normalizeCourseMutationPayload(payload, null), ...courseInstructorConfig(state, payload), ...courseTestConfig(state, payload) };
+      const course = { ...normalizeCourseMutationPayload(payload, null), ...JourneyParticipation.classifyJourney(payload?.course || payload), ...courseInstructorConfig(state, payload), ...courseTestConfig(state, payload) };
       if ((state.courses || []).some((item) => item.id === course.id)) {
         return sendJson(res, 409, { ok: false, error: "Ya existe un curso con ese identificador" });
       }
@@ -8908,7 +8912,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
 
       const previousCourse = state.courses[courseIndex];
       const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
-      const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...courseInstructorConfig(state, payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
+      const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...JourneyParticipation.classifyJourney(payload?.course || payload, previousCourse), ...courseInstructorConfig(state, payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
       releaseInstructors = reserveInstructorAssignments(course.instructorAssociateIds, previousCourse.instructorAssociateIds || []);
       state.courses[courseIndex] = course;
       state.selectedCourseId = course.id;

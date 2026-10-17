@@ -82,7 +82,7 @@ const draft = vm.runInNewContext(`${source("readCourseEditorDraft")}\nreadCourse
   course: { modules: [], resources: [], sessions: [{ title: "Presencial" }] },
   document: { getElementById: id => id === "courseEditForm" ? {} : null }, normalizeCourse: c => c,
   hasCourseModuleEditors: () => false, hasCourseResourceEditors: () => false,
-  readInstructorSelection: (_, fallback) => fallback || [],
+  readInstructorSelection: (_, fallback) => fallback || [], readJourneyClassification: () => ({}),
   readCourseSharedTestSelection: () => ({}), readCourseTrimmedValue: (_, fallback) => fallback,
   readCourseFieldValue: (_, fallback) => fallback, readCourseNumberValue: (_, fallback) => fallback
 });
@@ -303,7 +303,7 @@ for (const admin of [true, false]) {
       getMemberCourseBuckets: () => buckets, getPrimaryMemberCourse: () => catalogueCourses[1],
       renderCourseCatalog: () => "CATALOGUE_ONLY", renderCourseWorkbench: () => "WORKBENCH_ONLY",
       renderSelectedCourse: () => "DETAILS_ONLY", renderMemberCourseWorkspace: () => "LEARNER_ONLY",
-      renderCourseTemplateShowcase: () => "TEMPLATES", renderInstructorSelector: () => "INSTRUCTORS", escapeHtml,
+      renderCourseTemplateShowcase: () => "TEMPLATES", renderInstructorSelector: () => "INSTRUCTORS", journeyTypesForForms: () => [], escapeHtml,
       INTENSIVE_DAY_TITLES: [], COURSE_CLASS_LABELS: {}, COURSE_TEMPLATE_LABELS: {}, COURSE_ACCESS_SCOPE_LABELS: {}
     });
     if (["all", "catalog"].includes(mode)) {

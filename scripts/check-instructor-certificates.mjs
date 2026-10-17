@@ -565,6 +565,7 @@ try {
       document:{getElementById:id=>id==='courseEditForm' ? form :
         id==='editCourseInstructors' ? {dataset:{instructorIds:JSON.stringify(selectedIds)}} : null},
       normalizeCourse:c=>c,hasCourseModuleEditors:()=>false,hasCourseResourceEditors:()=>false,
+      readJourneyClassification:course=>({journeyTypeId:course.journeyTypeId || "",journeyTypeLabel:course.journeyTypeLabel || ""}),
       readCourseSharedTestSelection:()=>({}),readCourseTrimmedValue:(_,value)=>value,
       readCourseFieldValue:(id,value)=>id==='editCourseStatus'?'Cerrado':value,readCourseNumberValue:(_,value)=>value,
       buildCourseBlueprint:()=>({modules:[{id:'qa-module',title:action,lessons:[]}]}),applyBlueprintToCourse:(c,b)=>Object.assign(c,b),
