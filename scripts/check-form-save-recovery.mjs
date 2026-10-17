@@ -79,6 +79,8 @@ function fixture(id = "courseEditForm") {
     buildModulesFromSessions: () => [],
     requestAnimationFrame: () => {},
     readInstructorSelection: () => [],
+    readJourneyClassification: (course = {}) => ({ journeyTypeId: course.journeyTypeId || "", journeyTypeLabel: course.journeyTypeLabel || "" }),
+    journeyTypeIdForLabel: (label) => "journey-" + label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     syncStatus: "",
     membersSectionMode: "import",
     coursesSectionMode: "import",

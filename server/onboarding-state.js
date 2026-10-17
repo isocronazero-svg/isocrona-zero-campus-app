@@ -9,6 +9,7 @@ function capture(state) {
   return {
     applicationDnis: new Map((state.associateApplications || []).map(item => [item.id, item.dni])),
     applicationProofs: new Map((state.associateApplications || []).map(item => [item.id, item.paymentProof])),
+    journeyTypes: new Map((state.courses || []).map(course => [course.id, {journeyTypeId:course.journeyTypeId, journeyTypeLabel:course.journeyTypeLabel}])),
     academicCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
       attendance: course.attendance, evaluations: course.evaluations, diplomaReady: course.diplomaReady
     })])),
@@ -33,6 +34,10 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
         baseline.applicationProofs.get(application.id) !== current.applicationProofs.get(application.id)) {
       application.paymentProof = current.applicationProofs.get(application.id);
     }
+  }
+  for (const course of state.courses || []) {
+    const latest = current.journeyTypes.get(course.id), before = baseline?.journeyTypes.get(course.id);
+    if (latest && (!Object.hasOwn(course, "journeyTypeId") || (baseline && JSON.stringify(before) !== JSON.stringify(latest)))) Object.assign(course, latest);
   }
   // An async writer may predate a synchronous academic correction/closure. Never roll it back or issue from its stale grades.
   if (baseline) for (const course of state.courses || []) {
