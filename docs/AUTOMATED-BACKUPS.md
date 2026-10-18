@@ -110,4 +110,11 @@ Estado: **BLOQUEADO para cerrar la segunda copia**, no validado en Drive.
 - No se han generado credenciales, concedido acceso a Drive, cambiado permisos de carpeta ni configurado secretos Railway. Sin nuevas ejecuciones de backup, cambios de cron/retencion, claves AES/bucket o servicio principal en esta continuacion.
 - Siguiente: finalizar identidad tras confirmacion; configurar cliente y consentimiento OAuth con alcance minimo `drive.file` y seleccion explicita de carpeta. Verificar que la autorizacion operativa no queda limitada a los siete dias del modo de pruebas. La compatibilidad de la credencial OAuth con la funcion existente debe validarse antes de activar Drive.
 
-**Pendiente de cierre operativo:** comprobar una ejecucion real con `driveEnabled=true`, carpeta y objetos cifrados presentes, integridad/recuperacion de todos los archivos y Campus sano. La preparacion de Google Cloud no acredita estos resultados. La PR sigue siendo exclusivamente documental y permanece abierta.
+## Continuidad OAuth: 18/10/2026 18:30 UTC (20:30 Madrid)
+
+- Politica de datos aceptada y configuracion de la app creada con autorizacion expresa de Carlos. Cliente OAuth de escritorio creado tras una segunda autorizacion especifica; aun sin consentimiento de acceso a Drive ni refresh token.
+- Incidente de manejo: un control de copiar incluyo el secreto del cliente en su texto accesible y este aparecio en una salida tecnica. No usar esa credencial. Se informo a Carlos y se dejo el panel de secretos abierto para sustitucion humana y desactivacion del anterior antes de cualquier uso operativo. No registrar valores aqui.
+- La descarga automatica del JSON no termino; no se considera guardado. Preparado directorio local privado fuera de OneDrive con herencia de permisos deshabilitada. Pendiente confirmar guardado del nuevo JSON y retirada de la credencial anterior.
+- Sin cambios de variables/servicios Railway, permisos de Drive, cron, retencion, clave AES ni bucket. No se ejecuto una nueva captura de datos ni se activo Drive. CI documental del SHA previo fb2d6cf: App checks #468 SUCCESS; esta actualizacion solo documenta continuidad.
+
+**Pendiente de cierre operativo:** resolver primero la sustitucion de credencial y despues comprobar una ejecucion real con `driveEnabled=true`, carpeta y objetos cifrados presentes, integridad/recuperacion de todos los archivos y Campus sano. La preparacion de Google Cloud no acredita estos resultados. La PR sigue siendo exclusivamente documental y permanece abierta.
