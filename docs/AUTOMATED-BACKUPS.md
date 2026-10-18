@@ -45,7 +45,7 @@ El codigo de la funcion soporta Google Drive mediante:
 
 `GDRIVE_FOLDER_ID` apunta a la carpeta restringida ya creada. La subida a Drive queda desactivada de forma segura mientras no exista `GDRIVE_SERVICE_ACCOUNT_JSON`.
 
-La credencial de Google no debe guardarse en GitHub. Debe pertenecer a una identidad tecnica con acceso unicamente a la carpeta de backups. Una vez configurada, cada ejecucion crea una subcarpeta `IsocronaZero-auto-<timestamp>`, sube los mismos objetos cifrados y aplica la misma retencion de 30 copias.
+La credencial de Google no debe guardarse en GitHub. El destino y el tipo de identidad deben ser compatibles antes de generar claves. El flujo implementado crea una subcarpeta `IsocronaZero-auto-<timestamp>`, sube los mismos objetos cifrados y aplica la misma retencion de 30 copias, pero su activacion sigue pendiente de la comprobacion descrita abajo.
 
 ## Seguridad operativa
 
@@ -81,10 +81,24 @@ Tras la validacion se restauro y desplego el horario productivo `30 3 * * *` (03
 
 ## Pendientes para cerrar la segunda copia en Google Drive
 
-1. Crear una identidad tecnica de Google con acceso unicamente a la carpeta restringida de backups.
-2. Configurar su JSON como secreto `GDRIVE_SERVICE_ACCOUNT_JSON` en el servicio de backup.
+1. Resolver la compatibilidad de identidad/destino: OAuth autorizado para la carpeta actual de Mi unidad, o cuenta de servicio con una unidad compartida Workspace autorizada. No crear una cuenta de servicio esperando que Editor en Mi unidad le otorgue cuota.
+2. Revisar/reutilizar proyecto, API y credenciales existentes en Google Cloud despues del inicio de sesion humano. Configurar solo la credencial compatible en el servicio de backup, con permisos minimos y sin exponer su contenido.
 3. Ejecutar una prueba y confirmar la nueva subcarpeta cifrada en Drive.
 4. Custodiar una segunda copia de la clave AES fuera de Railway.
 5. Realizar periodicamente un ensayo de descifrado/restauracion en un entorno aislado.
 
 No publicar claves, credenciales ni paquetes descifrados en issues, PR, logs o repositorios.
+
+## Comprobacion de continuidad: 18/10/2026 06:59 UTC (08:59 Madrid)
+
+Estado: **BLOQUEADO para cerrar la segunda copia**, no validado en Drive.
+
+- Railway: reutilizados por lectura los dos servicios existentes, volumen de 5000 MB y bucket en ams. Sin cambios staged. Cron confirmado `30 3 * * *`; no se ha cambiado ni disparado una ejecucion nueva.
+- Log estructurado de la ejecucion existente, 06:45:18 UTC: `ok=true`, `stateBytes=6614863`, `discoveredFileRoutes=4`, `referencedFiles=4`, `missingReferencedFiles=0`, `s3RetentionCount=30`, `driveEnabled=false`. Es evidencia de aquella ejecucion en bucket, no de una copia nueva en Drive ni de una restauracion.
+- La carpeta restringida existente esta en Mi unidad de una cuenta personal de Google: sin `driveId`, no compartida, unico permiso de propietario. La consulta de unidades compartidas accesibles devuelve cero. No hay subcarpetas `IsocronaZero-auto-*`; se conserva la copia manual cifrada anterior y los dos artefactos de ensayo.
+- **Bloqueo de compatibilidad:** las cuentas de servicio no tienen cuota de Drive ni pueden ser propietarias de archivos. Compartir esta carpeta personal con permiso Editor no habilita la subida prevista. Google indica usar unidades compartidas u OAuth en nombre de un usuario: [documentacion oficial, storageQuotaExceeded](https://developers.google.com/workspace/drive/api/guides/handle-errors#storageQuotaExceeded).
+- El codigo desplegado usa GoogleAuth con la credencial JSON, sin delegacion de usuario. No se ha generado una cuenta/clave inutil ni concedido permisos adicionales. OAuth con la cuenta de la asociacion es la alternativa propuesta para conservar la carpeta actual; pendiente de decision y consentimiento, no activada.
+- Google Cloud Console requiere inicio de sesion en el navegador de Codex. No se ha podido verificar todavia el proyecto, Drive API o las cuentas de servicio existentes. La conexion del plugin Drive no da acceso administrativo a Google Cloud.
+- El servicio principal sigue en estado SUCCESS y `/healthz` devuelve HTTP200 con `ok=true`. Sin cambios de codigo operativo, claves AES/bucket, variables, cron, retencion, permisos, datos, correos o reinicios/despliegues en esta comprobacion.
+
+No fusionar esta PR como cierre operativo: primero autenticar Google Cloud y acordar una identidad compatible; despues comprobar una ejecucion real con `driveEnabled=true`, carpeta y objetos cifrados presentes, integridad/recuperacion de todos los archivos y Campus sano. La PR sigue siendo exclusivamente documental.
