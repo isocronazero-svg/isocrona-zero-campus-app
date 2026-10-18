@@ -13,8 +13,8 @@ Separar las copias externas del volumen persistente que utiliza el Campus. El si
 - Servicio de backup: Railway Function `isocrona-campus-backup`.
 - Almacenamiento externo inmediato: bucket privado `isocrona-campus-backups` en region `ams`.
 - Destino Google Drive previsto: carpeta restringida `Isocrona Zero - Copias restringidas`.
-- Retencion objetivo: 30 copias.
-- Horario objetivo: diario a las 03:30 UTC.
+- Retencion: 30 copias.
+- Horario productivo: diario a las 03:30 UTC.
 
 El servicio de backup no monta el volumen del Campus. Se autentica contra el Campus con variables referenciadas de Railway, descarga el `export-state` administrativo y consulta el estado de transporte para descubrir archivos privados referenciados mediante `transportUrl` o `downloadUrl`.
 
@@ -53,16 +53,28 @@ La credencial de Google no debe guardarse en GitHub. Debe pertenecer a una ident
 - Los nombres de los archivos privados se sustituyen por identificadores genericos en el destino; la correspondencia queda dentro del manifiesto cifrado.
 - Un fallo de backup no detiene el Campus principal.
 
-## Validacion necesaria
+## Validacion productiva del 18/10/2026
 
-Antes de declarar el sistema cerrado:
+Se realizo una ejecucion real controlada antes de fijar el horario diario.
 
-1. Obtener una ejecucion real correcta y revisar el log resumido (`ok`, bytes, numero de archivos y prefijo de backup).
-2. Confirmar que la copia existe en el bucket independiente.
-3. Restaurar el horario diario tras cualquier prueba temporal.
-4. Crear la identidad tecnica de Google y compartir solo la carpeta restringida con ella.
-5. Configurar `GDRIVE_SERVICE_ACCOUNT_JSON` como secreto de Railway y comprobar una copia real en Drive.
-6. Custodiar una segunda copia de la clave AES fuera de Railway.
-7. Realizar periodicamente un ensayo de descifrado/restauracion en un entorno aislado.
+- Resultado Railway: `Last run succeeded`.
+- Ejecucion: 18/10/2026 06:35:05 UTC.
+- Estado exportado: 6.614.863 bytes.
+- Archivos privados referenciados incluidos: 2.
+- Prefijo de la copia: `campus/20261018T063502268Z/`.
+- Retencion configurada: 30 copias.
+- Copias antiguas eliminadas en esta primera ejecucion: 0.
+- Google Drive: preparado pero no activado (`driveEnabled=false`) al faltar la credencial tecnica de Google.
+- El Campus principal permanecio online y sin incidencias durante la prueba.
+
+Tras la prueba se restauro el horario productivo `30 3 * * *` (03:30 UTC diario).
+
+## Pendientes para cerrar la segunda copia en Google Drive
+
+1. Crear una identidad tecnica de Google con acceso unicamente a la carpeta restringida de backups.
+2. Configurar su JSON como secreto `GDRIVE_SERVICE_ACCOUNT_JSON` en el servicio de backup.
+3. Ejecutar una prueba y confirmar la nueva subcarpeta cifrada en Drive.
+4. Custodiar una segunda copia de la clave AES fuera de Railway.
+5. Realizar periodicamente un ensayo de descifrado/restauracion en un entorno aislado.
 
 No publicar claves, credenciales ni paquetes descifrados en issues, PR, logs o repositorios.
