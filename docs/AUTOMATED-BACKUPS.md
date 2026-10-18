@@ -101,4 +101,13 @@ Estado: **BLOQUEADO para cerrar la segunda copia**, no validado en Drive.
 - Google Cloud Console requiere inicio de sesion en el navegador de Codex. No se ha podido verificar todavia el proyecto, Drive API o las cuentas de servicio existentes. La conexion del plugin Drive no da acceso administrativo a Google Cloud.
 - El servicio principal sigue en estado SUCCESS y `/healthz` devuelve HTTP200 con `ok=true`. Sin cambios de codigo operativo, claves AES/bucket, variables, cron, retencion, permisos, datos, correos o reinicios/despliegues en esta comprobacion.
 
-No fusionar esta PR como cierre operativo: primero autenticar Google Cloud y acordar una identidad compatible; despues comprobar una ejecucion real con `driveEnabled=true`, carpeta y objetos cifrados presentes, integridad/recuperacion de todos los archivos y Campus sano. La PR sigue siendo exclusivamente documental.
+## Continuidad Google Cloud: 18/10/2026 13:32 UTC (15:32 Madrid)
+
+- Carlos eligio expresamente OAuth con la cuenta de la asociacion para conservar la carpeta de Mi unidad. La propuesta de cuenta de servicio queda descartada para este destino.
+- Inicio de sesion completado. Condiciones de Google Cloud aceptadas con autorizacion expresa; sin activar facturacion ni prueba de pago.
+- Inventario de recursos sin proyectos visibles tras refresco. Creado y comprobado proyecto `isocrona-zero-backups` (Isocrona Zero Backups); reutilizarlo, no crear otro. Google Drive API muestra estado Habilitada.
+- Sin clientes OAuth ni cuentas de servicio en el proyecto. Preparado, pero NO enviado, asistente de identidad `Isocrona Zero - Copias cifradas`, audiencia externa por tratarse de Gmail. Detenido en la aceptacion de la Politica de Datos del Usuario de APIs de Google; confirmacion especifica solicitada a Carlos.
+- No se han generado credenciales, concedido acceso a Drive, cambiado permisos de carpeta ni configurado secretos Railway. Sin nuevas ejecuciones de backup, cambios de cron/retencion, claves AES/bucket o servicio principal en esta continuacion.
+- Siguiente: finalizar identidad tras confirmacion; configurar cliente y consentimiento OAuth con alcance minimo `drive.file` y seleccion explicita de carpeta. Verificar que la autorizacion operativa no queda limitada a los siete dias del modo de pruebas. La compatibilidad de la credencial OAuth con la funcion existente debe validarse antes de activar Drive.
+
+**Pendiente de cierre operativo:** comprobar una ejecucion real con `driveEnabled=true`, carpeta y objetos cifrados presentes, integridad/recuperacion de todos los archivos y Campus sano. La preparacion de Google Cloud no acredita estos resultados. La PR sigue siendo exclusivamente documental y permanece abierta.
