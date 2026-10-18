@@ -16,15 +16,17 @@ Separar las copias externas del volumen persistente que utiliza el Campus. El si
 - Retencion: 30 copias.
 - Horario productivo: diario a las 03:30 UTC.
 
-El servicio de backup no monta el volumen del Campus. Se autentica contra el Campus con variables referenciadas de Railway, descarga el `export-state` administrativo y consulta el estado de transporte para descubrir archivos privados referenciados mediante `transportUrl` o `downloadUrl`.
+El servicio de backup no monta el volumen del Campus. Se autentica contra el Campus con variables referenciadas de Railway, descarga el `export-state` administrativo y consulta el estado de transporte para descubrir archivos privados.
 
 ## Contenido de cada copia
 
 Cada ejecucion crea un prefijo/carpeta independiente con:
 
 - `state.json.aes256gcm`: estado administrativo completo cifrado;
-- `file-XXXX.bin.aes256gcm`: archivos privados referenciados por el estado transportado;
+- `file-XXXX.bin.aes256gcm`: archivos privados referenciados por el estado;
 - `manifest.json.aes256gcm`: manifiesto cifrado con ruta logica, tipo MIME, tamano y SHA-256 de cada elemento.
+
+La deteccion cubre `transportUrl`/`downloadUrl` y los ficheros de socios guardados como nombres internos: `proofFile`, `paymentProof`, `paymentProof2` y `applicantReplyDocuments`.
 
 Las sesiones recordadas no son necesarias para la recuperacion de negocio: tras una restauracion los usuarios pueden volver a iniciar sesion.
 
@@ -55,19 +57,27 @@ La credencial de Google no debe guardarse en GitHub. Debe pertenecer a una ident
 
 ## Validacion productiva del 18/10/2026
 
-Se realizo una ejecucion real controlada antes de fijar el horario diario.
+Primera ejecucion controlada:
 
 - Resultado Railway: `Last run succeeded`.
 - Ejecucion: 18/10/2026 06:35:05 UTC.
 - Estado exportado: 6.614.863 bytes.
-- Archivos privados referenciados incluidos: 2.
-- Prefijo de la copia: `campus/20261018T063502268Z/`.
-- Retencion configurada: 30 copias.
-- Copias antiguas eliminadas en esta primera ejecucion: 0.
-- Google Drive: preparado pero no activado (`driveEnabled=false`) al faltar la credencial tecnica de Google.
-- El Campus principal permanecio online y sin incidencias durante la prueba.
+- Archivos privados incluidos inicialmente: 2.
 
-Tras la prueba se restauro el horario productivo `30 3 * * *` (03:30 UTC diario).
+La revision posterior detecto que justificantes y documentos de solicitudes usan tambien rutas `/api/associates/files/...` construidas desde nombres internos. Se amplio la deteccion y se realizo una segunda ejecucion real:
+
+- Resultado Railway: `Last run succeeded`.
+- Ejecucion: 18/10/2026 06:45:22 UTC.
+- Estado exportado: 6.614.863 bytes.
+- Rutas privadas descubiertas: 4.
+- Archivos privados copiados: 4.
+- Referencias locales no recuperables: 0.
+- Prefijo de la copia: `campus/20261018T064514669Z/`.
+- Retencion configurada: 30 copias.
+- Google Drive: preparado pero no activado (`driveEnabled=false`) al faltar la credencial tecnica de Google.
+- El Campus principal permanecio online y sin incidencias durante ambas pruebas.
+
+Tras la validacion se restauro y desplego el horario productivo `30 3 * * *` (03:30 UTC diario).
 
 ## Pendientes para cerrar la segunda copia en Google Drive
 
