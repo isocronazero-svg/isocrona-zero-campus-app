@@ -4,6 +4,48 @@ const associateFields = ["firstName", "lastName", "email", "status", "observatio
   "temporaryPassword", "campusOnboardingCreatedAt", "welcomeEmailStatus", "welcomeEmailSentAt", "welcomeEmailError"];
 const memberFields = ["id", "associateId", "email", "name", "source"];
 
+function snapshotEnrollment(course) {
+  return structuredClone({
+    enrolledIds: Array.isArray(course?.enrolledIds) ? course.enrolledIds : [],
+    waitingIds: Array.isArray(course?.waitingIds) ? course.waitingIds : [],
+    enrollmentSubmissions: Array.isArray(course?.enrollmentSubmissions) ? course.enrollmentSubmissions : []
+  });
+}
+
+function mergeStringListDelta(incoming = [], before = [], latest = []) {
+  const beforeSet = new Set(before || []);
+  const incomingSet = new Set(incoming || []);
+  const result = new Set(latest || []);
+  for (const id of beforeSet) if (!incomingSet.has(id)) result.delete(id);
+  for (const id of incomingSet) if (!beforeSet.has(id)) result.add(id);
+  return [...result];
+}
+
+function mergeRecordListDelta(incoming = [], before = [], latest = []) {
+  const beforeMap = new Map((before || []).map(item => [item.id, item]));
+  const incomingMap = new Map((incoming || []).map(item => [item.id, item]));
+  const result = new Map((latest || []).map(item => [item.id, structuredClone(item)]));
+  for (const id of beforeMap.keys()) if (!incomingMap.has(id)) result.delete(id);
+  for (const [id, record] of incomingMap) {
+    const previous = beforeMap.get(id);
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(record)) {
+      result.set(id, structuredClone(record));
+    }
+  }
+  return [...result.values()];
+}
+
+function assertEnrollmentCapacity(state) {
+  for (const course of state.courses || []) {
+    const capacity = Number(course.capacity || 0);
+    if (!Number.isFinite(capacity) || capacity <= 0) continue;
+    const occupied = new Set((course.enrolledIds || []).filter(Boolean)).size;
+    if (occupied > Math.floor(capacity)) {
+      throw new Error(`El curso ${course.title || course.id || "seleccionado"} ya no tiene plazas suficientes para completar la operacion.`);
+    }
+  }
+}
+
 function capture(state) {
   const associates = (state.associates || []).filter(item => item.campusOnboardingCreatedAt);
   return {
@@ -13,6 +55,7 @@ function capture(state) {
     academicCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
       attendance: course.attendance, evaluations: course.evaluations, diplomaReady: course.diplomaReady
     })])),
+    enrollmentCourses: new Map((state.courses || []).map(course => [course.id, snapshotEnrollment(course)])),
     instructorFlags: new Map((state.associates || []).map(item => [item.id, item.instructorEnabled === true])),
     smtp: structuredClone(state.settings?.smtp),
     associates: new Map(associates.map(item => [item.id, structuredClone(item)])),
@@ -38,6 +81,24 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
   for (const course of state.courses || []) {
     const latest = current.journeyTypes.get(course.id), before = baseline?.journeyTypes.get(course.id);
     if (latest && (!Object.hasOwn(course, "journeyTypeId") || (baseline && JSON.stringify(before) !== JSON.stringify(latest)))) Object.assign(course, latest);
+  }
+  // Preserve concurrent enrollment/reservation changes with a three-way merge. This also makes
+  // administrative reservations safe when another participant takes the last seat at the same time.
+  if (baseline) for (const course of state.courses || []) {
+    const before = baseline.enrollmentCourses.get(course.id);
+    const latest = current.enrollmentCourses.get(course.id);
+    if (!latest || JSON.stringify(before) === JSON.stringify(latest)) continue;
+    if (!before) {
+      Object.assign(course, structuredClone(latest));
+      continue;
+    }
+    course.enrolledIds = mergeStringListDelta(course.enrolledIds, before.enrolledIds, latest.enrolledIds);
+    course.waitingIds = mergeStringListDelta(course.waitingIds, before.waitingIds, latest.waitingIds);
+    course.enrollmentSubmissions = mergeRecordListDelta(
+      course.enrollmentSubmissions,
+      before.enrollmentSubmissions,
+      latest.enrollmentSubmissions
+    );
   }
   // An async writer may predate a synchronous academic correction/closure. Never roll it back or issue from its stale grades.
   if (baseline) for (const course of state.courses || []) {
@@ -93,6 +154,7 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
       associate.instructorEnabled = current.instructorFlags.get(associate.id) === true;
     }
   }
+  assertEnrollmentCapacity(state);
   return state;
 }
 
