@@ -1,0 +1,179 @@
+name: Admin seat reservations once
+
+on:
+  push:
+    branches:
+      - feat/admin-seat-reservations
+    paths:
+      - .github/workflows/admin-seat-reservations-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/admin-seat-reservations
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Patch reservation integration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f"{label}: target not found")
+              return text.replace(old, new, 1)
+
+          # ---- server.js ----
+          path = Path('server.js')
+          text = path.read_text()
+          text = replace_once(
+              text,
+              'const { normalizeNoticeAttachments, compactNotice, createNoticesHandler, MAX_NOTICE_BODY_BYTES } = require("./server/notices");',
+              'const { normalizeNoticeAttachments, compactNotice, createNoticesHandler, MAX_NOTICE_BODY_BYTES } = require("./server/notices");\nconst { createAdminSeatReservationsHandler, getCourseOccupiedSeatCount } = require("./server/admin-seat-reservations");',
+              'server import'
+          )
+          text = replace_once(
+              text,
+              'const handleNotices = createNoticesHandler({ baseUrl: campusBaseUrl, readState, writeState, requireAuthenticatedAccount, requireAdminAccount, readJsonBody, sendJson, sendJsonError, appendActivity });',
+              'const handleNotices = createNoticesHandler({ baseUrl: campusBaseUrl, readState, writeState, requireAuthenticatedAccount, requireAdminAccount, readJsonBody, sendJson, sendJsonError, appendActivity });\nconst handleAdminSeatReservations = createAdminSeatReservationsHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError, appendActivity });',
+              'server handler creation'
+          )
+          text = replace_once(
+              text,
+              '  const requestUrl = new URL(req.url, `http://${req.headers.host}`);\n  if (await handleLiveTestLibrary(req, res, requestUrl)) return;',
+              '  const requestUrl = new URL(req.url, `http://${req.headers.host}`);\n  if (await handleAdminSeatReservations(req, res, requestUrl)) return;\n  if (await handleLiveTestLibrary(req, res, requestUrl)) return;',
+              'server handler mount'
+          )
+          old_capacity = '(course.enrolledIds || []).length < Number(course.capacity || 0)'
+          count = text.count(old_capacity)
+          if count != 3:
+              raise SystemExit(f'server capacity guard count expected 3, got {count}')
+          text = text.replace(old_capacity, 'getCourseOccupiedSeatCount(course) < Number(course.capacity || 0)')
+          text = replace_once(
+              text,
+              '      const enrolledCount = Array.isArray(course.enrolledIds) ? course.enrolledIds.length : 0;',
+              '      const enrolledCount = getCourseOccupiedSeatCount(course);',
+              'public course count'
+          )
+          text = replace_once(
+              text,
+              '      while (waitingIds.length && enrolledIds.length < course.capacity) {',
+              '      while (waitingIds.length && getCourseOccupiedSeatCount(course) < Number(course.capacity || 0)) {',
+              'waitlist capacity'
+          )
+          text = replace_once(
+              text,
+              '        course.enrolledIds = (course.enrolledIds || []).filter((item) => item !== submission.memberId);\n        course.waitingIds = (course.waitingIds || []).filter((item) => item !== submission.memberId);\n      } else if (nextStatus === "confirmed") {',
+              '        course.enrolledIds = (course.enrolledIds || []).filter((item) => item !== submission.memberId);\n        course.waitingIds = (course.waitingIds || []).filter((item) => item !== submission.memberId);\n        if (submission.source === "admin-reservation" && submission.adminReservationId) {\n          course.adminReservations = (course.adminReservations || []).filter((item) => item.id !== submission.adminReservationId);\n        }\n      } else if (nextStatus === "confirmed") {',
+              'reservation rejection cleanup'
+          )
+          text = replace_once(
+              text,
+              '    course.enrollmentSubmissions = (course.enrollmentSubmissions || []).filter(\n      (submission) => submission.memberId !== normalizedMemberId\n    );',
+              '    course.enrollmentSubmissions = (course.enrollmentSubmissions || []).filter(\n      (submission) => submission.memberId !== normalizedMemberId\n    );\n    course.adminReservations = (course.adminReservations || []).filter(\n      (reservation) => reservation.memberId !== normalizedMemberId\n    );',
+              'member deletion reservation cleanup'
+          )
+          path.write_text(text)
+
+          # ---- storage.js ----
+          path = Path('storage.js')
+          text = path.read_text()
+          text = replace_once(
+              text,
+              '    questionBank,\n    materials: Array.isArray(course.materials) ? course.materials : [],\n    evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria : [],\n    contentStatus: course.contentStatus || "draft",\n    contentProgress: course.contentProgress || {},',
+              '    questionBank,\n    materials: Array.isArray(course.materials) ? course.materials : [],\n    evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria : [],\n    contentStatus: course.contentStatus || "draft",\n    adminReservations: Array.isArray(course.adminReservations)\n      ? course.adminReservations.map((reservation, reservationIndex) => ({\n          id: reservation.id || `admin-reservation-${Date.now()}-${reservationIndex}`,\n          kind: reservation.kind === "guest" ? "guest" : "member",\n          memberId: String(reservation.memberId || "").trim(),\n          guestName: String(reservation.guestName || "").trim(),\n          email: String(reservation.email || "").trim().toLowerCase(),\n          phone: String(reservation.phone || "").trim(),\n          status: String(reservation.status || "reserved").trim() || "reserved",\n          paymentStatus: String(reservation.paymentStatus || "pending").trim() || "pending",\n          createdAt: reservation.createdAt || "",\n          createdByAccountId: String(reservation.createdByAccountId || "").trim(),\n          createdBy: String(reservation.createdBy || "").trim(),\n          paymentUpdatedAt: reservation.paymentUpdatedAt || "",\n          paymentUpdatedBy: String(reservation.paymentUpdatedBy || "").trim()\n        }))\n      : [],\n    contentProgress: course.contentProgress || {},',
+              'storage reservation normalization'
+          )
+          path.write_text(text)
+
+          # ---- server/state-transport.js ----
+          path = Path('server/state-transport.js')
+          text = path.read_text()
+          text = replace_once(
+              text,
+              'const { compactNotice, canAccessCampusNotice } = require("./notices");',
+              'const { compactNotice, canAccessCampusNotice } = require("./notices");\nconst { getCourseOccupiedSeatCount } = require("./admin-seat-reservations");',
+              'state transport import'
+          )
+          text = replace_once(
+              text,
+              '          enrolledCount: (course.enrolledIds || []).length,',
+              '          enrolledCount: getCourseOccupiedSeatCount(course),',
+              'member occupied count'
+          )
+          text = replace_once(
+              text,
+              '          contentProgress: ownProgress,\n          enrollmentSubmissions: ownEnrollmentSubmissions',
+              '          contentProgress: ownProgress,\n          enrollmentSubmissions: ownEnrollmentSubmissions,\n          adminReservations: []',
+              'member reservation privacy'
+          )
+          path.write_text(text)
+
+          # ---- public/app.js ----
+          path = Path('public/app.js')
+          text = path.read_text()
+          text = replace_once(
+              text,
+              'function getCourseEnrolledCount(course) {\n  return Number(course?.enrolledCount ?? course?.enrolledIds?.length ?? 0);\n}',
+              'function getCourseEnrolledCount(course) {\n  if (course?.enrolledCount !== undefined && course?.enrolledCount !== null) {\n    return Number(course.enrolledCount || 0);\n  }\n  const enrolledCount = new Set((course?.enrolledIds || []).filter(Boolean)).size;\n  const guestReservations = (course?.adminReservations || []).filter(\n    (reservation) => reservation.kind === "guest" && String(reservation.status || "reserved") !== "released"\n  ).length;\n  return enrolledCount + guestReservations;\n}',
+              'frontend occupied count'
+          )
+          text = replace_once(
+              text,
+              '  const waitingMembers = course.waitingIds.map(findMember).filter(Boolean);\n  const enrolledMembers = course.enrolledIds.map(findMember).filter(Boolean);\n  const readiness = getCourseContentReadiness(course);',
+              '  const waitingMembers = course.waitingIds.map(findMember).filter(Boolean);\n  const enrolledMembers = course.enrolledIds.map(findMember).filter(Boolean);\n  const adminReservations = (course.adminReservations || []).filter(\n    (reservation) => String(reservation.status || "reserved") !== "released"\n  );\n  const reservableMembers = (state.members || [])\n    .filter((member) => !(course.enrolledIds || []).includes(member.id) && !(course.waitingIds || []).includes(member.id))\n    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"));\n  const reservationRosterPreview = adminReservations.length\n    ? adminReservations.map((reservation) => {\n        const member = reservation.kind === "member" ? findMember(reservation.memberId) : null;\n        const associate = member ? findAssociateByMember(member) : null;\n        const label = member?.name || reservation.guestName || "Invitado externo";\n        const contact = member?.email || reservation.email || reservation.phone || "Sin contacto";\n        const paymentLabel = Number(course.enrollmentFee || 0) <= 0\n          ? "Sin coste"\n          : reservation.kind === "member"\n            ? "Pago según inscripción"\n            : reservation.paymentStatus === "paid" ? "Pagado" : "Pendiente de pago";\n        return `\n          <article class="compact-person-row compact-person-row-stacked">\n            <div class="compact-person-main">\n              <div class="row-between">\n                <strong>${escapeHtml(label)}</strong>\n                <span class="small-chip">Reserva administrativa</span>\n              </div>\n              <span class="muted">${escapeHtml(contact)}</span>\n              <div class="chip-row compact-chip-row">\n                <span class="small-chip">${reservation.kind === "member" ? `Socio${associate?.associateNumber ? ` #${escapeHtml(String(associate.associateNumber))}` : ""}` : "Invitado externo"}</span>\n                <span class="small-chip">${escapeHtml(paymentLabel)}</span>\n              </div>\n            </div>\n            <div class="chip-row">\n              ${reservation.kind === "guest" && Number(course.enrollmentFee || 0) > 0 && reservation.paymentStatus !== "paid" ? `<button class="mini-button" type="button" data-action="mark-admin-reservation-paid" data-course-id="${course.id}" data-reservation-id="${reservation.id}">Marcar pagado</button>` : ""}\n              <button class="mini-button danger-button" type="button" data-action="release-admin-reservation" data-course-id="${course.id}" data-reservation-id="${reservation.id}">Liberar plaza</button>\n            </div>\n          </article>\n        `;\n      }).join("")\n    : `<p class="muted">No hay plazas reservadas manualmente en este curso.</p>`;\n  const readiness = getCourseContentReadiness(course);',
+              'workbench reservation model'
+          )
+          text = replace_once(
+              text,
+              '          <div class="status-note info course-students-summary">\n            ${enrolledMembers.length} inscrito(s), ${pendingEnrollmentSubmissions.length} pendiente(s) de revisar, ${proofPendingSubmissions.length} con justificante pendiente y ${waitingMembers.length || waitingEnrollmentSubmissions.length} en espera.\n          </div>\n          ${renderOperations(course)}',
+              '          <div class="status-note info course-students-summary">\n            ${getCourseEnrolledCount(course)} plaza(s) ocupada(s), ${adminReservations.length} reserva(s) administrativa(s), ${pendingEnrollmentSubmissions.length} pendiente(s) de revisar, ${proofPendingSubmissions.length} con justificante pendiente y ${waitingMembers.length || waitingEnrollmentSubmissions.length} en espera.\n          </div>\n          <div class="mail-card" id="courseAdminReservations">\n            <div class="row-between">\n              <div>\n                <p class="eyebrow">Reserva previa</p>\n                <h4>Añadir participante / Reservar plaza</h4>\n                <p class="muted">La reserva ocupa plaza inmediatamente aunque todavía no se haya abierto la inscripción general.</p>\n              </div>\n              <span class="small-chip">${getCourseSeatsLeft(course)} libre(s) de ${Number(course.capacity || 0)}</span>\n            </div>\n            <div class="course-grid course-grid-tight">\n              <div class="timeline-item compact-timeline-item">\n                <span class="eyebrow">Socio</span>\n                <label class="inline-field">\n                  Seleccionar socio\n                  <select id="courseAdminReservationMemberId">\n                    <option value="">Selecciona un socio</option>\n                    ${reservableMembers.map((member) => {\n                      const associate = findAssociateByMember(member);\n                      return `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}${associate?.associateNumber ? ` · Socio #${escapeHtml(String(associate.associateNumber))}` : ""}</option>`;\n                    }).join("")}\n                  </select>\n                </label>\n                <button class="mini-button" type="button" data-action="reserve-course-member" data-course-id="${course.id}" ${getCourseSeatsLeft(course) <= 0 || !reservableMembers.length ? "disabled" : ""}>Reservar plaza al socio</button>\n              </div>\n              <div class="timeline-item compact-timeline-item">\n                <span class="eyebrow">Invitado externo</span>\n                <label class="inline-field">Nombre y apellidos<input id="courseAdminReservationGuestName" maxlength="160" placeholder="Nombre del invitado" /></label>\n                <label class="inline-field">Email (opcional)<input id="courseAdminReservationGuestEmail" type="email" maxlength="180" placeholder="correo@ejemplo.es" /></label>\n                <label class="inline-field">Teléfono (opcional)<input id="courseAdminReservationGuestPhone" maxlength="50" placeholder="600 000 000" /></label>\n                <button class="mini-button" type="button" data-action="reserve-course-guest" data-course-id="${course.id}" ${getCourseSeatsLeft(course) <= 0 ? "disabled" : ""}>Reservar plaza al invitado</button>\n              </div>\n            </div>\n            <div class="stack compact-list" style="margin-top: 12px;">\n              ${reservationRosterPreview}\n            </div>\n          </div>\n          ${renderOperations(course)}',
+              'reservation workbench UI'
+          )
+          text = replace_once(
+              text,
+              '  if (action === "enroll" && courseId) {',
+              '  if (action === "reserve-course-member" && isAdminSession() && courseId) {\n    const memberId = String(document.getElementById("courseAdminReservationMemberId")?.value || "").trim();\n    if (!memberId) {\n      showToast("Selecciona un socio para reservar la plaza", "warning");\n      return;\n    }\n    courseWorkbenchMode = "students";\n    await invokeJsonAction(\n      `/api/courses/${encodeURIComponent(courseId)}/admin-reservations`,\n      { kind: "member", memberId },\n      "Plaza reservada al socio"\n    );\n    return;\n  }\n\n  if (action === "reserve-course-guest" && isAdminSession() && courseId) {\n    const guestName = String(document.getElementById("courseAdminReservationGuestName")?.value || "").trim();\n    const email = String(document.getElementById("courseAdminReservationGuestEmail")?.value || "").trim();\n    const phone = String(document.getElementById("courseAdminReservationGuestPhone")?.value || "").trim();\n    if (!guestName) {\n      showToast("Escribe el nombre y apellidos del invitado", "warning");\n      return;\n    }\n    courseWorkbenchMode = "students";\n    await invokeJsonAction(\n      `/api/courses/${encodeURIComponent(courseId)}/admin-reservations`,\n      { kind: "guest", guestName, email, phone },\n      "Plaza reservada al invitado"\n    );\n    return;\n  }\n\n  if (action === "release-admin-reservation" && isAdminSession() && courseId) {\n    const reservationId = String(actionTarget.dataset.reservationId || "").trim();\n    if (!reservationId || !window.confirm("Liberar esta plaza reservada? Volverá a estar disponible inmediatamente.")) {\n      return;\n    }\n    courseWorkbenchMode = "students";\n    await invokeServerAction(\n      `/api/courses/${encodeURIComponent(courseId)}/admin-reservations/${encodeURIComponent(reservationId)}`,\n      "Plaza reservada liberada",\n      "DELETE"\n    );\n    return;\n  }\n\n  if (action === "mark-admin-reservation-paid" && isAdminSession() && courseId) {\n    const reservationId = String(actionTarget.dataset.reservationId || "").trim();\n    if (!reservationId) return;\n    courseWorkbenchMode = "students";\n    await invokeJsonAction(\n      `/api/courses/${encodeURIComponent(courseId)}/admin-reservations/${encodeURIComponent(reservationId)}/payment`,\n      { paid: true },\n      "Pago de la reserva marcado como recibido"\n    );\n    return;\n  }\n\n  if (action === "enroll" && courseId) {',
+              'reservation frontend actions'
+          )
+          path.write_text(text)
+
+          # ---- scripts/check-app.mjs ----
+          path = Path('scripts/check-app.mjs')
+          text = path.read_text()
+          text = replace_once(
+              text,
+              '  "server/journey-participation.js",\n  "server/notices.js", "public/aviso.js", "public/assets/js/app/ui/notices.js",',
+              '  "server/journey-participation.js",\n  "server/admin-seat-reservations.js",\n  "server/notices.js", "public/aviso.js", "public/assets/js/app/ui/notices.js",',
+              'check app syntax module'
+          )
+          text = replace_once(
+              text,
+              '  "scripts/check-journey-participation.mjs",\n  "scripts/check-mail-delivery.mjs",',
+              '  "scripts/check-journey-participation.mjs",\n  "scripts/check-admin-seat-reservations.mjs",\n  "scripts/check-mail-delivery.mjs",',
+              'check app reservation script'
+          )
+          path.write_text(text)
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Run focused reservation checks
+        run: node scripts/check-admin-seat-reservations.mjs
+      - name: Run full app safety checks
+        run: IZ_DATA_DIR=/tmp/isocrona-reservation-qa npm run check:app
+      - name: Commit validated implementation
+        run: |
+          git config user.name "isocronazero-v1-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add server.js storage.js server/state-transport.js public/app.js scripts/check-app.mjs
+          git commit -m "feat: add administrative course seat reservations"
+          git push origin HEAD:feat/admin-seat-reservations
