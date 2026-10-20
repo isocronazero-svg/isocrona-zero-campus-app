@@ -14,7 +14,7 @@ jobs:
   patch:
     runs-on: ubuntu-latest
     env:
-      IZ_DATA_DIR: ${{ runner.temp }}/isocrona-v1-data
+      IZ_DATA_DIR: /tmp/isocrona-v1-data
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,7 +33,6 @@ jobs:
           text = path.read_text()
           original = text
 
-          # #282: effective enrollment deadline must be reflected for admin too.
           old = 'role === "member" && EnrollmentTime.courseWindowState(course) === "closed"'
           if old not in text:
               raise SystemExit("#282 target not found")
@@ -49,14 +48,12 @@ jobs:
               1,
           )
 
-          # #279: 50/30 are the only fee choices; 50 is the default real value.
           old = '<input id="associatePaymentSubmissionAmount" type="number" min="1" step="1" placeholder="50" />'
           new = '<select id="associatePaymentSubmissionAmount">\n                <option value="50" selected>50 € — Cuota general</option>\n                <option value="30">30 € — Cuota reducida</option>\n              </select>'
           if old not in text:
               raise SystemExit("#279 target not found")
           text = text.replace(old, new, 1)
 
-          # #280: preserve the current member selection across state refreshes.
           pattern = re.compile(
               r'(?m)^  const activeView = hasLoaded \? state\.activeView : null;\n'
               r'  state = normalizeState\(payload\);\n'
@@ -81,7 +78,6 @@ jobs:
           if count != 1:
               raise SystemExit(f"#280 target count={count}")
 
-          # #281: do not destroy/recreate the search input on every keystroke.
           listener = text.index('document.addEventListener("input", (event) => {')
           start = text.index('  if (event.target.id === "associateSearchFilter") {', listener)
           end = text.index('\n  }\n', start) + len('\n  }')
