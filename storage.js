@@ -975,6 +975,23 @@ function normalizeCourse(course) {
     materials: Array.isArray(course.materials) ? course.materials : [],
     evaluationCriteria: Array.isArray(course.evaluationCriteria) ? course.evaluationCriteria : [],
     contentStatus: course.contentStatus || "draft",
+    adminReservations: Array.isArray(course.adminReservations)
+      ? course.adminReservations.map((reservation, reservationIndex) => ({
+          id: reservation.id || `admin-reservation-${Date.now()}-${reservationIndex}`,
+          kind: reservation.kind === "guest" ? "guest" : "member",
+          memberId: String(reservation.memberId || "").trim(),
+          guestName: String(reservation.guestName || "").trim(),
+          email: String(reservation.email || "").trim().toLowerCase(),
+          phone: String(reservation.phone || "").trim(),
+          status: String(reservation.status || "reserved").trim() || "reserved",
+          paymentStatus: String(reservation.paymentStatus || "pending").trim() || "pending",
+          createdAt: reservation.createdAt || "",
+          createdByAccountId: String(reservation.createdByAccountId || "").trim(),
+          createdBy: String(reservation.createdBy || "").trim(),
+          paymentUpdatedAt: reservation.paymentUpdatedAt || "",
+          paymentUpdatedBy: String(reservation.paymentUpdatedBy || "").trim()
+        }))
+      : [],
     contentProgress: course.contentProgress || {},
     enrolledIds: Array.isArray(course.enrolledIds) ? course.enrolledIds : [],
     waitingIds: Array.isArray(course.waitingIds) ? course.waitingIds : [],

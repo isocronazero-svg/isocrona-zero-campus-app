@@ -1,4 +1,5 @@
 const { compactNotice, canAccessCampusNotice } = require("./notices");
+const { getCourseOccupiedSeatCount } = require("./admin-seat-reservations");
 
 function createStateTransport(dependencies = {}) {
   const {
@@ -277,7 +278,7 @@ function createStateTransport(dependencies = {}) {
         return {
           ...course,
           accessScope: normalizeCourseAccessScope(course.accessScope, course.audience),
-          enrolledCount: (course.enrolledIds || []).length,
+          enrolledCount: getCourseOccupiedSeatCount(course),
           waitingCount: (course.waitingIds || []).length,
           diplomaReadyCount: (course.diplomaReady || []).length,
           mailsSentCount: (course.mailsSent || []).length,
@@ -288,7 +289,8 @@ function createStateTransport(dependencies = {}) {
           attendance: ownAttendance,
           evaluations: ownEvaluations,
           contentProgress: ownProgress,
-          enrollmentSubmissions: ownEnrollmentSubmissions
+          enrollmentSubmissions: ownEnrollmentSubmissions,
+          adminReservations: []
         };
       });
     const selectedCourseId = visibleCourses.some((course) => course.id === state.selectedCourseId)

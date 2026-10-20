@@ -3180,6 +3180,64 @@ document.addEventListener("click", async (event) => {
     shouldPersist = true;
   }
 
+  if (action === "reserve-course-member" && isAdminSession() && courseId) {
+    const memberId = String(document.getElementById("courseAdminReservationMemberId")?.value || "").trim();
+    if (!memberId) {
+      showToast("Selecciona un socio para reservar la plaza", "warning");
+      return;
+    }
+    courseWorkbenchMode = "students";
+    await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(courseId)}/admin-reservations`,
+      { kind: "member", memberId },
+      "Plaza reservada al socio"
+    );
+    return;
+  }
+
+  if (action === "reserve-course-guest" && isAdminSession() && courseId) {
+    const guestName = String(document.getElementById("courseAdminReservationGuestName")?.value || "").trim();
+    const email = String(document.getElementById("courseAdminReservationGuestEmail")?.value || "").trim();
+    const phone = String(document.getElementById("courseAdminReservationGuestPhone")?.value || "").trim();
+    if (!guestName) {
+      showToast("Escribe el nombre y apellidos del invitado", "warning");
+      return;
+    }
+    courseWorkbenchMode = "students";
+    await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(courseId)}/admin-reservations`,
+      { kind: "guest", guestName, email, phone },
+      "Plaza reservada al invitado"
+    );
+    return;
+  }
+
+  if (action === "release-admin-reservation" && isAdminSession() && courseId) {
+    const reservationId = String(actionTarget.dataset.reservationId || "").trim();
+    if (!reservationId || !window.confirm("Liberar esta plaza reservada? Volverá a estar disponible inmediatamente.")) {
+      return;
+    }
+    courseWorkbenchMode = "students";
+    await invokeServerAction(
+      `/api/courses/${encodeURIComponent(courseId)}/admin-reservations/${encodeURIComponent(reservationId)}`,
+      "Plaza reservada liberada",
+      "DELETE"
+    );
+    return;
+  }
+
+  if (action === "mark-admin-reservation-paid" && isAdminSession() && courseId) {
+    const reservationId = String(actionTarget.dataset.reservationId || "").trim();
+    if (!reservationId) return;
+    courseWorkbenchMode = "students";
+    await invokeJsonAction(
+      `/api/courses/${encodeURIComponent(courseId)}/admin-reservations/${encodeURIComponent(reservationId)}/payment`,
+      { paid: true },
+      "Pago de la reserva marcado como recibido"
+    );
+    return;
+  }
+
   if (action === "enroll" && courseId) {
     const course = state.courses.find((item) => item.id === courseId);
     const member = findMember(state.selectedMemberId);
@@ -13836,6 +13894,44 @@ function renderCourseWorkbench(course) {
   const showWorkbenchSection = (section) => safeWorkbenchMode === section;
   const waitingMembers = course.waitingIds.map(findMember).filter(Boolean);
   const enrolledMembers = course.enrolledIds.map(findMember).filter(Boolean);
+  const adminReservations = (course.adminReservations || []).filter(
+    (reservation) => String(reservation.status || "reserved") !== "released"
+  );
+  const reservableMembers = (state.members || [])
+    .filter((member) => !(course.enrolledIds || []).includes(member.id) && !(course.waitingIds || []).includes(member.id))
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"));
+  const reservationRosterPreview = adminReservations.length
+    ? adminReservations.map((reservation) => {
+        const member = reservation.kind === "member" ? findMember(reservation.memberId) : null;
+        const associate = member ? findAssociateByMember(member) : null;
+        const label = member?.name || reservation.guestName || "Invitado externo";
+        const contact = member?.email || reservation.email || reservation.phone || "Sin contacto";
+        const paymentLabel = Number(course.enrollmentFee || 0) <= 0
+          ? "Sin coste"
+          : reservation.kind === "member"
+            ? "Pago según inscripción"
+            : reservation.paymentStatus === "paid" ? "Pagado" : "Pendiente de pago";
+        return `
+          <article class="compact-person-row compact-person-row-stacked">
+            <div class="compact-person-main">
+              <div class="row-between">
+                <strong>${escapeHtml(label)}</strong>
+                <span class="small-chip">Reserva administrativa</span>
+              </div>
+              <span class="muted">${escapeHtml(contact)}</span>
+              <div class="chip-row compact-chip-row">
+                <span class="small-chip">${reservation.kind === "member" ? `Socio${associate?.associateNumber ? ` #${escapeHtml(String(associate.associateNumber))}` : ""}` : "Invitado externo"}</span>
+                <span class="small-chip">${escapeHtml(paymentLabel)}</span>
+              </div>
+            </div>
+            <div class="chip-row">
+              ${reservation.kind === "guest" && Number(course.enrollmentFee || 0) > 0 && reservation.paymentStatus !== "paid" ? `<button class="mini-button" type="button" data-action="mark-admin-reservation-paid" data-course-id="${course.id}" data-reservation-id="${reservation.id}">Marcar pagado</button>` : ""}
+              <button class="mini-button danger-button" type="button" data-action="release-admin-reservation" data-course-id="${course.id}" data-reservation-id="${reservation.id}">Liberar plaza</button>
+            </div>
+          </article>
+        `;
+      }).join("")
+    : `<p class="muted">No hay plazas reservadas manualmente en este curso.</p>`;
   const readiness = getCourseContentReadiness(course);
   const blockMix = countCourseBlocksByType(course);
   const certificateSections = getCertificateSections(course);
@@ -14508,7 +14604,43 @@ function renderCourseWorkbench(course) {
             </div>
           </div>
           <div class="status-note info course-students-summary">
-            ${enrolledMembers.length} inscrito(s), ${pendingEnrollmentSubmissions.length} pendiente(s) de revisar, ${proofPendingSubmissions.length} con justificante pendiente y ${waitingMembers.length || waitingEnrollmentSubmissions.length} en espera.
+            ${getCourseEnrolledCount(course)} plaza(s) ocupada(s), ${adminReservations.length} reserva(s) administrativa(s), ${pendingEnrollmentSubmissions.length} pendiente(s) de revisar, ${proofPendingSubmissions.length} con justificante pendiente y ${waitingMembers.length || waitingEnrollmentSubmissions.length} en espera.
+          </div>
+          <div class="mail-card" id="courseAdminReservations">
+            <div class="row-between">
+              <div>
+                <p class="eyebrow">Reserva previa</p>
+                <h4>Añadir participante / Reservar plaza</h4>
+                <p class="muted">La reserva ocupa plaza inmediatamente aunque todavía no se haya abierto la inscripción general.</p>
+              </div>
+              <span class="small-chip">${getCourseSeatsLeft(course)} libre(s) de ${Number(course.capacity || 0)}</span>
+            </div>
+            <div class="course-grid course-grid-tight">
+              <div class="timeline-item compact-timeline-item">
+                <span class="eyebrow">Socio</span>
+                <label class="inline-field">
+                  Seleccionar socio
+                  <select id="courseAdminReservationMemberId">
+                    <option value="">Selecciona un socio</option>
+                    ${reservableMembers.map((member) => {
+                      const associate = findAssociateByMember(member);
+                      return `<option value="${escapeHtml(member.id)}">${escapeHtml(member.name)}${associate?.associateNumber ? ` · Socio #${escapeHtml(String(associate.associateNumber))}` : ""}</option>`;
+                    }).join("")}
+                  </select>
+                </label>
+                <button class="mini-button" type="button" data-action="reserve-course-member" data-course-id="${course.id}" ${getCourseSeatsLeft(course) <= 0 || !reservableMembers.length ? "disabled" : ""}>Reservar plaza al socio</button>
+              </div>
+              <div class="timeline-item compact-timeline-item">
+                <span class="eyebrow">Invitado externo</span>
+                <label class="inline-field">Nombre y apellidos<input id="courseAdminReservationGuestName" maxlength="160" placeholder="Nombre del invitado" /></label>
+                <label class="inline-field">Email (opcional)<input id="courseAdminReservationGuestEmail" type="email" maxlength="180" placeholder="correo@ejemplo.es" /></label>
+                <label class="inline-field">Teléfono (opcional)<input id="courseAdminReservationGuestPhone" maxlength="50" placeholder="600 000 000" /></label>
+                <button class="mini-button" type="button" data-action="reserve-course-guest" data-course-id="${course.id}" ${getCourseSeatsLeft(course) <= 0 ? "disabled" : ""}>Reservar plaza al invitado</button>
+              </div>
+            </div>
+            <div class="stack compact-list" style="margin-top: 12px;">
+              ${reservationRosterPreview}
+            </div>
           </div>
           ${renderOperations(course)}
           <div class="course-grid course-grid-tight">
@@ -21035,7 +21167,14 @@ function readCampusGroupEditorDraft(group) {
 }
 
 function getCourseEnrolledCount(course) {
-  return Number(course?.enrolledCount ?? course?.enrolledIds?.length ?? 0);
+  if (course?.enrolledCount !== undefined && course?.enrolledCount !== null) {
+    return Number(course.enrolledCount || 0);
+  }
+  const enrolledCount = new Set((course?.enrolledIds || []).filter(Boolean)).size;
+  const guestReservations = (course?.adminReservations || []).filter(
+    (reservation) => reservation.kind === "guest" && String(reservation.status || "reserved") !== "released"
+  ).length;
+  return enrolledCount + guestReservations;
 }
 
 function getCourseWaitingCount(course) {

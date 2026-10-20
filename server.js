@@ -91,6 +91,7 @@ const { getCertificateTemplateImage } = require("./server/certificate-template-i
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
   PAGE_WIDTH: DIPLOMA_PAGE_WIDTH, PAGE_HEIGHT: DIPLOMA_PAGE_HEIGHT } = require("./server/diploma-layout");
 const { normalizeNoticeAttachments, compactNotice, createNoticesHandler, MAX_NOTICE_BODY_BYTES } = require("./server/notices");
+const { createAdminSeatReservationsHandler, getCourseOccupiedSeatCount } = require("./server/admin-seat-reservations");
 const { sharedQuestions, courseTestConfig, createCourseSharedTestHandler } = require("./server/course-shared-tests");
 const { createQuestionBankImportHandler } = require("./server/question-bank-import");
 const { createBannerHandler, preserveBannerSettings } = require("./server/banners");
@@ -3760,6 +3761,9 @@ function removeMemberCourseFootprint(state, memberId) {
     course.enrollmentSubmissions = (course.enrollmentSubmissions || []).filter(
       (submission) => submission.memberId !== normalizedMemberId
     );
+    course.adminReservations = (course.adminReservations || []).filter(
+      (reservation) => reservation.memberId !== normalizedMemberId
+    );
     if (course.attendance) {
       delete course.attendance[normalizedMemberId];
     }
@@ -4087,7 +4091,7 @@ function getPublicCampusCourses(state) {
   return (state.courses || [])
     .filter((course) => isCoursePublicAccess(course))
     .map((course) => {
-      const enrolledCount = Array.isArray(course.enrolledIds) ? course.enrolledIds.length : 0;
+      const enrolledCount = getCourseOccupiedSeatCount(course);
       const waitingCount = Array.isArray(course.waitingIds) ? course.waitingIds.length : 0;
       const capacity = Number(course.capacity || 0);
       return {
@@ -4320,11 +4324,13 @@ const handleQuestionContributions = createQuestionContributionsHandler({ readSta
 const handleBanners = createBannerHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError });
 
 const handleNotices = createNoticesHandler({ baseUrl: campusBaseUrl, readState, writeState, requireAuthenticatedAccount, requireAdminAccount, readJsonBody, sendJson, sendJsonError, appendActivity });
+const handleAdminSeatReservations = createAdminSeatReservationsHandler({ readState, writeState, requireAdminAccount, readJsonBody, sendJson, sendJsonError, appendActivity });
 const handleLiveTestLibrary = createLiveTestLibraryHandler({ readState, writeState, requireLiveHostAccount, readJsonBody, sendJson, sendJsonError,
   availableQuestions: state => filterTestZoneQuestionsForRequest(state, {}), normalizeTime: normalizeLiveTestQuestionTimeLimitSeconds });
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  if (await handleAdminSeatReservations(req, res, requestUrl)) return;
   if (await handleLiveTestLibrary(req, res, requestUrl)) return;
   if (await handleCourseSharedTest(req, res, requestUrl)) return;
   if (await handleQuestionContributions(req, res, requestUrl)) return;
@@ -8757,7 +8763,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         : [];
 
       const hasPaymentProof = Boolean(payload.paymentProof && payload.paymentProof.contentBase64);
-      if ((course.enrolledIds || []).length < Number(course.capacity || 0)) {
+      if (getCourseOccupiedSeatCount(course) < Number(course.capacity || 0)) {
         course.enrolledIds.push(member.id);
       } else {
         course.waitingIds.push(member.id);
@@ -8960,10 +8966,13 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if (nextStatus === "rejected") {
         course.enrolledIds = (course.enrolledIds || []).filter((item) => item !== submission.memberId);
         course.waitingIds = (course.waitingIds || []).filter((item) => item !== submission.memberId);
+        if (submission.source === "admin-reservation" && submission.adminReservationId) {
+          course.adminReservations = (course.adminReservations || []).filter((item) => item.id !== submission.adminReservationId);
+        }
       } else if (nextStatus === "confirmed") {
         course.waitingIds = (course.waitingIds || []).filter((item) => item !== submission.memberId);
         if (!(course.enrolledIds || []).includes(submission.memberId)) {
-          if ((course.enrolledIds || []).length < Number(course.capacity || 0)) {
+          if (getCourseOccupiedSeatCount(course) < Number(course.capacity || 0)) {
             course.enrolledIds.push(submission.memberId);
           } else if (!(course.waitingIds || []).includes(submission.memberId)) {
             course.waitingIds.push(submission.memberId);
@@ -8972,7 +8981,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         }
       } else if (nextStatus === "pending-proof") {
         if (!(course.enrolledIds || []).includes(submission.memberId) && !(course.waitingIds || []).includes(submission.memberId)) {
-          if ((course.enrolledIds || []).length < Number(course.capacity || 0)) {
+          if (getCourseOccupiedSeatCount(course) < Number(course.capacity || 0)) {
             course.enrolledIds.push(submission.memberId);
           } else {
             course.waitingIds.push(submission.memberId);
@@ -13753,7 +13762,7 @@ async function runAutomationEngine(state, options = {}) {
     const previousReady = new Set(course.diplomaReady || []);
 
     if (!detectOnly && state.settings?.automation?.autoPromoteWaitlist) {
-      while (waitingIds.length && enrolledIds.length < course.capacity) {
+      while (waitingIds.length && getCourseOccupiedSeatCount(course) < Number(course.capacity || 0)) {
         const promotedId = waitingIds.shift();
         enrolledIds.push(promotedId);
         summary.promotedWaitlist += 1;
