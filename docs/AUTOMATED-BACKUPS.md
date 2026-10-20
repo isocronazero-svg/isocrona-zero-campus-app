@@ -81,13 +81,24 @@ Tras la validacion se restauro y desplego el horario productivo `30 3 * * *` (03
 
 ## Pendientes para cerrar la segunda copia en Google Drive
 
-1. Resolver la compatibilidad de identidad/destino: OAuth autorizado para la carpeta actual de Mi unidad, o cuenta de servicio con una unidad compartida Workspace autorizada. No crear una cuenta de servicio esperando que Editor en Mi unidad le otorgue cuota.
-2. Revisar/reutilizar proyecto, API y credenciales existentes en Google Cloud despues del inicio de sesion humano. Configurar solo la credencial compatible en el servicio de backup, con permisos minimos y sin exponer su contenido.
-3. Ejecutar una prueba y confirmar la nueva subcarpeta cifrada en Drive.
+1. Incorporar a la politica publica la informacion especifica de Drive/copias, conservando el texto y los canales de derechos existentes. Complemento autorizado por Carlos el 20/10; publicacion pendiente.
+2. Configurar la credencial OAuth ya autorizada y validada exclusivamente en el servicio de backup. Mantener la carpeta, clave AES, bucket, cron y retencion existentes.
+3. Ejecutar una prueba, confirmar la nueva subcarpeta cifrada en Drive y comprobar integridad/recuperacion y salud del Campus.
 4. Custodiar una segunda copia de la clave AES fuera de Railway.
 5. Realizar periodicamente un ensayo de descifrado/restauracion en un entorno aislado.
 
 No publicar claves, credenciales ni paquetes descifrados en issues, PR, logs o repositorios.
+
+## Estado vigente: 20/10/2026
+
+- OAuth de la asociacion elegido y autorizado expresamente para la carpeta restringida existente de Mi unidad. No se ha creado una cuenta de servicio ni una carpeta alternativa.
+- Proyecto `isocrona-zero-backups`, Drive API y Picker API preparados. Cliente de escritorio y app en estado **En produccion**, con autorizacion expresa; esto no equivale a verificacion de marca ni comparte archivos.
+- Secreto original desactivado tras el incidente descrito en el historial. Sustituto guardado de forma restringida fuera de OneDrive. No reutilizar el original ni imprimir los controles accesibles del panel de secretos.
+- Consentimiento completado el 20/10 a las 00:35 UTC (02:35 Madrid). Seleccionada exclusivamente la carpeta prevista. Callback local con PKCE/state, alcance exacto `drive.file` y metadatos de carpeta/propietario/capacidad/no-compartida validados antes del guardado.
+- Credencial `authorized_user` con refresh token guardada solo en directorio privado local; ACL comprobada, acceso exclusivo del usuario local. Asistente temporal cerrado tras completar la autorizacion. No regenerar el cliente ni repetir el consentimiento.
+- **Prueba local de solo lectura PASS, 20/10 00:38 UTC:** `google-auth-library` 11.3.1 reconoce `UserRefreshClient`, renueva el token y conserva exactamente `drive.file`, incluso reproduciendo el parametro `scopes: [drive]` de la funcion existente. La consulta de archivos devuelve exclusivamente la carpeta autorizada. La carpeta permanece no compartida. Dependencias de prueba aisladas fuera del repositorio; no se modificaron dependencias del Campus.
+- La funcion desplegada se ha releido: sin cambios staged y compatible con JSON de credenciales GoogleAuth. El nombre legacy `GDRIVE_SERVICE_ACCOUNT_JSON` no implica que la credencial deba ser de cuenta de servicio. La prueba local no verifica la version resuelta por Bun en Railway ni sustituye una prueba de ejecucion alli.
+- **Drive automatico aun NO activado:** no se han cambiado variables, codigo desplegado, cron, permisos de carpeta, retencion ni claves; no se han subido/borrado archivos ni generado una nueva copia. No hay evidencia nueva de `driveEnabled=true` ni ensayo de recuperacion de una copia automatica en Drive. La PR permanece documental y abierta.
 
 ## Comprobacion de continuidad: 18/10/2026 06:59 UTC (08:59 Madrid)
 
