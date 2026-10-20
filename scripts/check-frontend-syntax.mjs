@@ -1,6 +1,17 @@
 import { spawnSync } from "node:child_process";
 
-const files = ["public/aviso.js", "public/assets/js/app/ui/notices.js", "public/assets/js/app/ui/mobile-navigation.js", "public/app.js", "public/course-test.js", "public/question-bank.js", "public/assets/js/app/modules/tests/topicPicker.js", "public/assets/js/app/campus/sharedTests.js"];
+const files = [
+  "public/aviso.js",
+  "public/assets/js/app/main.js",
+  "public/assets/js/app/ui/notices.js",
+  "public/assets/js/app/ui/mobile-navigation.js",
+  "public/assets/js/app/campus/courseReservations.js",
+  "public/app.js",
+  "public/course-test.js",
+  "public/question-bank.js",
+  "public/assets/js/app/modules/tests/topicPicker.js",
+  "public/assets/js/app/campus/sharedTests.js"
+];
 
 let failed = false;
 
