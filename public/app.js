@@ -3600,14 +3600,10 @@ document.addEventListener("click", async (event) => {
 
 document.addEventListener("input", (event) => {
   if (event.target.id === "associateSearchFilter") {
-      associateFilters.query = event.target.value || "";
-      resetAssociatePages();
-    pendingInputFocusRestore = {
-      id: event.target.id,
-      start: typeof event.target.selectionStart === "number" ? event.target.selectionStart : null,
-      end: typeof event.target.selectionEnd === "number" ? event.target.selectionEnd : null
-    };
-    render();
+    associateFilters.query = event.target.value || "";
+    resetAssociatePages();
+    // Keep the input mounted while typing. Search runs with Enter or the Buscar action.
+    return;
   }
 
   if (event.target.dataset.profileReviewNote === "true") {
@@ -5437,9 +5433,13 @@ async function refreshState(options = {}) {
     throw new Error(payload?.error || "No se pudo cargar el estado del campus");
   }
   const activeView = hasLoaded ? state.activeView : null;
+  const selectedAssociateId = hasLoaded ? state.selectedAssociateId : null;
   state = normalizeState(payload);
   if (activeView) {
     state.activeView = activeView;
+  }
+  if (selectedAssociateId && (state.associates || []).some((associate) => associate.id === selectedAssociateId)) {
+    state.selectedAssociateId = selectedAssociateId;
   }
   storageMeta = await loadStorageMeta();
 }
@@ -7316,7 +7316,10 @@ function renderJoinView() {
             </label>
             <label class="inline-field">
               Importe
-              <input id="associatePaymentSubmissionAmount" type="number" min="1" step="1" placeholder="50" />
+              <select id="associatePaymentSubmissionAmount">
+                <option value="50" selected>50 € — Cuota general</option>
+                <option value="30">30 € — Cuota reducida</option>
+              </select>
             </label>
             <label class="inline-field">
               Metodo
@@ -14530,7 +14533,7 @@ function renderCourseWorkbench(course) {
               </div>
               <div class="timeline-item compact-timeline-item">
                 <span class="eyebrow">Inscripcion</span>
-                <strong>${escapeHtml(course.status)}</strong>
+                <strong>${escapeHtml(EnrollmentTime.courseWindowState(course) === "closed" ? "Inscripción cerrada" : course.status)}</strong>
                 <p>${course.enrollmentFee > 0 ? `${course.enrollmentFee} € por transferencia` : "Curso sin coste para el alumnado."}</p>
               </div>
               <div class="timeline-item compact-timeline-item">
@@ -14755,7 +14758,7 @@ function renderSelectedCourse(course) {
           <table>
             <tbody>
               <tr><td>Clase</td><td>${escapeHtml(getCourseClassLabel(course.courseClass))}</td></tr>
-              <tr><td>Estado</td><td>${escapeHtml(course.status)}</td></tr>
+              <tr><td>Estado</td><td>${escapeHtml(EnrollmentTime.courseWindowState(course) === "closed" ? "Inscripción cerrada" : course.status)}</td></tr>
               <tr><td>Fechas</td><td>${formatDate(course.startDate)} - ${formatDate(course.endDate)}</td></tr>
               <tr><td>Plazas</td><td>${getCourseEnrolledCount(course)}/${course.capacity}</td></tr>
                 <tr><td>${isPracticalCourse ? "Documentacion" : "Contenido"}</td><td>${isPracticalCourse ? `${getVisibleCourseResources(course, "admin").length} recurso(s)` : `${getPublishedLessonCount(course)} / ${getCourseLessonCount(course)} leccion(es)`}</td></tr>
@@ -15618,7 +15621,7 @@ function renderCourseCard(course, role) {
   const isWaiting = currentMemberId && course.waitingIds.includes(currentMemberId);
 
   fragment.querySelector('[data-slot="type"]').textContent = describeCourseType(course);
-  fragment.querySelector('[data-slot="status"]').textContent = role === "member" && EnrollmentTime.courseWindowState(course) === "closed"
+  fragment.querySelector('[data-slot="status"]').textContent = EnrollmentTime.courseWindowState(course) === "closed"
     ? "Inscripción cerrada" : course.status;
   fragment.querySelector('[data-slot="title"]').textContent = course.title;
   fragment.querySelector('[data-slot="summary"]').textContent = [
