@@ -11,6 +11,7 @@ const syntaxFiles = [
   "server/diploma-layout.js",
   "server/activity-certificate.js",
   "server/journey-participation.js",
+  "server/course-reservations.js",
   "server/notices.js", "public/aviso.js", "public/assets/js/app/ui/notices.js",
   "public/assets/js/app/modules/tests/publicLiveHost.js",
   "server/question-contributions.js", "server/question-maintenance.js", "public/assets/js/app/modules/tests/questionMaintenance.js",
@@ -40,6 +41,7 @@ const conflictCheckedFiles = [
   "server/live-test-library.js", "public/assets/js/app/modules/tests/liveTestLibrary.js",
   "server/diploma-layout.js",
   "server/activity-certificate.js",
+  "server/course-reservations.js",
   "public/app.js",
   "server.js",
   "server/http.js",
@@ -53,6 +55,7 @@ const conflictCheckedFiles = [
 const conflictMarkerPattern = /^(<<<<<<<|=======|>>>>>>>)(.*)$/m;
 const extraCheckScripts = [
   "scripts/check-journey-participation.mjs",
+  "scripts/check-course-reservations.mjs",
   "scripts/check-mail-delivery.mjs",
   "scripts/check-enrollment-time.mjs",
   "scripts/check-live-test-library.mjs",
