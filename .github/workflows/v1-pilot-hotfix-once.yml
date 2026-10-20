@@ -13,6 +13,8 @@ permissions:
 jobs:
   patch:
     runs-on: ubuntu-latest
+    env:
+      IZ_DATA_DIR: ${{ runner.temp }}/isocrona-v1-data
     steps:
       - uses: actions/checkout@v4
         with:
