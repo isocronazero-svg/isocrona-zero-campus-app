@@ -25,6 +25,7 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("public/app.js")
           text = path.read_text()
@@ -47,54 +48,56 @@ jobs:
           )
 
           old = '<input id="associatePaymentSubmissionAmount" type="number" min="1" step="1" placeholder="50" />'
-          new = '''<select id="associatePaymentSubmissionAmount">
-                <option value="50" selected>50 € — Cuota general</option>
-                <option value="30">30 € — Cuota reducida</option>
-              </select>'''
+          new = '<select id="associatePaymentSubmissionAmount">\n                <option value="50" selected>50 € — Cuota general</option>\n                <option value="30">30 € — Cuota reducida</option>\n              </select>'
           if old not in text:
               raise SystemExit("#279 target not found")
           text = text.replace(old, new, 1)
 
-          old = '''  const activeView = hasLoaded ? state.activeView : null;
-          state = normalizeState(payload);
-          if (activeView) {
-            state.activeView = activeView;
-          }
-          storageMeta = await loadStorageMeta();'''
-          new = '''  const activeView = hasLoaded ? state.activeView : null;
-          const selectedAssociateId = hasLoaded ? state.selectedAssociateId : null;
-          state = normalizeState(payload);
-          if (activeView) {
-            state.activeView = activeView;
-          }
-          if (selectedAssociateId && (state.associates || []).some((associate) => associate.id === selectedAssociateId)) {
-            state.selectedAssociateId = selectedAssociateId;
-          }
-          storageMeta = await loadStorageMeta();'''
-          if old not in text:
-              raise SystemExit("#280 target not found")
-          text = text.replace(old, new, 1)
+          pattern = re.compile(
+              r'(?m)^  const activeView = hasLoaded \? state\.activeView : null;\n'
+              r'  state = normalizeState\(payload\);\n'
+              r'  if \(activeView\) \{\n'
+              r'    state\.activeView = activeView;\n'
+              r'  \}\n'
+              r'  storageMeta = await loadStorageMeta\(\);'
+          )
+          replacement = (
+              '  const activeView = hasLoaded ? state.activeView : null;\n'
+              '  const selectedAssociateId = hasLoaded ? state.selectedAssociateId : null;\n'
+              '  state = normalizeState(payload);\n'
+              '  if (activeView) {\n'
+              '    state.activeView = activeView;\n'
+              '  }\n'
+              '  if (selectedAssociateId && (state.associates || []).some((associate) => associate.id === selectedAssociateId)) {\n'
+              '    state.selectedAssociateId = selectedAssociateId;\n'
+              '  }\n'
+              '  storageMeta = await loadStorageMeta();'
+          )
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"#280 target count={count}")
 
-          old = '''  if (event.target.id === "associateSearchFilter") {
-              associateFilters.query = event.target.value || "";
-              resetAssociatePages();
-            pendingInputFocusRestore = {
-              id: event.target.id,
-              start: typeof event.target.selectionStart === "number" ? event.target.selectionStart : null,
-              end: typeof event.target.selectionEnd === "number" ? event.target.selectionEnd : null
-            };
-            render();
-            return;
-          }'''
-          new = '''  if (event.target.id === "associateSearchFilter") {
-            associateFilters.query = event.target.value || "";
-            resetAssociatePages();
-            // Keep the input mounted while typing. Search runs with Enter or the Buscar action.
-            return;
-          }'''
-          if old not in text:
-              raise SystemExit("#281 target not found")
-          text = text.replace(old, new, 1)
+          pattern = re.compile(
+              r'(?ms)^  if \(event\.target\.id === "associateSearchFilter"\) \{\n'
+              r'\s+associateFilters\.query = event\.target\.value \|\| "";\n'
+              r'\s+resetAssociatePages\(\);\n'
+              r'\s+pendingInputFocusRestore = \{.*?\n'
+              r'\s+\};\n'
+              r'\s+render\(\);\n'
+              r'\s+return;\n'
+              r'  \}'
+          )
+          replacement = (
+              '  if (event.target.id === "associateSearchFilter") {\n'
+              '    associateFilters.query = event.target.value || "";\n'
+              '    resetAssociatePages();\n'
+              '    // Keep the input mounted while typing. Search runs with Enter or the Buscar action.\n'
+              '    return;\n'
+              '  }'
+          )
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f"#281 target count={count}")
 
           if text == original:
               raise SystemExit("No changes produced")
