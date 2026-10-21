@@ -34,11 +34,11 @@ function memoryStorage(initial) {
   };
 }
 
-function enroll(state, memberId) {
+function enroll(state, memberId, submissionId = `reservation-${memberId}`) {
   const course = state.courses[0];
   course.enrolledIds.push(memberId);
   course.enrollmentSubmissions.push({
-    id: `reservation-${memberId}`,
+    id: submissionId,
     memberId,
     status: "confirmed",
     source: "admin-reservation"
@@ -68,6 +68,7 @@ function enroll(state, memberId) {
   access.writeState(first);
   enroll(second, "member-2");
   assert.throws(() => access.writeState(second), /ya no tiene plazas suficientes/);
+  assert.doesNotThrow(() => access.writeState(second), "El reintento historico del catch debe quedar neutralizado");
   const stored = storage.snapshot();
   assert.deepEqual(stored.courses[0].enrolledIds, ["member-1"]);
   assert.equal(stored.courses[0].enrollmentSubmissions.length, 1);
@@ -92,6 +93,54 @@ function enroll(state, memberId) {
   assert.deepEqual(stored.courses[0].enrolledIds, ["member-2"]);
   assert.equal(stored.courses[0].enrollmentSubmissions.some(item => item.memberId === "member-1"), false);
   assert.equal(stored.courses[0].enrollmentSubmissions.some(item => item.memberId === "member-2"), true);
+}
+
+{
+  const storage = memoryStorage(baseState(2));
+  const access = createOnboardingStateAccess(storage);
+  const first = access.readState();
+  const second = access.readState();
+  const collidingId = "enrollment-1700000000000";
+  enroll(first, "member-1", collidingId);
+  access.writeState(first);
+  enroll(second, "member-2", collidingId);
+  access.writeState(second);
+
+  const stored = storage.snapshot();
+  const submissions = stored.courses[0].enrollmentSubmissions;
+  assert.equal(submissions.length, 2, "Dos inscripciones del mismo milisegundo deben conservarse");
+  assert.equal(new Set(submissions.map(item => item.id)).size, 2, "Los IDs persistidos deben quedar unicos");
+  assert.deepEqual(new Set(submissions.map(item => item.memberId)), new Set(["member-1", "member-2"]));
+}
+
+{
+  const storage = memoryStorage(baseState(3));
+  const access = createOnboardingStateAccess(storage);
+  const first = access.readState();
+  const second = access.readState();
+
+  first.members.push({ id: "guest-1", name: "Invitada Uno", email: "uno@example.org", source: "admin-course-guest" });
+  enroll(first, "guest-1", "reservation-guest-1");
+  access.writeState(first);
+
+  second.members.push({ id: "guest-2", name: "Invitada Dos", email: "dos@example.org", source: "admin-course-guest" });
+  enroll(second, "guest-2", "reservation-guest-2");
+  access.writeState(second);
+
+  const stored = storage.snapshot();
+  assert.deepEqual(new Set(stored.courses[0].enrolledIds), new Set(["guest-1", "guest-2"]));
+  assert.equal(stored.members.some(member => member.id === "guest-1"), true);
+  assert.equal(stored.members.some(member => member.id === "guest-2"), true);
+}
+
+{
+  const initial = baseState(1);
+  initial.courses[0].enrolledIds = ["legacy-1", "legacy-2"];
+  const storage = memoryStorage(initial);
+  const access = createOnboardingStateAccess(storage);
+  const unrelatedWriter = access.readState();
+  unrelatedWriter.settings.extra = true;
+  assert.doesNotThrow(() => access.writeState(unrelatedWriter), "Un sobreaforo historico sin incremento no debe bloquear escrituras ajenas");
 }
 
 console.log("Concurrent course reservation checks passed.");
