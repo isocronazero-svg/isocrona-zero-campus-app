@@ -1,11 +1,82 @@
+const { randomUUID } = require("node:crypto");
+
 // Protect onboarding-owned access/delivery fields and instructor eligibility from async stale writers.
 // Unrelated application state keeps the existing storage behavior.
 const associateFields = ["firstName", "lastName", "email", "status", "observations", "linkedMemberId", "linkedAccountId", "campusAccessStatus",
   "temporaryPassword", "campusOnboardingCreatedAt", "welcomeEmailStatus", "welcomeEmailSentAt", "welcomeEmailError"];
-const memberFields = ["id", "associateId", "email", "name", "source"];
+const memberFields = ["id", "associateId", "email", "name", "source", "phone", "role", "createdAt", "certifications", "renewalsDue"];
+
+function snapshotEnrollment(course) {
+  return structuredClone({
+    enrolledIds: Array.isArray(course?.enrolledIds) ? course.enrolledIds : [],
+    waitingIds: Array.isArray(course?.waitingIds) ? course.waitingIds : [],
+    enrollmentSubmissions: Array.isArray(course?.enrollmentSubmissions) ? course.enrollmentSubmissions : []
+  });
+}
+
+function mergeStringListDelta(incoming = [], before = [], latest = []) {
+  const beforeSet = new Set(before || []);
+  const incomingSet = new Set(incoming || []);
+  const result = new Set(latest || []);
+  for (const id of beforeSet) if (!incomingSet.has(id)) result.delete(id);
+  for (const id of incomingSet) if (!beforeSet.has(id)) result.add(id);
+  return [...result];
+}
+
+function recordKey(item) {
+  return `${String(item?.id || "")}::${String(item?.memberId || "")}`;
+}
+
+function ensureCollisionSafeRecord(record, result) {
+  const cloned = structuredClone(record);
+  if (!cloned?.id) return cloned;
+  const collision = [...result.values()].some((item) =>
+    item?.id === cloned.id && item?.memberId !== cloned.memberId
+  );
+  if (collision) cloned.id = `enrollment-${randomUUID()}`;
+  return cloned;
+}
+
+function mergeRecordListDelta(incoming = [], before = [], latest = []) {
+  const beforeMap = new Map((before || []).map(item => [recordKey(item), item]));
+  const incomingMap = new Map((incoming || []).map(item => [recordKey(item), item]));
+  const result = new Map((latest || []).map(item => [recordKey(item), structuredClone(item)]));
+  for (const key of beforeMap.keys()) if (!incomingMap.has(key)) result.delete(key);
+  for (const [key, record] of incomingMap) {
+    const previous = beforeMap.get(key);
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(record)) {
+      const safe = ensureCollisionSafeRecord(record, result);
+      result.set(recordKey(safe), safe);
+      if (recordKey(safe) !== key) result.delete(key);
+    }
+  }
+  return [...result.values()];
+}
+
+function capacityConflict(message) {
+  const error = new Error(message);
+  error.code = "ENROLLMENT_CAPACITY_CONFLICT";
+  error.status = 409;
+  error.statusCode = 409;
+  return error;
+}
+
+function assertEnrollmentCapacity(state, current) {
+  for (const course of state.courses || []) {
+    const capacity = Number(course.capacity || 0);
+    if (!Number.isFinite(capacity) || capacity <= 0) continue;
+    const occupied = new Set((course.enrolledIds || []).filter(Boolean)).size;
+    const latest = current?.enrollmentCourses?.get(course.id);
+    const latestOccupied = new Set((latest?.enrolledIds || []).filter(Boolean)).size;
+    if (occupied > Math.floor(capacity) && occupied > latestOccupied) {
+      throw capacityConflict(`El curso ${course.title || course.id || "seleccionado"} ya no tiene plazas suficientes para completar la operacion.`);
+    }
+  }
+}
 
 function capture(state) {
   const associates = (state.associates || []).filter(item => item.campusOnboardingCreatedAt);
+  const protectedMemberIds = new Set(associates.map(item => item.linkedMemberId).filter(Boolean));
   return {
     applicationDnis: new Map((state.associateApplications || []).map(item => [item.id, item.dni])),
     applicationProofs: new Map((state.associateApplications || []).map(item => [item.id, item.paymentProof])),
@@ -13,10 +84,13 @@ function capture(state) {
     academicCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
       attendance: course.attendance, evaluations: course.evaluations, diplomaReady: course.diplomaReady
     })])),
+    enrollmentCourses: new Map((state.courses || []).map(course => [course.id, snapshotEnrollment(course)])),
     instructorFlags: new Map((state.associates || []).map(item => [item.id, item.instructorEnabled === true])),
     smtp: structuredClone(state.settings?.smtp),
     associates: new Map(associates.map(item => [item.id, structuredClone(item)])),
-    members: new Map((state.members || []).filter(item => associates.some(a => a.linkedMemberId === item.id)).map(item => [item.id, structuredClone(item)])),
+    members: new Map((state.members || []).filter(item =>
+      protectedMemberIds.has(item.id) || item.source === "admin-course-guest"
+    ).map(item => [item.id, structuredClone(item)])),
     accounts: new Map((state.accounts || []).filter(item => associates.some(a => a.linkedAccountId === item.id)).map(item => [item.id, structuredClone(item)])),
     emailOutbox: new Map((state.emailOutbox || []).filter(item => item.kind === "associate_welcome" ||
       item.kind === "course_diploma" || (!item.kind && item.courseId && item.memberId &&
@@ -38,6 +112,23 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
   for (const course of state.courses || []) {
     const latest = current.journeyTypes.get(course.id), before = baseline?.journeyTypes.get(course.id);
     if (latest && (!Object.hasOwn(course, "journeyTypeId") || (baseline && JSON.stringify(before) !== JSON.stringify(latest)))) Object.assign(course, latest);
+  }
+  // Preserve concurrent enrollment/reservation changes with a three-way merge.
+  if (baseline) for (const course of state.courses || []) {
+    const before = baseline.enrollmentCourses.get(course.id);
+    const latest = current.enrollmentCourses.get(course.id);
+    if (!latest || JSON.stringify(before) === JSON.stringify(latest)) continue;
+    if (!before) {
+      Object.assign(course, structuredClone(latest));
+      continue;
+    }
+    course.enrolledIds = mergeStringListDelta(course.enrolledIds, before.enrolledIds, latest.enrolledIds);
+    course.waitingIds = mergeStringListDelta(course.waitingIds, before.waitingIds, latest.waitingIds);
+    course.enrollmentSubmissions = mergeRecordListDelta(
+      course.enrollmentSubmissions,
+      before.enrollmentSubmissions,
+      latest.enrollmentSubmissions
+    );
   }
   // An async writer may predate a synchronous academic correction/closure. Never roll it back or issue from its stale grades.
   if (baseline) for (const course of state.courses || []) {
@@ -93,11 +184,13 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
       associate.instructorEnabled = current.instructorFlags.get(associate.id) === true;
     }
   }
+  assertEnrollmentCapacity(state, current);
   return state;
 }
 
 function createOnboardingStateAccess(storage) {
   const snapshots = new WeakMap();
+  const rejectedCapacityStates = new WeakSet();
   return {
     readState() {
       const state = storage.readState();
@@ -111,8 +204,20 @@ function createOnboardingStateAccess(storage) {
       snapshots.set(state, latest);
     },
     writeState(state, { instructorUpdateId } = {}) {
+      // The member enrollment endpoint historically retries writeState(state) inside its catch block.
+      // If the first write lost a last-seat race, swallow exactly that immediate retry so the request
+      // can return the original controlled 409 instead of rethrowing an unhandled rejection.
+      if (rejectedCapacityStates.has(state)) {
+        rejectedCapacityStates.delete(state);
+        return;
+      }
       const latest = capture(storage.readState());
-      mergeConcurrentAccessChanges(state, snapshots.get(state), latest, instructorUpdateId);
+      try {
+        mergeConcurrentAccessChanges(state, snapshots.get(state), latest, instructorUpdateId);
+      } catch (error) {
+        if (error?.code === "ENROLLMENT_CAPACITY_CONFLICT") rejectedCapacityStates.add(state);
+        throw error;
+      }
       storage.writeState(state);
       snapshots.set(state, capture(state));
     }

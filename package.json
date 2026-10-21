@@ -11,7 +11,7 @@
     "prestart": "npm run check:frontend-syntax",
     "start": "node server.js",
     "start:local": "node server.js",
-    "check:app": "node scripts/check-app.mjs",
+    "check:app": "node scripts/check-app.mjs && node scripts/check-course-reservation-concurrency.mjs",
     "check:mail": "node scripts/check-mail-delivery.mjs",
     "check:admin-settings": "node scripts/check-admin-settings.mjs",
     "check:associate-payments": "node scripts/check-associate-payments.mjs",

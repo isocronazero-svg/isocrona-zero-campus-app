@@ -10,6 +10,7 @@ import { renderJoinView } from "./views/joinView.js";
 import { renderAdminView } from "./views/adminView.js";
 import { renderTestView, resetTestView } from "./views/testView.js";
 import { renderTestsView } from "./views/testsView.js";
+import { installCourseReservationEnhancer } from "./campus/courseReservations.js";
 
 function ensureTestFocusStyles() {
   if (typeof document === "undefined" || document.querySelector('link[data-test-focus-styles]')) {
@@ -60,6 +61,7 @@ export function initializeApp() {
   }
 
   ensureTestFocusStyles();
+  installCourseReservationEnhancer();
 
   if (window.__IZ_FRONTEND_APP__) {
     return window.__IZ_FRONTEND_APP__;
