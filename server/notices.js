@@ -1,9 +1,11 @@
 const { randomUUID } = require('node:crypto');
 const { getMailSettings, isMailReady } = require('./mail-delivery');
+const { reserveAdministrativeSeat, releaseAdministrativeSeat } = require('./course-reservations');
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_NOTICE_BODY_BYTES = 15 * 1024 * 1024;
+const MAX_RESERVATION_BODY_BYTES = 32 * 1024;
 const TYPES = {
   pdf: 'application/pdf', doc: 'application/msword',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -115,8 +117,64 @@ function publicNotice(notice, kind) {
     createdAt: notice.publishedAt || notice.createdAt, attachments };
 }
 
+function reservationResponse(result) {
+  return {
+    ok: true,
+    reservation: result.submission || null,
+    member: result.member ? {
+      id: result.member.id,
+      name: result.member.name,
+      email: result.member.email,
+      source: result.member.source || ''
+    } : null,
+    removedGuest: result.removedGuest === true,
+    seatsLeft: result.seatsLeft
+  };
+}
+
 function createNoticesHandler(deps) {
   return async (req, res, url) => {
+    const reservationMatch = url.pathname.match(/^\/api\/admin\/courses\/([^/]+)\/reservations(?:\/([^/]+))?$/);
+    if (reservationMatch) {
+      res.setHeader('Cache-Control', 'private, no-store');
+      try {
+        const courseId = decodeURIComponent(reservationMatch[1]);
+        const reservationId = reservationMatch[2] ? decodeURIComponent(reservationMatch[2]) : '';
+        if (req.method === 'POST' && !reservationId) {
+          // Parse the body before the fresh state read. From readState() to writeState() there is no await,
+          // so two admin reservations cannot both decide from the same stale capacity snapshot.
+          const body = await deps.readJsonBody(req, MAX_RESERVATION_BODY_BYTES);
+          const state = deps.readState();
+          const account = deps.requireAdminAccount(req, res, state);
+          if (!account) return true;
+          const result = reserveAdministrativeSeat(state, courseId, {
+            ...body,
+            reservedBy: account.id || account.email || account.name || 'admin'
+          });
+          deps.appendActivity(state, 'admin', account.name || 'Administración',
+            `Reserva plaza en ${(result.course && result.course.title) || courseId} para ${result.member?.name || 'participante'}`);
+          deps.writeState(state);
+          deps.sendJson(res, 201, reservationResponse(result));
+          return true;
+        }
+        if (req.method === 'DELETE' && reservationId) {
+          const state = deps.readState();
+          const account = deps.requireAdminAccount(req, res, state);
+          if (!account) return true;
+          const result = releaseAdministrativeSeat(state, courseId, reservationId);
+          deps.appendActivity(state, 'admin', account.name || 'Administración',
+            `Libera reserva en ${(result.course && result.course.title) || courseId} de ${result.member?.name || 'participante'}`);
+          deps.writeState(state);
+          deps.sendJson(res, 200, reservationResponse(result));
+          return true;
+        }
+        deps.sendJson(res, 405, { ok: false, error: 'Método no permitido' });
+      } catch (error) {
+        deps.sendJsonError(res, error, 'No se pudo gestionar la reserva administrativa');
+      }
+      return true;
+    }
+
     const create = url.pathname === '/api/campus-notices';
     const match = url.pathname.match(/^\/api\/notices\/(campus|member)\/([^/]+)(?:\/attachments\/([^/]+))?$/);
     if (!create && !match) return false;
