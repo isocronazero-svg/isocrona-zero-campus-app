@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import onboardingState from "../server/onboarding-state.js";
 
 const { createOnboardingStateAccess } = onboardingState;
@@ -141,6 +142,16 @@ function enroll(state, memberId, submissionId = `reservation-${memberId}`) {
   const unrelatedWriter = access.readState();
   unrelatedWriter.settings.extra = true;
   assert.doesNotThrow(() => access.writeState(unrelatedWriter), "Un sobreaforo historico sin incremento no debe bloquear escrituras ajenas");
+}
+
+{
+  const uiSource = readFileSync("public/assets/js/app/campus/courseReservations.js", "utf8");
+  const noticesSource = readFileSync("server/notices.js", "utf8");
+  assert.match(uiSource, /\/api\/admin\/courses\/.*\/reservations/, "La UI debe usar la mutacion acotada de reservas");
+  assert.doesNotMatch(uiSource, /writeAdminState|body:\s*JSON\.stringify\(\{\s*\.\.\.state/, "La UI no debe volver a guardar el estado completo");
+  assert.match(noticesSource, /reservationMatch/);
+  assert.match(noticesSource, /reserveAdministrativeSeat\(state, courseId/);
+  assert.match(noticesSource, /releaseAdministrativeSeat\(state, courseId, reservationId/);
 }
 
 console.log("Concurrent course reservation checks passed.");
