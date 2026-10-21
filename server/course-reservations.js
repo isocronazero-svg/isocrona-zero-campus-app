@@ -12,12 +12,32 @@ function normalizeEmail(value) {
   return clean(value).toLowerCase();
 }
 
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
+}
+
+function conflict(message, code = "COURSE_RESERVATION_CONFLICT") {
+  const error = new Error(message);
+  error.code = code;
+  error.status = 409;
+  error.statusCode = 409;
+  return error;
+}
+
 function findCourse(state, courseId) {
   return ensureArray(state?.courses).find((course) => course.id === courseId) || null;
 }
 
 function findMember(state, memberId) {
   return ensureArray(state?.members).find((member) => member.id === memberId) || null;
+}
+
+function findAssociateForMember(state, member) {
+  if (!member) return null;
+  return ensureArray(state?.associates).find((associate) =>
+    associate.linkedMemberId === member.id ||
+    (member.associateId && associate.id === member.associateId)
+  ) || null;
 }
 
 function getCourseCapacity(course) {
@@ -38,7 +58,7 @@ function assertCourseCanReserve(course) {
   const capacity = getCourseCapacity(course);
   if (!capacity) throw new Error("El curso no tiene un aforo valido");
   if (getOccupiedSeatCount(course) >= capacity) {
-    throw new Error("No quedan plazas libres para realizar una reserva administrativa");
+    throw conflict("No quedan plazas libres para realizar una reserva administrativa", "COURSE_CAPACITY_CONFLICT");
   }
 }
 
@@ -56,16 +76,21 @@ function findExternalGuestByEmail(state, email) {
 function createExternalGuest(state, payload) {
   const firstName = clean(payload.firstName);
   const lastName = clean(payload.lastName);
-  const name = clean(payload.name) || [firstName, lastName].filter(Boolean).join(" ");
-  if (!name) throw new Error("Indica el nombre y apellidos del participante externo");
+  if (!firstName || !lastName) {
+    throw new Error("Indica el nombre y apellidos del participante externo");
+  }
 
   const email = normalizeEmail(payload.email);
-  let member = findExternalGuestByEmail(state, email);
-  if (member) return member;
+  if (!isValidEmail(email)) {
+    throw new Error("Indica un correo electronico valido para el participante externo");
+  }
 
-  member = {
+  const existing = findExternalGuestByEmail(state, email);
+  if (existing) return existing;
+
+  const member = {
     id: `member-guest-${randomUUID()}`,
-    name,
+    name: `${firstName} ${lastName}`.trim(),
     role: "Participante externo",
     email,
     phone: clean(payload.phone),
@@ -84,7 +109,9 @@ function resolveReservationMember(state, payload) {
   if (participantType === "member" || participantType === "socio") {
     const memberId = clean(payload.memberId);
     const member = findMember(state, memberId);
-    if (!member) throw new Error("Selecciona un socio con ficha personal valida");
+    if (!member || !findAssociateForMember(state, member)) {
+      throw new Error("Selecciona un socio con ficha personal vinculada");
+    }
     return { member, participantType: "member", createdGuest: false };
   }
   if (participantType === "external" || participantType === "externo") {
@@ -105,7 +132,7 @@ function assertNotAlreadyRegistered(course, memberId) {
     (submission) => submission.memberId === memberId && isActiveReservationSubmission(submission)
   );
   if (registered || activeSubmission) {
-    throw new Error("Esta persona ya figura en el curso o tiene una solicitud activa");
+    throw conflict("Esta persona ya figura en el curso o tiene una solicitud activa", "COURSE_DUPLICATE_PARTICIPANT");
   }
 }
 
@@ -158,14 +185,21 @@ function reserveAdministrativeSeat(state, courseId, payload = {}) {
   }
 }
 
-function memberHasOtherCourseReferences(state, memberId, excludedCourseId) {
-  return ensureArray(state?.courses).some((course) => {
-    if (course.id === excludedCourseId) return false;
-    return ensureArray(course.enrolledIds).includes(memberId) ||
-      ensureArray(course.waitingIds).includes(memberId) ||
-      ensureArray(course.diplomaReady).includes(memberId) ||
-      ensureArray(course.enrollmentSubmissions).some((submission) => submission.memberId === memberId);
-  });
+function containsExactReference(value, memberId, seen = new Set()) {
+  if (value === memberId) return true;
+  if (!value || typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) return value.some((item) => containsExactReference(item, memberId, seen));
+  return Object.values(value).some((item) => containsExactReference(item, memberId, seen));
+}
+
+function memberHasStoredReference(state, memberId) {
+  const withoutOwnMemberRow = {
+    ...state,
+    members: ensureArray(state?.members).filter((member) => member.id !== memberId)
+  };
+  return containsExactReference(withoutOwnMemberRow, memberId);
 }
 
 function releaseAdministrativeSeat(state, courseId, reservationId) {
@@ -177,14 +211,17 @@ function releaseAdministrativeSeat(state, courseId, reservationId) {
   if (!submission) throw new Error("Reserva administrativa no encontrada");
 
   const memberId = submission.memberId;
-  course.enrolledIds = ensureArray(course.enrolledIds).filter((id) => id !== memberId);
-  course.waitingIds = ensureArray(course.waitingIds).filter((id) => id !== memberId);
   course.enrollmentSubmissions = ensureArray(course.enrollmentSubmissions).filter((item) => item.id !== reservationId);
+  const hasOtherActiveSubmission = course.enrollmentSubmissions.some(
+    (item) => item.memberId === memberId && isActiveReservationSubmission(item)
+  );
+  if (!hasOtherActiveSubmission) {
+    course.enrolledIds = ensureArray(course.enrolledIds).filter((id) => id !== memberId);
+    course.waitingIds = ensureArray(course.waitingIds).filter((id) => id !== memberId);
+  }
 
   const member = findMember(state, memberId);
-  const removeGuest = member?.source === "admin-course-guest" &&
-    !memberHasOtherCourseReferences(state, memberId, courseId) &&
-    !ensureArray(state.accounts).some((account) => account.memberId === memberId);
+  const removeGuest = member?.source === "admin-course-guest" && !memberHasStoredReference(state, memberId);
   if (removeGuest) {
     state.members = ensureArray(state.members).filter((item) => item.id !== memberId);
   }
