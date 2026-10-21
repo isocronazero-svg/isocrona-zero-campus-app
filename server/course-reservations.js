@@ -191,7 +191,7 @@ function containsExactReference(value, memberId, seen = new Set()) {
   if (seen.has(value)) return false;
   seen.add(value);
   if (Array.isArray(value)) return value.some((item) => containsExactReference(item, memberId, seen));
-  return Object.values(value).some((item) => containsExactReference(item, memberId, seen));
+  return Object.entries(value).some(([key, item]) => key === memberId || containsExactReference(item, memberId, seen));
 }
 
 function memberHasStoredReference(state, memberId) {
