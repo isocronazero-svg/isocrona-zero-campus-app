@@ -32,15 +32,16 @@ async function readAdminState() {
   return payload;
 }
 
-async function writeAdminState(state) {
-  const response = await fetch("/api/state", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ ...state, role: "admin" })
+async function reservationRequest(courseId, { method = "POST", reservationId = "", body = null } = {}) {
+  const suffix = reservationId ? `/${encodeURIComponent(reservationId)}` : "";
+  const response = await fetch(`/api/admin/courses/${encodeURIComponent(courseId)}/reservations${suffix}`, {
+    method,
+    headers: body ? { "Content-Type": "application/json", Accept: "application/json" } : { Accept: "application/json" },
+    body: body ? JSON.stringify(body) : undefined
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || payload?.ok === false) {
-    throw new Error(payload?.error || payload?.message || "No se pudo guardar la reserva");
+    throw new Error(payload?.error || payload?.message || "No se pudo gestionar la reserva");
   }
   return payload;
 }
@@ -78,24 +79,6 @@ function reservationOptions(state, course) {
     })
     .filter(Boolean)
     .sort((left, right) => left.label.localeCompare(right.label, "es"));
-}
-
-function findReusableGuest(state, email) {
-  const normalized = clean(email).toLowerCase();
-  if (!normalized) return null;
-  return (state.members || []).find(
-    (member) => member.source === "admin-course-guest" && clean(member.email).toLowerCase() === normalized
-  ) || null;
-}
-
-function memberHasOtherReferences(state, memberId, excludedCourseId) {
-  return (state.courses || []).some((course) => {
-    if (course.id === excludedCourseId) return false;
-    return (course.enrolledIds || []).includes(memberId) ||
-      (course.waitingIds || []).includes(memberId) ||
-      (course.diplomaReady || []).includes(memberId) ||
-      (course.enrollmentSubmissions || []).some((submission) => submission.memberId === memberId);
-  });
 }
 
 function buildPanel(state, course) {
@@ -146,7 +129,7 @@ function buildPanel(state, course) {
         <div class="studio-grid">
           <label class="inline-field">Nombre<input name="firstName" type="text" autocomplete="off" /></label>
           <label class="inline-field">Apellidos<input name="lastName" type="text" autocomplete="off" /></label>
-          <label class="inline-field">Email<input name="email" type="email" autocomplete="off" placeholder="Opcional" /></label>
+          <label class="inline-field">Email<input name="email" type="email" autocomplete="off" required /></label>
           <label class="inline-field">Teléfono<input name="phone" type="text" autocomplete="off" placeholder="Opcional" /></label>
         </div>
       </div>
@@ -187,111 +170,39 @@ function toggleParticipantFields(panel) {
   const external = panel.querySelector("[data-reservation-external]");
   if (member) member.hidden = type !== "member";
   if (external) external.hidden = type !== "external";
+  const email = external?.querySelector('[name="email"]');
+  if (email) email.required = type === "external";
 }
 
 async function createReservation(panel, form) {
   const courseId = panel.dataset.courseId;
   const data = new FormData(form);
-  const type = clean(data.get("participantType"));
-  setStatus(panel, "Guardando reserva...");
-  const state = await readAdminState();
-  if (!state) throw new Error("Solo administración puede reservar plazas");
-  const course = getCourse(state, courseId);
-  if (!course) throw new Error("Curso no encontrado");
-  if (seatsLeft(course) <= 0) throw new Error("El curso ya está completo");
-
-  let member = null;
-  let createdGuest = false;
-  if (type === "member") {
-    const memberId = clean(data.get("memberId"));
-    member = getMember(state, memberId);
-    if (!member) throw new Error("Selecciona un socio");
-  } else {
-    const firstName = clean(data.get("firstName"));
-    const lastName = clean(data.get("lastName"));
-    const name = [firstName, lastName].filter(Boolean).join(" ");
-    if (!name) throw new Error("Indica el nombre y apellidos del invitado");
-    const email = clean(data.get("email")).toLowerCase();
-    member = findReusableGuest(state, email);
-    if (!member) {
-      member = {
-        id: `member-guest-${crypto.randomUUID()}`,
-        name,
-        role: "Participante externo",
-        email,
-        phone: clean(data.get("phone")),
-        certifications: [],
-        renewalsDue: 0,
-        source: "admin-course-guest",
-        createdAt: new Date().toISOString()
-      };
-      state.members = Array.isArray(state.members) ? state.members : [];
-      state.members.push(member);
-      createdGuest = true;
-    }
-  }
-
-  const alreadyRegistered = (course.enrolledIds || []).includes(member.id) ||
-    (course.waitingIds || []).includes(member.id) ||
-    (course.enrollmentSubmissions || []).some((submission) => submission.memberId === member.id && activeReservation(submission));
-  if (alreadyRegistered) {
-    if (createdGuest) state.members = state.members.filter((item) => item.id !== member.id);
-    throw new Error("Esta persona ya figura en el curso");
-  }
-
-  if (seatsLeft(course) <= 0) {
-    if (createdGuest) state.members = state.members.filter((item) => item.id !== member.id);
-    throw new Error("El curso ya está completo");
-  }
-
-  const now = new Date().toISOString();
-  const fee = Number(course.enrollmentFee || 0);
-  course.enrolledIds = unique([...(course.enrolledIds || []), member.id]);
-  course.waitingIds = (course.waitingIds || []).filter((id) => id !== member.id);
-  course.enrollmentSubmissions = Array.isArray(course.enrollmentSubmissions) ? course.enrollmentSubmissions : [];
-  course.enrollmentSubmissions.push({
-    id: `reservation-${crypto.randomUUID()}`,
-    memberId: member.id,
-    submittedAt: now,
-    updatedAt: now,
-    status: fee > 0 ? "pending-proof" : "confirmed",
+  const participantType = clean(data.get("participantType"));
+  const payload = {
+    participantType,
+    memberId: clean(data.get("memberId")),
+    firstName: clean(data.get("firstName")),
+    lastName: clean(data.get("lastName")),
+    email: clean(data.get("email")).toLowerCase(),
+    phone: clean(data.get("phone")),
     note: clean(data.get("note")),
-    paymentProof: null,
-    amount: Number.isFinite(fee) ? fee : 0,
-    method: "Transferencia",
-    source: "admin-reservation",
-    participantType: type === "external" ? "external" : "member",
-    reservedAt: now
-  });
+    method: "Transferencia"
+  };
 
-  await writeAdminState(state);
+  if (participantType === "member" && !payload.memberId) throw new Error("Selecciona un socio");
+  if (participantType === "external") {
+    if (!payload.firstName || !payload.lastName) throw new Error("Indica el nombre y apellidos del invitado");
+    if (!payload.email) throw new Error("Indica el correo electrónico del invitado");
+  }
+
+  setStatus(panel, "Guardando reserva...");
+  await reservationRequest(courseId, { method: "POST", body: payload });
   setStatus(panel, "Plaza reservada correctamente.");
   window.location.reload();
 }
 
 async function releaseReservation(panel, reservationId) {
-  const state = await readAdminState();
-  if (!state) throw new Error("Solo administración puede liberar reservas");
-  const course = getCourse(state, panel.dataset.courseId);
-  if (!course) throw new Error("Curso no encontrado");
-  const submission = (course.enrollmentSubmissions || []).find(
-    (item) => item.id === reservationId && item.source === "admin-reservation"
-  );
-  if (!submission) throw new Error("Reserva administrativa no encontrada");
-
-  const memberId = submission.memberId;
-  course.enrolledIds = (course.enrolledIds || []).filter((id) => id !== memberId);
-  course.waitingIds = (course.waitingIds || []).filter((id) => id !== memberId);
-  course.enrollmentSubmissions = (course.enrollmentSubmissions || []).filter((item) => item.id !== reservationId);
-
-  const member = getMember(state, memberId);
-  if (member?.source === "admin-course-guest" &&
-      !memberHasOtherReferences(state, memberId, course.id) &&
-      !(state.accounts || []).some((account) => account.memberId === memberId)) {
-    state.members = (state.members || []).filter((item) => item.id !== memberId);
-  }
-
-  await writeAdminState(state);
+  await reservationRequest(panel.dataset.courseId, { method: "DELETE", reservationId });
   window.location.reload();
 }
 
