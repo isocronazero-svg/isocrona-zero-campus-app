@@ -83,8 +83,12 @@ function createAuditLogHandler(deps) {
   return async function handle(req, res, url) {
     if (url.pathname !== "/api/audit-log") return false;
     const state = deps.readState();
-    const account = deps.requireAdminAccount(req, res, state);
+    const account = deps.requireAuthenticatedAccount(req, res, state);
     if (!account) return true;
+    if (account.role !== "admin") {
+      deps.sendJson(res, 403, { ok: false, error: "El registro de auditoria esta reservado a administracion" });
+      return true;
+    }
     if (req.method !== "GET") {
       deps.sendJson(res, 405, { ok: false, error: "El registro de auditoria es de solo lectura" });
       return true;
