@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { Readable } from "node:stream";
 
 const require = createRequire(import.meta.url);
 const {
@@ -10,6 +11,7 @@ const {
   listAuditEvents,
   sanitizeAuditValue
 } = require("../server/audit-log.js");
+const { readJsonBody } = require("../server/http.js");
 
 {
   const sanitized = sanitizeAuditValue({
@@ -92,6 +94,28 @@ const {
 }
 
 {
+  const req = Readable.from([Buffer.from(JSON.stringify({
+    auditLog: [{ id: "stale", action: "erase-history" }],
+    associates: [
+      { id: "associate-treasury", treasuryEnabled: false },
+      { id: "associate-normal", treasuryEnabled: true }
+    ]
+  }))]);
+  req.headers = {};
+  req.__izServerOwnedState = {
+    auditLog: [{ id: "audit-real", action: "validate-payment" }],
+    treasuryByAssociateId: {
+      "associate-treasury": true,
+      "associate-normal": false
+    }
+  };
+  const payload = await readJsonBody(req, 4096);
+  assert.deepEqual(payload.auditLog, [{ id: "audit-real", action: "validate-payment" }]);
+  assert.equal(payload.associates[0].treasuryEnabled, true);
+  assert.equal(payload.associates[1].treasuryEnabled, false);
+}
+
+{
   const state = { auditLog: [], activityLog: [] };
   appendAuditEvent(state, {
     account: { id: "admin-1", name: "Admin QA", role: "admin" },
@@ -123,4 +147,4 @@ const {
   assert.equal(response.status, 405);
 }
 
-console.log("Audit log V1.1: redaccion, compatibilidad, filtros, permisos y retencion OK.");
+console.log("Audit log V1.1: redaccion, compatibilidad, preservacion, filtros, permisos y retencion OK.");
