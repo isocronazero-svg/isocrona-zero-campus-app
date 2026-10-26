@@ -124,6 +124,18 @@ async function readJsonBodyOrDefault(req, maxBytes = payloadLimitBytes.defaultJs
   }
 }
 
+function applyRequestJsonOverrides(req, payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+  const enrollmentPricing = req?.__izCourseEnrollmentPricing;
+  if (enrollmentPricing && Number.isFinite(Number(enrollmentPricing.amount))) {
+    payload.amount = Number(enrollmentPricing.amount);
+    payload.priceCategory = String(enrollmentPricing.priceCategory || "").trim();
+  }
+  return payload;
+}
+
 function readJsonBody(req, maxBytes = payloadLimitBytes.defaultJson) {
   return new Promise((resolve, reject) => {
     const normalizedMaxBytes = Math.max(1, Number(maxBytes || payloadLimitBytes.defaultJson));
@@ -167,7 +179,7 @@ function readJsonBody(req, maxBytes = payloadLimitBytes.defaultJson) {
       settled = true;
       try {
         const raw = Buffer.concat(chunks, totalBytes).toString("utf8");
-        resolve(JSON.parse(raw || "{}"));
+        resolve(applyRequestJsonOverrides(req, JSON.parse(raw || "{}")));
       } catch (error) {
         reject(error);
       }
