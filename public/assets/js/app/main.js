@@ -10,6 +10,7 @@ import { renderJoinView } from "./views/joinView.js";
 import { renderAdminView } from "./views/adminView.js";
 import { renderTestView, resetTestView } from "./views/testView.js";
 import { renderTestsView } from "./views/testsView.js";
+import { installCourseFinanceEnhancer } from "./campus/courseFinanceEnhancer.js";
 import { installCoursePricingEnhancer } from "./campus/coursePricingEnhancer.js";
 import { installCourseReservationEnhancer } from "./campus/courseReservations.js";
 
@@ -62,8 +63,9 @@ export function initializeApp() {
   }
 
   ensureTestFocusStyles();
-  // Install pricing before legacy app.js wraps fetch, so every later state/enrollment request inherits it.
+  // Install scoped V1.1 enhancers before legacy app.js wraps fetch.
   installCoursePricingEnhancer();
+  installCourseFinanceEnhancer();
   installCourseReservationEnhancer();
 
   if (window.__IZ_FRONTEND_APP__) {
