@@ -1,14 +1,25 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { Readable } from "node:stream";
+import {
+  adaptStatePricing,
+  applyCoursePricingToRequestBody,
+  resetCoursePricingEnhancerForTests
+} from "../public/assets/js/app/campus/coursePricingEnhancer.js";
 
 const require = createRequire(import.meta.url);
 const {
+  coursePricingConfig,
   getApplicableCourseFee,
+  getApplicableCourseFeeForAccount,
   getCoursePricing,
   getMemberEnrollmentFee,
-  getNonMemberEnrollmentFee
+  getNonMemberEnrollmentFee,
+  getParticipantTypeForAccount
 } = require("../server/course-pricing.js");
+const { courseTestConfig } = require("../server/course-shared-tests.js");
 const { reserveAdministrativeSeat } = require("../server/course-reservations.js");
+const { readJsonBody } = require("../server/http.js");
 
 {
   const course = { enrollmentFee: 35 };
@@ -45,13 +56,47 @@ const { reserveAdministrativeSeat } = require("../server/course-reservations.js"
 
 {
   const state = {
+    associates: [{ id: "associate-1", linkedMemberId: "member-1", linkedAccountId: "account-1" }]
+  };
+  const member = { id: "member-1", associateId: "associate-1" };
+  const account = { id: "account-1", memberId: "member-1" };
+  const externalMember = { id: "member-external", source: "public-campus" };
+  const externalAccount = { id: "account-external", memberId: "member-external", source: "public-campus" };
+  const course = { enrollmentFee: 55, memberEnrollmentFee: 5, nonMemberEnrollmentFee: 55 };
+  assert.equal(getParticipantTypeForAccount(state, account, member), "member");
+  assert.equal(getApplicableCourseFeeForAccount(state, course, account, member), 5);
+  assert.equal(getParticipantTypeForAccount(state, externalAccount, externalMember), "external");
+  assert.equal(getApplicableCourseFeeForAccount(state, course, externalAccount, externalMember), 55);
+}
+
+{
+  assert.deepEqual(
+    coursePricingConfig({ memberEnrollmentFee: 12, nonMemberEnrollmentFee: 44, enrollmentFee: 99 }, {}),
+    { memberEnrollmentFee: 12, nonMemberEnrollmentFee: 44, enrollmentFee: 44 }
+  );
+  assert.deepEqual(
+    coursePricingConfig({ enrollmentFee: 30 }, { enrollmentFee: 30 }),
+    { memberEnrollmentFee: 30, nonMemberEnrollmentFee: 30, enrollmentFee: 30 }
+  );
+  const mutationConfig = courseTestConfig(
+    { testZoneQuestions: [] },
+    { course: { memberEnrollmentFee: 8, nonMemberEnrollmentFee: 50, enrollmentFee: 50 } },
+    { enrollmentFee: 25, sharedTestQuestionIds: [], sharedTestPublished: false }
+  );
+  assert.equal(mutationConfig.memberEnrollmentFee, 8);
+  assert.equal(mutationConfig.nonMemberEnrollmentFee, 50);
+  assert.equal(mutationConfig.enrollmentFee, 50);
+}
+
+{
+  const state = {
     members: [{ id: "member-1", name: "Socio Uno", email: "socio@example.test", associateId: "associate-1" }],
     associates: [{ id: "associate-1", linkedMemberId: "member-1", associateNumber: 1 }],
     courses: [{
       id: "course-1",
       title: "Curso precios V1.1",
       capacity: 4,
-      enrollmentFee: 30,
+      enrollmentFee: 55,
       memberEnrollmentFee: 0,
       nonMemberEnrollmentFee: 55,
       enrolledIds: [],
@@ -81,4 +126,41 @@ const { reserveAdministrativeSeat } = require("../server/course-reservations.js"
   assert.equal(externalReservation.submission.priceCategory, "non-member");
 }
 
-console.log("Course pricing V1.1: socio/no socio y reservas administrativas OK.");
+{
+  const req = Readable.from([Buffer.from(JSON.stringify({ amount: 0, note: "intento manipulado" }))]);
+  req.headers = {};
+  req.__izCourseEnrollmentPricing = { amount: 55, priceCategory: "non-member" };
+  const payload = await readJsonBody(req, 2048);
+  assert.equal(payload.amount, 55);
+  assert.equal(payload.priceCategory, "non-member");
+}
+
+{
+  const requestBody = { course: { title: "Curso" } };
+  applyCoursePricingToRequestBody(requestBody, { memberEnrollmentFee: 0, nonMemberEnrollmentFee: 60 });
+  assert.deepEqual(requestBody.course, {
+    title: "Curso",
+    memberEnrollmentFee: 0,
+    nonMemberEnrollmentFee: 60,
+    enrollmentFee: 60
+  });
+
+  const memberState = adaptStatePricing({
+    role: "member",
+    selectedAssociateId: "associate-1",
+    selectedCourseId: "course-1",
+    courses: [{ id: "course-1", enrollmentFee: 60, memberEnrollmentFee: 0, nonMemberEnrollmentFee: 60 }]
+  });
+  assert.equal(memberState.courses[0].enrollmentFee, 0);
+
+  const externalState = adaptStatePricing({
+    role: "member",
+    selectedAssociateId: null,
+    selectedCourseId: "course-2",
+    courses: [{ id: "course-2", enrollmentFee: 60, memberEnrollmentFee: 0, nonMemberEnrollmentFee: 60 }]
+  });
+  assert.equal(externalState.courses[0].enrollmentFee, 60);
+  resetCoursePricingEnhancerForTests();
+}
+
+console.log("Course pricing V1.1: precios, persistencia, UI y autoridad de servidor OK.");
