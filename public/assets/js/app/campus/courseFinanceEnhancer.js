@@ -250,6 +250,8 @@ function enhanceUi() {
 
 function injectTreasuryPermission(target, init) {
   if (String(init?.method || "GET").toUpperCase() !== "PATCH" || !/^\/api\/associates\/[^/]+$/.test(target.pathname)) return init;
+  const targetAssociateId = decodeURIComponent(target.pathname.split("/").pop() || "");
+  if (!targetAssociateId || targetAssociateId !== selectedAssociateId) return init;
   const checkbox = document.getElementById("editAssociateTreasuryEnabled");
   if (!checkbox || typeof init.body !== "string") return init;
   try {
