@@ -13,6 +13,7 @@ const { validateInstructorAssociateUpdate } = require("../server/instructor-cert
 function seedState() {
   return {
     activityLog: [],
+    auditLog: [],
     accounts: [
       { id: "account-treasury", name: "Tesoreria QA", role: "member", memberId: "member-treasury", associateId: "associate-treasury" },
       { id: "account-member", name: "Socio QA", role: "member", memberId: "member-normal", associateId: "associate-normal" },
@@ -129,6 +130,11 @@ function seedState() {
   assert.equal(response.payload.row.paymentValidatedBy, "Tesoreria QA");
   assert.equal(state.courses[0].enrollmentSubmissions[0].status, "confirmed");
   assert.equal(state.activityLog.length, 1);
+  assert.equal(state.auditLog.length, 1);
+  assert.equal(state.auditLog[0].action, "validate-payment");
+  assert.equal(state.auditLog[0].actor.name, "Tesoreria QA");
+  assert.equal(state.auditLog[0].before.paymentStatus, "pending");
+  assert.equal(state.auditLog[0].after.paymentStatus, "validated");
 
   response = null;
   await handler(
@@ -139,6 +145,8 @@ function seedState() {
   assert.equal(response.status, 200);
   assert.equal(response.payload.row.paymentStatus, "incident");
   assert.equal(response.payload.row.paymentIncidentNote, "Importe no coincide");
+  assert.equal(state.auditLog.length, 2);
+  assert.equal(state.auditLog[0].action, "mark-payment-incident");
 
   currentAccount = state.accounts[1];
   response = null;
@@ -151,4 +159,4 @@ function seedState() {
   assert.equal(response.status, 200);
 }
 
-console.log("Course finance V1.1: permisos, estados, justificantes y validacion OK.");
+console.log("Course finance V1.1: permisos, estados, justificantes, validacion y auditoria OK.");
