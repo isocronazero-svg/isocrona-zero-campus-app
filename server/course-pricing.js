@@ -48,12 +48,60 @@ function getCoursePricing(course) {
   };
 }
 
+function findLinkedAssociate(state, account = {}, member = {}) {
+  const associates = Array.isArray(state?.associates) ? state.associates : [];
+  const accountId = String(account?.id || "").trim();
+  const memberId = String(member?.id || account?.memberId || "").trim();
+  const associateId = String(member?.associateId || account?.associateId || "").trim();
+  return associates.find((associate) =>
+    (associateId && associate.id === associateId) ||
+    (memberId && associate.linkedMemberId === memberId) ||
+    (accountId && associate.linkedAccountId === accountId)
+  ) || null;
+}
+
+function getParticipantTypeForAccount(state, account = {}, member = {}) {
+  return findLinkedAssociate(state, account, member) ? "member" : "external";
+}
+
+function getApplicableCourseFeeForAccount(state, course, account = {}, member = {}) {
+  return getApplicableCourseFee(course, getParticipantTypeForAccount(state, account, member));
+}
+
+function coursePricingConfig(payload, previous = {}) {
+  const source = payload?.course && typeof payload.course === "object" ? payload.course : payload || {};
+  const sourceLegacy = hasOwn(source, "enrollmentFee")
+    ? normalizeFee(source.enrollmentFee, previous.enrollmentFee)
+    : getLegacyEnrollmentFee(previous);
+  const memberFee = hasOwn(source, "memberEnrollmentFee")
+    ? normalizeFee(source.memberEnrollmentFee, sourceLegacy)
+    : hasOwn(previous, "memberEnrollmentFee")
+      ? getMemberEnrollmentFee(previous)
+      : sourceLegacy;
+  const nonMemberFee = hasOwn(source, "nonMemberEnrollmentFee")
+    ? normalizeFee(source.nonMemberEnrollmentFee, sourceLegacy)
+    : hasOwn(previous, "nonMemberEnrollmentFee")
+      ? getNonMemberEnrollmentFee(previous)
+      : sourceLegacy;
+
+  return {
+    memberEnrollmentFee: memberFee,
+    nonMemberEnrollmentFee: nonMemberFee,
+    // Keep the legacy field as the public/general price until the old UI no longer reads it.
+    enrollmentFee: nonMemberFee
+  };
+}
+
 module.exports = {
+  coursePricingConfig,
+  findLinkedAssociate,
   getApplicableCourseFee,
+  getApplicableCourseFeeForAccount,
   getCoursePricing,
   getLegacyEnrollmentFee,
   getMemberEnrollmentFee,
   getNonMemberEnrollmentFee,
+  getParticipantTypeForAccount,
   normalizeFee,
   normalizeParticipantType
 };
