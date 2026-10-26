@@ -58,6 +58,42 @@ function appendAuditEvent(state, event = {}) {
   return entry;
 }
 
+function legacyActivityAsAudit(activity) {
+  return {
+    id: `legacy-${clean(activity?.id || randomUUID())}`,
+    at: clean(activity?.at || new Date().toISOString()),
+    actor: normalizeActor({}, { name: activity?.actor || "Sistema", role: activity?.type || "activity" }),
+    module: "activity",
+    entityType: "activity",
+    entityId: clean(activity?.id),
+    entityLabel: clean(activity?.message || "Actividad del portal"),
+    action: "legacy-activity",
+    result: "success",
+    before: null,
+    after: null,
+    metadata: { legacyActivity: true, activityType: clean(activity?.type) }
+  };
+}
+
+function isNearbyStructuredEvent(legacy, structuredEvents) {
+  const legacyAt = Date.parse(legacy.at || "");
+  if (!Number.isFinite(legacyAt)) return false;
+  const actor = clean(legacy.actor?.name).toLowerCase();
+  return structuredEvents.some((event) => {
+    const eventAt = Date.parse(event.at || "");
+    return Number.isFinite(eventAt) && Math.abs(eventAt - legacyAt) <= 5000 &&
+      clean(event.actor?.name).toLowerCase() === actor;
+  });
+}
+
+function combinedAuditEvents(state) {
+  const structured = (Array.isArray(state?.auditLog) ? state.auditLog : []).map((entry) => sanitizeAuditValue(entry));
+  const legacy = (Array.isArray(state?.activityLog) ? state.activityLog : [])
+    .map(legacyActivityAsAudit)
+    .filter((entry) => !isNearbyStructuredEvent(entry, structured));
+  return [...structured, ...legacy].sort((left, right) => clean(right.at).localeCompare(clean(left.at)));
+}
+
 function listAuditEvents(state, filters = {}) {
   const user = clean(filters.user).toLowerCase();
   const moduleName = clean(filters.module).toLowerCase();
@@ -67,7 +103,7 @@ function listAuditEvents(state, filters = {}) {
   const from = clean(filters.from);
   const to = clean(filters.to);
   const limit = Math.max(1, Math.min(500, Number(filters.limit || 200)));
-  return (Array.isArray(state?.auditLog) ? state.auditLog : [])
+  return combinedAuditEvents(state)
     .filter((entry) => !user || [entry.actor?.name, entry.actor?.accountId].some((value) => clean(value).toLowerCase().includes(user)))
     .filter((entry) => !moduleName || clean(entry.module).toLowerCase() === moduleName)
     .filter((entry) => !action || clean(entry.action).toLowerCase() === action)
@@ -106,7 +142,9 @@ function createAuditLogHandler(deps) {
     deps.sendJson(res, 200, {
       ok: true,
       events,
-      totalStored: Array.isArray(state.auditLog) ? state.auditLog.length : 0,
+      totalStored: (Array.isArray(state.auditLog) ? state.auditLog.length : 0) + (Array.isArray(state.activityLog) ? state.activityLog.length : 0),
+      structuredStored: Array.isArray(state.auditLog) ? state.auditLog.length : 0,
+      legacyStored: Array.isArray(state.activityLog) ? state.activityLog.length : 0,
       maxStored: MAX_AUDIT_EVENTS
     });
     return true;
@@ -116,7 +154,9 @@ function createAuditLogHandler(deps) {
 module.exports = {
   MAX_AUDIT_EVENTS,
   appendAuditEvent,
+  combinedAuditEvents,
   createAuditLogHandler,
+  legacyActivityAsAudit,
   listAuditEvents,
   sanitizeAuditValue
 };
