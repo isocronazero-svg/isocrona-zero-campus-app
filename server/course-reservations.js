@@ -1,4 +1,5 @@
 const { randomUUID } = require("node:crypto");
+const { getApplicableCourseFee } = require("./course-pricing");
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
@@ -151,7 +152,7 @@ function reserveAdministrativeSeat(state, courseId, payload = {}) {
     course.enrollmentSubmissions = ensureArray(course.enrollmentSubmissions);
     course.enrolledIds.push(member.id);
 
-    const fee = Number(course.enrollmentFee || 0);
+    const fee = getApplicableCourseFee(course, participantType);
     const now = new Date().toISOString();
     const submission = {
       id: `reservation-${randomUUID()}`,
@@ -161,10 +162,11 @@ function reserveAdministrativeSeat(state, courseId, payload = {}) {
       status: fee > 0 ? "pending-proof" : "confirmed",
       note: clean(payload.note),
       paymentProof: null,
-      amount: Number.isFinite(fee) ? fee : 0,
+      amount: fee,
       method: clean(payload.method) || "Transferencia",
       source: "admin-reservation",
       participantType,
+      priceCategory: participantType === "member" ? "member" : "non-member",
       reservedBy: clean(payload.reservedBy),
       reservedAt: now
     };
