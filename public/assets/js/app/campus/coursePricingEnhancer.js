@@ -8,6 +8,7 @@ const pricingByCourseId = new Map();
 let latestSelectedCourseId = "";
 let installed = false;
 let observer = null;
+let selectionListenerInstalled = false;
 
 function numberFromInput(input, fallback = 0) {
   const value = Number(input?.value);
@@ -131,6 +132,14 @@ function enhanceForms() {
   enhanceEditForm(document.getElementById("courseEditForm"));
 }
 
+function trackCourseSelection(event) {
+  const target = event.target?.closest?.("[data-course-id]");
+  const courseId = String(target?.dataset?.courseId || "").trim();
+  const action = String(target?.dataset?.action || "").trim();
+  if (!courseId || !["select-course", "open-course-workbench-tab", "open-course-academic", "prepare-course-enrollment"].includes(action)) return;
+  latestSelectedCourseId = courseId;
+}
+
 async function transformResponse(response, target) {
   if (!response?.ok || target.pathname !== "/api/state") return response;
   const contentType = String(response.headers.get("content-type") || "");
@@ -191,6 +200,10 @@ export function installCoursePricingEnhancer() {
     return target.origin === window.location.origin ? transformResponse(response, target) : response;
   };
 
+  if (!selectionListenerInstalled) {
+    document.addEventListener("click", trackCourseSelection, true);
+    selectionListenerInstalled = true;
+  }
   enhanceForms();
   if (typeof MutationObserver !== "undefined") {
     observer = new MutationObserver(() => enhanceForms());
@@ -201,6 +214,10 @@ export function installCoursePricingEnhancer() {
 export function resetCoursePricingEnhancerForTests() {
   observer?.disconnect();
   observer = null;
+  if (selectionListenerInstalled && typeof document !== "undefined") {
+    document.removeEventListener("click", trackCourseSelection, true);
+  }
+  selectionListenerInstalled = false;
   installed = false;
   pricingByCourseId.clear();
   latestSelectedCourseId = "";
