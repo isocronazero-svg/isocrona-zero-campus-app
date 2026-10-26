@@ -136,6 +136,16 @@ const { readJsonBody } = require("../server/http.js");
 }
 
 {
+  const req = Readable.from([Buffer.from(JSON.stringify({ amount: 60 }))]);
+  req.headers = {};
+  req.__izCourseEnrollmentPricing = { amount: 0, priceCategory: "member" };
+  const payload = await readJsonBody(req, 2048);
+  assert.equal(payload.amount, "0", "El cero autorizado debe conservarse truthy frente al fallback legacy");
+  assert.equal(Number(payload.amount || 60), 0, "Socio gratuito no debe heredar el precio general de 60 EUR");
+  assert.equal(payload.priceCategory, "member");
+}
+
+{
   const requestBody = { course: { title: "Curso" } };
   applyCoursePricingToRequestBody(requestBody, { memberEnrollmentFee: 0, nonMemberEnrollmentFee: 60 });
   assert.deepEqual(requestBody.course, {
