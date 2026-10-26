@@ -136,6 +136,21 @@ function applyRequestJsonOverrides(req, payload) {
     payload.amount = authoritativeAmount === 0 ? "0" : authoritativeAmount;
     payload.priceCategory = String(enrollmentPricing.priceCategory || "").trim();
   }
+
+  const serverOwnedState = req?.__izServerOwnedState;
+  if (serverOwnedState) {
+    // Whole-state saves are legacy snapshots. Never let a stale browser snapshot overwrite
+    // audit history or scoped capabilities that belong to dedicated server-side actions.
+    payload.auditLog = Array.isArray(serverOwnedState.auditLog) ? serverOwnedState.auditLog : [];
+    const treasuryByAssociateId = serverOwnedState.treasuryByAssociateId || {};
+    if (Array.isArray(payload.associates)) {
+      payload.associates = payload.associates.map((associate) => {
+        const associateId = String(associate?.id || "").trim();
+        if (!associateId || !Object.prototype.hasOwnProperty.call(treasuryByAssociateId, associateId)) return associate;
+        return { ...associate, treasuryEnabled: treasuryByAssociateId[associateId] === true };
+      });
+    }
+  }
   return payload;
 }
 
