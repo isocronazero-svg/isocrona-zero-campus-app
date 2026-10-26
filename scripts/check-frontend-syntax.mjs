@@ -10,6 +10,7 @@ const files = [
   "public/assets/js/app/campus/coursePricing.js",
   "public/assets/js/app/campus/coursePricingEnhancer.js",
   "public/assets/js/app/campus/courseReservations.js",
+  "public/assets/js/app/campus/diplomaPreviewEnhancer.js",
   "public/app.js",
   "public/course-test.js",
   "public/question-bank.js",
