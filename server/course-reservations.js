@@ -160,6 +160,7 @@ function reserveAdministrativeSeat(state, courseId, payload = {}) {
       submittedAt: now,
       updatedAt: now,
       status: fee > 0 ? "pending-proof" : "confirmed",
+      paymentStatus: fee > 0 ? "pending" : "not-required",
       note: clean(payload.note),
       paymentProof: null,
       amount: fee,
