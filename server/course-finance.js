@@ -1,3 +1,4 @@
+const { appendAuditEvent } = require("./audit-log");
 const { getApplicableCourseFee } = require("./course-pricing");
 
 function clean(value) {
@@ -57,7 +58,9 @@ function buildFinanceRow(state, course, submission) {
       ? "member"
       : participantTypeForMember(state, member);
   const configuredAmount = getApplicableCourseFee(course, participantType);
-  const amount = Number.isFinite(Number(submission.amount)) ? Number(submission.amount) : configuredAmount;
+  const hasStoredAmount = Object.prototype.hasOwnProperty.call(submission || {}, "amount") &&
+    Number.isFinite(Number(submission.amount));
+  const amount = hasStoredAmount ? Number(submission.amount) : configuredAmount;
   const paymentStatus = normalizedPaymentStatus(submission, amount);
   return {
     courseId: course.id,
@@ -192,8 +195,8 @@ function createCourseFinanceHandler(deps) {
           deps.sendJson(res, 404, { ok: false, error: "Curso o pago no encontrado" });
           return true;
         }
-        const row = buildFinanceRow(state, course, submission);
-        if (row.amount <= 0) {
+        const beforeRow = buildFinanceRow(state, course, submission);
+        if (beforeRow.amount <= 0) {
           deps.sendJson(res, 409, { ok: false, error: "Este curso no requiere pago" });
           return true;
         }
@@ -221,11 +224,35 @@ function createCourseFinanceHandler(deps) {
           account,
           `Ha marcado el pago de ${member?.name || "un participante"} en ${course.title} como ${nextStatus}`
         );
+        const afterRow = buildFinanceRow(state, course, submission);
+        appendAuditEvent(state, {
+          account,
+          module: "course-finance",
+          entityType: "course-payment",
+          entityId: submission.id,
+          entityLabel: `${member?.name || "Participante"} · ${course.title}`,
+          action: nextStatus === "validated" ? "validate-payment" : nextStatus === "incident" ? "mark-payment-incident" : "reset-payment-pending",
+          before: {
+            paymentStatus: beforeRow.paymentStatus,
+            amount: beforeRow.amount,
+            paymentReviewedBy: beforeRow.paymentReviewedBy,
+            paymentReviewedAt: beforeRow.paymentReviewedAt,
+            paymentIncidentNote: beforeRow.paymentIncidentNote
+          },
+          after: {
+            paymentStatus: afterRow.paymentStatus,
+            amount: afterRow.amount,
+            paymentReviewedBy: afterRow.paymentReviewedBy,
+            paymentReviewedAt: afterRow.paymentReviewedAt,
+            paymentIncidentNote: afterRow.paymentIncidentNote
+          },
+          metadata: { courseId: course.id, memberId: submission.memberId, priceCategory: afterRow.priceCategory }
+        });
         deps.writeState(state);
         deps.sendJson(res, 200, {
           ok: true,
           message: nextStatus === "validated" ? "Pago validado" : nextStatus === "incident" ? "Incidencia registrada" : "Pago pendiente de revision",
-          row: buildFinanceRow(state, course, submission),
+          row: afterRow,
           summary: buildCourseFinanceSnapshot(state).summary
         });
         return true;
