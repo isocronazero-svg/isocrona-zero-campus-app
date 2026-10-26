@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 const {
   MAX_AUDIT_EVENTS,
   appendAuditEvent,
+  combinedAuditEvents,
   createAuditLogHandler,
   listAuditEvents,
   sanitizeAuditValue
@@ -23,7 +24,7 @@ const {
 }
 
 {
-  const state = { auditLog: [] };
+  const state = { auditLog: [], activityLog: [] };
   appendAuditEvent(state, {
     account: { id: "admin-1", memberId: "member-1", name: "Admin QA", role: "admin" },
     module: "course-finance",
@@ -44,13 +45,41 @@ const {
     action: "create-reservation",
     metadata: { courseId: "course-2" }
   });
+  state.activityLog.push({
+    id: "activity-old",
+    at: "2026-01-01T10:00:00.000Z",
+    actor: "Secretaria QA",
+    type: "admin",
+    message: "Actualiza ficha de socio QA"
+  });
   assert.equal(state.auditLog.length, 2);
   assert.equal(state.auditLog[1].before.contentBase64, "[redacted]");
+  assert.equal(combinedAuditEvents(state).length, 3);
   assert.equal(listAuditEvents(state, { user: "Admin QA" }).length, 1);
+  assert.equal(listAuditEvents(state, { user: "Secretaria QA" }).length, 1);
   assert.equal(listAuditEvents(state, { module: "course-finance" }).length, 1);
+  assert.equal(listAuditEvents(state, { module: "activity" }).length, 1);
   assert.equal(listAuditEvents(state, { action: "create-reservation" }).length, 1);
   assert.equal(listAuditEvents(state, { courseId: "course-1" }).length, 1);
   assert.equal(listAuditEvents(state, { entity: "Reserva" }).length, 1);
+}
+
+{
+  const now = new Date().toISOString();
+  const state = {
+    auditLog: [],
+    activityLog: [{ id: "activity-near", at: now, actor: "Admin QA", type: "admin", message: "Reserva plaza" }]
+  };
+  appendAuditEvent(state, {
+    at: now,
+    account: { id: "admin-1", name: "Admin QA", role: "admin" },
+    module: "courses",
+    entityType: "course-reservation",
+    entityId: "reservation-1",
+    entityLabel: "Persona QA · Curso QA",
+    action: "create-reservation"
+  });
+  assert.equal(combinedAuditEvents(state).length, 1, "No debe duplicar el activityLog de la misma acción estructurada");
 }
 
 {
@@ -63,7 +92,7 @@ const {
 }
 
 {
-  const state = { auditLog: [] };
+  const state = { auditLog: [], activityLog: [] };
   appendAuditEvent(state, {
     account: { id: "admin-1", name: "Admin QA", role: "admin" },
     module: "courses",
@@ -94,4 +123,4 @@ const {
   assert.equal(response.status, 405);
 }
 
-console.log("Audit log V1.1: redaccion, filtros, permisos y retencion OK.");
+console.log("Audit log V1.1: redaccion, compatibilidad, filtros, permisos y retencion OK.");
