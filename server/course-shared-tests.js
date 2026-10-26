@@ -1,4 +1,5 @@
 const { createHmac, randomBytes } = require("node:crypto");
+const { createAuditLogHandler } = require("./audit-log");
 const { createCourseFinanceHandler } = require("./course-finance");
 const {
   coursePricingConfig,
@@ -57,8 +58,10 @@ function prepareAuthoritativeEnrollmentPricing(req, res, url, deps) {
 
 function createCourseSharedTestHandler(deps) {
   const secret = randomBytes(32);
+  const handleAuditLog = createAuditLogHandler(deps);
   const handleCourseFinance = createCourseFinanceHandler(deps);
   return async function handle(req, res, url) {
+    if (await handleAuditLog(req, res, url)) return true;
     if (await handleCourseFinance(req, res, url)) return true;
     if (prepareAuthoritativeEnrollmentPricing(req, res, url, deps)) return true;
 
