@@ -1,6 +1,7 @@
 const { createHmac, randomBytes } = require("node:crypto");
 const { createAuditLogHandler } = require("./audit-log");
 const { createCourseFinanceHandler } = require("./course-finance");
+const { createDiplomaPreviewHandler } = require("./diploma-preview");
 const {
   coursePricingConfig,
   getApplicableCourseFeeForAccount,
@@ -60,9 +61,11 @@ function createCourseSharedTestHandler(deps) {
   const secret = randomBytes(32);
   const handleAuditLog = createAuditLogHandler(deps);
   const handleCourseFinance = createCourseFinanceHandler(deps);
+  const handleDiplomaPreview = createDiplomaPreviewHandler(deps);
   return async function handle(req, res, url) {
     if (await handleAuditLog(req, res, url)) return true;
     if (await handleCourseFinance(req, res, url)) return true;
+    if (await handleDiplomaPreview(req, res, url)) return true;
     if (prepareAuthoritativeEnrollmentPricing(req, res, url, deps)) return true;
 
     const match = url.pathname.match(/^\/api\/courses\/([^/]+)\/shared-test(?:\/(results))?$/);
