@@ -130,7 +130,10 @@ function applyRequestJsonOverrides(req, payload) {
   }
   const enrollmentPricing = req?.__izCourseEnrollmentPricing;
   if (enrollmentPricing && Number.isFinite(Number(enrollmentPricing.amount))) {
-    payload.amount = Number(enrollmentPricing.amount);
+    const authoritativeAmount = Number(enrollmentPricing.amount);
+    // Legacy enrollment uses `payload.amount || course.enrollmentFee`. Keep zero as a truthy
+    // string so a free member price cannot fall back to the non-member/general fee.
+    payload.amount = authoritativeAmount === 0 ? "0" : authoritativeAmount;
     payload.priceCategory = String(enrollmentPricing.priceCategory || "").trim();
   }
   return payload;
