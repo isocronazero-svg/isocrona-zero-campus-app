@@ -57,6 +57,21 @@ function prepareAuthoritativeEnrollmentPricing(req, res, url, deps) {
   return false;
 }
 
+function prepareServerOwnedStatePreservation(req, res, url, deps) {
+  if (url.pathname !== "/api/state" || req.method !== "POST") return false;
+  const state = deps.readState();
+  const account = deps.requireAuthenticatedAccount(req, res, state);
+  if (!account) return true;
+  if (account.role !== "admin") return false;
+  req.__izServerOwnedState = {
+    auditLog: Array.isArray(state.auditLog) ? state.auditLog : [],
+    treasuryByAssociateId: Object.fromEntries(
+      (state.associates || []).map((associate) => [associate.id, associate.treasuryEnabled === true])
+    )
+  };
+  return false;
+}
+
 function createCourseSharedTestHandler(deps) {
   const secret = randomBytes(32);
   const handleAuditLog = createAuditLogHandler(deps);
@@ -67,6 +82,7 @@ function createCourseSharedTestHandler(deps) {
     if (await handleCourseFinance(req, res, url)) return true;
     if (await handleDiplomaPreview(req, res, url)) return true;
     if (prepareAuthoritativeEnrollmentPricing(req, res, url, deps)) return true;
+    if (prepareServerOwnedStatePreservation(req, res, url, deps)) return true;
 
     const match = url.pathname.match(/^\/api\/courses\/([^/]+)\/shared-test(?:\/(results))?$/);
     if (!match) return false;
