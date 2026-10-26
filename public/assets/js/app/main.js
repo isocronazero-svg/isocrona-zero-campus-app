@@ -14,6 +14,7 @@ import { installAuditEnhancer } from "./admin/auditEnhancer.js";
 import { installCourseFinanceEnhancer } from "./campus/courseFinanceEnhancer.js";
 import { installCoursePricingEnhancer } from "./campus/coursePricingEnhancer.js";
 import { installCourseReservationEnhancer } from "./campus/courseReservations.js";
+import { installDiplomaPreviewEnhancer } from "./campus/diplomaPreviewEnhancer.js";
 
 function ensureTestFocusStyles() {
   if (typeof document === "undefined" || document.querySelector('link[data-test-focus-styles]')) {
@@ -68,6 +69,7 @@ export function initializeApp() {
   installCoursePricingEnhancer();
   installCourseFinanceEnhancer();
   installAuditEnhancer();
+  installDiplomaPreviewEnhancer();
   installCourseReservationEnhancer();
 
   if (window.__IZ_FRONTEND_APP__) {
