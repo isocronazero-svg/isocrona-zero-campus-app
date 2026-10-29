@@ -10,6 +10,7 @@ import { renderJoinView } from "./views/joinView.js";
 import { renderAdminView } from "./views/adminView.js";
 import { renderTestView, resetTestView } from "./views/testView.js";
 import { renderTestsView } from "./views/testsView.js";
+import { installAdminContextEnhancer } from "./admin/adminContextEnhancer.js";
 import { installAuditEnhancer } from "./admin/auditEnhancer.js";
 import { installCourseFinanceEnhancer } from "./campus/courseFinanceEnhancer.js";
 import { installCoursePricingEnhancer } from "./campus/coursePricingEnhancer.js";
@@ -66,6 +67,7 @@ export function initializeApp() {
 
   ensureTestFocusStyles();
   // Install scoped V1.1 enhancers before legacy app.js wraps fetch.
+  installAdminContextEnhancer();
   installCoursePricingEnhancer();
   installCourseFinanceEnhancer();
   installAuditEnhancer();
