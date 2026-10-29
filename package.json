@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Prototipo local del campus de formacion de Isocrona Zero",
-  "packageManager": "npm@10",
+  "packageManager": "npm@10.9.9",
   "engines": {
     "node": ">=22"
   },
