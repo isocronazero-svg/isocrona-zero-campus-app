@@ -1,5 +1,6 @@
 const { createHmac, randomBytes } = require("node:crypto");
 const { createAuditLogHandler } = require("./audit-log");
+const { createBoardV11Handler } = require("./board-v11");
 const { createCourseFinanceHandler } = require("./course-finance");
 const { createDiplomaPreviewHandler } = require("./diploma-preview");
 const {
@@ -75,10 +76,12 @@ function prepareServerOwnedStatePreservation(req, res, url, deps) {
 function createCourseSharedTestHandler(deps) {
   const secret = randomBytes(32);
   const handleAuditLog = createAuditLogHandler(deps);
+  const handleBoardV11 = createBoardV11Handler(deps);
   const handleCourseFinance = createCourseFinanceHandler(deps);
   const handleDiplomaPreview = createDiplomaPreviewHandler(deps);
   return async function handle(req, res, url) {
     if (await handleAuditLog(req, res, url)) return true;
+    if (await handleBoardV11(req, res, url)) return true;
     if (await handleCourseFinance(req, res, url)) return true;
     if (await handleDiplomaPreview(req, res, url)) return true;
     if (prepareAuthoritativeEnrollmentPricing(req, res, url, deps)) return true;
