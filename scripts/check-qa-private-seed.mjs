@@ -36,4 +36,16 @@ assert.equal(seed.settings?.automation?.autoSendDiplomas, false, "QA no debe aut
 assert.equal(seed.settings?.associates?.autoSendWelcomeEmail, false, "QA no debe autoenviar bienvenidas");
 assert.equal(seed.settings?.agent?.enabled, false, "El agente debe estar desactivado en el seed QA");
 
-console.log("QA private seed check passed: sin cuentas, credenciales ni datos personales presembrados.");
+const envExample = readFileSync(new URL("../.env.qa.example", import.meta.url), "utf8");
+assert.match(envExample, /^NODE_ENV=production$/m, "La plantilla QA debe probar el modo productivo seguro");
+assert.match(envExample, /^IZ_DEFAULT_STATE_PATH=\/app\/data\/qa-private-seed\.json$/m);
+assert.match(envExample, /^IZ_EMAIL_ENABLED=false$/m);
+assert.match(envExample, /^IZ_BOOTSTRAP_ADMIN_PASSWORD=$/m, "La plantilla nunca debe contener una contraseña bootstrap");
+assert.doesNotMatch(envExample, /campus123|bomberos123/i, "La plantilla no debe reutilizar credenciales demo");
+
+const gitignore = readFileSync(new URL("../.gitignore", import.meta.url), "utf8");
+assert.match(gitignore, /^\.env\.qa$/m, ".env.qa debe permanecer fuera de Git");
+assert.match(gitignore, /^\.env\.qa\.private$/m, "Los secretos QA privados deben permanecer fuera de Git");
+assert.match(gitignore, /^data\/qa-private-runtime\.json$/m, "El estado QA privado local debe permanecer fuera de Git");
+
+console.log("QA private seed/security check passed: sin cuentas, credenciales ni datos personales presembrados.");
