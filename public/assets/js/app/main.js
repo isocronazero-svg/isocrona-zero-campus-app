@@ -12,6 +12,7 @@ import { renderTestView, resetTestView } from "./views/testView.js";
 import { renderTestsView } from "./views/testsView.js";
 import { installAdminContextEnhancer } from "./admin/adminContextEnhancer.js";
 import { installAuditEnhancer } from "./admin/auditEnhancer.js";
+import { installBoardEnhancer } from "./admin/boardEnhancer.js";
 import { installCourseFinanceEnhancer } from "./campus/courseFinanceEnhancer.js";
 import { installCoursePricingEnhancer } from "./campus/coursePricingEnhancer.js";
 import { installCourseReservationEnhancer } from "./campus/courseReservations.js";
@@ -73,6 +74,7 @@ export function initializeApp() {
   installAuditEnhancer();
   installDiplomaPreviewEnhancer();
   installCourseReservationEnhancer();
+  installBoardEnhancer();
 
   if (window.__IZ_FRONTEND_APP__) {
     return window.__IZ_FRONTEND_APP__;
