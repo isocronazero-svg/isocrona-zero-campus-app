@@ -162,6 +162,14 @@ function validWhatsappUrl(value) {
   return url.toString();
 }
 
+function normalizeMembershipFeeYear(value) {
+  const year = Number(value);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new Error("El año de cuota no es válido");
+  }
+  return year;
+}
+
 function createBoardV11Handler(deps) {
   return async function handle(req, res, url) {
     if (!url.pathname.startsWith("/api/v1.1/")) return false;
@@ -190,6 +198,50 @@ function createBoardV11Handler(deps) {
         "Cache-Control": "private, no-store"
       });
       res.end(`\uFEFF${csv}`);
+      return true;
+    }
+
+    const feeYearMatch = url.pathname.match(/^\/api\/v1\.1\/associates\/([^/]+)\/membership-fee-year$/);
+    if (feeYearMatch && req.method === "PATCH") {
+      if (account.role !== "admin") {
+        deps.sendJson(res, 403, { ok: false, error: "Solo administración puede corregir el año de cuota" });
+        return true;
+      }
+      try {
+        const payload = await deps.readJsonBody(req, 16 * 1024);
+        state = deps.readState();
+        account = deps.requireAuthenticatedAccount(req, res, state);
+        if (!account) return true;
+        if (account.role !== "admin") {
+          deps.sendJson(res, 403, { ok: false, error: "Solo administración puede corregir el año de cuota" });
+          return true;
+        }
+        const associateId = decodeURIComponent(feeYearMatch[1]);
+        const associate = arrays(state.associates).find((item) => item.id === associateId);
+        if (!associate) {
+          deps.sendJson(res, 404, { ok: false, error: "Socio no encontrado" });
+          return true;
+        }
+        const year = normalizeMembershipFeeYear(payload.year);
+        const before = Number(associate.membershipFeeYear || 0) || null;
+        associate.membershipFeeYear = year;
+        associate.membershipFeeYearAssignedAt = new Date().toISOString();
+        associate.membershipFeeYearSource = "manual-admin";
+        appendAuditEvent(state, {
+          account,
+          module: "associates",
+          entityType: "membership-fee-year",
+          entityId: associate.id,
+          entityLabel: [associate.firstName, associate.lastName].filter(Boolean).join(" ") || associate.email || associate.id,
+          action: "update-membership-fee-year",
+          before: { membershipFeeYear: before },
+          after: { membershipFeeYear: year }
+        });
+        deps.writeState(state);
+        deps.sendJson(res, 200, { ok: true, associateId, membershipFeeYear: year });
+      } catch (error) {
+        deps.sendJsonError(res, error, "No se pudo actualizar el año de cuota");
+      }
       return true;
     }
 
@@ -307,6 +359,7 @@ module.exports = {
   canManageTreasury,
   createBoardV11Handler,
   ledgerCsv,
+  normalizeMembershipFeeYear,
   proofRequestNotificationId,
   upsertProofRequestNotification,
   validWhatsappUrl
