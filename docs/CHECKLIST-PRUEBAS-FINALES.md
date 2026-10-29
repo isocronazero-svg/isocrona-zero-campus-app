@@ -1,9 +1,10 @@
 # Checklist de pruebas finales
 
+> Seguridad: no documentar correos personales ni contraseñas reales en el repositorio. Para pruebas automatizadas, usar variables de entorno o cuentas QA temporales.
+
 ## 1. Acceso y sesiones
-- Entrar como administrador real:
-  - `sal.ro.carlos@gmail.com`
-  - `IZ-carl-1`
+- Entrar con una cuenta administrativa de QA autorizada.
+- Si se usa el script de prepublicación, proporcionar las credenciales mediante variables de entorno privadas; nunca escribirlas en Git.
 - Cambiar entre:
   - `Administracion`
   - `Mi perfil socio y alumno`
