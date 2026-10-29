@@ -3,8 +3,42 @@ const { randomUUID } = require("node:crypto");
 // Protect onboarding-owned access/delivery fields and instructor eligibility from async stale writers.
 // Unrelated application state keeps the existing storage behavior.
 const associateFields = ["firstName", "lastName", "email", "status", "observations", "linkedMemberId", "linkedAccountId", "campusAccessStatus",
-  "temporaryPassword", "campusOnboardingCreatedAt", "welcomeEmailStatus", "welcomeEmailSentAt", "welcomeEmailError"];
+  "temporaryPassword", "campusOnboardingCreatedAt", "welcomeEmailStatus", "welcomeEmailSentAt", "welcomeEmailError",
+  "membershipFeeYear", "membershipFeeYearAssignedAt", "membershipFeeYearSource"];
 const memberFields = ["id", "associateId", "email", "name", "source", "phone", "role", "createdAt", "certifications", "renewalsDue"];
+
+function madridYearMonth(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  const safeDate = Number.isFinite(date.getTime()) ? date : new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid",
+    year: "numeric",
+    month: "2-digit"
+  }).formatToParts(safeDate);
+  return {
+    year: Number(parts.find((part) => part.type === "year")?.value || safeDate.getUTCFullYear()),
+    month: Number(parts.find((part) => part.type === "month")?.value || safeDate.getUTCMonth() + 1)
+  };
+}
+
+function membershipFeeYearForDate(value = new Date()) {
+  const { year, month } = madridYearMonth(value);
+  return month >= 10 ? year + 1 : year;
+}
+
+function applyNewAssociateMembershipFeeYears(state, latestCapture) {
+  const existingIds = latestCapture?.allAssociateIds || new Set();
+  let changed = false;
+  for (const associate of state.associates || []) {
+    if (!associate?.id || existingIds.has(associate.id) || Number.isInteger(Number(associate.membershipFeeYear))) continue;
+    const sourceDate = associate.joinedAt || associate.campusOnboardingCreatedAt || associate.createdAt || new Date().toISOString();
+    associate.membershipFeeYear = membershipFeeYearForDate(sourceDate);
+    associate.membershipFeeYearAssignedAt = new Date().toISOString();
+    associate.membershipFeeYearSource = "automatic-new-associate";
+    changed = true;
+  }
+  return changed;
+}
 
 function snapshotEnrollment(course) {
   return structuredClone({
@@ -78,6 +112,7 @@ function capture(state) {
   const associates = (state.associates || []).filter(item => item.campusOnboardingCreatedAt);
   const protectedMemberIds = new Set(associates.map(item => item.linkedMemberId).filter(Boolean));
   return {
+    allAssociateIds: new Set((state.associates || []).map(item => item.id).filter(Boolean)),
     applicationDnis: new Map((state.associateApplications || []).map(item => [item.id, item.dni])),
     applicationProofs: new Map((state.associateApplications || []).map(item => [item.id, item.paymentProof])),
     journeyTypes: new Map((state.courses || []).map(course => [course.id, {journeyTypeId:course.journeyTypeId, journeyTypeLabel:course.journeyTypeLabel}])),
@@ -200,6 +235,7 @@ function createOnboardingStateAccess(storage) {
     reconcileState(state, baselineState) {
       const latest = capture(storage.readState());
       mergeConcurrentAccessChanges(state, snapshots.get(baselineState), latest);
+      applyNewAssociateMembershipFeeYears(state, latest);
       // Reconstructed whole-state payloads need a baseline too, including across automation awaits.
       snapshots.set(state, latest);
     },
@@ -214,6 +250,7 @@ function createOnboardingStateAccess(storage) {
       const latest = capture(storage.readState());
       try {
         mergeConcurrentAccessChanges(state, snapshots.get(state), latest, instructorUpdateId);
+        applyNewAssociateMembershipFeeYears(state, latest);
       } catch (error) {
         if (error?.code === "ENROLLMENT_CAPACITY_CONFLICT") rejectedCapacityStates.add(state);
         throw error;
@@ -224,4 +261,8 @@ function createOnboardingStateAccess(storage) {
   };
 }
 
-module.exports = { createOnboardingStateAccess };
+module.exports = {
+  applyNewAssociateMembershipFeeYears,
+  createOnboardingStateAccess,
+  membershipFeeYearForDate
+};
