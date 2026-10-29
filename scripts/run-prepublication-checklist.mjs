@@ -2,15 +2,24 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const baseUrl = process.env.IZ_BASE_URL || "http://localhost:3210";
+const adminEmail = String(process.env.IZ_PREPUBLICATION_ADMIN_EMAIL || "").trim();
+const adminPassword = String(process.env.IZ_PREPUBLICATION_ADMIN_PASSWORD || "");
 const now = new Date();
-const reportPath = path.resolve(
-  "C:/Users/charl/OneDrive/Desktop/Isocrona Zero/docs",
-  `CHECKLIST-RESULTADO-${now.toISOString().slice(0, 10)}.md`
-);
+const reportPath = process.env.IZ_PREPUBLICATION_REPORT_PATH
+  ? path.resolve(process.env.IZ_PREPUBLICATION_REPORT_PATH)
+  : path.resolve("docs", `CHECKLIST-RESULTADO-${now.toISOString().slice(0, 10)}.md`);
 
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
+  }
+}
+
+function requirePrivateCredentials() {
+  if (!adminEmail || !adminPassword) {
+    throw new Error(
+      "Configura IZ_PREPUBLICATION_ADMIN_EMAIL e IZ_PREPUBLICATION_ADMIN_PASSWORD fuera de Git antes de ejecutar el checklist"
+    );
   }
 }
 
@@ -131,6 +140,7 @@ function renderMarkdown(results) {
 }
 
 async function main() {
+  requirePrivateCredentials();
   const results = [];
   const admin = new HttpClient(baseUrl);
   let baselineState = null;
@@ -144,12 +154,12 @@ async function main() {
   try {
     const adminLogin = await admin.post("/api/login", {
       json: {
-        email: "sal.ro.carlos@gmail.com",
-        password: "IZ-carl-1"
+        email: adminEmail,
+        password: adminPassword
       }
     });
-    assert(adminLogin.ok && adminLogin.body?.ok, "No se pudo iniciar sesion como Carlos");
-    record("Admin login", true, "Carlos ha iniciado sesion correctamente");
+    assert(adminLogin.ok && adminLogin.body?.ok, "No se pudo iniciar sesion con la cuenta administrativa configurada");
+    record("Admin login", true, "Cuenta administrativa autenticada correctamente");
 
     const adminStateResponse = await admin.get("/api/state");
     assert(adminStateResponse.ok && adminStateResponse.body?.accounts, "No se pudo cargar /api/state");
@@ -213,7 +223,7 @@ async function main() {
         lastName: "Publico",
         email: publicRegisterEmail,
         phone: "600123123",
-        password: "Checklist2026!"
+        password: `Checklist-${Date.now()}!`
       }
     });
     assert(publicRegister.ok && publicRegister.body?.ok, "No se pudo crear un acceso solo campus");
@@ -304,7 +314,7 @@ async function main() {
     const workingState = structuredClone(adminStateBeforeDiploma.body);
     const courseId = `course-${Date.now()}`;
     const memberId = adminSession.memberId;
-    assert(memberId, "Carlos no tiene memberId en sesion");
+    assert(memberId, "La cuenta administrativa no tiene memberId en sesion");
     const checklistCourse = {
       id: courseId,
       title: "Checklist de diploma controlado",
@@ -411,6 +421,7 @@ async function main() {
     }
 
     const markdown = renderMarkdown(results);
+    await fs.mkdir(path.dirname(reportPath), { recursive: true });
     await fs.writeFile(reportPath, markdown, "utf8");
     console.log(`\nInforme guardado en: ${reportPath}`);
   }
