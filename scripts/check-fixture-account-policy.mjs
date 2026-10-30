@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, scryptSync } from "node:crypto";
 import { once } from "node:events";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -137,11 +137,14 @@ try {
   for (const encode of [
     account => account,
     account => auth.setLegacyAccountPassword(account, publicPassword),
+    account => ({ ...account, password: "", passwordHash: "SCRYPT:abcd:" + scryptSync(publicPassword, Buffer.from("abcd", "hex"), 32).toString("hex").toUpperCase() }),
     account => ({ ...account, password: "", passwordHash: createHash("sha256").update(publicPassword).digest("hex") }),
-    account => ({ ...account, password: "", password_hash: db.hashPassword(publicPassword) })
+    account => ({ ...account, password: "", password_hash: db.hashPassword(publicPassword) }),
+    account => ({ ...account, password: "", password_hash: "custom-salt:" + scryptSync(publicPassword, "custom-salt", 64).toString("hex") })
   ]) {
     assert.equal(policy.canAuthenticateAccount(encode({ ...renamed })), false, "Renaming a public credential does not make it safe");
   }
+  assert.equal(policy.canAuthenticateAccount({ ...renamed, password: "", passwordHash: "SCRYPT:abcd:f" }), false);
   const real = { id: fixture.accounts[0].id, email: bootstrapEmail, role: "admin" };
   auth.setLegacyAccountPassword(real, secret);
   assert.equal(policy.canAuthenticateAccount(real), true, "Bootstrap may reuse a legacy ID without being a fixture");

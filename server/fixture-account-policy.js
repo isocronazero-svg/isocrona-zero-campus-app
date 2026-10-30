@@ -34,10 +34,14 @@ function hasFixtureCredential(account) {
       matches = crypto.createHash("sha256").update(password).digest("hex") === hash.toLowerCase();
     } else {
       // Legacy state and PostgreSQL use different scrypt encodings.
-      const parts = hash.startsWith("scrypt:") ? hash.slice(7).split(":") : hash.split(":");
-      if (parts.length === 2 && /^[a-f0-9]{32}$/i.test(parts[0]) && /^[a-f0-9]{128}$/i.test(parts[1])) {
-        const salt = hash.startsWith("scrypt:") ? Buffer.from(parts[0], "hex") : parts[0];
-        matches = crypto.timingSafeEqual(crypto.scryptSync(password, salt, 64), Buffer.from(parts[1], "hex"));
+      const legacy = /^scrypt:([a-f0-9]+):([a-f0-9]+)$/i.exec(hash);
+      const postgres = /^([^:]+):([a-f0-9]{128})$/i.exec(hash);
+      const parts = legacy || postgres;
+      if (parts) {
+        const salt = legacy ? Buffer.from(parts[1], "hex") : parts[1];
+        const expected = Buffer.from(parts[2], "hex");
+        matches = expected.length === 0 ||
+          crypto.timingSafeEqual(crypto.scryptSync(password, salt, expected.length), expected);
       }
     }
     if (matches) break;
