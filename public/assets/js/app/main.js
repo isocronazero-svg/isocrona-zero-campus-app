@@ -11,6 +11,7 @@ import { renderAdminView } from "./views/adminView.js";
 import { renderTestView, resetTestView } from "./views/testView.js";
 import { renderTestsView } from "./views/testsView.js";
 import { installCourseReservationEnhancer } from "./campus/courseReservations.js";
+import "./course-form-simplify.js";
 
 function ensureTestFocusStyles() {
   if (typeof document === "undefined" || document.querySelector('link[data-test-focus-styles]')) {
