@@ -1,4 +1,5 @@
 const { appendAuditEvent } = require("./audit-log");
+const { madridYearMonth } = require("../public/membership-fee-policy.js");
 
 function clean(value) {
   return String(value || "").trim();
@@ -80,7 +81,7 @@ function buildAccountingLedger(state) {
         concept: clean(payment.note) || `Cuota socio ${clean(payment.year) || ""}`.trim(),
         amount,
         date: clean(payment.date || payment.createdAt),
-        exerciseYear: clean(payment.year) || String(new Date(payment.date || Date.now()).getFullYear()),
+        exerciseYear: clean(payment.year) || String(madridYearMonth(payment.date || Date.now()).year),
         method: clean(payment.method),
         associateId: associate.id,
         memberId: member?.id || associate.linkedMemberId || "",

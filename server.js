@@ -1,4 +1,6 @@
 const EnrollmentTime = require("./public/enrollment-time.js");
+const { effectiveMembershipFeeYear, membershipFeeYearForDate, madridYearMonth, rolloverBenefit } = require("./public/membership-fee-policy.js");
+const { appendAuditEvent } = require("./server/audit-log");
 const JourneyParticipation = require("./server/journey-participation");
 const http = require("http");
 const { createPublicLiveFlow, answerDistribution } = require("./server/public-live-flow");
@@ -4237,7 +4239,7 @@ function getAssociateCurrentYearQuotaGap(associate) {
   if (!associate) {
     return 0;
   }
-  const currentYear = String(new Date().getFullYear());
+  const currentYear = String(effectiveMembershipFeeYear(associate));
   const paid = Number(associate.yearlyFees?.[currentYear] || 0);
   return Math.max(0, Number(associate.annualAmount || 0) - paid);
 }
@@ -6459,10 +6461,15 @@ const server = http.createServer(async (req, res) => {
       }
       // Historical proof references are owned by the reviewed workbook import, not whole-state forms.
       const currentProofs = new Map((latestQuestionState.associates || []).map(item => [item.id, item.legacyPaymentProofs]));
+      const currentFeeAssociates = new Map((latestQuestionState.associates || []).map(item => [item.id, item]));
       for (const associate of state.associates || []) {
         const proofs = currentProofs.get(associate.id);
         if (proofs) associate.legacyPaymentProofs = proofs;
         else delete associate.legacyPaymentProofs;
+        const current = currentFeeAssociates.get(associate.id);
+        if (current) for (const field of ["membershipFeeYear", "membershipFeeYearAssignedAt", "membershipFeeYearSource"]) {
+          associate[field] = current[field];
+        }
       }
       state.testZoneQuestionReports = latestQuestionState.testZoneQuestionReports || [];
       state.testZoneContributions = latestQuestionState.testZoneContributions || [];
@@ -7453,7 +7460,9 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
-      const associate = approveAssociateApplication(state, approveAssociateMatch[1]);
+      const associate = approveAssociateApplication(state, approveAssociateMatch[1], account);
+      // Commit approval/payment before any mail await so a retry cannot approve twice.
+      writeState(state);
       const application = (state.associateApplications || []).find((item) => item.id === associate.applicationId);
       if (application) {
         await maybeSendAssociateApplicationDecisionEmail(state, application, true, account.name);
@@ -7503,7 +7512,7 @@ const server = http.createServer(async (req, res) => {
         throw new Error("No se pueden regularizar mas de 500 socios en una sola operacion");
       }
 
-      const year = normalizeAssociatePaymentYear(payload.year);
+      const year = payload.effectiveYear === true ? null : normalizeAssociatePaymentYear(payload.year);
       const associatesById = new Map((state.associates || []).map((associate) => [associate.id, associate]));
       const associates = associateIds.map((associateId) => associatesById.get(associateId));
       if (associates.some((associate) => !associate)) {
@@ -7513,7 +7522,8 @@ const server = http.createServer(async (req, res) => {
       const date = new Date().toISOString().slice(0, 10);
       const payments = [];
       associates.forEach((associate) => {
-        const pendingAmount = getAssociateYearFeeGap(associate, year);
+        const paymentYear = year || String(effectiveMembershipFeeYear(associate));
+        const pendingAmount = getAssociateYearFeeGap(associate, paymentYear);
         if (!pendingAmount) {
           return;
         }
@@ -7523,10 +7533,10 @@ const server = http.createServer(async (req, res) => {
             associate,
             {
               date,
-              year,
+              year: paymentYear,
               amount: pendingAmount,
               method: "Ajuste manual",
-              note: `Regularizacion masiva de cuota ${year}`
+              note: `Regularizacion masiva de cuota ${paymentYear}`
             },
             account.name
           )
@@ -7536,7 +7546,7 @@ const server = http.createServer(async (req, res) => {
       if (!payments.length) {
         return sendJson(res, 200, {
           ok: true,
-          message: `Los socios seleccionados ya estan al corriente en ${year}`,
+          message: `Los socios seleccionados ya estan al corriente en ${year || "su ejercicio aplicable"}`,
           payments: [],
           summary: null
         });
@@ -7546,7 +7556,7 @@ const server = http.createServer(async (req, res) => {
         state,
         "admin",
         account.name,
-        `Ha regularizado en lote ${payments.length} cuota(s) visibles del ${year}`
+        `Ha regularizado en lote ${payments.length} cuota(s) visibles del ${year || "ejercicio aplicable a cada socio"}`
       );
       const summary = await runAssociatePaymentAutomation(state, "Regularizacion masiva de cuotas");
       writeState(state);
@@ -8065,7 +8075,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       associate.status =
-        getAssociateYearFeeGap(associate, String(new Date().getFullYear())) > 0
+        getAssociateYearFeeGap(associate, effectiveMembershipFeeYear(associate)) > 0
           ? "Pendiente cuota"
           : "Activa";
       appendActivity(
@@ -10230,7 +10240,7 @@ function syncAssociateStatusAfterDataCompletion(associate) {
   }
 
   const nextStatus =
-    getAssociateYearFeeGap(associate, String(new Date().getFullYear())) > 0
+    getAssociateYearFeeGap(associate, effectiveMembershipFeeYear(associate)) > 0
       ? "Pendiente cuota"
       : "Activa";
 
@@ -11855,7 +11865,7 @@ function createAssociatePaymentSubmission(state, account, payload, resolvedAssoc
     throw new Error("No se ha encontrado tu ficha de socio");
   }
 
-  const year = String(payload.year || new Date().getFullYear()).trim();
+  const year = String(payload.year || effectiveMembershipFeeYear(associate)).trim();
   const amount = Number(payload.amount || 0);
   const method = String(payload.method || "").trim();
   const note = String(payload.note || "").trim();
@@ -12420,7 +12430,7 @@ function inferAttachmentMimeType(fileName, declaredType) {
   return mimeTypes[extension] || declaredType || "application/octet-stream";
 }
 
-function approveAssociateApplication(state, applicationId) {
+function approveAssociateApplication(state, applicationId, reviewer = {}) {
   const application = (state.associateApplications || []).find((item) => item.id === applicationId);
   if (!application) {
     throw new Error("Solicitud no encontrada");
@@ -12439,6 +12449,7 @@ function approveAssociateApplication(state, applicationId) {
 
   const nextNumber = getNextAssociateNumber(state);
   const annualBase = Number(state.settings?.associates?.defaultAnnualAmount || 50);
+  const approvedAt = new Date().toISOString();
   const associate = {
     id: `associate-${Date.now()}`,
     associateNumber: nextNumber,
@@ -12450,7 +12461,7 @@ function approveAssociateApplication(state, applicationId) {
     phone: application.phone,
     email: application.email,
     service: application.service,
-    joinedAt: new Date().toISOString(),
+    joinedAt: approvedAt,
     linkedMemberId: "",
     linkedAccountId: "",
     campusAccessStatus: "pending",
@@ -12458,14 +12469,28 @@ function approveAssociateApplication(state, applicationId) {
     lastQuotaMonth: "",
     annualAmount: annualBase,
     observations: "Alta generada desde solicitud web",
-    yearlyFees: {
-      "2024": 0,
-      "2025": 0,
-      "2026": annualBase,
-      "2027": 0
-    },
+    membershipFeeYear: membershipFeeYearForDate(approvedAt),
+    membershipFeeYearAssignedAt: approvedAt,
+    membershipFeeYearSource: "automatic-new-associate",
+    manualYearlyFees: {},
+    yearlyFees: {},
     payments: []
   };
+
+  const payment = createAssociatePaymentRecord(associate, {
+    date: EnrollmentTime.calendarDateInMadrid(new Date(approvedAt)),
+    year: associate.membershipFeeYear,
+    amount: annualBase,
+    method: "Transferencia",
+    note: `Cuota ${associate.membershipFeeYear} - alta aprobada`
+  }, reviewer.name);
+  payment.proofFile = application.paymentProof;
+  payment.applicationId = application.id;
+  appendAuditEvent(state, {
+    account: reviewer, module: "associates", entityType: "associate-payment",
+    entityId: payment.id, entityLabel: `Cuota ${payment.year}`, action: "approve-initial-membership-payment",
+    after: { associateId: associate.id, applicationId: application.id, year: payment.year, amount: payment.amount }
+  });
 
   state.associates = state.associates || [];
   state.associates.unshift(associate);
@@ -13698,7 +13723,7 @@ function recalculateAssociateFeeTotals(associate) {
   );
 
   const paymentTotals = (associate.payments || []).reduce((acc, payment) => {
-    const year = String(payment.year || new Date(payment.date || Date.now()).getFullYear());
+    const year = String(payment.year || madridYearMonth(payment.date || Date.now()).year);
     acc[year] = Number(acc[year] || 0) + Number(payment.amount || 0);
     return acc;
   }, {});
@@ -13720,7 +13745,7 @@ function recalculateAssociateFeeTotals(associate) {
   }
 
   if (!["Baja", "Revisar documentacion", "Solicitud recibida", "En revision"].includes(associate.status)) {
-    const currentYear = String(new Date().getFullYear());
+    const currentYear = String(effectiveMembershipFeeYear(associate));
     associate.status = getAssociateYearFeeGap(associate, currentYear) > 0 ? "Pendiente cuota" : "Activa";
   }
 }
@@ -14139,10 +14164,9 @@ async function runAutomationEngine(state, options = {}) {
       });
     });
 
-  const currentYear = String(new Date().getFullYear());
   (state.associates || [])
     .filter((associate) => {
-      const gap = getAssociateYearFeeGap(associate, currentYear);
+      const gap = getAssociateYearFeeGap(associate, effectiveMembershipFeeYear(associate));
       if (gap <= 0) {
         return false;
       }
@@ -14167,6 +14191,7 @@ async function runAutomationEngine(state, options = {}) {
         return;
       }
 
+      const currentYear = String(effectiveMembershipFeeYear(associate));
       pushAutomationItem(state, {
         type: "associate_fee",
         title: `Cuota pendiente del socio #${associate.associateNumber}`,
@@ -14178,7 +14203,7 @@ async function runAutomationEngine(state, options = {}) {
 
   if (!detectOnly && state.settings?.automation?.autoSendFeeReminders !== false && smtpReady) {
     for (const associate of state.associates || []) {
-      const pendingAmount = getAssociateYearFeeGap(associate, currentYear);
+      const pendingAmount = getAssociateYearFeeGap(associate, effectiveMembershipFeeYear(associate));
       const reminderIsRecent = associate.lastQuotaReminderAt
         ? Date.now() - new Date(associate.lastQuotaReminderAt).getTime() < 14 * 24 * 60 * 60 * 1000
         : false;
@@ -15221,7 +15246,7 @@ async function resolveAssociateLegacyReviewItem(state, item) {
   }
 
   associate.status =
-    getAssociateYearFeeGap(associate, String(new Date().getFullYear())) > 0
+    getAssociateYearFeeGap(associate, effectiveMembershipFeeYear(associate)) > 0
       ? "Pendiente cuota"
       : "Activa";
   appendActivity(
@@ -15595,11 +15620,13 @@ function buildAssociateWelcomeEmailBody(state, associate, account, member) {
   const service = String(associate.service || "").trim();
   const mail = getSmtpSettings(state);
   const contactEmail = mail.replyTo || mail.fromEmail || "administracion@isocronazero.org";
+  const benefit = rolloverBenefit(associate);
 
   return [
     `Hola ${displayName},`,
     "",
     `Te damos la bienvenida a ${organization}. Tu alta como socio ya ha sido aprobada y tu acceso al campus ha quedado activado.`,
+    ...(benefit ? ["", `Tu cuota corresponde al año ${benefit.feeYear}. Tu alta ya está activa y los meses restantes de ${benefit.joinedYear} están incluidos sin coste adicional por Isócrona Zero.`] : []),
     "",
     `Nos alegra contar contigo en esta etapa. ${organization} quiere ser un espacio de colaboracion, cooperacion y solidaridad, donde sigamos creciendo juntos desde el aprendizaje comun, la formacion continua y el compromiso con el servicio.`,
     "",
@@ -15694,7 +15721,7 @@ async function maybeSendAssociateFeeReminder(state, associate, options = {}) {
     return { status: "skipped", reason: "missing_associate" };
   }
 
-  const currentYear = String(new Date().getFullYear());
+  const currentYear = String(effectiveMembershipFeeYear(associate));
   const pendingAmount = getAssociateYearFeeGap(associate, currentYear);
   if (pendingAmount <= 0) {
     return { status: "skipped", reason: "already_paid" };
