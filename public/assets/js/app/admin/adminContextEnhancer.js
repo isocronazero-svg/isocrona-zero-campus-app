@@ -2,6 +2,7 @@ let installed = false;
 let observer = null;
 let identity = null;
 let latestState = null;
+const renderedBannerMarkup = new WeakMap();
 
 const STORAGE_PREFIX = "iz-admin-working-member:";
 
@@ -185,10 +186,15 @@ function renderContextBanner() {
     banner.id = "adminContextBanner";
     hero.before(banner);
   }
-  banner.className = `admin-context-banner${own ? "" : " is-other"}`;
-  banner.innerHTML = own
+  const className = `admin-context-banner${own ? "" : " is-other"}`;
+  if (banner.className !== className) banner.className = className;
+  const markup = own
     ? `<div><span class="muted">Contexto de trabajo</span><br><strong>Trabajando como: ${escapeHtml(selectedName || identity.name)}</strong></div>`
     : `<div><span class="muted">Contexto de trabajo</span><br><strong>Estás gestionando a: ${escapeHtml(selectedName)}</strong></div><button type="button" class="mini-button" data-return-own-profile>Volver a mi perfil</button>`;
+  // Our own child mutations must settle, including names normalized by innerHTML.
+  if (renderedBannerMarkup.get(banner) === markup) return;
+  banner.innerHTML = markup;
+  renderedBannerMarkup.set(banner, markup);
   banner.querySelector("[data-return-own-profile]")?.addEventListener("click", returnToOwnProfile);
 }
 

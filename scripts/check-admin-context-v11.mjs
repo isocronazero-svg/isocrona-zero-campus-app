@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import {
   contextStorageKey,
   normalizeAdminIdentity,
@@ -70,4 +72,97 @@ assert.equal(outgoing.selectedMemberId, "member-socio-1",
 
 assert.equal(normalizeAdminIdentity({ role: "member", accountId: "member", memberId: "member" }), null);
 
-console.log("V1.1 admin context isolation: two simultaneous administrators OK.");
+// Exercise the installed fetch/DOM observer path, not only the pure helpers.
+const pending = [];
+const nodes = new Map();
+const listeners = new Map();
+const stored = new Map();
+let observerCallback;
+let htmlWrites = 0;
+function mutation() {
+  if (observerCallback) pending.push(observerCallback);
+}
+function element(id = "") {
+  let html = "";
+  let button = null;
+  return {
+    id, className: "", offsetParent: {}, value: "",
+    get innerHTML() { return html; },
+    set innerHTML(value) {
+      htmlWrites += 1;
+      // Browsers normalize entities on serialization; raw HTML equality is unsafe.
+      html = value.replaceAll("&#039;", "'");
+      button = value.includes("data-return-own-profile") ? {
+        handlers: [], addEventListener(type, fn) { this.handlers.push(fn); }
+      } : null;
+      mutation();
+    },
+    querySelector() { return button; },
+    before(node) { nodes.set(node.id, node); mutation(); },
+    remove() { nodes.delete(this.id); mutation(); },
+    dispatchEvent() { listeners.get("change")?.({ target: this }); }
+  };
+}
+nodes.set("hero", element("hero"));
+nodes.set("shell", element("shell"));
+nodes.set("memberSwitcher", element("memberSwitcher"));
+let responsePayload;
+const sandbox = vm.createContext({
+  URL, Request, Response, Headers, Event,
+  sessionStorage: { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value) },
+  queueMicrotask: callback => pending.push(callback),
+  MutationObserver: class {
+    constructor(callback) { this.callback = callback; }
+    observe() { observerCallback = this.callback; }
+  },
+  document: {
+    body: {}, head: { append(node) { nodes.set(node.id, node); mutation(); } },
+    getElementById: id => nodes.get(id) || null,
+    createElement: () => element(),
+    addEventListener: (type, callback) => listeners.set(type, callback)
+  },
+  window: {
+    location: { href: "http://qa.invalid/", origin: "http://qa.invalid" },
+    fetch: async () => new Response(JSON.stringify(responsePayload), {
+      headers: { "Content-Type": "application/json" }
+    })
+  }
+});
+const source = readFileSync(new URL("../public/assets/js/app/admin/adminContextEnhancer.js", import.meta.url), "utf8");
+vm.runInContext(source.replace(/^export (?=function )/gm, "") + "\ninstallAdminContextEnhancer();", sandbox);
+function settle() {
+  for (let turn = 0; pending.length && turn < 30; turn += 1) pending.shift()();
+  assert.equal(pending.length, 0, "Admin context observer must settle without starving the browser");
+}
+async function receive(path, payload) {
+  responsePayload = payload;
+  await sandbox.window.fetch(path);
+  settle();
+}
+await receive("/api/login", { session: adminA });
+await receive("/api/state", { members: members.map(member => member.id === adminA.memberId
+  ? { ...member, name: "Admin O'Neil <QA>" } : member) });
+assert.ok(nodes.get("adminContextBanner").innerHTML.includes("Admin O'Neil &lt;QA&gt;"));
+const ownWrites = htmlWrites;
+mutation(); settle(); mutation(); settle();
+assert.equal(htmlWrites, ownWrites, "Unrelated mutations must not rewrite the banner");
+const switcher = nodes.get("memberSwitcher");
+switcher.value = "member-socio-1";
+switcher.dispatchEvent(); settle();
+const returnButton = nodes.get("adminContextBanner").querySelector();
+assert.equal(returnButton.handlers.length, 1);
+mutation(); settle();
+assert.equal(nodes.get("adminContextBanner").querySelector(), returnButton);
+assert.equal(returnButton.handlers.length, 1, "Observer deliveries cannot duplicate click listeners");
+returnButton.handlers[0](); settle();
+assert.equal(switcher.value, adminA.memberId);
+assert.equal(nodes.get("adminContextBanner").querySelector(), null);
+await receive("/api/login", { session: adminB });
+await receive("/api/state", sharedServerState);
+assert.ok(nodes.get("adminContextBanner").innerHTML.includes("Admin B"));
+nodes.get("adminContextBanner").remove(); settle();
+assert.ok(nodes.get("adminContextBanner"), "A replaced banner must be rendered again");
+await receive("/api/logout", { ok: true });
+assert.equal(nodes.has("adminContextBanner"), false);
+
+console.log("V1.1 admin context isolation and bounded DOM observer: OK.");
