@@ -1,5 +1,14 @@
 const ADVANCED_DETAILS_CLASS = "iz-course-advanced";
 
+function ensureStyles() {
+  if (document.querySelector('link[data-course-form-simplify-styles]')) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "/assets/css/course-form-simplify.css?v=20261030";
+  link.dataset.courseFormSimplifyStyles = "true";
+  document.head.appendChild(link);
+}
+
 function fieldContainer(id) {
   const field = document.getElementById(id);
   if (!field) return null;
@@ -129,6 +138,8 @@ function scheduleSimplify() {
     simplifyCourseForms();
   });
 }
+
+ensureStyles();
 
 const observer = new MutationObserver(scheduleSimplify);
 observer.observe(document.body, { childList: true, subtree: true });
