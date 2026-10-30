@@ -1,5 +1,9 @@
 const ADVANCED_DETAILS_CLASS = "iz-course-advanced";
 
+let installed = false;
+let observer = null;
+let scheduled = false;
+
 function ensureStyles() {
   if (document.querySelector('link[data-course-form-simplify-styles]')) return;
   const link = document.createElement("link");
@@ -137,7 +141,6 @@ function simplifyCourseForms() {
   simplifyEditCourseForm();
 }
 
-let scheduled = false;
 function scheduleSimplify() {
   if (scheduled) return;
   scheduled = true;
@@ -147,10 +150,20 @@ function scheduleSimplify() {
   });
 }
 
-ensureStyles();
+export function installCourseFormSimplifier() {
+  if (installed || typeof window === "undefined" || typeof document === "undefined") return;
+  installed = true;
+  ensureStyles();
+  simplifyCourseForms();
+  if (typeof MutationObserver !== "undefined") {
+    observer = new MutationObserver(scheduleSimplify);
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+}
 
-const observer = new MutationObserver(scheduleSimplify);
-observer.observe(document.body, { childList: true, subtree: true });
-
-document.addEventListener("DOMContentLoaded", scheduleSimplify);
-scheduleSimplify();
+export function resetCourseFormSimplifierForTests() {
+  observer?.disconnect();
+  observer = null;
+  installed = false;
+  scheduled = false;
+}
