@@ -16,9 +16,13 @@ const {
 } = require("../server/onboarding-state.js");
 
 assert.equal(membershipFeeYearForDate("2026-09-30T12:00:00Z"), 2026);
+assert.equal(membershipFeeYearForDate("2026-09-30T21:59:59Z"), 2026, "Antes de medianoche de Madrid sigue siendo septiembre");
+assert.equal(membershipFeeYearForDate("2026-09-30T22:00:00Z"), 2027, "A medianoche del 1 de octubre en Madrid ya corresponde al año siguiente");
 assert.equal(membershipFeeYearForDate("2026-10-01T12:00:00Z"), 2027);
 assert.equal(membershipFeeYearForDate("2026-11-15T12:00:00Z"), 2027);
 assert.equal(membershipFeeYearForDate("2026-12-31T12:00:00Z"), 2027);
+assert.equal(membershipFeeYearForDate("2026-12-31T22:59:59Z"), 2027, "Hasta final de año en Madrid la cuota sigue cubriendo el año siguiente");
+assert.equal(membershipFeeYearForDate("2026-12-31T23:00:00Z"), 2027, "Al comenzar 2027 en Madrid la cuota corresponde al año natural 2027");
 assert.equal(membershipFeeYearForDate("2027-01-01T12:00:00Z"), 2027);
 
 {
@@ -26,13 +30,17 @@ assert.equal(membershipFeeYearForDate("2027-01-01T12:00:00Z"), 2027);
     associates: [
       { id: "old", joinedAt: "2026-11-01T10:00:00Z", membershipFeeYear: 2026 },
       { id: "new-oct", joinedAt: "2026-10-01T10:00:00Z" },
+      { id: "new-nov", joinedAt: "2026-11-15T10:00:00Z" },
+      { id: "new-dec", joinedAt: "2026-12-20T10:00:00Z" },
       { id: "new-sep", joinedAt: "2026-09-30T10:00:00Z" }
     ]
   };
   applyNewAssociateMembershipFeeYears(state, { allAssociateIds: new Set(["old"]) });
   assert.equal(state.associates[0].membershipFeeYear, 2026, "No cambia socios ya existentes");
   assert.equal(state.associates[1].membershipFeeYear, 2027);
-  assert.equal(state.associates[2].membershipFeeYear, 2026);
+  assert.equal(state.associates[2].membershipFeeYear, 2027);
+  assert.equal(state.associates[3].membershipFeeYear, 2027);
+  assert.equal(state.associates[4].membershipFeeYear, 2026);
   assert.equal(state.associates[1].membershipFeeYearSource, "automatic-new-associate");
 }
 
@@ -82,6 +90,7 @@ assert.throws(() => validWhatsappUrl("https://example.com/whatsapp"), /WhatsApp/
   assert.equal(ledger.summary.byCategory.curso, 25);
   assert.equal(ledger.summary.byCategory.jornada, 20);
   assert.ok(!ledger.entries.some((entry) => entry.sourceId === "pending"));
+  assert.equal(ledger.entries.find((entry) => entry.category === "cuota")?.exerciseYear, "2027", "La cuota de alta de octubre-diciembre se imputa al ejercicio siguiente");
 }
 
 {
@@ -112,6 +121,7 @@ assert.throws(() => validWhatsappUrl("https://example.com/whatsapp"), /WhatsApp/
 const mainSource = readFileSync(new URL("../public/assets/js/app/main.js", import.meta.url), "utf8");
 const contextSource = readFileSync(new URL("../public/assets/js/app/admin/adminContextEnhancer.js", import.meta.url), "utf8");
 const boardSource = readFileSync(new URL("../public/assets/js/app/admin/boardEnhancer.js", import.meta.url), "utf8");
+const feeYearSource = readFileSync(new URL("../public/assets/js/app/admin/membershipFeeYearEnhancer.js", import.meta.url), "utf8");
 assert.match(mainSource, /installAdminContextEnhancer\(\)/);
 assert.match(mainSource, /installBoardEnhancer\(\)/);
 assert.match(contextSource, /selectedMemberId:\s*null/, "La selección de persona no debe persistir en el estado global");
@@ -121,5 +131,8 @@ assert.match(boardSource, /Solicitar justificante/);
 assert.match(boardSource, /Revisión online/);
 assert.match(boardSource, /Libro interno de ingresos validados/);
 assert.match(boardSource, /Unirme al canal de WhatsApp/);
+assert.match(feeYearSource, /Tu alta está activa desde ahora/);
+assert.match(feeYearSource, /incluidos por Isócrona Zero sin coste adicional/);
+assert.match(feeYearSource, /puedes participar con normalidad en las actividades para socios/);
 
-console.log("V1.1 junta: identidad admin, justificantes, cuotas, ingresos y WhatsApp OK.");
+console.log("V1.1 junta: identidad admin, justificantes, cuotas, ingresos, bonificación octubre-diciembre y WhatsApp OK.");
