@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 const files = [
   "public/aviso.js",
   "public/assets/js/app/main.js",
+  "public/assets/js/app/course-form-simplify.js",
   "public/assets/js/app/ui/notices.js",
   "public/assets/js/app/ui/mobile-navigation.js",
   "public/assets/js/app/campus/courseReservations.js",
