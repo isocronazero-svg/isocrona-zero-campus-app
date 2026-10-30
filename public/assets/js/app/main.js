@@ -18,6 +18,7 @@ import { installCourseFinanceEnhancer } from "./campus/courseFinanceEnhancer.js"
 import { installCoursePricingEnhancer } from "./campus/coursePricingEnhancer.js";
 import { installCourseReservationEnhancer } from "./campus/courseReservations.js";
 import { installDiplomaPreviewEnhancer } from "./campus/diplomaPreviewEnhancer.js";
+import { installCourseFormSimplifier } from "./course-form-simplify.js";
 
 function ensureTestFocusStyles() {
   if (typeof document === "undefined" || document.querySelector('link[data-test-focus-styles]')) {
@@ -77,6 +78,7 @@ export function initializeApp() {
   installCourseReservationEnhancer();
   installBoardEnhancer();
   installMembershipFeeYearEnhancer();
+  installCourseFormSimplifier();
 
   if (window.__IZ_FRONTEND_APP__) {
     return window.__IZ_FRONTEND_APP__;
