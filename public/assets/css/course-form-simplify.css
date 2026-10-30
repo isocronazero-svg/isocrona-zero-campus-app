@@ -1,0 +1,38 @@
+.iz-course-advanced {
+  margin-top: 16px;
+  border: 1px solid rgba(33, 102, 81, 0.18);
+  border-radius: 14px;
+  background: rgba(33, 102, 81, 0.035);
+  overflow: hidden;
+}
+
+.iz-course-advanced > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  font-weight: 700;
+  color: #1f4f42;
+}
+
+.iz-course-advanced > summary small {
+  font-weight: 500;
+  color: var(--muted, #66756f);
+}
+
+.iz-course-advanced-grid {
+  padding: 0 16px 16px;
+}
+
+.iz-instructor-hint {
+  margin: 6px 0 10px;
+}
+
+@media (max-width: 700px) {
+  .iz-course-advanced > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
