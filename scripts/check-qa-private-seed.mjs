@@ -14,7 +14,7 @@ assert.equal(seed.associates.length, 0, "El seed QA no debe contener censo real 
 assert.ok(Array.isArray(seed.associateApplications), "El seed QA debe declarar associateApplications");
 assert.equal(seed.associateApplications.length, 0, "El seed QA no debe contener solicitudes precreadas");
 
-const forbiddenKeys = new Set(["password", "passwordHash", "temporaryPassword"]);
+const forbiddenKeys = new Set(["password", "passwordHash", "password_hash", "temporaryPassword"]);
 function walk(value, path = "seed") {
   if (Array.isArray(value)) {
     value.forEach((item, index) => walk(item, `${path}[${index}]`));
@@ -22,8 +22,8 @@ function walk(value, path = "seed") {
   }
   if (!value || typeof value !== "object") return;
   for (const [key, child] of Object.entries(value)) {
-    if (forbiddenKeys.has(key)) {
-      assert.equal(String(child || ""), "", `No debe existir secreto en ${path}.${key}`);
+    if (forbiddenKeys.has(key) || /token|secret|api.?key|credential/i.test(key) || /email$/i.test(key)) {
+      assert.ok(!String(child || ""), `No debe existir secreto en ${path}.${key}`);
     }
     walk(child, `${path}.${key}`);
   }
@@ -31,6 +31,7 @@ function walk(value, path = "seed") {
 walk(seed);
 
 assert.doesNotMatch(raw, /@isocronazero\.org/i, "El seed QA no debe incluir correos del dominio real");
+assert.doesNotMatch(raw, /[^\s"]+@[^\s"]+/, "El seed QA no debe contener emails");
 assert.doesNotMatch(raw, /campus123|bomberos123/i, "El seed QA no debe incluir credenciales demo históricas");
 assert.equal(seed.settings?.automation?.autoSendDiplomas, false, "QA no debe autoenviar diplomas");
 assert.equal(seed.settings?.associates?.autoSendWelcomeEmail, false, "QA no debe autoenviar bienvenidas");

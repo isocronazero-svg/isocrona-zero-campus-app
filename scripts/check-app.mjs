@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const syntaxFiles = [
+  "server/fixture-account-policy.js",
   "server/mail-delivery.js",
   "server/onboarding-state.js",
   "public/enrollment-time.js",
@@ -89,6 +90,7 @@ const extraCheckScripts = [
   "scripts/check-auth-utils.mjs",
   "scripts/check-remember-me.mjs",
   "scripts/check-production-demo-admin-guard.mjs",
+  "scripts/check-fixture-account-policy.mjs",
   "scripts/check-production-storage-guard.mjs",
   "scripts/check-railway-runtime.mjs",
   "scripts/check-router-utils.mjs",

@@ -2,10 +2,10 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 const { getStorageMeta, readState, writeState } = require("./storage");
+const { canAuthenticateAccount, demoAdminEmail, isFixtureEmail, isFixturePassword, isProduction } = require("./server/fixture-account-policy");
 
 let pool = null;
 let initPromise = null;
-const demoAdminEmail = "admin@isocronazero.org";
 const allowDemoAdminInProductionFlag = "IZ_ALLOW_DEMO_ADMIN_IN_PRODUCTION";
 const bootstrapAdminEmailFlag = "IZ_BOOTSTRAP_ADMIN_EMAIL";
 const bootstrapAdminPasswordFlag = "IZ_BOOTSTRAP_ADMIN_PASSWORD";
@@ -46,8 +46,8 @@ function getBootstrapAdminConfig() {
     return null;
   }
 
-  if (email === demoAdminEmail) {
-    console.error(`${bootstrapAdminEmailFlag} no puede ser el email demo ${demoAdminEmail}.`);
+  if (isProduction() && (isFixtureEmail(email) || isFixturePassword(password))) {
+    console.error("Bootstrap rechazado: utiliza una identidad y una contrasena ajenas a los fixtures publicos.");
     return null;
   }
 
@@ -66,7 +66,7 @@ function hashLegacyBootstrapPassword(password) {
 }
 
 function bootstrapProductionAdminIfConfigured() {
-  if (String(process.env.NODE_ENV || "").trim() !== "production") {
+  if (!isProduction()) {
     return false;
   }
 
@@ -108,14 +108,14 @@ function bootstrapProductionAdminIfConfigured() {
 }
 
 function assertNoDemoAdminInProduction() {
-  if (String(process.env.NODE_ENV || "").trim() !== "production") {
+  if (!isProduction()) {
     return;
   }
 
   const allowDemoAdmin = isTrue(process.env[allowDemoAdminInProductionFlag]);
   if (allowDemoAdmin) {
     console.warn(
-      `${allowDemoAdminInProductionFlag}=true permite arrancar produccion con el admin demo ${demoAdminEmail}. Usalo solo para recuperacion de emergencia.`
+      `${allowDemoAdminInProductionFlag}=true permite solo arrancar para recuperacion de emergencia. La autenticacion de fixtures sigue bloqueada.`
     );
     return;
   }
@@ -551,13 +551,19 @@ async function authenticateUser(email, password) {
   }
 
   const userRecord = await findUserRecordByEmail(email);
-  if (!userRecord) {
+  if (!canAuthenticateAccount(userRecord)) {
     return null;
   }
   if (!verifyPassword(password, userRecord.password_hash)) {
     return null;
   }
   return sanitizeUser(userRecord);
+}
+
+async function findAuthenticatableUserById(userId) {
+  if (!isDatabaseEnabled()) return null;
+  const record = await findUserRecordById(userId);
+  return canAuthenticateAccount(record) ? sanitizeUser(record) : null;
 }
 
 async function saveTestResult({ userId, score = 0, total = 0, percentage = 0, answers = [] }) {
@@ -630,6 +636,7 @@ function safeJsonParse(value, fallback) {
 
 module.exports = {
   authenticateUser,
+  findAuthenticatableUserById,
   createUser,
   findUserByEmail,
   findUserById,

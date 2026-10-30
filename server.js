@@ -8,6 +8,7 @@ const { randomUUID, randomBytes, createHash } = require("node:crypto");
 const handleQuestionMaintenance = require("./server/question-maintenance");
 const fs = require("fs");
 const path = require("path");
+const { canAuthenticateAccount } = require("./server/fixture-account-policy");
 const zlib = require("zlib");
 const {
   associateUploadsDir,
@@ -3472,7 +3473,8 @@ function getRecoveryAdminEnvConfig() {
     .trim()
     .toLowerCase();
   const password = String(process.env.IZ_RECOVERY_ADMIN_PASSWORD || "").trim();
-  const enabled = Boolean(email && password);
+  const enabled = Boolean(email && password) &&
+    canAuthenticateAccount({ email, password });
   return {
     email,
     password,
