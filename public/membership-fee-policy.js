@@ -17,23 +17,38 @@
 
   function effectiveMembershipFeeYear(associate, now = new Date()) {
     const { year } = madridYearMonth(now);
-    const assigned = Number(associate?.membershipFeeYear);
-    // Only an explicitly assigned exercise can extend coverage. Never infer a
-    // new join from an old member's renewal/payment date. Later years expire it.
-    return Number.isInteger(assigned) && assigned >= 2000 && assigned <= 2100
-      ? Math.max(year, assigned) : year;
+    const benefit = autumnMembershipBenefit(associate);
+    // A manual future exercise outside the autumn-join policy must not waive
+    // the current year's fee. Later years expire the initial extension.
+    return benefit && year >= benefit.joinedYear && year <= benefit.feeYear ? benefit.feeYear : year;
   }
 
-  function rolloverBenefit(associate, now = new Date()) {
+  function autumnMembershipBenefit(associate) {
     const sourceDate = associate?.joinedAt || associate?.campusOnboardingCreatedAt || associate?.createdAt;
     if (!sourceDate || !Number.isFinite(Date.parse(sourceDate))) return null;
     const { year, month } = madridYearMonth(sourceDate);
     const feeYear = Number(associate?.membershipFeeYear);
-    if (month < 10 || feeYear !== year + 1 || madridYearMonth(now).year !== year) return null;
-    return { feeYear, joinedYear: year };
+    if (month < 10 || feeYear !== year + 1) return null;
+    return { feeYear, joinedYear: year, joinedMonth: month };
   }
 
-  const policy = { madridYearMonth, membershipFeeYearForDate, effectiveMembershipFeeYear, rolloverBenefit };
+  function rolloverBenefit(associate, now = new Date()) {
+    const benefit = autumnMembershipBenefit(associate);
+    return benefit && madridYearMonth(now).year === benefit.joinedYear ? benefit : null;
+  }
+
+  function associateFeeGapForDate(associate, now = new Date()) {
+    if (!associate) return 0;
+    const paid = Number(associate.yearlyFees?.[effectiveMembershipFeeYear(associate, now)] || 0);
+    return Math.max(0, Number(associate.annualAmount || 0) - paid);
+  }
+
+  function isAssociateAccessLimitedByFee(associate, now = new Date()) {
+    return associateFeeGapForDate(associate, now) > 0;
+  }
+
+  const policy = { madridYearMonth, membershipFeeYearForDate, effectiveMembershipFeeYear,
+    autumnMembershipBenefit, rolloverBenefit, associateFeeGapForDate, isAssociateAccessLimitedByFee };
   if (typeof module !== "undefined" && module.exports) module.exports = policy;
   else root.MembershipFeePolicy = policy;
 })(globalThis);

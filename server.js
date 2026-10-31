@@ -1,5 +1,5 @@
 const EnrollmentTime = require("./public/enrollment-time.js");
-const { effectiveMembershipFeeYear, membershipFeeYearForDate, madridYearMonth, rolloverBenefit } = require("./public/membership-fee-policy.js");
+const { effectiveMembershipFeeYear, membershipFeeYearForDate, madridYearMonth, rolloverBenefit, associateFeeGapForDate } = require("./server/membership-fee-policy.js");
 const { appendAuditEvent } = require("./server/audit-log");
 const JourneyParticipation = require("./server/journey-participation");
 const http = require("http");
@@ -4236,12 +4236,7 @@ function resolveAssociateForAuthenticatedAccount(state, account) {
 }
 
 function getAssociateCurrentYearQuotaGap(associate) {
-  if (!associate) {
-    return 0;
-  }
-  const currentYear = String(effectiveMembershipFeeYear(associate));
-  const paid = Number(associate.yearlyFees?.[currentYear] || 0);
-  return Math.max(0, Number(associate.annualAmount || 0) - paid);
+  return associateFeeGapForDate(associate);
 }
 
 function isAssociateAccessLimitedByQuota(associate) {
