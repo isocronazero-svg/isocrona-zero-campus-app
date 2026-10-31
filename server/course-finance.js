@@ -1,5 +1,6 @@
 const { appendAuditEvent } = require("./audit-log");
 const { getApplicableCourseFee } = require("./course-pricing");
+const { proofRequestNotificationId } = require("./board-v11");
 
 function clean(value) {
   return String(value || "").trim();
@@ -213,6 +214,12 @@ function createCourseFinanceHandler(deps) {
         if (nextStatus === "validated") {
           submission.paymentValidatedBy = account.name || "Tesoreria";
           submission.paymentValidatedAt = now;
+          const notice = arrays(state.memberNotifications).find(item =>
+            item.id === proofRequestNotificationId(course.id, submission.id));
+          if (notice) {
+            notice.resolvedAt = now;
+            notice.readByMemberIds = [...new Set([...(notice.readByMemberIds || []), submission.memberId])];
+          }
         } else {
           submission.paymentValidatedBy = "";
           submission.paymentValidatedAt = "";

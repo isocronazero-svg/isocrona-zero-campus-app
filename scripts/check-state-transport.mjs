@@ -411,6 +411,17 @@ async function main() {
     const memberPreview = (await adminClient.request("GET", "/api/state?mode=preview&memberId=member-1")).body;
     assert.ok(!memberPreview.campusGroups.some(group => group.id === "admin-only-group"), "Preview must respect explicit group grants");
     assert.deepEqual(memberPreview.associates.map(item => item.id), ["associate-1"]);
+    const adminWorkingState = (await adminClient.request("GET", "/api/state")).body;
+    adminWorkingState.selectedAssociateId = "associate-1";
+    adminWorkingState.selectedMemberId = "member-1";
+    adminWorkingState.selectedCourseId = "member-only-course";
+    adminWorkingState.activeView = "associates";
+    await adminClient.request("POST", "/api/state", adminWorkingState);
+    const isolated = (await adminClient.request("GET", "/api/state")).body;
+    assert.equal(isolated.selectedMemberId, adminAccount.memberId);
+    assert.equal(isolated.selectedAssociateId, "admin-membership");
+    assert.equal(isolated.selectedCourseId, null);
+    assert.equal(isolated.activeView, "overview");
 
   } finally {
     await stopServer(server);
