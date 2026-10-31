@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import feePolicy from "../public/membership-fee-policy.js";
 
 const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
@@ -83,6 +84,7 @@ function renderSelectedApplication(application, mode = "applications") {
   const profile = { id: "profile-old", associateId: associate.id, status: "Pendiente de revision" };
   const context = {
     associatesSectionMode: mode,
+    effectiveMembershipFeeYear: feePolicy.effectiveMembershipFeeYear,
     state: {
       selectedAssociateApplicationId: application.id,
       selectedAssociatePaymentSubmissionId: payment.id,

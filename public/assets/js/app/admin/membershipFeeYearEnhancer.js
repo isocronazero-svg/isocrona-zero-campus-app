@@ -1,3 +1,7 @@
+import "../../../../membership-fee-policy.js";
+const { rolloverBenefit, effectiveMembershipFeeYear } = globalThis.MembershipFeePolicy;
+const rendered = new WeakMap();
+
 let installed = false;
 let observer = null;
 let latestState = null;
@@ -14,29 +18,6 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
-}
-
-function madridYearMonth(value = new Date()) {
-  const date = value instanceof Date ? value : new Date(value || Date.now());
-  const safeDate = Number.isFinite(date.getTime()) ? date : new Date();
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Madrid",
-    year: "numeric",
-    month: "2-digit"
-  }).formatToParts(safeDate);
-  return {
-    year: Number(parts.find((part) => part.type === "year")?.value || safeDate.getUTCFullYear()),
-    month: Number(parts.find((part) => part.type === "month")?.value || safeDate.getUTCMonth() + 1)
-  };
-}
-
-function rolloverBenefit(associate) {
-  const feeYear = Number(associate?.membershipFeeYear || 0);
-  const sourceDate = associate?.joinedAt || associate?.campusOnboardingCreatedAt || associate?.createdAt;
-  if (!feeYear || !sourceDate) return null;
-  const { year, month } = madridYearMonth(sourceDate);
-  if (month < 10 || feeYear !== year + 1) return null;
-  return { feeYear, joinedYear: year };
 }
 
 function rememberState(payload) {
@@ -86,18 +67,22 @@ function benefitHtml(associate) {
 
 function renderBox(box, associate) {
   const year = Number(associate?.membershipFeeYear || 0);
-  box.innerHTML = year
+  const html = year
     ? `<div><span class="muted">Imputación de cuota</span><br><strong>Cuota correspondiente a ${escapeHtml(year)}</strong>${benefitHtml(associate)}</div><button type="button" class="mini-button" data-correct-fee-year>Corregir año</button>`
     : `<div><span class="muted">Imputación de cuota</span><br><strong>Año de cuota pendiente de asignar</strong></div>`;
+  if (rendered.get(box) === `${associate.id}:${html}`) return;
+  rendered.set(box, `${associate.id}:${html}`);
+  box.innerHTML = html;
   box.querySelector("[data-correct-fee-year]")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
-    const current = Number(associate.membershipFeeYear || new Date().getFullYear());
+    const current = Number(associate.membershipFeeYear || effectiveMembershipFeeYear(associate));
     const raw = window.prompt("Año al que corresponde esta cuota:", String(current));
     if (raw === null) return;
     const nextYear = Number(raw);
     button.disabled = true;
     try {
-      await updateYear(associate, nextYear, box);
+      await updateYear(selectedAssociate() || associate, nextYear, box);
+      button.disabled = false;
     } catch (error) {
       window.alert(error.message || "No se pudo actualizar el año de cuota");
       button.disabled = false;
@@ -144,7 +129,10 @@ function renderMemberBenefitCard() {
   ensureStyles();
   const html = `<strong>Tu cuota corresponde a ${escapeHtml(benefit.feeYear)}</strong><p>Tu alta está activa desde ahora. Los meses restantes de ${escapeHtml(benefit.joinedYear)} están incluidos por Isócrona Zero sin coste adicional, y puedes participar con normalidad en las actividades para socios.</p>`;
   if (existing) {
-    existing.innerHTML = html;
+    if (rendered.get(existing) !== html) {
+      rendered.set(existing, html);
+      existing.innerHTML = html;
+    }
     return;
   }
   const hero = document.getElementById("hero");
@@ -153,6 +141,7 @@ function renderMemberBenefitCard() {
   card.id = "membershipFeeBenefitCard";
   card.className = "membership-fee-benefit-card";
   card.innerHTML = html;
+  rendered.set(card, html);
   hero.after(card);
 }
 
