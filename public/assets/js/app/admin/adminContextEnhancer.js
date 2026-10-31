@@ -14,7 +14,7 @@ export function normalizeAdminIdentity(session) {
   if (!session || clean(session.role).toLowerCase() !== "admin") return null;
   const accountId = clean(session.accountId || session.id || session.email);
   const memberId = clean(session.memberId);
-  if (!accountId || !memberId) return null;
+  if (!accountId) return null;
   return {
     accountId,
     memberId,
@@ -54,7 +54,7 @@ function preferredMemberId(adminIdentity = identity, statePayload = latestState)
   return clean(adminIdentity.memberId);
 }
 
-export function rewriteAdminStatePayload(payload, adminIdentity, storedMemberId = "") {
+export function rewriteAdminStatePayload(payload, adminIdentity, storedMemberId = "", ui = {}) {
   if (!payload || typeof payload !== "object" || !adminIdentity) return payload;
   const members = Array.isArray(payload.members) ? payload.members : [];
   const requested = clean(storedMemberId);
@@ -64,7 +64,12 @@ export function rewriteAdminStatePayload(payload, adminIdentity, storedMemberId 
     : fallback;
   return {
     ...payload,
-    selectedMemberId: selectedMemberId || null
+    activeView: clean(ui.activeView) || "overview",
+    selectedMemberId: selectedMemberId || null,
+    selectedAssociateId: (payload.associates || []).find(item => item.id === ui.selectedAssociateId)?.id
+      || (payload.associates || []).find(item => item.linkedAccountId === adminIdentity.accountId
+        || (adminIdentity.memberId && item.linkedMemberId === adminIdentity.memberId))?.id || null,
+    selectedCourseId: (payload.courses || []).find(item => item.id === ui.selectedCourseId)?.id || null
   };
 }
 
@@ -73,7 +78,9 @@ export function sanitizeAdminStateWrite(payload, adminIdentity) {
   return {
     ...payload,
     // Never persist a UI working-person selection as shared application state.
-    selectedMemberId: null
+    selectedMemberId: null,
+    selectedAssociateId: null,
+    selectedCourseId: null
   };
 }
 
@@ -103,6 +110,9 @@ async function rememberSessionResponse(response, pathname) {
       // An explicit login must always begin on the administrator's own profile.
       writeStoredContext(nextIdentity.memberId, nextIdentity);
     }
+    if (pathname === "/api/login") {
+      try { sessionStorage.removeItem(`iz-campus-ui-snapshot:${nextIdentity.accountId}`); } catch {}
+    }
     queueMicrotask(renderContextBanner);
   } catch {
     // Keep original authentication response untouched.
@@ -111,16 +121,20 @@ async function rememberSessionResponse(response, pathname) {
 }
 
 async function rewriteStateResponse(response, method, pathname) {
-  if (!response?.ok || pathname !== "/api/state" || method !== "GET" || !identity) return response;
+  if (!response?.ok || pathname !== "/api/state" || !identity) return response;
   try {
     const payload = await response.clone().json();
-    const rewritten = rewriteAdminStatePayload(payload, identity, readStoredContext(identity));
+    let ui = {};
+    try { ui = JSON.parse(sessionStorage.getItem(`iz-campus-ui-snapshot:${identity.accountId}`) || "{}"); } catch {}
+    const source = method === "POST" ? payload.state : payload;
+    if (!source || source.role !== "admin") return response;
+    const rewritten = rewriteAdminStatePayload(source, identity, readStoredContext(identity), ui);
     latestState = rewritten;
     if (clean(rewritten.selectedMemberId) !== readStoredContext(identity)) {
       writeStoredContext(rewritten.selectedMemberId, identity);
     }
     queueMicrotask(renderContextBanner);
-    return responseWithJson(response, rewritten);
+    return responseWithJson(response, method === "POST" ? { ...payload, state: rewritten } : rewritten);
   } catch {
     return response;
   }

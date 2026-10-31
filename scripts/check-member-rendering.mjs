@@ -164,11 +164,11 @@ for (const [changes, headline] of [
 }
 console.log("Learner journey distinguishes content progress from diploma completion.");
 
-function renderEnrollment({ fee = 0, submission = null, waiting = false, full = false, intent = true, mode = "status", preview = false, open = true } = {}) {
+function renderEnrollment({ fee = 0, submission = null, waiting = false, full = false, intent = true, mode = "status", preview = false, open = true, notifications = [] } = {}) {
   return vm.runInNewContext(`${source("renderSelectedCourse")}\nrenderSelectedCourse(course);`, {
     course: { ...course, title: "Curso QA", status: "Inscripcion abierta", capacity: 10,
       enrollmentFee: fee, enrollmentPaymentInstructions: "Transferencia QA", hours: 1 },
-    state: { selectedMemberId: "member-qa" }, learnerCourseDetailsMode: mode, learnerEnrollmentIntent: intent,
+    state: { selectedMemberId: "member-qa", memberNotifications: notifications }, learnerCourseDetailsMode: mode, learnerEnrollmentIntent: intent,
     escapeHtml, formatDate: String, isAdminView: () => false, isMemberPreviewSession: () => preview,
     normalizeCourseClass: () => "teorico", describeCourseType: () => "Curso",
     getLearnerCourseJourney: () => ({ ...emptyJourney, enrolled: Boolean(submission) && !waiting, waiting }),
@@ -206,6 +206,21 @@ for (const [fee, amount] of [[25, 25], [25, 0], [0, 25], [0, 0]]) {
 const proofHtml = renderEnrollment({ fee: 25, submission: { ...freeSubmission, amount: 25, paymentProof: { name: "prueba.pdf" } } });
 assert.match(proofHtml, /Abrir justificante/);
 assert.doesNotMatch(proofHtml, /courseEnrollmentProofUpdateForm/);
+for (const resolvedAt of ["", "2026-10-31T12:00:00Z"]) {
+  const html = renderEnrollment({ fee: 25,
+    submission: { ...freeSubmission, id: "proof-qa", amount: 25, paymentProof: { name: "old.pdf" } },
+    notifications: [{ id: `course-proof-request__${encodeURIComponent(course.id)}__proof-qa`, resolvedAt }]
+  });
+  assert.equal(html.includes('id="courseEnrollmentProofUpdateForm"'), !resolvedAt,
+    "Only an unresolved repeat request permits replacing an existing proof");
+}
+for (const limited of [false, true]) {
+  const state = { activeView: "overview" };
+  vm.runInNewContext(`${source("normalizePrimaryMemberView")}\nnormalizePrimaryMemberView();`, {
+    state, isCurrentMemberLimitedToAssociateProfile: () => limited
+  });
+  assert.equal(state.activeView, limited ? "join" : "overview");
+}
 console.log("Free enrollment omits payment requests while paid and historical submissions retain them.");
 
 for (const mode of ["overview", "sessions", "resources", "certificate", "status"]) {

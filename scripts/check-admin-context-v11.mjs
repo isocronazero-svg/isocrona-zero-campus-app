@@ -65,8 +65,22 @@ const outgoing = {
 const sanitized = sanitizeAdminStateWrite(outgoing, adminA);
 assert.equal(sanitized.selectedMemberId, null,
   "El perfil de trabajo no debe persistirse como selección global");
-assert.equal(sanitized.selectedCourseId, "course-qa",
-  "Sanear el contexto no debe borrar el resto del estado");
+assert.equal(sanitized.selectedCourseId, null, "El curso seleccionado tampoco debe ser global");
+assert.equal(sanitized.selectedAssociateId, null, "La ficha seleccionada tampoco debe ser global");
+const records = { ...sharedServerState, associates: [
+  { id: "associate-a", linkedMemberId: adminA.memberId },
+  { id: "associate-b", linkedMemberId: adminB.memberId }, { id: "associate-1" }, { id: "associate-2" }
+], courses: [{ id: "course-1" }, { id: "course-2" }], selectedAssociateId: "associate-2", selectedCourseId: "course-2" };
+const contextA = rewriteAdminStatePayload(records, adminA, "member-socio-1", { selectedAssociateId: "associate-1", selectedCourseId: "course-1" });
+const contextB = rewriteAdminStatePayload(records, adminB, "member-socio-2", { selectedAssociateId: "associate-2", selectedCourseId: "course-2" });
+assert.equal(contextA.selectedAssociateId, "associate-1");
+assert.equal(contextB.selectedAssociateId, "associate-2");
+assert.equal(contextA.selectedCourseId, "course-1");
+assert.equal(contextB.selectedCourseId, "course-2");
+assert.equal(rewriteAdminStatePayload(records, adminA).selectedAssociateId, "associate-a");
+assert.equal(rewriteAdminStatePayload(records, adminB).selectedAssociateId, "associate-b");
+assert.equal(rewriteAdminStatePayload(records, adminA).selectedCourseId, null);
+assert.ok(normalizeAdminIdentity({ role: "admin", accountId: "bootstrap", memberId: "" }), "Bootstrap sin ficha tambien debe aislar contexto");
 assert.equal(outgoing.selectedMemberId, "member-socio-1",
   "El saneado no debe mutar el objeto original del cliente");
 
@@ -109,7 +123,7 @@ nodes.set("memberSwitcher", element("memberSwitcher"));
 let responsePayload;
 const sandbox = vm.createContext({
   URL, Request, Response, Headers, Event,
-  sessionStorage: { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value) },
+  sessionStorage: { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) },
   queueMicrotask: callback => pending.push(callback),
   MutationObserver: class {
     constructor(callback) { this.callback = callback; }
@@ -140,7 +154,7 @@ async function receive(path, payload) {
   settle();
 }
 await receive("/api/login", { session: adminA });
-await receive("/api/state", { members: members.map(member => member.id === adminA.memberId
+await receive("/api/state", { role: "admin", members: members.map(member => member.id === adminA.memberId
   ? { ...member, name: "Admin O'Neil <QA>" } : member) });
 assert.ok(nodes.get("adminContextBanner").innerHTML.includes("Admin O'Neil &lt;QA&gt;"));
 const ownWrites = htmlWrites;

@@ -2,6 +2,7 @@ let installed = false;
 let observer = null;
 let latestState = null;
 let proofObjectUrl = "";
+const renderedProofNotices = new WeakMap();
 
 function clean(value) {
   return String(value || "").trim();
@@ -286,7 +287,7 @@ function parseProofRequestId(value) {
 }
 
 function focusCoursePaymentForm() {
-  const fileInput = document.querySelector('#courseEnrollmentForm input[type="file"]');
+  const fileInput = document.querySelector('#courseEnrollmentProofUpdateForm input[type="file"], #courseEnrollmentForm input[type="file"]');
   if (fileInput) {
     fileInput.scrollIntoView({ behavior: "smooth", block: "center" });
     fileInput.focus();
@@ -305,10 +306,10 @@ function enhanceMemberProofNotices() {
     button.type = "button";
     button.className = "mini-button";
     button.dataset.proofRequestCta = "true";
+    button.dataset.action = "prepare-course-enrollment";
+    button.dataset.courseId = parsed.courseId;
     button.textContent = "Adjuntar justificante";
     button.addEventListener("click", () => {
-      const candidate = document.querySelector(`[data-course-id="${CSS.escape(parsed.courseId)}"]`);
-      candidate?.click?.();
       setTimeout(focusCoursePaymentForm, 80);
     });
     control.parentElement?.append(button);
@@ -332,8 +333,11 @@ function enhanceMemberProofNotices() {
     notice.className = "course-proof-request-notice";
     panel.prepend(notice);
   }
-  notice.innerHTML = `<strong>Justificante de pago solicitado</strong><p>${escapeHtml(request.body || "Tesorería necesita que adjuntes el justificante de esta formación.")}</p><button type="button" class="mini-button" data-focus-payment-proof>Adjuntar justificante</button>`;
-  notice.querySelector("[data-focus-payment-proof]")?.addEventListener("click", focusCoursePaymentForm);
+  const markup = `<strong>Justificante de pago solicitado</strong><p>${escapeHtml(request.body || "Tesorería necesita que adjuntes el justificante de esta formación.")}</p><button type="button" class="mini-button" data-focus-payment-proof data-action="prepare-course-enrollment" data-course-id="${escapeHtml(selectedCourseId)}">Adjuntar justificante</button>`;
+  if (renderedProofNotices.get(notice) === markup) return;
+  renderedProofNotices.set(notice, markup);
+  notice.innerHTML = markup;
+  notice.querySelector("[data-focus-payment-proof]")?.addEventListener("click", () => setTimeout(focusCoursePaymentForm, 80));
 }
 
 function enhanceUi() {
@@ -348,7 +352,8 @@ function enhanceUi() {
 async function rememberStateResponse(response, target) {
   if (!response?.ok || target.pathname !== "/api/state") return response;
   try {
-    latestState = await response.clone().json();
+    const payload = await response.clone().json();
+    latestState = payload.state || payload;
     queueMicrotask(enhanceUi);
   } catch {
     // Keep state response untouched.

@@ -9,6 +9,7 @@ const {
   normalizedPaymentStatus
 } = require("../server/course-finance.js");
 const { validateInstructorAssociateUpdate } = require("../server/instructor-certificate.js");
+const { upsertProofRequestNotification, buildAccountingLedger } = require("../server/board-v11.js");
 
 function seedState() {
   return {
@@ -114,6 +115,9 @@ function seedState() {
     sendJsonError: (_res, error, fallback) => { response = { status: error.statusCode || 400, payload: { ok: false, error: error.message || fallback } }; }
   };
   const handler = createCourseFinanceHandler(deps);
+  const course = state.courses[0];
+  const submission = course.enrollmentSubmissions[0];
+  const notice = upsertProofRequestNotification(state, currentAccount, course, submission, state.members[1]);
 
   await handler({ method: "GET" }, {}, new URL("http://test/api/course-finance"));
   assert.equal(response.status, 200);
@@ -135,6 +139,12 @@ function seedState() {
   assert.equal(state.auditLog[0].actor.name, "Tesoreria QA");
   assert.equal(state.auditLog[0].before.paymentStatus, "pending");
   assert.equal(state.auditLog[0].after.paymentStatus, "validated");
+  assert.ok(notice.resolvedAt, "Validar el pago resuelve el aviso sin borrar su trazabilidad");
+  assert.ok(notice.readByMemberIds.includes(submission.memberId));
+  assert.equal(buildAccountingLedger(state).entries.filter(row => row.sourceId === submission.id).length, 1);
+  upsertProofRequestNotification(state, currentAccount, course, submission, state.members[1], "Nueva revision");
+  assert.equal(notice.resolvedAt, "", "Una nueva solicitud reabre el mismo aviso");
+  assert.equal(state.memberNotifications.length, 1);
 
   response = null;
   await handler(
