@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import feePolicy from "../public/membership-fee-policy.js";
 
 const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 const config = readFileSync(new URL("../public/assets/js/app/navigation/config.js", import.meta.url), "utf8");
@@ -61,6 +62,7 @@ const alertsStart = app.indexOf("function getMemberCampusAlerts(");
 const alertsEnd = app.indexOf("\nfunction ", alertsStart + 1);
 for (const campusOnly of [true, false]) {
   const context = {
+    effectiveMembershipFeeYear: feePolicy.effectiveMembershipFeeYear,
     state: { courses: [{ id: "internal", accessScope: "members", enrolledIds: [], waitingIds: [], diplomaReady: [] }] },
     findMember: () => ({ id: "own-member" }), getCurrentMember: () => ({ id: "own-member" }),
     getCurrentAssociate: () => null, getVisibleManualCampusNotices: () => [],

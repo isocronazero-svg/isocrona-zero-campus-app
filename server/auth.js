@@ -1,11 +1,12 @@
 const crypto = require("crypto");
 const {
-  findUserById,
+  findAuthenticatableUserById,
   isDatabaseEnabled,
   normalizeRole: normalizePlatformRole,
   verifyAuthToken
 } = require("../db");
 const { sendJson } = require("./http");
+const { canAuthenticateAccount } = require("./fixture-account-policy");
 
 const activeSessions = new Map();
 const rememberedSessionSeconds = 30 * 24 * 60 * 60;
@@ -87,6 +88,7 @@ function needsPasswordHashUpgrade(account) {
 }
 
 function verifyLegacyAccountPassword(account, submittedPassword) {
+  if (!canAuthenticateAccount(account)) return false;
   const candidate = String(submittedPassword || "");
   if (!candidate) {
     return false;
@@ -131,6 +133,7 @@ function setLegacyAccountPassword(account, password) {
 }
 
 function createSessionToken(account, rememberMe = false) {
+  if (!canAuthenticateAccount(account)) throw new Error("Credenciales invalidas");
   const token = `${rememberMe === true ? "izr" : "izs"}_${crypto.randomBytes(32).toString("hex")}`;
   if (rememberMe === true) {
     require("../storage").saveRememberedSession(
@@ -186,7 +189,7 @@ function getAuthenticatedAccount(req, state) {
   }
 
   const account = (state.accounts || []).find((item) => item.id === session.accountId);
-  if (!account || (remembered && (
+  if (!canAuthenticateAccount(account) || (remembered && (
     session.expiresAt <= Date.now() || session.credentialHash !== accountCredentialHash(account)
   ))) {
     clearRequestSession(req);
@@ -245,7 +248,7 @@ async function getAuthenticatedDbUser(req) {
   if (!payload?.sub) {
     return null;
   }
-  return findUserById(payload.sub);
+  return findAuthenticatableUserById(payload.sub);
 }
 
 async function requireAuthenticatedDbUser(req, res) {

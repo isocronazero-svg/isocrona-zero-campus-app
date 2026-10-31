@@ -1,5 +1,7 @@
 import "./enrollment-time.js";
 const EnrollmentTime = globalThis.EnrollmentTime;
+import "./membership-fee-policy.js";
+const { effectiveMembershipFeeYear } = globalThis.MembershipFeePolicy;
 import {
   ASSOCIATE_SECTION_LINKS,
   CAMPUS_SECTION_LINKS,
@@ -3075,7 +3077,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    const year = String(actionTarget.dataset.year || new Date().getFullYear());
+    const year = String(actionTarget.dataset.year || effectiveMembershipFeeYear(associate));
     const pendingAmount = Math.max(
       0,
       Number(associate.annualAmount || 0) - getAssociateFeeForYear(associate, year)
@@ -3109,11 +3111,10 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    const year = String(new Date().getFullYear());
     await invokeJsonAction(
       "/api/associates/payments/settle",
       {
-        year,
+        effectiveYear: true,
         associateIds: visiblePendingAssociates.map((associate) => associate.id)
       },
       `Cuotas visibles marcadas como pagadas (${visiblePendingAssociates.length})`
@@ -4713,7 +4714,7 @@ document.addEventListener("submit", async (event) => {
       const dateInput = document.getElementById("associatePaymentDate");
       const yearInput = document.getElementById("associatePaymentYear");
       if (dateInput) dateInput.value = getTodayDateInput();
-      if (yearInput) yearInput.value = String(new Date().getFullYear());
+      if (yearInput) yearInput.value = String(effectiveMembershipFeeYear(associate));
     }
   }
 
@@ -6977,7 +6978,7 @@ function renderMemberOverview() {
       <div class="status-note info">
         ${escapeHtml(member?.name || "Sin ficha vinculada")} | ${escapeHtml(member?.email || "-")} | Estado socio ${
           escapeHtml(associate?.status || "Sin ficha de socio")
-        } | Socio #${escapeHtml(associate?.associateNumber || "-")} | Cuota ${new Date().getFullYear()}: ${
+        } | Socio #${escapeHtml(associate?.associateNumber || "-")} | Cuota ${effectiveMembershipFeeYear(associate)}: ${
           associate ? `${formatCurrency(getAssociateCurrentYearFee(associate))} / ${formatCurrency(associate.annualAmount || 0)}` : "-"
         }.
       </div>
@@ -7132,7 +7133,7 @@ function renderJoinView() {
     const submissions = getAssociatePaymentSubmissionsForCurrentAssociate();
     const profileRequests = getAssociateProfileRequestsForCurrentAssociate();
     const reviewIssues = getAssociateLegacyReviewIssues(associate);
-    const currentYear = String(new Date().getFullYear());
+    const currentYear = String(effectiveMembershipFeeYear(associate));
     const quotaGap = associate ? getAssociateQuotaGap(associate) : 0;
     const previewOnly = isMemberPreviewSession();
 
@@ -7312,7 +7313,7 @@ function renderJoinView() {
             <fieldset ${previewOnly ? "disabled" : ""}>
             <label class="inline-field">
               Anio
-              <input id="associatePaymentSubmissionYear" type="number" min="2024" value="${new Date().getFullYear()}" />
+              <input id="associatePaymentSubmissionYear" type="number" min="2024" value="${currentYear}" />
             </label>
             <label class="inline-field">
               Importe
@@ -8016,7 +8017,7 @@ function renderAssociates() {
     : [];
   const selectedAssociateQuotaGap = selectedAssociate ? getAssociateQuotaGap(selectedAssociate) : 0;
   const quickAssociateMatches = getAssociateQuickSearchMatches(associateFilters.query, 8);
-  const currentYear = String(new Date().getFullYear());
+  const currentYear = String(effectiveMembershipFeeYear(selectedAssociate));
   const priorityReviewItems = [
     ...pendingApplications.map((item) => ({
       id: item.id,
@@ -8683,10 +8684,10 @@ function renderAssociates() {
                         <span class="small-chip">${formatCurrency(getAssociateQuotaGap(associate))} pendiente</span>
                       </div>
                       <p>${escapeHtml(associate.email || "Sin email")} | ${escapeHtml(associate.service || "Sin servicio")}</p>
-                      <p class="muted">Estado: ${escapeHtml(associate.status)} | Cuota ${new Date().getFullYear()}: ${formatCurrency(getAssociateCurrentYearFee(associate))} / ${formatCurrency(associate.annualAmount || 0)}</p>
+                      <p class="muted">Estado: ${escapeHtml(associate.status)} | Cuota ${effectiveMembershipFeeYear(associate)}: ${formatCurrency(getAssociateCurrentYearFee(associate))} / ${formatCurrency(associate.annualAmount || 0)}</p>
                       <div class="chip-row">
                         <button class="mini-button" data-action="select-associate" data-associate-id="${associate.id}">Abrir ficha</button>
-                        <button class="mini-button" data-action="mark-associate-paid" data-associate-id="${associate.id}" data-year="${new Date().getFullYear()}">Marcar pagado</button>
+                        <button class="mini-button" data-action="mark-associate-paid" data-associate-id="${associate.id}" data-year="${effectiveMembershipFeeYear(associate)}">Marcar pagado</button>
                       </div>
                     </div>
                   `
@@ -9122,7 +9123,7 @@ function renderAssociates() {
               <th>N. socio</th>
               <th>Nombre</th>
               <th>Servicio</th>
-              <th>Cuota ${new Date().getFullYear()}</th>
+              <th>Cuota aplicable</th>
               <th>Campus</th>
               <th>Ultima cuota</th>
               <th>Estado</th>
@@ -9194,7 +9195,7 @@ function renderAssociatesSide() {
   const campusAccount = associate ? findAccountByAssociate(associate.id) : null;
   const campusMember = associate?.linkedMemberId ? findMember(associate.linkedMemberId) : null;
   const associatePayments = getAssociatePayments(associate);
-  const currentYear = String(new Date().getFullYear());
+  const currentYear = String(effectiveMembershipFeeYear(associate));
   const applicationReadiness = application
     ? getAssociateApplicationReadiness(application)
     : { ready: false, blockers: [], flags: {} };
@@ -16245,7 +16246,7 @@ function getAssociateFullName(associate) {
 }
 
 function getAssociateCurrentYearFee(associate) {
-  return getAssociateFeeForYear(associate, String(new Date().getFullYear()));
+  return getAssociateFeeForYear(associate, String(effectiveMembershipFeeYear(associate)));
 }
 
 function getAssociateFeeForYear(associate, year) {
@@ -20128,7 +20129,7 @@ function getMemberCampusAlerts(memberId) {
     (member.associateId ? findAssociate(member.associateId) : null) ||
     (getCurrentMember()?.id === memberId ? getCurrentAssociate() : null);
   const alerts = [];
-  const currentYear = String(new Date().getFullYear());
+  const currentYear = String(effectiveMembershipFeeYear(associate));
   const ownCourses = (state.courses || []).filter(
     (course) =>
       course.enrolledIds.includes(memberId) ||

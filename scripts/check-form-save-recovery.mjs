@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import feePolicy from "../public/membership-fee-policy.js";
 import { createRequire } from "node:module";
 const EnrollmentTime = createRequire(import.meta.url)("../public/enrollment-time.js");
 
@@ -47,6 +48,7 @@ function fixture(id = "courseEditForm") {
   const requests = [];
   const toasts = [];
   const context = vm.createContext({
+    effectiveMembershipFeeYear: feePolicy.effectiveMembershipFeeYear,
     EnrollmentTime,
     console, Response, structuredClone,
     document: {

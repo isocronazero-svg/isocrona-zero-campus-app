@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import feePolicy from "../public/membership-fee-policy.js";
 
 const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 function source(name) {
@@ -12,6 +13,7 @@ function source(name) {
 const escapeHtml = (value) => String(value ?? "").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 for (const associated of [true, false]) {
   const context = {
+    effectiveMembershipFeeYear: feePolicy.effectiveMembershipFeeYear,
     session: { name: "QA", email: "qa@example.test" },
     isAdminView: () => false,
     getCurrentAssociate: () => associated ? { annualAmount: 50 } : null,
