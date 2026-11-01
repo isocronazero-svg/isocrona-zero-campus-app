@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import feePolicy from "../public/membership-fee-policy.js";
 import { createRequire } from "node:module";
 const EnrollmentTime = createRequire(import.meta.url)("../public/enrollment-time.js");
 
@@ -14,7 +15,7 @@ function between(start, end) {
 }
 const helpers = between("function setFormSaveStatus(", "function getAssociateDeletionImpactSummary(");
 const jsonReader = between("async function readJsonResponse(", "async function loadStorageMeta(");
-const submit = between('document.addEventListener("submit", async (event) => {', "\nbootstrap();");
+const submit = between('document.addEventListener("submit", async (event) => {', "\nconst bootstrapReady = bootstrap();");
 
 function fixture(id = "courseEditForm") {
   const fields = new Map();
@@ -47,6 +48,7 @@ function fixture(id = "courseEditForm") {
   const requests = [];
   const toasts = [];
   const context = vm.createContext({
+    effectiveMembershipFeeYear: feePolicy.effectiveMembershipFeeYear,
     EnrollmentTime,
     console, Response, structuredClone,
     document: {
@@ -107,6 +109,17 @@ function fixture(id = "courseEditForm") {
 
 function save(f) {
   return f.context.invokeJsonAction("/api/courses/course-test", { title: f.title.value }, "Guardado", "PATCH", f.form);
+}
+
+// A server-created course must open locally, not the old per-browser selection.
+for (const method of ["POST", "PATCH"]) {
+  const f = fixture();
+  f.context.fetch = async () => new Response(JSON.stringify({ ok: true, course: { id: "new-course" } }));
+  f.context.refreshState = async () => {
+    f.context.state = { selectedCourseId: "previous-course", courses: [{ id: "new-course" }, { id: "previous-course" }] };
+  };
+  assert.equal(await f.context.invokeJsonAction("/api/courses", {}, "Guardado", method), true);
+  assert.equal(f.context.state.selectedCourseId, method === "POST" ? "new-course" : "previous-course");
 }
 
 // Validation, gateway, empty and malformed responses must leave the draft usable.

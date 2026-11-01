@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -17,7 +18,7 @@ const nodeModulesPath = nodeModulesCandidates.find((candidate) => existsSync(can
 const allowFlag = "IZ_ALLOW_DEMO_ADMIN_IN_PRODUCTION";
 const demoAdminEmail = "admin@isocronazero.org";
 const bootstrapAdminEmail = "admin-real@example.test";
-const bootstrapAdminPassword = "Bootstrap-Admin-2026!";
+const bootstrapAdminPassword = randomBytes(32).toString("base64url");
 
 async function getAvailablePort() {
   return await new Promise((resolve, reject) => {

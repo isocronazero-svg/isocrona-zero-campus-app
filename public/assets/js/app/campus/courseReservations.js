@@ -1,3 +1,5 @@
+import { formatCourseFee, getApplicableCourseFee } from "./coursePricing.js";
+
 const PANEL_ID = "adminCourseReservationsPanel";
 let enhancing = false;
 let scheduled = false;
@@ -89,17 +91,22 @@ function buildPanel(state, course) {
   const free = seatsLeft(course);
   const capacity = Math.max(0, Number(course.capacity || 0));
   const occupied = capacity - free;
+  const memberFee = getApplicableCourseFee(course, "member");
+  const nonMemberFee = getApplicableCourseFee(course, "external");
 
   const panel = document.createElement("div");
   panel.className = "mail-card";
   panel.id = PANEL_ID;
   panel.dataset.courseId = course.id;
+  panel.dataset.memberFee = String(memberFee);
+  panel.dataset.nonMemberFee = String(nonMemberFee);
   panel.innerHTML = `
     <div class="row-between">
       <div>
         <p class="eyebrow">Antes de abrir inscripciones</p>
         <h4>Reservas administrativas</h4>
         <p class="muted">Añade socios o invitados externos. La plaza queda descontada del aforo desde este momento.</p>
+        <p class="muted">Precio socio: <strong>${escapeHtml(formatCourseFee(memberFee))}</strong> · Precio no socio: <strong>${escapeHtml(formatCourseFee(nonMemberFee))}</strong></p>
       </div>
       <span class="small-chip">${occupied}/${capacity} ocupadas · ${free} libres</span>
     </div>
@@ -115,6 +122,7 @@ function buildPanel(state, course) {
           <option value="external">Invitado externo</option>
         </select>
       </label>
+      <p class="status-note" data-reservation-price>Precio aplicable: ${escapeHtml(formatCourseFee(memberFee))}</p>
       <div data-reservation-member>
         <label class="inline-field">
           Socio
@@ -145,9 +153,10 @@ function buildPanel(state, course) {
         const member = getMember(state, reservation.memberId);
         const type = reservation.participantType === "external" ? "Invitado externo" : "Socio";
         const payment = reservation.status === "pending-proof" ? " · pago pendiente" : "";
+        const amount = formatCourseFee(Number(reservation.amount || 0));
         return `<div class="timeline-item compact-timeline-item">
           <div class="row-between">
-            <div><strong>${escapeHtml(member?.name || "Participante")}</strong><p class="muted">Reserva administrativa · ${type}${payment}</p></div>
+            <div><strong>${escapeHtml(member?.name || "Participante")}</strong><p class="muted">Reserva administrativa · ${type} · ${escapeHtml(amount)}${payment}</p></div>
             <button class="mini-button" type="button" data-release-reservation="${escapeHtml(reservation.id)}">Liberar plaza</button>
           </div>
         </div>`;
@@ -164,6 +173,13 @@ function setStatus(panel, message, warning = false) {
   status.textContent = message;
 }
 
+function updateReservationPrice(panel) {
+  const type = panel.querySelector('[name="participantType"]')?.value || "member";
+  const price = type === "member" ? Number(panel.dataset.memberFee || 0) : Number(panel.dataset.nonMemberFee || 0);
+  const label = panel.querySelector("[data-reservation-price]");
+  if (label) label.textContent = `Precio aplicable: ${formatCourseFee(price)}`;
+}
+
 function toggleParticipantFields(panel) {
   const type = panel.querySelector('[name="participantType"]')?.value || "member";
   const member = panel.querySelector("[data-reservation-member]");
@@ -172,6 +188,7 @@ function toggleParticipantFields(panel) {
   if (external) external.hidden = type !== "external";
   const email = external?.querySelector('[name="email"]');
   if (email) email.required = type === "external";
+  updateReservationPrice(panel);
 }
 
 async function createReservation(panel, form) {

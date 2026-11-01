@@ -3,6 +3,9 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.qa
+.env.qa.private
+.env.qa.*.private
 
 server.err.log
 server.out.log
@@ -17,5 +20,8 @@ data/campus-server.err.log
 data/campus-server.out.log
 data/backups/
 data/uploads/
+data/qa-runtime.json
+data/qa-private-runtime.json
+data/*-private.local.json
 
 *.log

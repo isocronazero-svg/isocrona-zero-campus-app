@@ -1,4 +1,5 @@
 const fs = require("fs");
+const { madridYearMonth } = require("./public/membership-fee-policy.js");
 const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 
@@ -1168,7 +1169,7 @@ function normalizeState(state) {
     associateId: item.associateId || "",
     memberId: item.memberId || "",
     submittedAt: item.submittedAt || new Date().toISOString(),
-    year: String(item.year || new Date().getFullYear()),
+    year: String(item.year || madridYearMonth(item.submittedAt || Date.now()).year),
     amount: Number(item.amount || 0),
     method: item.method || "Transferencia",
     note: item.note || "",
@@ -1241,7 +1242,7 @@ function normalizeState(state) {
     const payments = (item.payments || []).map((payment) => ({
       id: payment.id || `associate-payment-${Date.now()}`,
       date: payment.date || new Date().toISOString().slice(0, 10),
-      year: String(payment.year || new Date().getFullYear()),
+      year: String(payment.year || madridYearMonth(payment.date || Date.now()).year),
       amount: Number(payment.amount || 0),
       method: payment.method || "Transferencia",
       note: payment.note || "",
@@ -1257,7 +1258,7 @@ function normalizeState(state) {
       ...(item.manualYearlyFees || item.yearlyFees || {})
     };
     const paymentTotals = payments.reduce((acc, payment) => {
-      const year = String(payment.year || new Date(payment.date || Date.now()).getFullYear());
+      const year = String(payment.year || madridYearMonth(payment.date || Date.now()).year);
       acc[year] = Number(acc[year] || 0) + Number(payment.amount || 0);
       return acc;
     }, {});

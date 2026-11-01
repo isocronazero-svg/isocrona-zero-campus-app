@@ -124,6 +124,36 @@ async function readJsonBodyOrDefault(req, maxBytes = payloadLimitBytes.defaultJs
   }
 }
 
+function applyRequestJsonOverrides(req, payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+  const enrollmentPricing = req?.__izCourseEnrollmentPricing;
+  if (enrollmentPricing && Number.isFinite(Number(enrollmentPricing.amount))) {
+    const authoritativeAmount = Number(enrollmentPricing.amount);
+    // Legacy enrollment uses `payload.amount || course.enrollmentFee`. Keep zero as a truthy
+    // string so a free member price cannot fall back to the non-member/general fee.
+    payload.amount = authoritativeAmount === 0 ? "0" : authoritativeAmount;
+    payload.priceCategory = String(enrollmentPricing.priceCategory || "").trim();
+  }
+
+  const serverOwnedState = req?.__izServerOwnedState;
+  if (serverOwnedState) {
+    // Whole-state saves are legacy snapshots. Never let a stale browser snapshot overwrite
+    // audit history or scoped capabilities that belong to dedicated server-side actions.
+    payload.auditLog = Array.isArray(serverOwnedState.auditLog) ? serverOwnedState.auditLog : [];
+    const treasuryByAssociateId = serverOwnedState.treasuryByAssociateId || {};
+    if (Array.isArray(payload.associates)) {
+      payload.associates = payload.associates.map((associate) => {
+        const associateId = String(associate?.id || "").trim();
+        if (!associateId || !Object.prototype.hasOwnProperty.call(treasuryByAssociateId, associateId)) return associate;
+        return { ...associate, treasuryEnabled: treasuryByAssociateId[associateId] === true };
+      });
+    }
+  }
+  return payload;
+}
+
 function readJsonBody(req, maxBytes = payloadLimitBytes.defaultJson) {
   return new Promise((resolve, reject) => {
     const normalizedMaxBytes = Math.max(1, Number(maxBytes || payloadLimitBytes.defaultJson));
@@ -167,7 +197,7 @@ function readJsonBody(req, maxBytes = payloadLimitBytes.defaultJson) {
       settled = true;
       try {
         const raw = Buffer.concat(chunks, totalBytes).toString("utf8");
-        resolve(JSON.parse(raw || "{}"));
+        resolve(applyRequestJsonOverrides(req, JSON.parse(raw || "{}")));
       } catch (error) {
         reject(error);
       }

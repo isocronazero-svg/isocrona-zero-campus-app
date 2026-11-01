@@ -1,4 +1,13 @@
 const { createHmac, randomBytes } = require("node:crypto");
+const { createAuditLogHandler } = require("./audit-log");
+const { createBoardV11Handler } = require("./board-v11");
+const { createCourseFinanceHandler } = require("./course-finance");
+const { createDiplomaPreviewHandler } = require("./diploma-preview");
+const {
+  coursePricingConfig,
+  getApplicableCourseFeeForAccount,
+  getParticipantTypeForAccount
+} = require("./course-pricing");
 
 function sharedQuestions(state, ids) {
   if (!Array.isArray(ids) || ids.length > 200) throw new Error("Selecciona hasta 200 preguntas del banco comun");
@@ -20,6 +29,9 @@ function courseTestConfig(state, payload, previous = {}) {
   // Validate explicit selections; unrelated course edits preserve existing references.
   const questionIds = supplied ? sharedQuestions(state, ids).map((question) => question.id) : ids;
   return {
+    // server.js already composes this extension object after the legacy course normalizer.
+    // Keep pricing here until course mutations are split out of the monolithic router.
+    ...coursePricingConfig(payload, previous),
     sharedTestQuestionIds: questionIds,
     sharedTestPublished: Object.prototype.hasOwnProperty.call(source, "sharedTestPublished")
       ? source.sharedTestPublished === true
@@ -27,9 +39,54 @@ function courseTestConfig(state, payload, previous = {}) {
   };
 }
 
+function prepareAuthoritativeEnrollmentPricing(req, res, url, deps) {
+  const match = url.pathname.match(/^\/api\/member\/courses\/([^/]+)\/enroll$/);
+  if (!match || req.method !== "POST") return false;
+
+  const state = deps.readState();
+  const account = deps.requireAuthenticatedAccount(req, res, state);
+  if (!account) return true;
+  const member = (state.members || []).find((item) => item.id === account.memberId) || null;
+  const course = (state.courses || []).find((item) => item.id === decodeURIComponent(match[1])) || null;
+  if (!member || !course) return false;
+
+  const participantType = getParticipantTypeForAccount(state, account, member);
+  req.__izCourseEnrollmentPricing = {
+    amount: getApplicableCourseFeeForAccount(state, course, account, member),
+    priceCategory: participantType === "member" ? "member" : "non-member"
+  };
+  return false;
+}
+
+function prepareServerOwnedStatePreservation(req, res, url, deps) {
+  if (url.pathname !== "/api/state" || req.method !== "POST") return false;
+  const state = deps.readState();
+  const account = deps.requireAuthenticatedAccount(req, res, state);
+  if (!account) return true;
+  if (account.role !== "admin") return false;
+  req.__izServerOwnedState = {
+    auditLog: Array.isArray(state.auditLog) ? state.auditLog : [],
+    treasuryByAssociateId: Object.fromEntries(
+      (state.associates || []).map((associate) => [associate.id, associate.treasuryEnabled === true])
+    )
+  };
+  return false;
+}
+
 function createCourseSharedTestHandler(deps) {
   const secret = randomBytes(32);
+  const handleAuditLog = createAuditLogHandler(deps);
+  const handleBoardV11 = createBoardV11Handler(deps);
+  const handleCourseFinance = createCourseFinanceHandler(deps);
+  const handleDiplomaPreview = createDiplomaPreviewHandler(deps);
   return async function handle(req, res, url) {
+    if (await handleAuditLog(req, res, url)) return true;
+    if (await handleBoardV11(req, res, url)) return true;
+    if (await handleCourseFinance(req, res, url)) return true;
+    if (await handleDiplomaPreview(req, res, url)) return true;
+    if (prepareAuthoritativeEnrollmentPricing(req, res, url, deps)) return true;
+    if (prepareServerOwnedStatePreservation(req, res, url, deps)) return true;
+
     const match = url.pathname.match(/^\/api\/courses\/([^/]+)\/shared-test(?:\/(results))?$/);
     if (!match) return false;
     const send = (status, payload) => { deps.sendJson(res, status, payload); return true; };

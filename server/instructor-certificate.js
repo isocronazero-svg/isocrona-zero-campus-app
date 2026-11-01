@@ -34,6 +34,14 @@ function validateInstructorAssociateUpdate(state, associateId, nextAssociate) {
       (state.courses || []).some(course => (course.instructorAssociateIds || []).includes(associateId))) {
     throw new Error("No puedes borrar el nombre de un socio asignado como instructor. Introduce un nombre valido.");
   }
+
+  // V1.1: scoped capabilities live on the associate record so a treasurer keeps a normal member account.
+  if (Object.prototype.hasOwnProperty.call(nextAssociate || {}, "treasuryEnabled")) {
+    if (typeof nextAssociate.treasuryEnabled !== "boolean") {
+      throw new Error("El permiso de tesoreria debe ser true o false");
+    }
+    if (previous) previous.treasuryEnabled = nextAssociate.treasuryEnabled;
+  }
 }
 
 function validateInstructorAssociateIds(state, ids, existingIds = []) {

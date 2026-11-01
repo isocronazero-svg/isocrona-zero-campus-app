@@ -1,4 +1,5 @@
 const { randomUUID } = require('node:crypto');
+const { appendAuditEvent } = require('./audit-log');
 const { getMailSettings, isMailReady } = require('./mail-delivery');
 const { reserveAdministrativeSeat, releaseAdministrativeSeat } = require('./course-reservations');
 
@@ -153,6 +154,23 @@ function createNoticesHandler(deps) {
           });
           deps.appendActivity(state, 'admin', account.name || 'Administración',
             `Reserva plaza en ${(result.course && result.course.title) || courseId} para ${result.member?.name || 'participante'}`);
+          appendAuditEvent(state, {
+            account,
+            module: 'courses',
+            entityType: 'course-reservation',
+            entityId: result.submission?.id || '',
+            entityLabel: `${result.member?.name || 'Participante'} · ${result.course?.title || courseId}`,
+            action: 'create-reservation',
+            before: null,
+            after: {
+              memberId: result.member?.id || '',
+              participantType: result.submission?.participantType || '',
+              priceCategory: result.submission?.priceCategory || '',
+              amount: Number(result.submission?.amount || 0),
+              status: result.submission?.status || ''
+            },
+            metadata: { courseId: result.course?.id || courseId }
+          });
           deps.writeState(state);
           deps.sendJson(res, 201, reservationResponse(result));
           return true;
@@ -161,9 +179,28 @@ function createNoticesHandler(deps) {
           const state = deps.readState();
           const account = deps.requireAdminAccount(req, res, state);
           if (!account) return true;
+          const courseBefore = (state.courses || []).find(item => item.id === courseId);
+          const reservationBefore = (courseBefore?.enrollmentSubmissions || []).find(item => item.id === reservationId) || null;
           const result = releaseAdministrativeSeat(state, courseId, reservationId);
           deps.appendActivity(state, 'admin', account.name || 'Administración',
             `Libera reserva en ${(result.course && result.course.title) || courseId} de ${result.member?.name || 'participante'}`);
+          appendAuditEvent(state, {
+            account,
+            module: 'courses',
+            entityType: 'course-reservation',
+            entityId: reservationId,
+            entityLabel: `${result.member?.name || 'Participante'} · ${result.course?.title || courseId}`,
+            action: 'release-reservation',
+            before: reservationBefore ? {
+              memberId: reservationBefore.memberId || '',
+              participantType: reservationBefore.participantType || '',
+              priceCategory: reservationBefore.priceCategory || '',
+              amount: Number(reservationBefore.amount || 0),
+              status: reservationBefore.status || ''
+            } : null,
+            after: null,
+            metadata: { courseId: result.course?.id || courseId }
+          });
           deps.writeState(state);
           deps.sendJson(res, 200, reservationResponse(result));
           return true;

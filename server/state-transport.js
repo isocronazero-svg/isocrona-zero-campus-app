@@ -318,7 +318,7 @@ function createStateTransport(dependencies = {}) {
 
     return {
       role: "member",
-      activeView: quotaLimitedAccess ? "join" : state.activeView,
+      activeView: quotaLimitedAccess ? "join" : "overview",
       selectedMemberId: memberId || null,
       selectedAssociateId: associateId || null,
       selectedCourseId,
@@ -375,6 +375,12 @@ function createStateTransport(dependencies = {}) {
       liveTestParticipantResults: [],
       settings: {
         ...state.settings,
+        associates: {
+          ...(state.settings?.associates || {}),
+          whatsappChannelInviteUrl: scopedAssociate && !quotaLimitedAccess
+            ? state.settings?.associates?.whatsappChannelInviteUrl || ""
+            : ""
+        },
         banners: [],
         smtp: stripSmtpSecrets({
           host: "",
@@ -473,7 +479,13 @@ function createStateTransport(dependencies = {}) {
     }
 
     if (account.role === "admin") {
-      return state;
+      return {
+        ...state,
+        activeView: "overview",
+        selectedMemberId: account.memberId || null,
+        selectedAssociateId: findAssociateForAccount(state, account)?.id || null,
+        selectedCourseId: null
+      };
     }
 
     const nextState = buildMemberScopedState(state, account);
