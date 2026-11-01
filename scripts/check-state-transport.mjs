@@ -75,6 +75,7 @@ function buildSeedState() {
   seed.members.push({ id: "external-member", name: "External QA", email: "external@example.test", role: "Alumno", associateId: "" });
   seed.campusGroups = [{ id: "internal-group", title: "Grupo interno QA", modules: [] }];
   seed.settings.smtp = {};
+  seed.settings.associates.whatsappChannelInviteUrl = "https://chat.whatsapp.com/PrivateQAInvite";
   seed.settings.automation.autoRunOnSave = false;
   seed.settings.automation.autoAdvanceCourseStatus = false;
   for (const [id, status, enrollmentOpensAt] of [
@@ -288,6 +289,7 @@ async function main() {
     await login(memberClient, "lucia@isocronazero.org", "bomberos123");
 
     const memberState = (await memberClient.request("GET", "/api/state")).body;
+    assert.equal(memberState.settings.associates.whatsappChannelInviteUrl, "https://chat.whatsapp.com/PrivateQAInvite");
     assert.equal(memberState.testZoneQuestions?.length, 1, "El socio debe recibir preguntas publicas");
     assert.equal("correctIndex" in memberState.testZoneQuestions[0], false, "El socio no debe recibir correctIndex");
     assert.equal("correctAnswer" in memberState.testZoneQuestions[0], false, "El socio no debe recibir correctAnswer");
@@ -391,6 +393,7 @@ async function main() {
     const external = createClient("external", baseUrl);
     await login(external, "external@example.test", externalPassword);
     const externalState = (await external.request("GET", "/api/state")).body;
+    assert.equal(externalState.settings.associates.whatsappChannelInviteUrl, "", "External accounts must not receive the private invitation");
     assert.ok(!externalState.courses.some((course) => course.id === "member-only-course"));
     assert.deepEqual(externalState.campusGroups, []);
     assert.equal((await external.request("POST", "/api/member/courses/member-only-course/enroll", {}, { allowFailure: true })).status, 403);
@@ -405,6 +408,7 @@ async function main() {
     linkedAdminState.campusGroups.push({ id: "admin-only-group", title: "Solo admin QA", allowedAccountIds: [adminAccount.id], modules: [] });
     await adminClient.request("POST", "/api/state", linkedAdminState);
     const scopedPreview = (await adminClient.request("GET", "/api/state?mode=preview&memberId=external-member")).body;
+    assert.equal(scopedPreview.settings.associates.whatsappChannelInviteUrl, "", "External preview must not inherit the private invitation");
     assert.deepEqual(scopedPreview.associates, [], "Preview cannot inherit the admin membership");
     assert.deepEqual(scopedPreview.campusGroups, [], "Admin grants must not pass to external preview");
     assert.ok(!scopedPreview.courses.some(course => course.id === "member-only-course"));
