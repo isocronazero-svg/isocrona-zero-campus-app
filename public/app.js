@@ -5611,6 +5611,10 @@ async function invokeJsonAction(url, payload, successMessage, method = "POST", f
     saveConfirmed = true;
 
     await refreshState();
+    if (url === "/api/courses" && method === "POST" && result.course?.id &&
+        state.courses.some(course => course.id === result.course?.id)) {
+      state.selectedCourseId = result.course.id;
+    }
     applySessionToState();
     syncAssociateSelectionTargets();
     refreshed = true;
