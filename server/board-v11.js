@@ -1,5 +1,6 @@
 const { appendAuditEvent } = require("./audit-log");
 const { madridYearMonth } = require("../public/membership-fee-policy.js");
+const { isJourney } = require("./journey-participation");
 
 function clean(value) {
   return String(value || "").trim();
@@ -62,8 +63,7 @@ function upsertProofRequestNotification(state, account, course, submission, memb
 }
 
 function paymentCategory(course) {
-  const type = `${clean(course?.courseClass)} ${clean(course?.journeyTypeId)} ${clean(course?.journeyTypeLabel)}`.toLowerCase();
-  return /jornada|intensiv|traffic|vertical|rescate|incend/.test(type) && clean(course?.journeyTypeId) ? "jornada" : "curso";
+  return isJourney(course) ? "jornada" : "curso";
 }
 
 function buildAccountingLedger(state) {
