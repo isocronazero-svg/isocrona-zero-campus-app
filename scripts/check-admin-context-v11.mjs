@@ -15,6 +15,40 @@ const members = [
   { id: "member-socio-2", name: "Socio Dos" }
 ];
 
+// Initial anonymous recovery must settle before either interactive login can create a session.
+const appSource = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+for (const [start, end, role] of [
+  ['loginForm.addEventListener("submit"', 'publicCampusRegisterForm?.addEventListener("submit"', "admin"],
+  ['publicCampusRegisterForm?.addEventListener("submit"', 'document.addEventListener("click"', "member"]
+]) {
+  let finishBootstrap;
+  let handler;
+  let requests = 0;
+  const form = { addEventListener(_event, callback) { handler = callback; }, reset() {} };
+  const context = vm.createContext({
+    bootstrapReady: new Promise(resolve => { finishBootstrap = resolve; }),
+    loginForm: form, publicCampusRegisterForm: form,
+    loginEmail: { value: "qa@example.test" }, loginPassword: { value: "" },
+    publicCampusFirstName: { value: "QA" }, publicCampusLastName: { value: "" },
+    publicCampusEmail: { value: "qa@example.test" }, publicCampusPhone: { value: "" }, publicCampusPassword: { value: "" },
+    document: { getElementById: () => ({ checked: true }) },
+    session: null, viewRole: "", loginStatus: "", publicCampusStatus: "", syncStatus: "", passwordChangeStatus: "",
+    render() {}, persistSession() {}, persistViewRole() {}, applySessionToState() {}, addActivity() {}, showToast() {},
+    refreshState: async () => {}, ensureAdminStateLoaded: async () => {},
+    fetch: async () => { requests++; return { ok: true, json: async () => ({ ok: true, session: { role, name: "QA" } }) }; }
+  });
+  const from = appSource.indexOf(start);
+  vm.runInContext(appSource.slice(from, appSource.indexOf(end, from + 1)), context);
+  const pending = handler({ preventDefault() {} });
+  assert.equal(requests, 0, "No login while a stale anonymous recovery can clear the session");
+  context.session = null;
+  finishBootstrap();
+  await pending;
+  assert.equal(requests, 1);
+  assert.equal(context.session.role, role);
+  assert.equal(context.loginStatus, "Acceso correcto.");
+}
+
 const adminA = normalizeAdminIdentity({
   role: "admin",
   accountId: "account-admin-a",
