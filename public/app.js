@@ -634,6 +634,7 @@ loginForm.addEventListener("submit", async (event) => {
   render();
 
   try {
+    await bootstrapReady;
     const response = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -682,6 +683,7 @@ publicCampusRegisterForm?.addEventListener("submit", async (event) => {
   render();
 
   try {
+    await bootstrapReady;
     const response = await fetch("/api/public-campus/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -4748,7 +4750,7 @@ document.addEventListener("submit", async (event) => {
   }
 });
 
-bootstrap();
+const bootstrapReady = bootstrap();
 
 async function bootstrap() {
   const bootUrl = new URL(window.location.href);

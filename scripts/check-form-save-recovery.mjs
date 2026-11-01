@@ -15,7 +15,7 @@ function between(start, end) {
 }
 const helpers = between("function setFormSaveStatus(", "function getAssociateDeletionImpactSummary(");
 const jsonReader = between("async function readJsonResponse(", "async function loadStorageMeta(");
-const submit = between('document.addEventListener("submit", async (event) => {', "\nbootstrap();");
+const submit = between('document.addEventListener("submit", async (event) => {', "\nconst bootstrapReady = bootstrap();");
 
 function fixture(id = "courseEditForm") {
   const fields = new Map();
