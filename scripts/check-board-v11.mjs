@@ -92,6 +92,19 @@ assert.throws(() => validWhatsappUrl("https://example.com/whatsapp"), /WhatsApp/
   assert.equal(ledger.summary.byCategory.jornada, 20);
   assert.ok(!ledger.entries.some((entry) => entry.sourceId === "pending"));
   assert.equal(ledger.entries.find((entry) => entry.category === "cuota")?.exerciseYear, "2027", "La cuota de alta de octubre-diciembre se imputa al ejercicio siguiente");
+  for (const classification of [
+    { journeyTypeId: "journey-rit", journeyTypeLabel: "RIT" },
+    { journeyTypeId: "journey-gom", journeyTypeLabel: "GOM" },
+    { journeyTypeId: "journey-riesgos-tecnologicos", journeyTypeLabel: "Riesgos Tecnologicos" },
+    { journeyTypeId: "journey-otro-nombre", journeyTypeLabel: "Otro nombre" },
+    { type: "Jornada intensiva" }, { contentTemplate: "intensivo" }
+  ]) {
+    state.courses[1] = { id: "journey-1", title: "QA", enrollmentSubmissions: state.courses[1].enrollmentSubmissions, ...classification };
+    const classified = buildAccountingLedger(state);
+    assert.equal(classified.summary.byCategory.jornada, 20, JSON.stringify(classification));
+    assert.equal(classified.summary.byCategory.curso, 25);
+    assert.equal(classified.summary.total, 95);
+  }
 }
 
 {
