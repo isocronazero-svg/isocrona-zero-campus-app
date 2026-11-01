@@ -361,7 +361,7 @@ function shouldUseMemberProfileAsPrimaryView() {
 }
 
 function normalizePrimaryMemberView() {
-  if (shouldUseMemberProfileAsPrimaryView() && state.activeView === "overview") {
+  if (isCurrentMemberLimitedToAssociateProfile() && state.activeView === "overview") {
     state.activeView = "join";
   }
 }
@@ -376,18 +376,19 @@ function saveUiSnapshot() {
       activeView: String(state.activeView || "").trim(),
       associatesSectionMode: String(associatesSectionMode || "").trim(),
       selectedAssociateId: String(state.selectedAssociateId || "").trim(),
+      selectedCourseId: String(state.selectedCourseId || "").trim(),
       selectedCampusGroupId: String(state.selectedCampusGroupId || "").trim(),
       selectedCampusGroupModuleId: String(selectedCampusGroupModuleId || "").trim(),
       campusSectionMode: String(campusSectionMode || "").trim()
     };
-    sessionStorage.setItem(UI_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    sessionStorage.setItem(`${UI_SNAPSHOT_KEY}:${session?.accountId || "guest"}`, JSON.stringify(snapshot));
   } catch (error) {
   }
 }
 
 function restoreUiSnapshot() {
   try {
-    const raw = sessionStorage.getItem(UI_SNAPSHOT_KEY);
+    const raw = sessionStorage.getItem(`${UI_SNAPSHOT_KEY}:${session?.accountId || "guest"}`);
     if (!raw) {
       return;
     }
@@ -411,6 +412,9 @@ function restoreUiSnapshot() {
     const selectedAssociateId = String(snapshot?.selectedAssociateId || "").trim();
     if (selectedAssociateId && findAssociate(selectedAssociateId)) {
       state.selectedAssociateId = selectedAssociateId;
+    }
+    if ((state.courses || []).some(course => course.id === snapshot.selectedCourseId)) {
+      state.selectedCourseId = snapshot.selectedCourseId;
     }
 
     const selectedGroupId = String(snapshot?.selectedCampusGroupId || "").trim();
@@ -568,7 +572,9 @@ roleSwitcher.addEventListener("change", (event) => {
 
 memberSwitcher.addEventListener("change", async (event) => {
   state.selectedMemberId = event.target.value;
-  await persistAndRender("Persona activa actualizada");
+  state.selectedAssociateId = state.associates.find(item => item.linkedMemberId === state.selectedMemberId)?.id || null;
+  saveUiSnapshot();
+  render();
 });
 
 resetButton?.addEventListener("click", async () => {
@@ -649,7 +655,7 @@ loginForm.addEventListener("submit", async (event) => {
     persistSession();
     viewRole = session.role === "admin" ? "admin" : "member-self";
     persistViewRole();
-    await refreshState();
+    await refreshState({ resetUi: true });
     if (session.role === "admin") {
       await ensureAdminStateLoaded();
     }
@@ -4963,6 +4969,7 @@ function persistViewRole() {
 }
 
 function clearSession() {
+  try { sessionStorage.removeItem(`${UI_SNAPSHOT_KEY}:${session?.accountId || "guest"}`); } catch {}
   academicRoster = null;
   journeyReport = null;
   journeyReportRequest = null;
@@ -5195,7 +5202,7 @@ function normalizeState(data) {
     selectedCampusGroupModuleId = normalizedSelectedGroup.modules[0].id;
   }
 
-  if (!nextState.selectedMemberId && nextState.members[0]) {
+  if (nextState.role !== "admin" && !nextState.selectedMemberId && nextState.members[0]) {
     nextState.selectedMemberId = nextState.members[0].id;
   }
 
@@ -5252,7 +5259,7 @@ function normalizeState(data) {
   if (!nextState.selectedAssociateProfileRequestId && nextState.associateProfileRequests[0]) {
     nextState.selectedAssociateProfileRequestId = nextState.associateProfileRequests[0].id;
   }
-  if (!nextState.selectedAssociateId && nextState.associates[0]) {
+  if (nextState.role !== "admin" && !nextState.selectedAssociateId && nextState.associates[0]) {
     nextState.selectedAssociateId = nextState.associates[0].id;
   }
   return nextState;
@@ -5313,7 +5320,11 @@ async function persistAndRender(successMessage) {
       }
 
       if (payload.state) {
+        const activeView = state.activeView;
+        const selectedCourseId = state.selectedCourseId;
         state = normalizeState(payload.state);
+        state.activeView = activeView;
+        if (state.courses.some(course => course.id === selectedCourseId)) state.selectedCourseId = selectedCourseId;
         applySessionToState();
       }
 
@@ -5433,8 +5444,8 @@ async function refreshState(options = {}) {
   if (!stateResponse.ok || (payload && payload.ok === false)) {
     throw new Error(payload?.error || "No se pudo cargar el estado del campus");
   }
-  const activeView = hasLoaded ? state.activeView : null;
-  const selectedAssociateId = hasLoaded ? state.selectedAssociateId : null;
+  const activeView = hasLoaded && !options.resetUi ? state.activeView : null;
+  const selectedAssociateId = hasLoaded && !options.resetUi ? state.selectedAssociateId : null;
   state = normalizeState(payload);
   if (activeView) {
     state.activeView = activeView;
@@ -5921,6 +5932,7 @@ function render() {
   }
   renderSidePanel();
   applyChromeProfile();
+  if (session && hasLoaded) saveUiSnapshot();
   if (pendingInputFocusRestore?.id) {
     const focusState = pendingInputFocusRestore;
     pendingInputFocusRestore = null;
@@ -14797,7 +14809,9 @@ function renderSelectedCourse(course) {
   const enrollmentSubmission = getCourseEnrollmentSubmission(course, state.selectedMemberId);
   const enrollmentRequiresPayment = Number(course.enrollmentFee || 0) > 0 || Number(enrollmentSubmission?.amount || 0) > 0;
   const enrollmentNeedsProof = enrollmentSubmission?.status === "pending-proof" ||
-    (enrollmentRequiresPayment && !enrollmentSubmission?.paymentProof);
+    (enrollmentRequiresPayment && !enrollmentSubmission?.paymentProof) ||
+    (state.memberNotifications || []).some(notice => !notice.resolvedAt && notice.id ===
+      `course-proof-request__${encodeURIComponent(course.id)}__${encodeURIComponent(enrollmentSubmission?.id || "")}`);
   const enrollmentHeadline = journey.enrolled
     ? journey.hasDiploma
       ? "Curso completado"

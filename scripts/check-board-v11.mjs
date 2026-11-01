@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
 const {
@@ -134,5 +135,37 @@ assert.match(boardSource, /Unirme al canal de WhatsApp/);
 assert.match(feeYearSource, /Tu alta está activa desde ahora/);
 assert.match(feeYearSource, /incluidos por Isócrona Zero sin coste adicional/);
 assert.match(feeYearSource, /puedes participar con normalidad en las actividades para socios/);
+
+// A pending proof notice must not feed the MutationObserver with its own HTML forever.
+{
+  const nodes = new Map();
+  let mutations = 0;
+  let writes = 0;
+  let handlers = 0;
+  const sandbox = vm.createContext({ document: {
+    querySelectorAll: () => [],
+    getElementById: id => id === "mainPanel" ? { prepend(node) { nodes.set(node.id, node); mutations++; } } : nodes.get(id),
+    createElement: () => ({
+      set innerHTML(value) { writes++; mutations++; },
+      querySelector: () => ({ addEventListener() { handlers++; } }),
+      remove() { nodes.delete(this.id); mutations++; }
+    })
+  }});
+  vm.runInContext(boardSource.replace(/^export /gm, "") + `
+    latestState = { role: "member", selectedCourseId: "course-qa", memberNotifications: [{
+      id: "course-proof-request__course-qa__submission-qa", title: "Justificante pendiente", body: "QA O'Neil <PDF>"
+    }] };
+    enhanceMemberProofNotices();
+  `, sandbox);
+  for (let i = 0; mutations && i < 10; i++) {
+    mutations = 0;
+    vm.runInContext("enhanceMemberProofNotices()", sandbox);
+  }
+  assert.equal(mutations, 0, "El aviso debe estabilizar el observer");
+  assert.equal(writes, 1);
+  assert.equal(handlers, 1, "No duplicar listeners en cada mutacion");
+  vm.runInContext("latestState.memberNotifications = []; enhanceMemberProofNotices();", sandbox);
+  assert.equal(nodes.size, 0, "El aviso resuelto deja de reclamar un justificante");
+}
 
 console.log("V1.1 junta: identidad admin, justificantes, cuotas, ingresos, bonificación octubre-diciembre y WhatsApp OK.");

@@ -153,7 +153,8 @@ function enhanceMembershipFeeYearUi() {
 async function rememberStateResponse(response, target) {
   if (!response?.ok || target.pathname !== "/api/state") return response;
   try {
-    rememberState(await response.clone().json());
+    const payload = await response.clone().json();
+    rememberState(payload.state || payload);
     queueMicrotask(enhanceMembershipFeeYearUi);
   } catch {
     // Preserve original response.

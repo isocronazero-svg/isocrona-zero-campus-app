@@ -4031,6 +4031,7 @@ function buildMemberNotificationAdminPayload(notification) {
 function listVisibleMemberNotifications(state, memberId) {
   ensureMemberNotificationsState(state);
   return (state.memberNotifications || [])
+    .filter((notification) => !notification.resolvedAt)
     .filter((notification) => canMemberAccessNotificationRecord(notification, memberId))
     .sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
 }
@@ -6444,6 +6445,9 @@ const server = http.createServer(async (req, res) => {
           : mergeMemberScopedStateIntoFullState(currentState, payload, account);
       // Reports are written only through the scoped moderation API.
       const latestQuestionState = readState();
+      // Working selections belong to the browser, never to the shared data model.
+      for (const key of ["selectedMemberId", "selectedAssociateId", "selectedCourseId"]) state[key] = null;
+      state.activeView = "overview";
       preserveAssociateOnboardingState(latestQuestionState, state);
       // Application identity/proof is owned by submission/completion, not old whole-state forms.
       const currentApplications = new Map((latestQuestionState.associateApplications || []).map(item => [item.id, item]));

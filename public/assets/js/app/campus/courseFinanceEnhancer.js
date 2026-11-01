@@ -267,7 +267,7 @@ async function rememberStateResponse(response, target) {
   if (!response?.ok || target.pathname !== "/api/state") return response;
   try {
     const payload = await response.clone().json();
-    rememberState(payload);
+    rememberState(payload.state || payload);
     queueMicrotask(enhanceUi);
   } catch {
     // Keep the original response untouched.
