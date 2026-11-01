@@ -375,6 +375,12 @@ function createStateTransport(dependencies = {}) {
       liveTestParticipantResults: [],
       settings: {
         ...state.settings,
+        associates: {
+          ...(state.settings?.associates || {}),
+          whatsappChannelInviteUrl: scopedAssociate && !quotaLimitedAccess
+            ? state.settings?.associates?.whatsappChannelInviteUrl || ""
+            : ""
+        },
         banners: [],
         smtp: stripSmtpSecrets({
           host: "",
