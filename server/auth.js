@@ -403,7 +403,7 @@ function ensureLegacyAccountForDbUser(state, dbUser, options = {}) {
     account.role = mapPlatformRoleToLegacyAccountRole(dbUser.role);
     account.memberId = member.id;
     account.associateId = matchedAssociate?.id || account.associateId || "";
-    account.source = account.source || "postgres";
+    account.source = "postgres";
   }
 
   if (typeof options.password === "string" && options.password.trim()) {
