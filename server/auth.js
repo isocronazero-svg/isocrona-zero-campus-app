@@ -143,6 +143,7 @@ function createSessionToken(account, rememberMe = false) {
   } else {
     activeSessions.set(token, {
       accountId: account.id,
+      credentialHash: accountCredentialHash(account),
       createdAt: new Date().toISOString()
     });
   }
@@ -189,9 +190,11 @@ function getAuthenticatedAccount(req, state) {
   }
 
   const account = (state.accounts || []).find((item) => item.id === session.accountId);
-  if (!canAuthenticateAccount(account) || (remembered && (
-    session.expiresAt <= Date.now() || session.credentialHash !== accountCredentialHash(account)
-  ))) {
+  if (
+    !canAuthenticateAccount(account) ||
+    (remembered && session.expiresAt <= Date.now()) ||
+    session.credentialHash !== accountCredentialHash(account)
+  ) {
     clearRequestSession(req);
     return null;
   }
