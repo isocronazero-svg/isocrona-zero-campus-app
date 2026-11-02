@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/v1.1
+      - feature/v1.2
   push:
     branches:
       - main
