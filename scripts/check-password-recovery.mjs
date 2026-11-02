@@ -231,10 +231,14 @@ try {
   assert.equal(newLogin.response.status, 200, "La nueva contraseña debe permitir acceso");
 
   const staleNormal = await request("/api/session", { cookie: normalLogin.cookie, ip: "203.0.113.11" });
-  assert.equal(staleNormal.response.status, 401, "Las sesiones normales anteriores deben invalidarse");
+  assert.equal(staleNormal.response.status, 200, "El endpoint de sesión conserva su contrato HTTP 200");
+  assert.equal(staleNormal.payload.ok, false, "La sesión normal anterior debe quedar rechazada");
+  assert.equal(staleNormal.payload.session, null, "La sesión normal anterior no debe resolver una cuenta");
 
   const staleRemembered = await request("/api/session", { cookie: rememberedLogin.cookie, ip: "203.0.113.12" });
-  assert.equal(staleRemembered.response.status, 401, "Las sesiones Recordarme anteriores deben invalidarse");
+  assert.equal(staleRemembered.response.status, 200, "El endpoint de sesión conserva su contrato HTTP 200");
+  assert.equal(staleRemembered.payload.ok, false, "La sesión Recordarme anterior debe quedar rechazada");
+  assert.equal(staleRemembered.payload.session, null, "La sesión Recordarme anterior no debe resolver una cuenta");
 
   const thirdRequest = await request("/api/password-recovery/request", {
     method: "POST",
