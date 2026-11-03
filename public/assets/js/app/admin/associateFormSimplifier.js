@@ -6,6 +6,13 @@ const ADVANCED_FIELD_IDS = [
   "editAssociateTreasuryEnabled"
 ];
 
+const HISTORICAL_FEE_FIELD_IDS = [
+  "editAssociateFee2024",
+  "editAssociateFee2025",
+  "editAssociateFee2026",
+  "editAssociateFee2027"
+];
+
 function ensureStyles() {
   if (document.getElementById("associateFormSimplifierStyles")) return;
   const style = document.createElement("style");
@@ -14,12 +21,14 @@ function ensureStyles() {
     #associateEditForm .associate-form-intro{grid-column:1/-1;margin:0 0 4px}
     #associateEditForm .associate-form-intro h4{margin:0 0 4px}
     #associateEditForm .associate-form-intro p{margin:0}
-    #associateEditForm .associate-form-advanced{grid-column:1/-1;border:1px solid rgba(127,127,127,.25);border-radius:14px;padding:0;margin-top:6px}
-    #associateEditForm .associate-form-advanced>summary{cursor:pointer;font-weight:700;padding:12px 14px;list-style-position:inside}
-    #associateEditForm .associate-form-advanced-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:0 14px 14px}
-    #associateEditForm .associate-form-advanced-hint{grid-column:1/-1;margin:0}
+    #associateEditForm .associate-form-advanced,#associateEditForm .associate-fee-history{grid-column:1/-1;border:1px solid rgba(127,127,127,.25);border-radius:14px;padding:0;margin-top:6px}
+    #associateEditForm .associate-form-advanced>summary,#associateEditForm .associate-fee-history>summary{cursor:pointer;font-weight:700;padding:12px 14px;list-style-position:inside}
+    #associateEditForm .associate-form-advanced-body,#associateEditForm .associate-fee-history-body{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:0 14px 14px}
+    #associateEditForm .associate-form-advanced-hint,#associateEditForm .associate-fee-history-hint{grid-column:1/-1;margin:0}
     #associateEditForm .associate-form-primary-badge{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;font-weight:700;margin-left:6px}
-    @media(max-width:600px){#associateEditForm .associate-form-advanced-body{grid-template-columns:1fr;padding:0 12px 12px}}
+    #associateEditForm .associate-fee-current{grid-column:1/-1;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;border:1px solid rgba(127,127,127,.22);border-radius:12px}
+    #associateEditForm .associate-fee-current p{margin:2px 0 0}
+    @media(max-width:600px){#associateEditForm .associate-form-advanced-body,#associateEditForm .associate-fee-history-body{grid-template-columns:1fr;padding:0 12px 12px}}
   `;
   document.head.append(style);
 }
@@ -57,6 +66,23 @@ function ensureAdvanced(form) {
   return details;
 }
 
+function ensureFeeHistory(form) {
+  let details = form.querySelector(":scope > .associate-fee-history");
+  if (details) return details;
+  details = document.createElement("details");
+  details.className = "associate-fee-history";
+  details.innerHTML = `
+    <summary>Ajustes históricos de cuota</summary>
+    <div class="associate-fee-history-body">
+      <p class="muted associate-fee-history-hint">Importes manuales por año. Úsalos solo para regularizaciones o datos heredados; el pago ordinario se registra en el bloque de pagos.</p>
+    </div>
+  `;
+  const advanced = form.querySelector(":scope > .associate-form-advanced");
+  if (advanced) advanced.before(details);
+  else form.append(details);
+  return details;
+}
+
 function keepInstructorVisible(form) {
   const input = form.querySelector("#editAssociateInstructorEnabled");
   const container = fieldContainer(input);
@@ -82,14 +108,27 @@ function moveAdvancedFields(form, details) {
   }
 }
 
+function moveHistoricalFeeFields(form, details) {
+  const body = details.querySelector(".associate-fee-history-body");
+  if (!body) return;
+  for (const id of HISTORICAL_FEE_FIELD_IDS) {
+    const input = form.querySelector(`#${id}`);
+    const container = fieldContainer(input);
+    if (!container || details.contains(container)) continue;
+    body.append(container);
+  }
+}
+
 function simplifyAssociateForm() {
   const form = document.getElementById("associateEditForm");
   if (!form) return;
   ensureStyles();
   ensureIntro(form);
-  const details = ensureAdvanced(form);
+  const advanced = ensureAdvanced(form);
+  const feeHistory = ensureFeeHistory(form);
   keepInstructorVisible(form);
-  moveAdvancedFields(form, details);
+  moveHistoricalFeeFields(form, feeHistory);
+  moveAdvancedFields(form, advanced);
   form.dataset.progressiveSimplification = "v1.2";
 }
 
