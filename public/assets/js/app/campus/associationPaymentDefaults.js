@@ -42,7 +42,10 @@ function enhancePaymentAccountField(field) {
 }
 
 function applyDefaultPaymentAccount() {
-  PAYMENT_ACCOUNT_IDS.forEach((id) => enhancePaymentAccountField(document.getElementById(id)));
+  PAYMENT_ACCOUNT_IDS.forEach((id) => {
+    const field = document.getElementById(id);
+    if (field?.closest("#courseForm")) enhancePaymentAccountField(field);
+  });
   // Only creation fields: editing existing courses must never fill an intentionally empty account.
   document.querySelectorAll('form[data-course-create] input[name="paymentAccount"], form[data-course-create] input[name="iban"]').forEach(enhancePaymentAccountField);
 }
