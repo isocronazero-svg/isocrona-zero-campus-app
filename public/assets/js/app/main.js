@@ -14,6 +14,7 @@ import { installAdminContextEnhancer } from "./admin/adminContextEnhancer.js";
 import { installAuditEnhancer } from "./admin/auditEnhancer.js";
 import { installBoardEnhancer } from "./admin/boardEnhancer.js";
 import { installMembershipFeeYearEnhancer } from "./admin/membershipFeeYearEnhancer.js";
+import { installAssociateFormSimplifier } from "./admin/associateFormSimplifier.js";
 import { installCourseFinanceEnhancer } from "./campus/courseFinanceEnhancer.js";
 import { installCoursePricingEnhancer } from "./campus/coursePricingEnhancer.js";
 import { installCourseReservationEnhancer } from "./campus/courseReservations.js";
@@ -69,7 +70,7 @@ export function initializeApp() {
   }
 
   ensureTestFocusStyles();
-  // Install scoped V1.1 enhancers before legacy app.js wraps fetch.
+  // Install scoped V1.1/V1.2 enhancers before legacy app.js wraps fetch.
   installAdminContextEnhancer();
   installCoursePricingEnhancer();
   installCourseFinanceEnhancer();
@@ -78,6 +79,7 @@ export function initializeApp() {
   installCourseReservationEnhancer();
   installBoardEnhancer();
   installMembershipFeeYearEnhancer();
+  installAssociateFormSimplifier();
   installCourseFormSimplifier();
 
   if (window.__IZ_FRONTEND_APP__) {
