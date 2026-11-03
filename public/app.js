@@ -4356,7 +4356,8 @@ document.addEventListener("submit", async (event) => {
       enrollmentOpensAt,
       enrollmentClosesAt,
       contentTemplate,
-      diplomaTemplate: "Aprovechamiento"
+      diplomaTemplate: "Aprovechamiento",
+      enrollmentPaymentInstructions: document.getElementById("courseEnrollmentInstructions")?.value.trim() || ""
     });
     if (intensive) draftCourse.modality = "Presencial";
     const blueprint = !intensive && document.getElementById("courseGenerateContent")?.checked
@@ -10736,6 +10737,11 @@ function renderCourses() {
                   <label class="inline-field">
                     Plazas
                     <input id="courseCapacity" type="number" min="1" step="1" placeholder="Plazas" />
+                  </label>
+                  <label class="inline-field studio-full">
+                    Indicaciones de pago / transferencia
+                    <textarea id="courseEnrollmentInstructions" rows="2">ES23 0073 0100 5905 0627 3646</textarea>
+                    <span class="field-hint">Cuenta oficial de Isócrona Zero. Puedes modificarla para esta formación.</span>
                   </label>
                   <label class="inline-field" data-course-mode="course">
                     Coordinación informativa (no certificable)
