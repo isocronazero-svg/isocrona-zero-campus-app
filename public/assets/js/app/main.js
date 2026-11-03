@@ -16,7 +16,6 @@ import { installBoardEnhancer } from "./admin/boardEnhancer.js";
 import { installMembershipFeeYearEnhancer } from "./admin/membershipFeeYearEnhancer.js";
 import { installAssociateFormSimplifier } from "./admin/associateFormSimplifier.js";
 import { installCourseFinanceEnhancer } from "./campus/courseFinanceEnhancer.js";
-import { installAssociationPaymentDefaults } from "./campus/associationPaymentDefaults.js";
 import { installCoursePricingEnhancer } from "./campus/coursePricingEnhancer.js";
 import { installCourseReservationEnhancer } from "./campus/courseReservations.js";
 import { installDiplomaPreviewEnhancer } from "./campus/diplomaPreviewEnhancer.js";
@@ -75,7 +74,6 @@ export function initializeApp() {
   installAdminContextEnhancer();
   installCoursePricingEnhancer();
   installCourseFinanceEnhancer();
-  installAssociationPaymentDefaults();
   installAuditEnhancer();
   installDiplomaPreviewEnhancer();
   installCourseReservationEnhancer();
