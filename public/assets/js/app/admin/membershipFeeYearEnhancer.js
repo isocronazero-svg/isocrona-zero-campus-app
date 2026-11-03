@@ -68,8 +68,8 @@ function benefitHtml(associate) {
 function renderBox(box, associate) {
   const year = Number(associate?.membershipFeeYear || 0);
   const html = year
-    ? `<div><span class="muted">Imputación de cuota</span><br><strong>Cuota correspondiente a ${escapeHtml(year)}</strong>${benefitHtml(associate)}</div><button type="button" class="mini-button" data-correct-fee-year>Corregir año</button>`
-    : `<div><span class="muted">Imputación de cuota</span><br><strong>Año de cuota pendiente de asignar</strong></div>`;
+    ? `<div><span class="muted">Cuota activa</span><br><strong>${escapeHtml(year)}</strong><span class="membership-fee-year-summary"> · ${escapeHtml(associate.status || "Sin estado")}</span>${benefitHtml(associate)}</div><button type="button" class="mini-button" data-correct-fee-year>Corregir año</button>`
+    : `<div><span class="muted">Cuota activa</span><br><strong>Año pendiente de asignar</strong></div>`;
   if (rendered.get(box) === `${associate.id}:${html}`) return;
   rendered.set(box, `${associate.id}:${html}`);
   box.innerHTML = html;
@@ -96,6 +96,7 @@ function ensureStyles() {
   style.id = "membershipFeeYearStyles";
   style.textContent = `
     .membership-fee-year-box{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:12px 14px;margin:10px 0;border:1px solid rgba(127,127,127,.28);border-radius:12px;background:rgba(59,130,246,.07)}
+    .membership-fee-year-summary{font-size:.92rem}
     .membership-fee-year-benefit{display:grid;gap:3px;margin-top:8px;padding:9px 10px;border-radius:10px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.28);font-size:.92rem}
     .membership-fee-benefit-card{margin:12px 0;padding:14px 16px;border-radius:14px;border:1px solid rgba(34,197,94,.34);background:rgba(34,197,94,.1)}
     .membership-fee-benefit-card p{margin:6px 0 0}
