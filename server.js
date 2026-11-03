@@ -13629,7 +13629,7 @@ function normalizeCourseMutationPayload(payload, existingCourse = null) {
     enrollmentFee: Object.prototype.hasOwnProperty.call(source, "enrollmentFee")
       ? Math.max(0, Number(source.enrollmentFee) || 0)
       : Math.max(0, Number(fallback.enrollmentFee) || 0),
-    enrollmentPaymentInstructions: readString("enrollmentPaymentInstructions"),
+    enrollmentPaymentInstructions: readString("enrollmentPaymentInstructions", existingCourse ? "" : "ES23 0073 0100 5905 0627 3646"),
     feedbackEnabled: Object.prototype.hasOwnProperty.call(source, "feedbackEnabled")
       ? source.feedbackEnabled !== false
       : fallback.feedbackEnabled !== false,
