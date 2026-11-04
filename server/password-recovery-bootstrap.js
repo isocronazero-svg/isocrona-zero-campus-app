@@ -242,8 +242,14 @@ async function requestPasswordReset(req, res) {
   try {
     await deliverResetEmail(state, email, token, tokenHash);
     if (legacyAccount) {
-      auditPasswordEvent(state, legacyAccount, "password-reset-requested");
-      storage.writeState(state);
+      // Mail delivery is asynchronous: never persist the pre-delivery snapshot.
+      // Another request may have updated courses, payments or accounts meanwhile.
+      const latestState = storage.readState();
+      const currentAccount = (latestState.accounts || []).find((item) => item.id === legacyAccount.id);
+      if (currentAccount) {
+        auditPasswordEvent(latestState, currentAccount, "password-reset-requested");
+        storage.writeState(latestState);
+      }
     }
   } catch (error) {
     resetDb.prepare("UPDATE password_reset_tokens SET used_at = ? WHERE token_hash = ?").run(Date.now(), tokenHash);
