@@ -1142,7 +1142,7 @@ document.addEventListener("click", async (event) => {
   if (action === "open-journey-history") {
     if (!['admin','instructor'].includes(session?.role)) return;
     const scopeId = actionTarget.dataset.courseId || '';
-    if (isAdminView()) { state.activeView = 'reports'; reportsSectionMode = 'journeys'; }
+    if (isAdminView() && !scopeId) { state.activeView = 'reports'; reportsSectionMode = 'journeys'; }
     await loadJourneyReport(scopeId);
     render();
     return;
@@ -14521,6 +14521,7 @@ function renderCourseWorkbench(course) {
           showWorkbenchSection("students")
             ? `
         ${course.journeyTypeId ? `<button type="button" class="ghost-button" data-action="open-journey-history" data-course-id="${escapeHtml(course.id)}">Historial y asistentes de esta jornada</button>` : ""}
+        ${course.journeyTypeId && isAdminView() ? renderJourneyHistoryForCourse(course) : ""}
         <div class="content-module">
           <div class="module-head">
             <div>
