@@ -14101,9 +14101,14 @@ function renderCourseWorkbench(course) {
             <span class="small-chip">${getCourseTemplateLabel(course.contentTemplate || inferCourseTemplate(course))}</span>
             <span class="small-chip">${escapeHtml(getCourseClassLabel(course.courseClass))}</span>
             <span class="small-chip">${escapeHtml(course.status)}</span>
-            <button class="ghost-button danger-button" type="button" data-action="delete-course" data-course-id="${course.id}">Eliminar curso</button>
+            
           </div>
         </div>
+        <details class="course-review-details">
+          <summary>Acciones avanzadas del curso</summary>
+          <p class="muted">La eliminación es una acción excepcional. Comprueba que has seleccionado el curso correcto.</p>
+          <button class="ghost-button danger-button" type="button" data-action="delete-course" data-course-id="${course.id}">Eliminar curso</button>
+        </details>
         <details class="course-review-details">
           <summary>Preparación y cierre <span>${completedChecks}/${workbenchChecks.length} comprobaciones · ${readyClosureCount} listo(s) para certificar</span></summary>
           <div class="panel-stack">
