@@ -157,7 +157,15 @@ function metricButton(value, label, filter) {
 function renderFinance(snapshot) {
   const dialog = ensureFinanceDialog();
   const rows = filterRows(snapshot);
-  const summary = snapshot.summary || {};
+  const scopedRows = (snapshot.courses || [])
+    .filter((course) => selectedFinanceCourseId === "all" || course.id === selectedFinanceCourseId)
+    .flatMap((course) => course.rows || []);
+  const summary = {
+    pending: scopedRows.filter((row) => row.paymentStatus === "pending" && Number(row.amount || 0) > 0).length,
+    incidents: scopedRows.filter((row) => row.paymentStatus === "incident").length,
+    validated: scopedRows.filter((row) => row.paymentStatus === "validated").length,
+    noPaymentRequired: scopedRows.filter((row) => row.paymentStatus === "not-required").length
+  };
   dialog.querySelector(".course-finance-shell").innerHTML = `
     <div class="course-finance-head">
       <div><p class="eyebrow">Tesorería · formaciones</p><h3>Pagos que requieren atención</h3><p class="muted">Empieza por pendientes e incidencias. El justificante adjunto no significa que el pago esté validado.</p></div>
