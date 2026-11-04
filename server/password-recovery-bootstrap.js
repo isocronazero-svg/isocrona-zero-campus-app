@@ -301,6 +301,15 @@ async function completePasswordReset(req, res) {
   }
 
   const resetAt = Date.now();
+  // Claim the one-time token synchronously before any asynchronous password update.
+  // SQLite serializes this conditional UPDATE, so only one concurrent request can proceed.
+  const claim = resetDb.prepare(
+    "UPDATE password_reset_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?"
+  ).run(resetAt, record.tokenHash, resetAt);
+  if (claim.changes !== 1) {
+    sendJson(res, 400, { ok: false, error: "El enlace ha caducado o ya ha sido utilizado." });
+    return true;
+  }
   const state = storage.readState();
   const legacyAccount = record.legacyAccountId
     ? (state.accounts || []).find((item) => item.id === record.legacyAccountId) || null
@@ -324,7 +333,6 @@ async function completePasswordReset(req, res) {
       legacyInvalidAfter.set(legacyAccount.id, resetAt);
     }
 
-    resetDb.prepare("UPDATE password_reset_tokens SET used_at = ? WHERE token_hash = ?").run(resetAt, record.tokenHash);
     invalidateEarlierResetTokens(record.emailHash, resetAt);
   } catch (error) {
     console.error("No se pudo completar una recuperación de contraseña:", String(error?.message || error));
