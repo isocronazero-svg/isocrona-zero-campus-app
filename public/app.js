@@ -10667,11 +10667,14 @@ function renderCourses() {
                     <span class="small-chip">Plantillas docentes</span>
                   </div>
                 </div>
-                <div class="chip-row compact-chip-row" data-course-mode="course">
-                  <button class="mini-button" type="button" data-action="apply-course-starter" data-preset="ventilation">Cargar ejemplo: Ventilacion</button>
-                  <button class="mini-button" type="button" data-action="apply-course-starter" data-preset="vertical">Cargar ejemplo: Rescate vertical</button>
-                </div>
-                <div data-course-mode="course">${renderCourseTemplateShowcase("operativo")}</div>
+                <details class="course-review-details" data-course-mode="course">
+                  <summary>Ejemplos y plantillas de ayuda (opcional)</summary>
+                  <div class="chip-row compact-chip-row">
+                    <button class="mini-button" type="button" data-action="apply-course-starter" data-preset="ventilation">Cargar ejemplo: Ventilacion</button>
+                    <button class="mini-button" type="button" data-action="apply-course-starter" data-preset="vertical">Cargar ejemplo: Rescate vertical</button>
+                  </div>
+                  <div>${renderCourseTemplateShowcase("operativo")}</div>
+                </details>
                 <div class="studio-grid">
                   <label class="inline-field studio-full">
                     Tipo de alta
