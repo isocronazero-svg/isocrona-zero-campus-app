@@ -10707,6 +10707,9 @@ function renderCourses() {
                         .join("")}
                     </select>
                   </label>
+                  <details class="studio-full" data-course-mode="course">
+                    <summary>Opciones avanzadas de contenido (opcional)</summary>
+                    <div class="studio-grid">
                   <label class="inline-field" data-course-mode="course">
                     Plantilla de contenido
                     <select id="courseTemplate">
@@ -10722,6 +10725,8 @@ function renderCourses() {
                     Area o especialidad
                     <input id="courseType" placeholder="Area o especialidad del curso" />
                   </label>
+                    </div>
+                  </details>
                   <label class="inline-field" data-course-mode="course">
                     Fecha inicio
                     <input id="courseStart" type="date" />
