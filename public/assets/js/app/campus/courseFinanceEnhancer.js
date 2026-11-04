@@ -147,6 +147,7 @@ function filterRows(snapshot) {
   if (financeFilter === "pending") rows = rows.filter((row) => row.paymentStatus === "pending" && Number(row.amount || 0) > 0);
   if (financeFilter === "incident") rows = rows.filter((row) => row.paymentStatus === "incident");
   if (financeFilter === "validated") rows = rows.filter((row) => row.paymentStatus === "validated");
+  if (financeFilter === "not-required") rows = rows.filter((row) => row.paymentStatus === "not-required");
   return rows;
 }
 
@@ -175,7 +176,7 @@ function renderFinance(snapshot) {
       ${metricButton(summary.pending, "Pendientes", "pending")}
       ${metricButton(summary.incidents, "Incidencias", "incident")}
       ${metricButton(summary.validated, "Validados", "validated")}
-      ${metricButton(summary.noPaymentRequired, "Sin pago", "all")}
+      ${metricButton(summary.noPaymentRequired, "Sin pago", "not-required")}
     </div>
     <div class="course-finance-toolbar">
       <label class="inline-field">Formación<select data-finance-course><option value="all">Todas las formaciones</option>${(snapshot.courses || []).map((course) => `<option value="${escapeHtml(course.id)}" ${course.id === selectedFinanceCourseId ? "selected" : ""}>${escapeHtml(course.title)} · ${course.pendingCount || 0} pendiente(s)</option>`).join("")}</select></label>
