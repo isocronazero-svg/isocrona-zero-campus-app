@@ -147,6 +147,7 @@ function filterRows(snapshot) {
   if (financeFilter === "pending") rows = rows.filter((row) => row.paymentStatus === "pending" && Number(row.amount || 0) > 0);
   if (financeFilter === "incident") rows = rows.filter((row) => row.paymentStatus === "incident");
   if (financeFilter === "validated") rows = rows.filter((row) => row.paymentStatus === "validated");
+  if (financeFilter === "not-required") rows = rows.filter((row) => row.paymentStatus === "not-required");
   return rows;
 }
 
@@ -157,7 +158,15 @@ function metricButton(value, label, filter) {
 function renderFinance(snapshot) {
   const dialog = ensureFinanceDialog();
   const rows = filterRows(snapshot);
-  const summary = snapshot.summary || {};
+  const scopedRows = (snapshot.courses || [])
+    .filter((course) => selectedFinanceCourseId === "all" || course.id === selectedFinanceCourseId)
+    .flatMap((course) => course.rows || []);
+  const summary = {
+    pending: scopedRows.filter((row) => row.paymentStatus === "pending" && Number(row.amount || 0) > 0).length,
+    incidents: scopedRows.filter((row) => row.paymentStatus === "incident").length,
+    validated: scopedRows.filter((row) => row.paymentStatus === "validated").length,
+    noPaymentRequired: scopedRows.filter((row) => row.paymentStatus === "not-required").length
+  };
   dialog.querySelector(".course-finance-shell").innerHTML = `
     <div class="course-finance-head">
       <div><p class="eyebrow">Tesorería · formaciones</p><h3>Pagos que requieren atención</h3><p class="muted">Empieza por pendientes e incidencias. El justificante adjunto no significa que el pago esté validado.</p></div>
@@ -167,7 +176,7 @@ function renderFinance(snapshot) {
       ${metricButton(summary.pending, "Pendientes", "pending")}
       ${metricButton(summary.incidents, "Incidencias", "incident")}
       ${metricButton(summary.validated, "Validados", "validated")}
-      ${metricButton(summary.noPaymentRequired, "Sin pago", "all")}
+      ${metricButton(summary.noPaymentRequired, "Sin pago", "not-required")}
     </div>
     <div class="course-finance-toolbar">
       <label class="inline-field">Formación<select data-finance-course><option value="all">Todas las formaciones</option>${(snapshot.courses || []).map((course) => `<option value="${escapeHtml(course.id)}" ${course.id === selectedFinanceCourseId ? "selected" : ""}>${escapeHtml(course.title)} · ${course.pendingCount || 0} pendiente(s)</option>`).join("")}</select></label>
