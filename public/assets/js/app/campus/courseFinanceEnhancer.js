@@ -224,6 +224,7 @@ function renderFinance(snapshot) {
   }));
   dialog.querySelectorAll("[data-finance-status]").forEach((button) => button.addEventListener("click", async () => {
     const paymentStatus = button.dataset.financeStatus;
+    if (paymentStatus === "validated" && !window.confirm("¿Has comprobado que el importe se ha recibido? El justificante por sí solo no acredita el cobro.")) return;
     let note = "";
     if (paymentStatus === "incident") {
       note = clean(window.prompt("Describe brevemente la incidencia del pago:", ""));
