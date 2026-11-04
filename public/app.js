@@ -14050,6 +14050,7 @@ function renderCourseWorkbench(course) {
                   ${proofPending ? `<span class="small-chip">Falta justificante</span>` : ""}
                 </div>
                 <p class="muted"><strong>Siguiente accion:</strong> ${escapeHtml(nextActionLabel)}</p>
+                <p class="field-hint">La plaza y el pago se gestionan por separado. Validar un ingreso corresponde a Tesorería.</p>
                 ${submission.note ? `<p class="muted">${escapeHtml(submission.note)}</p>` : ""}
               </div>
               <div class="chip-row">
@@ -14059,7 +14060,7 @@ function renderCourseWorkbench(course) {
                     ? `${renderStoredProofLink(submission.paymentProof, "Abrir justificante")}`
                     : `<span class="small-chip">${proofPending ? "Sin justificante" : waiting ? "En espera" : "Pendiente"}</span>`
                 }
-                <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Confirmar plaza</button>
+                <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed" title="Confirma la plaza, no valida el cobro. Revisa el pago en Tesorería.">Confirmar plaza</button>
                 <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="pending-proof">Pedir justificante</button>
                 <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>
               </div>
