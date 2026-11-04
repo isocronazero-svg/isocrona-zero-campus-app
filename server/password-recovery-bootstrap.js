@@ -71,6 +71,7 @@ function openResetDatabase() {
   const dataDir = path.resolve(String(process.env.IZ_DATA_DIR || "").trim() || "/data");
   fs.mkdirSync(dataDir, { recursive: true });
   const db = new DatabaseSync(path.join(dataDir, "campus.db"));
+  db.exec("PRAGMA busy_timeout = 5000;");
   db.exec(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
       token_hash TEXT PRIMARY KEY,
@@ -310,16 +311,20 @@ async function completePasswordReset(req, res) {
     sendJson(res, 400, { ok: false, error: "El enlace ha caducado o ya ha sido utilizado." });
     return true;
   }
-  const state = storage.readState();
-  const legacyAccount = record.legacyAccountId
-    ? (state.accounts || []).find((item) => item.id === record.legacyAccountId) || null
-    : null;
-
   try {
-    if (record.dbUserId && dbApi.isDatabaseEnabled()) {
+    if (record.dbUserId) {
+      if (!dbApi.isDatabaseEnabled()) throw new Error("Base de datos no disponible");
       await dbApi.updateUser(record.dbUserId, { password: newPassword });
       dbInvalidAfter.set(record.dbUserId, resetAt);
     }
+
+    // PostgreSQL may have yielded to other course/payment/account writes.
+    // Read the current snapshot only after it completes, then save synchronously.
+    const state = storage.readState();
+    const legacyAccount = record.legacyAccountId
+      ? (state.accounts || []).find((item) => item.id === record.legacyAccountId) || null
+      : null;
+    if (!legacyAccount && !record.dbUserId) throw new Error("Cuenta no encontrada");
 
     if (legacyAccount) {
       auth.setLegacyAccountPassword(legacyAccount, newPassword);
@@ -336,7 +341,7 @@ async function completePasswordReset(req, res) {
     invalidateEarlierResetTokens(record.emailHash, resetAt);
   } catch (error) {
     console.error("No se pudo completar una recuperación de contraseña:", String(error?.message || error));
-    sendJson(res, 500, { ok: false, error: "No se pudo actualizar la contraseña. Prueba de nuevo." });
+    sendJson(res, 500, { ok: false, error: "No se pudo actualizar la contraseña. Solicita un nuevo enlace de recuperación." });
     return true;
   }
 
