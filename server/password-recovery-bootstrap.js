@@ -22,9 +22,6 @@ const publicDir = path.join(__dirname, "..", "public");
 const appJsPath = path.join(publicDir, "app.js");
 
 const requestBuckets = new Map();
-const trackedSessions = new Map();
-const legacyInvalidAfter = new Map();
-const dbInvalidAfter = new Map();
 let installed = false;
 
 function cleanEmail(value) {
@@ -219,8 +216,15 @@ async function requestPasswordReset(req, res) {
     try {
       dbUser = await dbApi.findUserByEmail(email);
     } catch {
-      dbUser = null;
+      // Do not create a local-only reset when PostgreSQL cannot be checked.
+      sendJson(res, 200, { ok: true, message: GENERIC_REQUEST_MESSAGE });
+      return true;
     }
+  }
+
+  if ((legacyAccount?.dbUserId || legacyAccount?.source === "postgres") && !dbUser) {
+    sendJson(res, 200, { ok: true, message: GENERIC_REQUEST_MESSAGE });
+    return true;
   }
 
   if (!email || (!legacyAccount && !dbUser)) {
@@ -315,7 +319,6 @@ async function completePasswordReset(req, res) {
     if (record.dbUserId) {
       if (!dbApi.isDatabaseEnabled()) throw new Error("Base de datos no disponible");
       await dbApi.updateUser(record.dbUserId, { password: newPassword });
-      dbInvalidAfter.set(record.dbUserId, resetAt);
     }
 
     // PostgreSQL may have yielded to other course/payment/account writes.
@@ -327,7 +330,7 @@ async function completePasswordReset(req, res) {
     if (!legacyAccount && !record.dbUserId) throw new Error("Cuenta no encontrada");
 
     if (legacyAccount) {
-      auth.setLegacyAccountPassword(legacyAccount, newPassword);
+      auth.setLegacyAccountPassword(legacyAccount, newPassword, { databaseVerified: Boolean(record.dbUserId) });
       legacyAccount.mustChangePassword = false;
       const associate = legacyAccount.associateId
         ? (state.associates || []).find((item) => item.id === legacyAccount.associateId)
@@ -335,7 +338,6 @@ async function completePasswordReset(req, res) {
       if (associate) associate.temporaryPassword = "";
       auditPasswordEvent(state, legacyAccount, "password-reset-completed");
       storage.writeState(state);
-      legacyInvalidAfter.set(legacyAccount.id, resetAt);
     }
 
     invalidateEarlierResetTokens(record.emailHash, resetAt);
@@ -378,91 +380,6 @@ async function handlePasswordRecoveryRequest(req, res) {
   return false;
 }
 
-function patchSessionInvalidation() {
-  const originalCreateSessionToken = auth.createSessionToken;
-  const originalGetAuthenticatedAccount = auth.getAuthenticatedAccount;
-  const originalGetAuthenticatedDbUser = auth.getAuthenticatedDbUser;
-
-  auth.createSessionToken = function createTrackedSession(account, rememberMe = false) {
-    const token = originalCreateSessionToken(account, rememberMe);
-    trackedSessions.set(token, { accountId: account.id, createdAt: Date.now() });
-    return token;
-  };
-
-  auth.getAuthenticatedAccount = function getResetAwareAccount(req, state) {
-    const account = originalGetAuthenticatedAccount(req, state);
-    if (!account) return null;
-    const invalidAfter = legacyInvalidAfter.get(account.id);
-    if (!invalidAfter) return account;
-    const token = auth.getSessionTokenFromRequest(req);
-    const tracked = trackedSessions.get(token);
-    if (tracked && tracked.accountId === account.id && tracked.createdAt <= invalidAfter) {
-      auth.clearRequestSession(req);
-      trackedSessions.delete(token);
-      return null;
-    }
-    return account;
-  };
-
-  auth.requireAuthenticatedAccount = function requireResetAwareAccount(req, res, state) {
-    const account = auth.getAuthenticatedAccount(req, state);
-    if (!account) {
-      sendJson(res, 401, { ok: false, error: "Inicia sesion para acceder al campus" });
-      return null;
-    }
-    return account;
-  };
-
-  auth.requireAdminAccount = function requireResetAwareAdmin(req, res, state) {
-    const account = auth.requireAuthenticatedAccount(req, res, state);
-    if (!account) return null;
-    if (account.role !== "admin") {
-      sendJson(res, 403, { ok: false, error: "Esta accion esta reservada a administracion" });
-      return null;
-    }
-    return account;
-  };
-
-  auth.requireLiveHostAccount = function requireResetAwareLiveHost(req, res, state) {
-    const account = auth.requireAuthenticatedAccount(req, res, state);
-    if (!account) return null;
-    if (!auth.canHostPublicLive(account)) {
-      sendJson(res, 403, { ok: false, error: "Solo administracion o instructores pueden dirigir tests en vivo" });
-      return null;
-    }
-    return account;
-  };
-
-  auth.getAuthenticatedDbUser = async function getResetAwareDbUser(req) {
-    const user = await originalGetAuthenticatedDbUser(req);
-    if (!user) return null;
-    const invalidAfter = dbInvalidAfter.get(user.id);
-    if (!invalidAfter) return user;
-    const payload = dbApi.verifyAuthToken(auth.getBearerTokenFromRequest(req));
-    const issuedAt = Number(payload?.iat || 0) * 1000;
-    return issuedAt && issuedAt > invalidAfter ? user : null;
-  };
-
-  auth.requireAuthenticatedDbUser = async function requireResetAwareDbUser(req, res) {
-    const user = await auth.getAuthenticatedDbUser(req);
-    if (!user) {
-      sendJson(res, 401, { ok: false, error: "Inicia sesion para continuar" });
-      return null;
-    }
-    return user;
-  };
-
-  auth.requireAdminDbUser = async function requireResetAwareAdminDb(req, res) {
-    const user = await auth.requireAuthenticatedDbUser(req, res);
-    if (!user) return null;
-    if (dbApi.normalizeRole(user.role) !== "admin") {
-      sendJson(res, 403, { ok: false, error: "Esta accion esta reservada a administracion" });
-      return null;
-    }
-    return user;
-  };
-}
-
 function patchHttpServer() {
   const originalCreateServer = http.createServer;
   http.createServer = function createPasswordRecoveryServer(options, requestListener) {
@@ -489,7 +406,6 @@ function patchHttpServer() {
 function installPasswordRecovery() {
   if (installed) return;
   installed = true;
-  patchSessionInvalidation();
   patchHttpServer();
 }
 

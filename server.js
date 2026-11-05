@@ -70,6 +70,7 @@ const {
   generateLegacyId,
   getAuthenticatedAccount,
   getAuthenticatedDbUser,
+  validateDbCookieSession,
   getSessionTokenFromRequest,
   listLegacyUsersFromState,
   mapPlatformRoleToLegacyAccountRole,
@@ -4325,6 +4326,11 @@ const handleLiveTestLibrary = createLiveTestLibraryHandler({ readState, writeSta
 
 const server = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  try {
+    await validateDbCookieSession(req);
+  } catch {
+    return sendJson(res, 503, { ok: false, error: "No se pudo verificar la sesión. Inténtalo de nuevo." });
+  }
   if (await handleLiveTestLibrary(req, res, requestUrl)) return;
   if (await handleCourseSharedTest(req, res, requestUrl)) return;
   if (await handleQuestionContributions(req, res, requestUrl)) return;
@@ -4423,16 +4429,11 @@ const server = http.createServer(async (req, res) => {
     let platformRole = account.role === "admin" ? "admin" : "socio";
     let userId = "";
     let jwtToken = "";
-    if (isDatabaseEnabled()) {
-      try {
-        const dbUser = await findUserByEmail(account.email);
-        if (dbUser) {
-          platformRole = normalizePlatformRole(dbUser.role);
-          userId = dbUser.id;
-          jwtToken = signAuthToken(dbUser);
-        }
-      } catch (error) {
-      }
+    const dbUser = req.authenticatedDbSessionUser;
+    if (dbUser) {
+      platformRole = normalizePlatformRole(dbUser.role);
+      userId = dbUser.id;
+      jwtToken = signAuthToken(dbUser);
     }
     return sendJson(res, 200, {
       ok: true,
@@ -6667,6 +6668,27 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const password = String(payload.password || "").trim();
+      if (isDatabaseEnabled()) {
+        const dbAccount = await findUserByEmail(email);
+        // An old local mirror must not authenticate after its DB account was removed.
+        const mirror = (state.accounts || []).find(item => String(item.email || "").toLowerCase() === email);
+        if (dbAccount || mirror?.dbUserId || mirror?.source === "postgres") {
+          const user = dbAccount && await authenticateUser(email, password);
+          if (!user) return sendJson(res, 401, { ok: false, error: "Credenciales invalidas" });
+          const latest = readState();
+          const ensured = ensureLegacyAccountForDbUser(latest, user, { password });
+          const associate = (latest.associates || []).find(item => item.id === ensured.account.associateId);
+          if (associate?.status === "Baja") return sendJson(res, 403, { ok: false, error: "Acceso bloqueado. Contacta con administración." });
+          writeState(latest);
+          clearRequestSession(req);
+          const token = createSessionToken(ensured.account, payload.rememberMe === true);
+          setSessionCookie(res, token);
+          return sendJson(res, 200, { ok: true, session: buildSessionPayload(ensured.account, token) });
+        }
+        // The database lookup yielded; never save the snapshot taken before it.
+        state = readState();
+        stateChanged = synchronizeAssociateStatuses(state);
+      }
       let account = (state.accounts || []).find(
         (item) =>
           String(item.email || "").trim().toLowerCase() === email &&
@@ -6802,18 +6824,18 @@ const server = http.createServer(async (req, res) => {
   if (requestUrl.pathname === "/api/account/change-password" && req.method === "POST") {
     let state = null;
     try {
+      const payload = await readJsonBody(req, payloadLimitBytes.small);
       state = readState();
       const authenticatedAccount = requireAuthenticatedAccount(req, res, state);
       if (!authenticatedAccount) {
         return;
       }
-      const payload = await readJsonBody(req, payloadLimitBytes.small);
       const accountId = String(payload.accountId || "").trim();
       const currentPassword = String(payload.currentPassword || "");
       const newPassword = String(payload.newPassword || "");
       const confirmPassword = String(payload.confirmPassword || "");
 
-      const account = (state.accounts || []).find((item) => item.id === accountId);
+      let account = (state.accounts || []).find((item) => item.id === accountId);
       if (!account) {
         throw new Error("Cuenta no encontrada");
       }
@@ -6833,7 +6855,25 @@ const server = http.createServer(async (req, res) => {
         throw new Error("La nueva contrasena debe ser distinta de la temporal");
       }
 
-      setLegacyAccountPassword(account, newPassword);
+      let dbPasswordUpdated = false;
+      if (isDatabaseEnabled()) {
+        const user = await findUserByEmail(account.email);
+        if (user || account.dbUserId || account.source === "postgres") {
+          const authenticated = user && await authenticateUser(account.email, currentPassword);
+          if (!authenticated) throw new Error("La contrasena actual no coincide");
+          const updated = await updateUser(authenticated.id, { password: newPassword }, {
+            expectedCredentialVersion: authenticated.credentialVersion
+          });
+          dbPasswordUpdated = true;
+          state = readState();
+          account = ensureLegacyAccountForDbUser(state, updated, { password: newPassword }).account;
+        } else {
+          state = readState();
+          account = requireAuthenticatedAccount(req, res, state);
+          if (!account) return;
+        }
+      }
+      if (!dbPasswordUpdated) setLegacyAccountPassword(account, newPassword);
       account.mustChangePassword = false;
 
       const associate = account.associateId
@@ -6861,9 +6901,6 @@ const server = http.createServer(async (req, res) => {
           session: buildSessionPayload(account, getSessionTokenFromRequest(req))
         });
     } catch (error) {
-      if (state) {
-        writeState(state);
-      }
       return sendJsonError(res, error, "No se pudo actualizar la contrasena");
     }
   }
@@ -8018,14 +8055,33 @@ const server = http.createServer(async (req, res) => {
       if (!account) {
         return;
       }
-      const associate = (state.associates || []).find(
+      let associate = (state.associates || []).find(
         (item) => item.id === resetAssociateCampusPasswordMatch[1]
       );
       if (!associate) {
         throw new Error("Socio no encontrado");
       }
 
-      resetAssociateCampusPassword(state, associate);
+      // Prepare locally, persist PostgreSQL first, then re-read before applying.
+      const target = (state.accounts || []).find(item => item.id === associate.linkedAccountId ||
+        item.associateId === associate.id || item.email?.toLowerCase() === associate.email.toLowerCase());
+      const dbUser = isDatabaseEnabled() ? await findUserByEmail(associate.email) : null;
+      if (dbUser || target?.dbUserId || target?.source === "postgres") {
+        if (!dbUser) throw new Error("No se pudo verificar la cuenta PostgreSQL");
+        state = readState();
+        associate = (state.associates || []).find(item => item.id === resetAssociateCampusPasswordMatch[1]);
+        resetAssociateCampusPassword(state, associate, { databaseVerified: true });
+        const temporaryPassword = associate.temporaryPassword;
+        const updated = await updateUser(dbUser.id, { password: temporaryPassword });
+        state = readState();
+        associate = (state.associates || []).find(item => item.id === resetAssociateCampusPasswordMatch[1]);
+        ensureLegacyAccountForDbUser(state, updated, { password: temporaryPassword });
+        resetAssociateCampusPassword(state, associate, { databaseVerified: true, password: temporaryPassword });
+      } else {
+        state = readState();
+        associate = (state.associates || []).find(item => item.id === resetAssociateCampusPasswordMatch[1]);
+        resetAssociateCampusPassword(state, associate);
+      }
       appendActivity(
         state,
         "admin",
@@ -8039,9 +8095,6 @@ const server = http.createServer(async (req, res) => {
         associate
       });
     } catch (error) {
-      if (state) {
-        writeState(state);
-      }
       return sendJson(res, 400, {
         ok: false,
         error: error.message || "No se pudo restablecer la contrasena temporal"
@@ -13039,7 +13092,7 @@ function buildTemporaryCampusPassword() {
   return `IZ-${randomBytes(18).toString("base64url")}`;
 }
 
-function resetAssociateCampusPassword(state, associate) {
+function resetAssociateCampusPassword(state, associate, options = {}) {
   if (welcomeDeliveriesInFlight.has(associate.id) || (state.emailOutbox || []).some(mail =>
       mail.kind === "associate_welcome" && mail.associateId === associate.id && mail.status === "sending")) {
     throw new Error("No puedes restablecer la contrasena mientras la bienvenida esta en envio o pendiente de confirmar");
@@ -13059,8 +13112,8 @@ function resetAssociateCampusPassword(state, associate) {
     throw new Error("Primero crea el acceso al campus de este socio");
   }
 
-  const tempPassword = buildTemporaryCampusPassword();
-  setLegacyAccountPassword(account, tempPassword);
+  const tempPassword = options.password || buildTemporaryCampusPassword();
+  setLegacyAccountPassword(account, tempPassword, options);
   account.mustChangePassword = true;
   account.email = associate.email;
   account.name = getAssociateFullName(associate) || account.name;

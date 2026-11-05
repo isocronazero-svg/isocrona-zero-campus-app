@@ -219,7 +219,7 @@ function sanitizeUser(row) {
     return null;
   }
 
-  return {
+  const user = {
     id: String(row.id || ""),
     name: String(row.name || ""),
     email: String(row.email || ""),
@@ -232,6 +232,26 @@ function sanitizeUser(row) {
     createdAt: String(row.created_at || row.createdAt || ""),
     updatedAt: String(row.updated_at || row.updatedAt || "")
   };
+  // Internal credential binding, deliberately absent from JSON/API responses.
+  Object.defineProperty(user, "credentialVersion", { value: credentialVersion(row) });
+  return user;
+}
+
+function credentialVersion(record) {
+  const secret = getJwtSecret();
+  if (!secret || !record?.id || !record?.password_hash) return "";
+  // The salted hash is persisted by PostgreSQL and changes on EVERY password write.
+  // HMAC avoids exposing that hash (or a password-verification oracle) in the JWT.
+  return crypto.createHmac("sha256", secret)
+    .update(JSON.stringify(["iz-auth-credential-v1", String(record.id), record.password_hash]))
+    .digest("hex");
+}
+
+function matchesCredentialVersion(user, version) {
+  const current = String(user?.credentialVersion || "");
+  return /^[0-9a-f]{64}$/.test(current) && typeof version === "string" &&
+    /^[0-9a-f]{64}$/.test(version) &&
+    crypto.timingSafeEqual(Buffer.from(current, "hex"), Buffer.from(version, "hex"));
 }
 
 function signAuthToken(user) {
@@ -239,9 +259,12 @@ function signAuthToken(user) {
   if (!secret) {
     throw new Error("JWT_SECRET no configurado");
   }
+  const version = user.credentialVersion || credentialVersion(user);
+  if (!version) throw new Error("No se puede emitir una sesión sin credencial persistente");
   return jwt.sign(
     {
       sub: user.id,
+      cv: version,
       email: user.email,
       role: normalizeRole(user.role)
     },
@@ -477,61 +500,49 @@ async function createUser({ name, email, password, role = "socio", status = "act
   return sanitizeUser(result.rows[0]);
 }
 
-async function updateUser(userId, updates = {}) {
+async function updateUser(userId, updates = {}, options = {}) {
   if (!isDatabaseEnabled()) {
     throw new Error("Base de datos no configurada");
   }
 
-  const existing = await findUserRecordById(userId);
-  if (!existing) {
-    throw new Error("Usuario no encontrado");
+  let expectedPasswordHash = null;
+  if (options.expectedCredentialVersion) {
+    const record = await findUserRecordById(userId);
+    if (!matchesCredentialVersion(sanitizeUser(record), options.expectedCredentialVersion)) {
+      throw new Error("La credencial ha cambiado. Inicia sesión de nuevo.");
+    }
+    expectedPasswordHash = record.password_hash;
   }
-
-  const nextName = String(updates.name ?? existing.name ?? "").trim();
-  const nextEmail = String(updates.email ?? existing.email ?? "").trim().toLowerCase();
-  const nextRole = normalizeRole(updates.role ?? existing.role);
-  const nextStatus = String(updates.status ?? existing.status ?? "active");
-  const nextPhone = String(updates.phone ?? existing.phone ?? "");
-  const nextService = String(updates.service ?? existing.service ?? "");
-  const nextMemberId = String(updates.memberId ?? existing.member_id ?? "");
-  const nextAssociateId = String(updates.associateId ?? existing.associate_id ?? "");
-  const nextUpdatedAt = nowIso();
-  const nextPasswordHash =
-    typeof updates.password === "string" && updates.password.trim()
-      ? hashPassword(updates.password.trim())
-      : existing.password_hash;
-
-  const db = getPool();
-  const result = await db.query(
-    `
-      UPDATE users
-      SET name = $2,
-          email = $3,
-          password_hash = $4,
-          role = $5,
-          status = $6,
-          phone = $7,
-          service = $8,
-          member_id = $9,
-          associate_id = $10,
-          updated_at = $11
-      WHERE id = $1
-      RETURNING *
-    `,
-    [
-      String(userId || ""),
-      nextName,
-      nextEmail,
-      nextPasswordHash,
-      nextRole,
-      nextStatus,
-      nextPhone,
-      nextService,
-      nextMemberId,
-      nextAssociateId,
-      nextUpdatedAt
-    ]
+  // Update only requested fields: a concurrent profile edit must never write back
+  // an old password_hash and resurrect previously revoked sessions.
+  const fields = {
+    name: ["name", value => String(value).trim()],
+    email: ["email", value => String(value).trim().toLowerCase()],
+    role: ["role", normalizeRole], status: ["status", String],
+    phone: ["phone", String], service: ["service", String],
+    memberId: ["member_id", String], associateId: ["associate_id", String]
+  };
+  const values = [String(userId || "")];
+  const assignments = [];
+  for (const [key, [column, normalize]] of Object.entries(fields)) {
+    if (updates[key] == null) continue;
+    values.push(normalize(updates[key]));
+    assignments.push(`${column} = $${values.length}`);
+  }
+  if (typeof updates.password === "string" && updates.password.trim()) {
+    values.push(hashPassword(updates.password.trim()));
+    assignments.push(`password_hash = $${values.length}`);
+  }
+  assignments.push("updated_at = NOW()");
+  let condition = "";
+  if (expectedPasswordHash) {
+    values.push(expectedPasswordHash);
+    condition = ` AND password_hash = $${values.length}`;
+  }
+  const result = await getPool().query(
+    `UPDATE users SET ${assignments.join(", ")} WHERE id = $1${condition} RETURNING *`, values
   );
+  if (!result.rows[0]) throw new Error("Usuario no encontrado");
 
   return sanitizeUser(result.rows[0]);
 }
@@ -651,6 +662,7 @@ module.exports = {
   sanitizeUser,
   saveTestResult,
   signAuthToken,
+  matchesCredentialVersion,
   updateUser,
   verifyAuthToken
 };

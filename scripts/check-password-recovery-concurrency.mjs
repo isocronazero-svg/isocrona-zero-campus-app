@@ -29,10 +29,13 @@ const storage = require("../storage");
 const auth = require("../server/auth");
 const db = require("../db");
 const mail = require("../server/mail-delivery");
-let mailBarrier, updateBarrier, failUpdate = false, updates = 0;
+let mailBarrier, updateBarrier, failUpdate = false, failLookup = false, updates = 0;
 const messages = [];
 db.isDatabaseEnabled = () => true;
-db.findUserByEmail = async () => ({ id: "postgres-user", email: account.email });
+db.findUserByEmail = async () => {
+  if (failLookup) throw Error("Synthetic lookup failure");
+  return { id: "postgres-user", email: account.email };
+};
 db.updateUser = async (_id, payload) => {
   updates++;
   if (updateBarrier && updates === 1) await updateBarrier.wait();
@@ -122,6 +125,15 @@ try {
   sqlite.prepare("UPDATE password_reset_tokens SET expires_at = 0 WHERE token_hash = ?").run(tokenRow(expiredToken).token_hash);
   assert.equal((await reset(expiredToken)).status, 400);
   assert.equal(updates, 2, "Expired tokens never reach the database");
+  state = storage.readState();
+  state.accounts.push({ ...account, id: "lookup-failure", email: "lookup-failure@example.test", source: "postgres" });
+  storage.writeState(state);
+  const count = sqlite.prepare("SELECT count(*) AS count FROM password_reset_tokens").get().count;
+  failLookup = true;
+  assert.equal((await post("/api/password-recovery/request", { email: "lookup-failure@example.test" })).status, 200);
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM password_reset_tokens").get().count, count,
+    "A failed PostgreSQL lookup must not issue a local-only reset token");
+  assert.equal(messages.length, 3);
   console.log("Password recovery concurrency and stale-state regressions: PASS");
 } catch (error) {
   console.error(error);

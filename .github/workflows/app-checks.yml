@@ -66,3 +66,33 @@ jobs:
           if [ -f /tmp/isocrona-campus.pid ]; then
             kill $(cat /tmp/isocrona-campus.pid) || true
           fi
+
+  postgres-security:
+    name: PostgreSQL session and recovery regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: security_test
+          POSTGRES_PASSWORD: disposable_ci_password
+          POSTGRES_DB: iz_security_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U security_test -d iz_security_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Exercise real PostgreSQL and server restarts
+        run: npm run check:postgres-security
+        env:
+          TEST_DATABASE_URL: postgresql://security_test:disposable_ci_password@127.0.0.1:5432/iz_security_ci
