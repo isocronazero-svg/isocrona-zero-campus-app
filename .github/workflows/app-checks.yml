@@ -99,7 +99,7 @@ jobs:
 
   browser-qa:
     name: V1.2 browser recovery and access checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
