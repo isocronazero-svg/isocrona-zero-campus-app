@@ -369,3 +369,14 @@ GitHub + esta bitácora son la fuente común para móvil, escritorio y Codex. An
 - Railway producción `zealous-warmth`: main `156aeb8`, último despliegue SUCCESS; volumen persistente de 10000 MB montado en `/var/data/isocrona-zero`. Dos cambios staged ajenos sin aplicar.
 - Backup automático S3 de 2026-11-05 03:32 UTC: ok=true, 138990846 bytes de estado, 13 referencias y 0 ausentes; Drive desactivado. **No hay prueba de restauración aislada**, ni confirmación de respaldo físico independiente de SQLite/PostgreSQL.
 - Autorización del usuario: publicar si la verificación es satisfactoria. Condiciones: no tocar volumen, staged changes ni secretos; verificar compatibilidad, respaldo y salud tras merge; no declarar publicada sin despliegue SUCCESS.
+
+
+## 2026-11-05 — Publicación efectiva de V1.2
+
+- Autorización expresa del responsable: «Publica cuando puedas».
+- CI final #640 SUCCESS, SHA previo `9f30bc70e7fb9cf1004b649b955d9f14996525c3`.
+- PR #336 fusionada en `main` mediante commit `f44fcfec58e2e037e69764cd3bcbec2202dd7d7d`.
+- Railway producción, despliegue `c6a5cdfb-5089-40a7-afda-04ea8ee9c2f8` del commit anterior: **SUCCESS** el 5/11/2026; arranque `node server-entry.js`, comprobación sintáctica correcta y registro «Campus disponible en https://portal.isocronazero.org».
+- Volumen persistente montado; dominio `portal.isocronazero.org` verificado, CNAME propagado y certificado válido.
+- Dos cambios de configuración ajenos permanecen staged, sin aplicar (CPU 19 vCPU y credencial de Drive). La copia automática S3 de esta madrugada fue correcta; no consta restauración aislada verificada.
+- Pendiente QA manual post-publicación con cuenta de prueba autorizada (correo real, cambio de contraseña y tesorería) y comprobación HTTP externa. No se han realizado operaciones sobre datos reales de socios.
