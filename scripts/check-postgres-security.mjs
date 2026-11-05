@@ -138,6 +138,10 @@ try {
   assert.equal((await request("/api/auth/me", null, { authorization: `Bearer ${newJwt}` })).status, 200);
   assert.equal((await request("/api/password-recovery/reset", payload)).status, 400, "Consumed token stays consumed after restart");
   const fresh = await login(replacement, "/api/login");
+  const invalidSelfChange = await request("/api/account/change-password", { accountId: fresh.body.session.accountId,
+    currentPassword: replacement, newPassword: "        ", confirmPassword: "        " }, { cookie: fresh.cookie });
+  assert.equal(invalidSelfChange.status, 400, "A blank trimmed password cannot report success or change credentials");
+  assert.equal((await request("/api/auth/me", null, { authorization: `Bearer ${newJwt}` })).status, 200);
   const changed = await request("/api/account/change-password", { accountId: fresh.body.session.accountId,
     currentPassword: replacement, newPassword: selfPassword, confirmPassword: selfPassword }, { cookie: fresh.cookie });
   assert.equal(changed.status, 200, await changed.clone().text());

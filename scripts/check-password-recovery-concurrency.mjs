@@ -88,6 +88,15 @@ try {
   assert.ok(state.auditLog.some(event => event.action === "password-reset-requested"));
   mailBarrier = null;
 
+  const pendingToken = latestToken();
+  for (const invalidPassword of ["        ", "   short   "]) {
+    const invalid = await post("/api/password-recovery/reset", { token: pendingToken,
+      newPassword: invalidPassword, confirmPassword: invalidPassword });
+    assert.equal(invalid.status, 400, "Validate the same trimmed credential used by login and storage");
+    assert.equal(tokenRow(pendingToken).used_at, null, "Invalid passwords must not consume the link");
+    assert.equal(updates, 0);
+  }
+
   // P2: keep request one suspended inside PostgreSQL while request two uses the same token.
   updateBarrier = barrier();
   const token = latestToken();
