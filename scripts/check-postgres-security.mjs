@@ -106,7 +106,7 @@ try {
   assert.equal((await request("/api/auth/me", null, { authorization: `Bearer ${oldJwt}` })).status, 200);
   assert.equal((await request("/api/password-recovery/request", { email })).status, 200);
   const outbox = JSON.parse(fs.readFileSync(env.IZ_PASSWORD_RESET_TEST_OUTBOX));
-  const token = /[?&]token=([a-f0-9]+)/.exec(outbox.at(-1).text)?.[1];
+  const token = /[?&]reset=([a-f0-9]+)/.exec(outbox.at(-1).text)?.[1];
   assert.ok(token);
   sqlite = new DatabaseSync(path.join(env.IZ_DATA_DIR, "campus.db"));
   lock = new Client({ connectionString: scopedUrl.href }); await lock.connect(); await lock.query("BEGIN");

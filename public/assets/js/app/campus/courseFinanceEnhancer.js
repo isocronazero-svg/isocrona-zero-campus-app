@@ -314,6 +314,7 @@ export function installCourseFinanceEnhancer() {
     } catch {
       return baseFetch(input, init);
     }
+    if (target.origin !== window.location.origin) return baseFetch(input, init);
     const nextInit = injectTreasuryPermission(target, init);
     const response = await baseFetch(input, nextInit);
     return rememberStateResponse(response, target);
