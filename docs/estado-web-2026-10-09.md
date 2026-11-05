@@ -358,3 +358,14 @@ GitHub + esta bitácora son la fuente común para móvil, escritorio y Codex. An
 - Decision directa del usuario en esta conversacion: **una sola hoja acumulada con horas de alumno y de instructor y dos totales separados**. No sumar docencia a formacion recibida. Sustituye el criterio anterior que excluia docencia del documento acumulado; esta correccion de #244 aun no implementa esa ampliacion.
 - Existe PR #240 (`codex/instructor-diplomas-hours`, `fd9b8e4`) con otra implementacion docente basada en miembros campus. No fusionar #240 y #244 juntas: modelos incompatibles. Conservar #240 como referencia para reutilizar el acumulado y la proteccion de emisiones sobre el modelo associates de #244 en un PR incremental; no perder trabajo ni crear dos fuentes de identidad.
 - Siguiente: CI/re-review de #244; revisar todos los findings antes de solicitar autorizacion de merge. Despues, certificado acumulado separado por rol y #245 en PRs independientes. #241 sigue pendiente de QA horaria productiva. No se autoriza merge/despliegue ni operaciones reales por esta entrada.
+
+
+## 2026-11-05 — Gate de publicación V1.2 (revisión actualizada)
+
+- Responsable solicita revisión, actualización de bitácora y publicación condicionada a seguridad operativa.
+- Release PR #336 hacia main: mergeable=true, rama feature/v1.2 HEAD `69a7d86779a7e584a05bc120ec42f44c956ac92a`; App checks #639 SUCCESS (https://github.com/isocronazero-svg/isocrona-zero-campus-app/actions/runs/42020064920).
+- Hallazgos P1/P2 del review #336: tres hilos resueltos y obsoletos; correcciones integradas en #337-#340. Pruebas de PostgreSQL, concurrencia y navegador documentadas en `docs/v1.2-security-release.md`.
+- Comparación main...feature/v1.2: 44 commits por delante, 1 por detrás (hotfix bancario); PR mergeable, `public/join.html` preservado.
+- Railway producción `zealous-warmth`: main `156aeb8`, último despliegue SUCCESS; volumen persistente de 10000 MB montado en `/var/data/isocrona-zero`. Dos cambios staged ajenos sin aplicar.
+- Backup automático S3 de 2026-11-05 03:32 UTC: ok=true, 138990846 bytes de estado, 13 referencias y 0 ausentes; Drive desactivado. **No hay prueba de restauración aislada**, ni confirmación de respaldo físico independiente de SQLite/PostgreSQL.
+- Autorización del usuario: publicar si la verificación es satisfactoria. Condiciones: no tocar volumen, staged changes ni secretos; verificar compatibilidad, respaldo y salud tras merge; no declarar publicada sin despliegue SUCCESS.
