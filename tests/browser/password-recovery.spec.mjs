@@ -87,6 +87,22 @@ async function login(page, campus, email, password) {
   await expect(page.locator('#loginScreen')).toBeHidden();
 }
 
+async function reloadSession(page, campus, authenticated) {
+  const validation = page.waitForResponse(response => response.url() === `${campus.baseURL}/api/session`
+    && response.request().method() === 'GET');
+  await page.reload();
+  const response = await validation;
+  expect(response.status()).toBe(200);
+  const payload = await response.json();
+  expect(payload.ok).toBe(authenticated);
+  if (authenticated) expect(payload.session).not.toBeNull();
+  else expect(payload.session).toBeNull();
+  // The initial render shows login before bootstrap validates the cookie.
+  // Assert the server's completed verdict before checking the resulting UI.
+  if (authenticated) await expect(page.locator('#loginScreen')).toBeHidden();
+  else await expect(page.locator('#loginScreen')).toBeVisible();
+}
+
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 375, height: 812 }]) {
   test(`recovery, remembered sessions and bank notice at ${viewport.width}px`, async ({ browser }, testInfo) => {
     const campus = await createCampus();
@@ -158,8 +174,7 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 375, height: 812
       expect(new URL(page.url()).searchParams.has('reset')).toBe(false);
       await evidence(page, 'reset-completed');
 
-      await remembered.reload();
-      await expect(remembered.locator('#loginScreen')).toBeVisible();
+      await reloadSession(remembered, campus, false);
       await page.getByRole('button', { name: 'Volver al acceso' }).click();
       await page.locator('#loginEmail').fill('qa-member@example.test');
       await page.locator('#loginPassword').fill(campus.password);
@@ -169,12 +184,10 @@ for (const viewport of [{ width: 1440, height: 1000 }, { width: 375, height: 812
 
       await campus.stop();
       await campus.start();
-      await page.reload();
-      await expect(page.locator('#loginScreen')).toBeHidden();
+      await reloadSession(page, campus, true);
       // Reintroduce the pre-reset cookie to verify it stays revoked after restart.
       await remembered.context().addCookies(oldCookies);
-      await remembered.reload();
-      await expect(remembered.locator('#loginScreen')).toBeVisible();
+      await reloadSession(remembered, campus, false);
       const used = await newPage();
       await used.goto(resetURL);
       await expect(used.locator('#passwordRecoveryResetStatus')).toContainText('ya se ha utilizado');
