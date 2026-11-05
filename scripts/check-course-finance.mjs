@@ -74,6 +74,13 @@ function seedState() {
   assert.equal(canManageCourseFinance(state, treasury), true);
   assert.equal(canManageCourseFinance(state, normal), false);
   assert.equal(canManageCourseFinance(state, admin), true);
+  // Every administrator has the same finance permissions, independently of
+  // whether they are assigned as the primary treasurer.
+  for (let index = 1; index <= 5; index += 1) {
+    const backupAdmin = { id: `account-admin-${index}`, name: `Administrador ${index}`, role: "admin" };
+    assert.equal(canManageCourseFinance(state, backupAdmin), true);
+  }
+  assert.equal(canManageCourseFinance(state, { id: "unassigned", role: "member" }), false);
   assert.equal(normalizedPaymentStatus({ paymentStatus: "validated" }, 10), "validated");
   assert.equal(normalizedPaymentStatus({}, 10), "pending");
   assert.equal(normalizedPaymentStatus({}, 0), "not-required");
@@ -167,6 +174,19 @@ function seedState() {
   response = null;
   await handler({ method: "GET" }, {}, new URL("http://test/api/course-finance"));
   assert.equal(response.status, 200);
+  // A second administrator can take over payment validation and is recorded
+  // as the actor, without changing the original treasurer's permissions.
+  currentAccount = { id: "account-admin-backup", name: "Administrador suplente", role: "admin" };
+  response = null;
+  await handler(
+    { method: "PATCH", body: { paymentStatus: "validated" } },
+    {},
+    new URL("http://test/api/course-finance/courses/course-finance-qa/submissions/submission-external")
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.payload.row.paymentValidatedBy, "Administrador suplente");
+  assert.equal(state.auditLog[0].actor.name, "Administrador suplente");
+  assert.equal(state.auditLog[0].action, "validate-payment");
 }
 
 console.log("Course finance V1.1: permisos, estados, justificantes, validacion y auditoria OK.");

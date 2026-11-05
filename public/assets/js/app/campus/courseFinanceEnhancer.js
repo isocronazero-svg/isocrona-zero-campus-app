@@ -71,15 +71,21 @@ function ensureFinanceStyles() {
     .course-finance-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
     .course-finance-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0}
     .course-finance-metric{padding:12px;border:1px solid rgba(127,127,127,.25);border-radius:12px}
+    .course-finance-metric-action{cursor:pointer;text-align:left;background:transparent;color:inherit;font:inherit}
+    .course-finance-metric-action[aria-pressed="true"]{outline:2px solid currentColor;outline-offset:2px}
     .course-finance-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:12px 0}
     .course-finance-toolbar label{min-width:220px;flex:1}
     .course-finance-list{display:grid;gap:10px}
     .course-finance-row{padding:14px;border:1px solid rgba(127,127,127,.25);border-radius:14px}
+    .course-finance-row[data-payment-status="incident"]{border-width:2px}
     .course-finance-row-head{display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
     .course-finance-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
     .course-finance-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
     .course-finance-status{font-weight:700}
-    @media(max-width:600px){.course-finance-shell{padding:14px}.course-finance-row{padding:12px}#courseFinanceDialog{width:100vw;max-width:100vw;max-height:100vh;height:100vh;border-radius:0}.course-finance-shell{max-height:100vh}}
+    .course-finance-secondary{margin-top:10px}
+    .course-finance-secondary summary{cursor:pointer;font-weight:600}
+    .course-finance-secondary-body{padding-top:8px}
+    @media(max-width:600px){.course-finance-shell{padding:14px}.course-finance-row{padding:12px}#courseFinanceDialog{width:100vw;max-width:100vw;max-height:100vh;height:100vh;border-radius:0}.course-finance-shell{max-height:100vh}.course-finance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.course-finance-toolbar{display:block}.course-finance-toolbar label{display:block;min-width:0;margin-bottom:10px}.course-finance-actions>*{flex:1 1 140px;text-align:center}}
   `;
   document.head.append(style);
 }
@@ -141,27 +147,40 @@ function filterRows(snapshot) {
   if (financeFilter === "pending") rows = rows.filter((row) => row.paymentStatus === "pending" && Number(row.amount || 0) > 0);
   if (financeFilter === "incident") rows = rows.filter((row) => row.paymentStatus === "incident");
   if (financeFilter === "validated") rows = rows.filter((row) => row.paymentStatus === "validated");
+  if (financeFilter === "not-required") rows = rows.filter((row) => row.paymentStatus === "not-required");
   return rows;
+}
+
+function metricButton(value, label, filter) {
+  return `<button type="button" class="course-finance-metric course-finance-metric-action" data-finance-filter="${filter}" aria-pressed="${financeFilter === filter ? "true" : "false"}"><strong>${Number(value || 0)}</strong><div class="muted">${label}</div></button>`;
 }
 
 function renderFinance(snapshot) {
   const dialog = ensureFinanceDialog();
   const rows = filterRows(snapshot);
-  const summary = snapshot.summary || {};
+  const scopedRows = (snapshot.courses || [])
+    .filter((course) => selectedFinanceCourseId === "all" || course.id === selectedFinanceCourseId)
+    .flatMap((course) => course.rows || []);
+  const summary = {
+    pending: scopedRows.filter((row) => row.paymentStatus === "pending" && Number(row.amount || 0) > 0).length,
+    incidents: scopedRows.filter((row) => row.paymentStatus === "incident").length,
+    validated: scopedRows.filter((row) => row.paymentStatus === "validated").length,
+    noPaymentRequired: scopedRows.filter((row) => row.paymentStatus === "not-required").length
+  };
   dialog.querySelector(".course-finance-shell").innerHTML = `
     <div class="course-finance-head">
-      <div><p class="eyebrow">Tesorería · cursos</p><h3>Gestión económica de formaciones</h3><p class="muted">Justificante adjunto y pago validado son estados distintos.</p></div>
+      <div><p class="eyebrow">Tesorería · formaciones</p><h3>Pagos que requieren atención</h3><p class="muted">Empieza por pendientes e incidencias. El justificante adjunto no significa que el pago esté validado.</p></div>
       <button type="button" class="ghost-button" data-finance-close>Cerrar</button>
     </div>
-    <div class="course-finance-metrics">
-      <div class="course-finance-metric"><strong>${Number(summary.pending || 0)}</strong><div class="muted">Pendientes</div></div>
-      <div class="course-finance-metric"><strong>${Number(summary.validated || 0)}</strong><div class="muted">Validados</div></div>
-      <div class="course-finance-metric"><strong>${Number(summary.incidents || 0)}</strong><div class="muted">Incidencias</div></div>
-      <div class="course-finance-metric"><strong>${Number(summary.noPaymentRequired || 0)}</strong><div class="muted">Sin pago</div></div>
+    <div class="course-finance-metrics" aria-label="Resumen de pagos">
+      ${metricButton(summary.pending, "Pendientes", "pending")}
+      ${metricButton(summary.incidents, "Incidencias", "incident")}
+      ${metricButton(summary.validated, "Validados", "validated")}
+      ${metricButton(summary.noPaymentRequired, "Sin pago", "not-required")}
     </div>
     <div class="course-finance-toolbar">
-      <label class="inline-field">Curso<select data-finance-course><option value="all">Todos los cursos</option>${(snapshot.courses || []).map((course) => `<option value="${escapeHtml(course.id)}" ${course.id === selectedFinanceCourseId ? "selected" : ""}>${escapeHtml(course.title)} · ${course.pendingCount || 0} pendiente(s)</option>`).join("")}</select></label>
-      <div class="chip-row compact-chip-row">
+      <label class="inline-field">Formación<select data-finance-course><option value="all">Todas las formaciones</option>${(snapshot.courses || []).map((course) => `<option value="${escapeHtml(course.id)}" ${course.id === selectedFinanceCourseId ? "selected" : ""}>${escapeHtml(course.title)} · ${course.pendingCount || 0} pendiente(s)</option>`).join("")}</select></label>
+      <div class="chip-row compact-chip-row" aria-label="Filtrar pagos">
         <button type="button" class="${financeFilter === "pending" ? "primary-button" : "ghost-button"}" data-finance-filter="pending">Pendientes</button>
         <button type="button" class="${financeFilter === "incident" ? "primary-button" : "ghost-button"}" data-finance-filter="incident">Incidencias</button>
         <button type="button" class="${financeFilter === "validated" ? "primary-button" : "ghost-button"}" data-finance-filter="validated">Validados</button>
@@ -170,27 +189,34 @@ function renderFinance(snapshot) {
     </div>
     <div class="course-finance-list">
       ${rows.length ? rows.map((row) => `
-        <article class="course-finance-row">
+        <article class="course-finance-row" data-payment-status="${escapeHtml(row.paymentStatus)}">
           <div class="course-finance-row-head">
             <div><strong>${escapeHtml(row.name)}</strong><div class="muted">${escapeHtml(row.courseTitle)}</div></div>
-            <div class="course-finance-status">${escapeHtml(statusLabel(row.paymentStatus))}</div>
+            <div class="course-finance-status">${escapeHtml(statusLabel(row.paymentStatus))} · ${escapeHtml(formatMoney(row.amount))}</div>
           </div>
           <div class="course-finance-meta">
             <span class="small-chip">${row.participantType === "member" ? "Socio" : "No socio"}</span>
-            <span class="small-chip">${escapeHtml(formatMoney(row.amount))}</span>
-            <span class="small-chip">Justificante: ${row.hasPaymentProof ? "adjunto" : "no adjunto"}</span>
-            <span class="small-chip">Inscripción: ${escapeHtml(row.enrollmentStatus || "-")}</span>
+            <span class="small-chip">Justificante: ${row.hasPaymentProof ? "adjunto" : "pendiente"}</span>
           </div>
-          ${row.paymentValidatedBy ? `<p class="muted">Validado por ${escapeHtml(row.paymentValidatedBy)}${row.paymentValidatedAt ? ` · ${escapeHtml(new Date(row.paymentValidatedAt).toLocaleString("es-ES"))}` : ""}</p>` : ""}
           ${row.paymentIncidentNote ? `<p class="status-note warning">Incidencia: ${escapeHtml(row.paymentIncidentNote)}</p>` : ""}
           <div class="course-finance-actions">
-            ${row.hasPaymentProof ? `<a class="mini-button" target="_blank" rel="noreferrer" href="/api/course-finance/courses/${encodeURIComponent(row.courseId)}/submissions/${encodeURIComponent(row.submissionId)}/proof">Abrir justificante</a>` : ""}
+            ${row.hasPaymentProof ? `<a class="mini-button" target="_blank" rel="noreferrer" href="/api/course-finance/courses/${encodeURIComponent(row.courseId)}/submissions/${encodeURIComponent(row.submissionId)}/proof">Ver justificante</a>` : ""}
             ${row.paymentStatus !== "not-required" ? `
-              <button type="button" class="mini-button" data-finance-status="validated" data-course-id="${escapeHtml(row.courseId)}" data-submission-id="${escapeHtml(row.submissionId)}">Validar pago</button>
-              <button type="button" class="mini-button" data-finance-status="incident" data-course-id="${escapeHtml(row.courseId)}" data-submission-id="${escapeHtml(row.submissionId)}">Marcar incidencia</button>
-              ${row.paymentStatus !== "pending" ? `<button type="button" class="mini-button" data-finance-status="pending" data-course-id="${escapeHtml(row.courseId)}" data-submission-id="${escapeHtml(row.submissionId)}">Volver a pendiente</button>` : ""}
+              ${row.paymentStatus !== "validated" ? `<button type="button" class="mini-button" data-finance-status="validated" data-course-id="${escapeHtml(row.courseId)}" data-submission-id="${escapeHtml(row.submissionId)}">Validar pago</button>` : ""}
+              ${row.paymentStatus !== "incident" ? `<button type="button" class="mini-button" data-finance-status="incident" data-course-id="${escapeHtml(row.courseId)}" data-submission-id="${escapeHtml(row.submissionId)}">Marcar incidencia</button>` : ""}
             ` : ""}
           </div>
+          <details class="course-finance-secondary">
+            <summary>Más detalles</summary>
+            <div class="course-finance-secondary-body">
+              <div class="course-finance-meta">
+                <span class="small-chip">Inscripción: ${escapeHtml(row.enrollmentStatus || "-")}</span>
+                ${row.paymentValidatedBy ? `<span class="small-chip">Validado por ${escapeHtml(row.paymentValidatedBy)}</span>` : ""}
+              </div>
+              ${row.paymentValidatedAt ? `<p class="muted">Validación: ${escapeHtml(new Date(row.paymentValidatedAt).toLocaleString("es-ES"))}</p>` : ""}
+              ${row.paymentStatus !== "not-required" && row.paymentStatus !== "pending" ? `<button type="button" class="mini-button" data-finance-status="pending" data-course-id="${escapeHtml(row.courseId)}" data-submission-id="${escapeHtml(row.submissionId)}">Volver a pendiente</button>` : ""}
+            </div>
+          </details>
         </article>
       `).join("") : '<div class="empty-state">No hay pagos que coincidan con este filtro.</div>'}
     </div>
@@ -207,6 +233,7 @@ function renderFinance(snapshot) {
   }));
   dialog.querySelectorAll("[data-finance-status]").forEach((button) => button.addEventListener("click", async () => {
     const paymentStatus = button.dataset.financeStatus;
+    if (paymentStatus === "validated" && !window.confirm("¿Has comprobado que el importe se ha recibido? El justificante por sí solo no acredita el cobro.")) return;
     let note = "";
     if (paymentStatus === "incident") {
       note = clean(window.prompt("Describe brevemente la incidencia del pago:", ""));
@@ -283,18 +310,33 @@ export function installCourseFinanceEnhancer() {
     let target;
     try {
       const raw = typeof input === "string" ? input : input?.url || String(input || "");
-      target = new URL(raw, window.location.href);
+      target = new URL(raw, window.location.origin);
     } catch {
       return baseFetch(input, init);
     }
-    const nextInit = target.origin === window.location.origin ? injectTreasuryPermission(target, init) : init;
+    if (target.origin !== window.location.origin) return baseFetch(input, init);
+    const nextInit = injectTreasuryPermission(target, init);
     const response = await baseFetch(input, nextInit);
-    return target.origin === window.location.origin ? rememberStateResponse(response, target) : response;
+    return rememberStateResponse(response, target);
   };
   document.addEventListener("click", trackAssociateSelection, true);
-  enhanceUi();
-  if (typeof MutationObserver !== "undefined") {
-    observer = new MutationObserver(enhanceUi);
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
+  document.addEventListener("iz:state", (event) => {
+    rememberState(event.detail?.state || event.detail);
+    queueMicrotask(enhanceUi);
+  });
+  document.addEventListener("iz:render", () => queueMicrotask(enhanceUi));
+  observer = new MutationObserver(() => queueMicrotask(enhanceUi));
+  observer.observe(document.body, { childList: true, subtree: true });
+  queueMicrotask(enhanceUi);
+}
+
+export function resetCourseFinanceEnhancerForTests() {
+  observer?.disconnect();
+  observer = null;
+  installed = false;
+  latestState = null;
+  selectedAssociateId = "";
+  financeAvailable = false;
+  financeFilter = "pending";
+  selectedFinanceCourseId = "all";
 }

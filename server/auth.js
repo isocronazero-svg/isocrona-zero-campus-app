@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const {
   findAuthenticatableUserById,
   isDatabaseEnabled,
+  matchesCredentialVersion,
   normalizeRole: normalizePlatformRole,
   verifyAuthToken
 } = require("../db");
@@ -16,7 +17,10 @@ function hashSessionValue(value) {
 }
 
 function accountCredentialHash(account) {
-  return hashSessionValue(account.passwordHash || account.password || "");
+  const password = account.passwordHash || account.password || "";
+  return hashSessionValue(account.dbUserId
+    ? JSON.stringify([password, account.dbUserId, account.dbCredentialVersion || ""])
+    : password);
 }
 
 function parseCookies(req) {
@@ -121,11 +125,14 @@ function verifyLegacyAccountPassword(account, submittedPassword) {
   return String(account?.password || "") === candidate;
 }
 
-function setLegacyAccountPassword(account, password) {
+function setLegacyAccountPassword(account, password, options = {}) {
   if (!account) {
     return account;
   }
 
+  if ((account.dbUserId || (isDatabaseEnabled() && account.source === "postgres")) && !options.databaseVerified) {
+    throw new Error("Esta cuenta usa PostgreSQL. Cambia su contraseña desde usuarios o recuperación de acceso.");
+  }
   const rawPassword = String(password || "").trim();
   account.passwordHash = rawPassword ? hashLegacyAccountPassword(rawPassword) : "";
   account.password = "";
@@ -143,6 +150,7 @@ function createSessionToken(account, rememberMe = false) {
   } else {
     activeSessions.set(token, {
       accountId: account.id,
+      credentialHash: accountCredentialHash(account),
       createdAt: new Date().toISOString()
     });
   }
@@ -189,9 +197,11 @@ function getAuthenticatedAccount(req, state) {
   }
 
   const account = (state.accounts || []).find((item) => item.id === session.accountId);
-  if (!canAuthenticateAccount(account) || (remembered && (
-    session.expiresAt <= Date.now() || session.credentialHash !== accountCredentialHash(account)
-  ))) {
+  if (
+    !canAuthenticateAccount(account) ||
+    (remembered && session.expiresAt <= Date.now()) ||
+    session.credentialHash !== accountCredentialHash(account)
+  ) {
     clearRequestSession(req);
     return null;
   }
@@ -248,7 +258,25 @@ async function getAuthenticatedDbUser(req) {
   if (!payload?.sub) {
     return null;
   }
-  return findAuthenticatableUserById(payload.sub);
+  const user = await findAuthenticatableUserById(payload.sub);
+  return matchesCredentialVersion(user, payload.cv) ? user : null;
+}
+
+// Called before routing cookie-authenticated requests, including /api/session.
+// This closes the path from a pre-reset cookie to a newly minted PostgreSQL JWT.
+async function validateDbCookieSession(req) {
+  if (!isDatabaseEnabled() || !getSessionTokenFromRequest(req)) return;
+  const storage = require("../storage");
+  const account = getAuthenticatedAccount(req, storage.readState());
+  if (!account || (!account.dbUserId && account.source !== "postgres")) return;
+  const user = account.dbUserId ? await findAuthenticatableUserById(account.dbUserId) : null;
+  const currentAccount = getAuthenticatedAccount(req, storage.readState());
+  if (!currentAccount || currentAccount.id !== account.id ||
+      !matchesCredentialVersion(user, currentAccount.dbCredentialVersion)) {
+    clearRequestSession(req);
+    return;
+  }
+  req.authenticatedDbSessionUser = user;
 }
 
 async function requireAuthenticatedDbUser(req, res) {
@@ -403,8 +431,11 @@ function ensureLegacyAccountForDbUser(state, dbUser, options = {}) {
     account.source = "postgres";
   }
 
+  account.dbUserId = String(dbUser.id);
+  account.dbCredentialVersion = dbUser.credentialVersion || "";
+
   if (typeof options.password === "string" && options.password.trim()) {
-    setLegacyAccountPassword(account, options.password);
+    setLegacyAccountPassword(account, options.password, { databaseVerified: true });
   }
 
   if (matchedAssociate) {
@@ -495,6 +526,7 @@ module.exports = {
   generateLegacyId,
   getAuthenticatedAccount,
   getAuthenticatedDbUser,
+  validateDbCookieSession,
   getBearerTokenFromRequest,
   getSessionTokenFromRequest,
   hasLegacyAccountPasswordHash,

@@ -1142,7 +1142,7 @@ document.addEventListener("click", async (event) => {
   if (action === "open-journey-history") {
     if (!['admin','instructor'].includes(session?.role)) return;
     const scopeId = actionTarget.dataset.courseId || '';
-    if (isAdminView()) { state.activeView = 'reports'; reportsSectionMode = 'journeys'; }
+    if (isAdminView() && !scopeId) { state.activeView = 'reports'; reportsSectionMode = 'journeys'; }
     await loadJourneyReport(scopeId);
     render();
     return;
@@ -4356,7 +4356,8 @@ document.addEventListener("submit", async (event) => {
       enrollmentOpensAt,
       enrollmentClosesAt,
       contentTemplate,
-      diplomaTemplate: "Aprovechamiento"
+      diplomaTemplate: "Aprovechamiento",
+      enrollmentPaymentInstructions: document.getElementById("courseEnrollmentInstructions")?.value.trim() || ""
     });
     if (intensive) draftCourse.modality = "Presencial";
     const blueprint = !intensive && document.getElementById("courseGenerateContent")?.checked
@@ -10706,6 +10707,9 @@ function renderCourses() {
                         .join("")}
                     </select>
                   </label>
+                  <details class="studio-full" data-course-mode="course">
+                    <summary>Opciones avanzadas de contenido (opcional)</summary>
+                    <div class="studio-grid">
                   <label class="inline-field" data-course-mode="course">
                     Plantilla de contenido
                     <select id="courseTemplate">
@@ -10721,6 +10725,8 @@ function renderCourses() {
                     Area o especialidad
                     <input id="courseType" placeholder="Area o especialidad del curso" />
                   </label>
+                    </div>
+                  </details>
                   <label class="inline-field" data-course-mode="course">
                     Fecha inicio
                     <input id="courseStart" type="date" />
@@ -10736,6 +10742,11 @@ function renderCourses() {
                   <label class="inline-field">
                     Plazas
                     <input id="courseCapacity" type="number" min="1" step="1" placeholder="Plazas" />
+                  </label>
+                  <label class="inline-field studio-full">
+                    Indicaciones de pago / transferencia
+                    <textarea id="courseEnrollmentInstructions" rows="2">ES23 0073 0100 5905 0627 3646</textarea>
+                    <span class="field-hint">Cuenta oficial de Isócrona Zero. Puedes modificarla para esta formación.</span>
                   </label>
                   <label class="inline-field" data-course-mode="course">
                     Coordinación informativa (no certificable)
@@ -11439,6 +11450,7 @@ function renderJourneyHistory() {
     <div class="chip-row"><a class="button-link" href="${escapeHtml(exportUrl)}">Descargar historial CSV / Excel</a>${report.course?`<a class="ghost-button button-link" href="${escapeHtml(exportUrl+'&mode=attendees')}">Asistentes validados de esta edición (CSV)</a>`:''}</div>
     ${report.course?'<p class="muted">Los recuentos muestran las otras jornadas realizadas del mismo tipo, sin incluir esta edición. El CSV de asistentes incluye únicamente el alumnado con cierre validado de esta jornada, una vez alcanzada su fecha.</p>':''}
     ${report.unclassifiedCount?`<details><summary>${report.unclassifiedCount} jornada(s) sin tipo: revisar antes de usar el historial</summary>${report.unclassifiedCourses.map(c=>`<button type="button" class="ghost-button" data-action="select-course" data-course-id="${escapeHtml(c.id)}">Clasificar · ${escapeHtml(c.title)}</button>`).join('')}</details>`:''}
+    <p class="muted" role="status">${report.rows.length} persona(s) en la consulta · ${report.rows.filter(row=>row.journeyCount===0).length} sin participaciones previas del tipo seleccionado. Ordenación orientativa; la asignación de plazas sigue siendo manual.</p>
     <div class="journey-history-rows">${report.rows.map(row=>`<article class="journey-history-row"><div><strong>${escapeHtml(row.name)}</strong><p class="muted">Nº socio: ${escapeHtml(row.associateNumber || '—')} · Última: ${escapeHtml(row.lastDate?formatDate(row.lastDate):'Sin participaciones registradas')}</p></div><span class="journey-history-count">${row.journeyCount} ${report.course?(row.journeyCount===1?'otra jornada':'otras jornadas'):(row.journeyCount===1?'jornada':'jornadas')}</span>${row.details.length?`<details><summary>Ver jornadas realizadas</summary><ul>${row.details.map(d=>`<li>${escapeHtml(formatDate(d.date))} · ${escapeHtml(d.title)} · ${escapeHtml(d.typeLabel)}</li>`).join('')}</ul></details>`:''}</article>`).join('') || '<p class="empty-state">No hay personas que coincidan con la consulta.</p>'}</div>
   </section>`;
 }
@@ -14038,6 +14050,7 @@ function renderCourseWorkbench(course) {
                   ${proofPending ? `<span class="small-chip">Falta justificante</span>` : ""}
                 </div>
                 <p class="muted"><strong>Siguiente accion:</strong> ${escapeHtml(nextActionLabel)}</p>
+                <p class="field-hint">La plaza y el pago se gestionan por separado. Validar un ingreso corresponde a Tesorería.</p>
                 ${submission.note ? `<p class="muted">${escapeHtml(submission.note)}</p>` : ""}
               </div>
               <div class="chip-row">
@@ -14047,7 +14060,7 @@ function renderCourseWorkbench(course) {
                     ? `${renderStoredProofLink(submission.paymentProof, "Abrir justificante")}`
                     : `<span class="small-chip">${proofPending ? "Sin justificante" : waiting ? "En espera" : "Pendiente"}</span>`
                 }
-                <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Confirmar plaza</button>
+                <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed" title="Confirma la plaza, no valida el cobro. Revisa el pago en Tesorería.">Confirmar plaza</button>
                 <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="pending-proof">Pedir justificante</button>
                 <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>
               </div>
@@ -14088,9 +14101,14 @@ function renderCourseWorkbench(course) {
             <span class="small-chip">${getCourseTemplateLabel(course.contentTemplate || inferCourseTemplate(course))}</span>
             <span class="small-chip">${escapeHtml(getCourseClassLabel(course.courseClass))}</span>
             <span class="small-chip">${escapeHtml(course.status)}</span>
-            <button class="ghost-button danger-button" type="button" data-action="delete-course" data-course-id="${course.id}">Eliminar curso</button>
+            
           </div>
         </div>
+        <details class="course-review-details">
+          <summary>Acciones avanzadas del curso</summary>
+          <p class="muted">La eliminación es una acción excepcional. Comprueba que has seleccionado el curso correcto.</p>
+          <button class="ghost-button danger-button" type="button" data-action="delete-course" data-course-id="${course.id}">Eliminar curso</button>
+        </details>
         <details class="course-review-details">
           <summary>Preparación y cierre <span>${completedChecks}/${workbenchChecks.length} comprobaciones · ${readyClosureCount} listo(s) para certificar</span></summary>
           <div class="panel-stack">
@@ -14216,6 +14234,7 @@ function renderCourseWorkbench(course) {
         </div>
           </div>
         </details>
+        <p class="muted">Organiza el curso por tareas: <strong>Ficha</strong> para los datos generales, <strong>Alumnado</strong> para plazas e inscripciones y <strong>${isPracticalCourse ? "Diploma" : "Certificado"}</strong> para el cierre. El contenido y las sesiones se gestionan en sus propias pestañas.</p>
         <div class="workbench-tabs">
           ${workbenchTabs
             .map(
@@ -14514,6 +14533,7 @@ function renderCourseWorkbench(course) {
           showWorkbenchSection("students")
             ? `
         ${course.journeyTypeId ? `<button type="button" class="ghost-button" data-action="open-journey-history" data-course-id="${escapeHtml(course.id)}">Historial y asistentes de esta jornada</button>` : ""}
+        ${course.journeyTypeId && isAdminView() ? renderJourneyHistoryForCourse(course) : ""}
         <div class="content-module">
           <div class="module-head">
             <div>
