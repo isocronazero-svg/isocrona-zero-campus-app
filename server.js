@@ -6832,8 +6832,8 @@ const server = http.createServer(async (req, res) => {
       }
       const accountId = String(payload.accountId || "").trim();
       const currentPassword = String(payload.currentPassword || "");
-      const newPassword = String(payload.newPassword || "");
-      const confirmPassword = String(payload.confirmPassword || "");
+      const newPassword = String(payload.newPassword || "").trim();
+      const confirmPassword = String(payload.confirmPassword || "").trim();
 
       let account = (state.accounts || []).find((item) => item.id === accountId);
       if (!account) {

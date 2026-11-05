@@ -288,8 +288,8 @@ async function completePasswordReset(req, res) {
   }
 
   const token = String(payload.token || "").trim();
-  const newPassword = String(payload.newPassword || "");
-  const confirmPassword = String(payload.confirmPassword || "");
+  const newPassword = String(payload.newPassword || "").trim();
+  const confirmPassword = String(payload.confirmPassword || "").trim();
   const record = token ? findResetRecord(token) : null;
 
   if (!isResetRecordUsable(record)) {
