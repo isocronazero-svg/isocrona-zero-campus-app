@@ -70,6 +70,8 @@ function createStateTransport(dependencies = {}) {
     const {
       password,
       passwordHash,
+      dbCredentialVersion,
+      dbUserId,
       sessionToken,
       resetToken,
       authToken,
@@ -131,11 +133,14 @@ function createStateTransport(dependencies = {}) {
     nextState.accounts = (nextState.accounts || []).map((account) => {
       const currentAccount = currentAccounts.get(account.id);
       if (!currentAccount) {
-        return account;
+        const { dbUserId, dbCredentialVersion, ...localAccount } = account;
+        return localAccount;
       }
 
       return {
         ...account,
+        dbUserId: currentAccount.dbUserId || "",
+        dbCredentialVersion: currentAccount.dbCredentialVersion || "",
         password:
           typeof account.password === "string" && account.password.trim()
             ? account.password
