@@ -44,10 +44,14 @@
     "smoke:campus-live-test": "node scripts/check-live-tests.mjs",
     "check:password-recovery-concurrency": "node scripts/check-password-recovery-concurrency.mjs",
     "check:db-session-revocation": "node scripts/check-db-session-revocation.mjs",
-    "check:postgres-security": "node scripts/check-postgres-security.mjs"
+    "check:postgres-security": "node scripts/check-postgres-security.mjs",
+    "check:browser": "playwright test --config=playwright.config.mjs"
   },
   "dependencies": {
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
   }
 }
