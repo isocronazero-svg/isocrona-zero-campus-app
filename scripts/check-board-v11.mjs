@@ -143,6 +143,10 @@ assert.match(contextSource, /Trabajando como:/);
 assert.match(contextSource, /Estás gestionando a:/);
 assert.match(boardSource, /Solicitar justificante/);
 assert.match(boardSource, /Descargar justificante/);
+assert.match(boardSource, /proofPreviewRequestId \+= 1/, "Cerrar el visor debe invalidar las solicitudes pendientes");
+assert.match(boardSource, /requestId !== proofPreviewRequestId/, "La respuesta tardía no debe sobrescribir otro justificante");
+assert.match(boardSource, /signature === "%PDF-"/, "Reconocer PDF por contenido aunque la URL no tenga extensión");
+
 assert.match(boardSource, /Abrir archivo/);
 assert.match(boardSource, /El archivo no está disponible o no existe/);
 assert.match(boardSource, /Libro interno de ingresos validados/);
