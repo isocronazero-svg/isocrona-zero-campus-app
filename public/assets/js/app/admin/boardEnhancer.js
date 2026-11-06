@@ -105,7 +105,7 @@ async function openProofPreview(href, label = "Justificante") {
     const type = clean(blob.type).split(";")[0].toLowerCase();
     const headerBytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
     const signature = String.fromCharCode(...headerBytes);
-    const declaredPdf = type === "application/pdf" || /\\.pdf(?:$|[?#])/i.test(href);
+    const declaredPdf = type === "application/pdf" || /\.pdf(?:$|[?#])/i.test(href);
     const isPdf = signature === "%PDF-";
     const isImage = !isPdf && type.startsWith("image/");
     if (declaredPdf && !isPdf) {
