@@ -103,14 +103,13 @@ async function openProofPreview(href, label = "Justificante") {
     const blob = await response.blob();
     if (!blob.size) throw new Error("El archivo está vacío. Solicita un nuevo justificante.");
     const type = clean(blob.type).split(";")[0].toLowerCase();
-    const isImage = type.startsWith("image/");
-    const isPdf = type === "application/pdf" || (!type || type === "application/octet-stream") && href.toLowerCase().endsWith(".pdf");
-    if (isPdf) {
-      const headerBytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
-      const signature = String.fromCharCode(...headerBytes);
-      if (signature !== "%PDF-") {
-        throw new Error("El archivo recibido no es un PDF válido. Solicita un nuevo justificante.");
-      }
+    const headerBytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+    const signature = String.fromCharCode(...headerBytes);
+    const declaredPdf = type === "application/pdf" || /\\.pdf(?:$|[?#])/i.test(href);
+    const isPdf = signature === "%PDF-";
+    const isImage = !isPdf && type.startsWith("image/");
+    if (declaredPdf && !isPdf) {
+      throw new Error("El archivo recibido no es un PDF válido. Solicita un nuevo justificante.");
     }
     if (proofObjectUrl) URL.revokeObjectURL(proofObjectUrl);
     proofObjectUrl = URL.createObjectURL(blob);
