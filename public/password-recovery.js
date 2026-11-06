@@ -248,7 +248,13 @@ async function installPasswordRecoveryUi() {
     class: "iz-password-recovery-link",
     type: "button"
   }, "¿Has olvidado tu contraseña?");
-  loginForm.appendChild(link);
+  // Keep password recovery beside the sign-in action, before the secondary routes.
+  const submitRow = loginForm.querySelector(".chip-row");
+  if (submitRow) {
+    submitRow.insertAdjacentElement("afterend", link);
+  } else {
+    loginForm.appendChild(link);
+  }
 
   let activeToken = "";
 
