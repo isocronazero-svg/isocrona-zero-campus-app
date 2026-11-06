@@ -142,7 +142,9 @@ assert.match(contextSource, /selectedMemberId:\s*null/, "La selección de person
 assert.match(contextSource, /Trabajando como:/);
 assert.match(contextSource, /Estás gestionando a:/);
 assert.match(boardSource, /Solicitar justificante/);
-assert.match(boardSource, /Revisión online/);
+assert.match(boardSource, /Descargar justificante/);
+assert.match(boardSource, /Abrir archivo/);
+assert.match(boardSource, /El archivo no está disponible o no existe/);
 assert.match(boardSource, /Libro interno de ingresos validados/);
 assert.match(boardSource, /Unirme al canal de WhatsApp/);
 assert.match(feeYearSource, /Tu alta está activa desde ahora/);
