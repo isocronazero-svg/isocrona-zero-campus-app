@@ -146,6 +146,8 @@ assert.match(boardSource, /Descargar justificante/);
 assert.match(boardSource, /proofPreviewRequestId \+= 1/, "Cerrar el visor debe invalidar las solicitudes pendientes");
 assert.match(boardSource, /requestId !== proofPreviewRequestId/, "La respuesta tardía no debe sobrescribir otro justificante");
 assert.match(boardSource, /signature === "%PDF-"/, "Reconocer PDF por contenido aunque la URL no tenga extensión");
+assert.match(boardSource, /if \(proofObjectUrl\) URL\.revokeObjectURL\(proofObjectUrl\);\s*proofObjectUrl = "";\s*const dialog = ensureProofDialog\(\)/, "Cambiar de justificante libera el archivo anterior antes de iniciar la nueva petición");
+assert.match(boardSource, /await blob\.slice\(0, 5\)\.arrayBuffer\(\);[\s\S]*?if \(requestId !== proofPreviewRequestId \|\| !dialog\.open\) return;/, "Verificar vigencia también tras la lectura asíncrona de cabecera");
 
 assert.match(boardSource, /Abrir archivo/);
 assert.match(boardSource, /El archivo no está disponible o no existe/);
