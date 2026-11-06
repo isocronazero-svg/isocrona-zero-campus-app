@@ -99,6 +99,7 @@ async function openProofPreview(href, label = "Justificante") {
       const message = response.status === 401 ? "Tu sesión ha caducado. Inicia sesión de nuevo."
         : response.status === 403 ? "No tienes permiso para consultar este justificante."
         : response.status === 404 ? "El archivo no está disponible o no existe. Solicita otro justificante."
+        : response.status === 422 ? details.error || "El justificante está vacío o dañado. Solicita un nuevo archivo."
         : response.status >= 500 ? "El servidor no ha podido recuperar el archivo. Inténtalo más tarde."
         : details.error || "No se ha podido recuperar el justificante.";
       throw new Error(message);
