@@ -3,6 +3,7 @@ let observer = null;
 let latestState = null;
 let proofObjectUrl = "";
 let proofPreviewRequestId = 0;
+let proofPreviewController = null;
 const renderedProofNotices = new WeakMap();
 
 function clean(value) {
@@ -75,6 +76,8 @@ function ensureProofDialog() {
   dialog.innerHTML = '<div class="proof-preview-shell"></div>';
   dialog.addEventListener("close", () => {
     proofPreviewRequestId += 1;
+    proofPreviewController?.abort();
+    proofPreviewController = null;
     if (proofObjectUrl) URL.revokeObjectURL(proofObjectUrl);
     proofObjectUrl = "";
   });
@@ -85,6 +88,9 @@ function ensureProofDialog() {
 
 async function openProofPreview(href, label = "Justificante") {
   const requestId = ++proofPreviewRequestId;
+  proofPreviewController?.abort();
+  const controller = new AbortController();
+  proofPreviewController = controller;
   // Release any previous preview before replacing its controls or starting a new fetch.
   if (proofObjectUrl) URL.revokeObjectURL(proofObjectUrl);
   proofObjectUrl = "";
@@ -96,7 +102,7 @@ async function openProofPreview(href, label = "Justificante") {
   wireClose();
   if (!dialog.open) dialog.showModal();
   try {
-    const response = await fetch(href, { credentials: "same-origin" });
+    const response = await fetch(href, { credentials: "same-origin", signal: controller.signal });
     if (!response.ok) {
       const details = await response.json().catch(() => ({}));
       const message = response.status === 401 ? "Tu sesión ha caducado. Inicia sesión de nuevo."
@@ -160,7 +166,7 @@ async function openProofPreview(href, label = "Justificante") {
     }
     wireClose();
   } catch (error) {
-    if (requestId !== proofPreviewRequestId || !dialog.open) return;
+    if (requestId !== proofPreviewRequestId || !dialog.open || controller.signal.aborted) return;
     shell.innerHTML = header() + `<div class="status-note warning">${escapeHtml(error instanceof TypeError ? "Error de conexión al recuperar el archivo. Comprueba tu conexión e inténtalo de nuevo." : error.message || "No se pudo abrir el justificante")}</div>`;
     const retry = document.createElement("button");
     retry.type = "button";
