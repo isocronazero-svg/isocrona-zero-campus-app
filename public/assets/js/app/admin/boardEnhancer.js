@@ -73,6 +73,13 @@ function ensureProofDialog() {
   dialog.id = "proofPreviewDialog";
   dialog.innerHTML = '<div class="proof-preview-shell"></div>';
   dialog.addEventListener("close", () => {
+    if (isPdf) {
+      const headerBytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
+      const signature = String.fromCharCode(...headerBytes);
+      if (signature !== "%PDF-") {
+        throw new Error("El archivo recibido no es un PDF válido. Solicita un nuevo justificante.");
+      }
+    }
     if (proofObjectUrl) URL.revokeObjectURL(proofObjectUrl);
     proofObjectUrl = "";
   });
