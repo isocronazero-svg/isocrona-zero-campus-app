@@ -2,6 +2,7 @@ let installed = false;
 let observer = null;
 let latestState = null;
 let proofObjectUrl = "";
+let proofPreviewRequestId = 0;
 const renderedProofNotices = new WeakMap();
 
 function clean(value) {
@@ -73,6 +74,7 @@ function ensureProofDialog() {
   dialog.id = "proofPreviewDialog";
   dialog.innerHTML = '<div class="proof-preview-shell"></div>';
   dialog.addEventListener("close", () => {
+    proofPreviewRequestId += 1;
     if (proofObjectUrl) URL.revokeObjectURL(proofObjectUrl);
     proofObjectUrl = "";
   });
@@ -82,6 +84,7 @@ function ensureProofDialog() {
 }
 
 async function openProofPreview(href, label = "Justificante") {
+  const requestId = ++proofPreviewRequestId;
   const dialog = ensureProofDialog();
   const shell = dialog.querySelector(".proof-preview-shell");
   const header = (message = "") => `<div class="proof-preview-head"><div><p class="eyebrow">Tesorería</p><h3>${escapeHtml(label)}</h3>${message ? `<p class="muted">${escapeHtml(message)}</p>` : ""}</div><button class="ghost-button" type="button" data-proof-close>Cerrar</button></div>`;
@@ -101,6 +104,7 @@ async function openProofPreview(href, label = "Justificante") {
       throw new Error(message);
     }
     const blob = await response.blob();
+    if (requestId !== proofPreviewRequestId || !dialog.open) return;
     if (!blob.size) throw new Error("El archivo está vacío. Solicita un nuevo justificante.");
     const type = clean(blob.type).split(";")[0].toLowerCase();
     const headerBytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
@@ -150,6 +154,7 @@ async function openProofPreview(href, label = "Justificante") {
     }
     wireClose();
   } catch (error) {
+    if (requestId !== proofPreviewRequestId || !dialog.open) return;
     shell.innerHTML = header() + `<div class="status-note warning">${escapeHtml(error instanceof TypeError ? "Error de conexión al recuperar el archivo. Comprueba tu conexión e inténtalo de nuevo." : error.message || "No se pudo abrir el justificante")}</div>`;
     const retry = document.createElement("button");
     retry.type = "button";
