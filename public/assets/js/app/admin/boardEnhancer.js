@@ -85,6 +85,9 @@ function ensureProofDialog() {
 
 async function openProofPreview(href, label = "Justificante") {
   const requestId = ++proofPreviewRequestId;
+  // Release any previous preview before replacing its controls or starting a new fetch.
+  if (proofObjectUrl) URL.revokeObjectURL(proofObjectUrl);
+  proofObjectUrl = "";
   const dialog = ensureProofDialog();
   const shell = dialog.querySelector(".proof-preview-shell");
   const header = (message = "") => `<div class="proof-preview-head"><div><p class="eyebrow">Tesorería</p><h3>${escapeHtml(label)}</h3>${message ? `<p class="muted">${escapeHtml(message)}</p>` : ""}</div><button class="ghost-button" type="button" data-proof-close>Cerrar</button></div>`;
@@ -110,6 +113,8 @@ async function openProofPreview(href, label = "Justificante") {
     const type = clean(blob.type).split(";")[0].toLowerCase();
     const headerBytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
     const signature = String.fromCharCode(...headerBytes);
+    // Reading the header is asynchronous: a different proof may have opened meanwhile.
+    if (requestId !== proofPreviewRequestId || !dialog.open) return;
     const declaredPdf = type === "application/pdf" || /\.pdf(?:$|[?#])/i.test(href);
     const isPdf = signature === "%PDF-";
     const isImage = !isPdf && type.startsWith("image/");
