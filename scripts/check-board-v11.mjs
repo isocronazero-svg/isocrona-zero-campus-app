@@ -149,6 +149,8 @@ assert.match(boardSource, /signal: controller\.signal/, "La descarga de justific
 assert.match(boardSource, /controller\.signal\.aborted/, "Una petición cancelada no debe mostrar un error obsoleto");
 assert.match(boardSource, /requestId !== proofPreviewRequestId/, "La respuesta tardía no debe sobrescribir otro justificante");
 assert.match(boardSource, /signature === "%PDF-"/, "Reconocer PDF por contenido aunque la URL no tenga extensión");
+assert.match(boardSource, /blob\.size > 25 \* 1024 \* 1024/, "Limitar archivos grandes en la vista previa");
+assert.match(boardSource, /"image\/jpeg", "image\/png", "image\/gif", "image\/webp"/, "No incrustar formatos de imagen activos como SVG");
 assert.match(boardSource, /if \(proofObjectUrl\) URL\.revokeObjectURL\(proofObjectUrl\);\s*proofObjectUrl = "";\s*const dialog = ensureProofDialog\(\)/, "Cambiar de justificante libera el archivo anterior antes de iniciar la nueva petición");
 assert.match(boardSource, /await blob\.slice\(0, 5\)\.arrayBuffer\(\);[\s\S]*?if \(requestId !== proofPreviewRequestId \|\| !dialog\.open\) return;/, "Verificar vigencia también tras la lectura asíncrona de cabecera");
 
