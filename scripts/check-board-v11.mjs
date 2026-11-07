@@ -142,7 +142,20 @@ assert.match(contextSource, /selectedMemberId:\s*null/, "La selección de person
 assert.match(contextSource, /Trabajando como:/);
 assert.match(contextSource, /Estás gestionando a:/);
 assert.match(boardSource, /Solicitar justificante/);
-assert.match(boardSource, /Revisión online/);
+assert.match(boardSource, /Descargar justificante/);
+assert.match(boardSource, /proofPreviewRequestId \+= 1/, "Cerrar el visor debe invalidar las solicitudes pendientes");
+assert.match(boardSource, /proofPreviewController\?\.abort\(\)/, "Cambiar o cerrar el visor debe cancelar la descarga anterior");
+assert.match(boardSource, /signal: controller\.signal/, "La descarga de justificantes debe ser cancelable");
+assert.match(boardSource, /controller\.signal\.aborted/, "Una petición cancelada no debe mostrar un error obsoleto");
+assert.match(boardSource, /requestId !== proofPreviewRequestId/, "La respuesta tardía no debe sobrescribir otro justificante");
+assert.match(boardSource, /signature === "%PDF-"/, "Reconocer PDF por contenido aunque la URL no tenga extensión");
+assert.match(boardSource, /blob\.size > 25 \* 1024 \* 1024/, "Limitar archivos grandes en la vista previa");
+assert.match(boardSource, /"image\/jpeg", "image\/png", "image\/gif", "image\/webp"/, "No incrustar formatos de imagen activos como SVG");
+assert.match(boardSource, /if \(proofObjectUrl\) URL\.revokeObjectURL\(proofObjectUrl\);\s*proofObjectUrl = "";\s*const dialog = ensureProofDialog\(\)/, "Cambiar de justificante libera el archivo anterior antes de iniciar la nueva petición");
+assert.match(boardSource, /await blob\.slice\(0, 5\)\.arrayBuffer\(\);[\s\S]*?if \(requestId !== proofPreviewRequestId \|\| !dialog\.open\) return;/, "Verificar vigencia también tras la lectura asíncrona de cabecera");
+
+assert.match(boardSource, /Abrir archivo/);
+assert.match(boardSource, /El archivo no está disponible o no existe/);
 assert.match(boardSource, /Libro interno de ingresos validados/);
 assert.match(boardSource, /Unirme al canal de WhatsApp/);
 assert.match(feeYearSource, /Tu alta está activa desde ahora/);
