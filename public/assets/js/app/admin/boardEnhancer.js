@@ -116,6 +116,7 @@ async function openProofPreview(href, label = "Justificante") {
     const blob = await response.blob();
     if (requestId !== proofPreviewRequestId || !dialog.open) return;
     if (!blob.size) throw new Error("El archivo está vacío. Solicita un nuevo justificante.");
+    if (blob.size > 25 * 1024 * 1024) throw new Error("El justificante supera 25 MB y no puede previsualizarse aquí. Solicita un archivo más pequeño.");
     const type = clean(blob.type).split(";")[0].toLowerCase();
     const headerBytes = new Uint8Array(await blob.slice(0, 5).arrayBuffer());
     const signature = String.fromCharCode(...headerBytes);
@@ -123,7 +124,7 @@ async function openProofPreview(href, label = "Justificante") {
     if (requestId !== proofPreviewRequestId || !dialog.open) return;
     const declaredPdf = type === "application/pdf" || /\.pdf(?:$|[?#])/i.test(href);
     const isPdf = signature === "%PDF-";
-    const isImage = !isPdf && type.startsWith("image/");
+    const isImage = !isPdf && ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(type);
     if (declaredPdf && !isPdf) {
       throw new Error("El archivo recibido no es un PDF válido. Solicita un nuevo justificante.");
     }
