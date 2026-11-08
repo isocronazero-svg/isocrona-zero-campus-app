@@ -113,6 +113,11 @@ async function openProofPreview(href, label = "Justificante") {
         : details.error || "No se ha podido recuperar el justificante.";
       throw new Error(message);
     }
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > 25 * 1024 * 1024) {
+      await response.body?.cancel();
+      throw new Error("El justificante supera 25 MB y no puede previsualizarse aquí. Solicita un archivo más pequeño.");
+    }
     const blob = await response.blob();
     if (requestId !== proofPreviewRequestId || !dialog.open) return;
     if (!blob.size) throw new Error("El archivo está vacío. Solicita un nuevo justificante.");
