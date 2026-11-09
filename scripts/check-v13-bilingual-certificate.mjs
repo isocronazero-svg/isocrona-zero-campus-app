@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { buildActivityCertificate, buildActivityCertificatePages } = require("../server/activity-certificate.js");
 const member = { id: "member-1", name: "Persona Ejemplo" };
-const state = { members: [member], associates: [{ id: "associate-1", memberId: "member-1", v13Preferences: { diplomaLanguage: "es-va" } }], courses: [], settings: {} };
+const state = { members: [member], associates: [{ id: "associate-1", linkedMemberId: "member-1", v13Preferences: { diplomaLanguage: "es-va" } }], courses: [], settings: {} };
 const model = buildActivityCertificate(state, member.id);
 assert.equal(model.diplomaLanguage, "es-va");
 const pages = buildActivityCertificatePages(model, value => String(value).replace(/[()\\]/g, "\\$&"));
