@@ -151,7 +151,11 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
       if (Object.hasOwn(incoming, key)) merged[key] = incoming[key];
       else delete merged[key];
     }
-    associate.v13Preferences = merged;
+    // Do not introduce an empty field on legacy records during unrelated imports.
+    if (Object.keys(merged).length || Object.hasOwn(associate, "v13Preferences") ||
+        Object.keys(latest).length || Object.keys(incoming).length) {
+      associate.v13Preferences = merged;
+    }
   }
   for (const course of state.courses || []) {
     const latest = current.journeyTypes.get(course.id), before = baseline?.journeyTypes.get(course.id);
