@@ -5,6 +5,7 @@
   const roleSwitcher = document.getElementById("roleSwitcher");
   let isAdmin = false;
   let preferencesLoaded = false;
+  let saveInProgress = false;
   const syncExports = () => {
     if (exportsPanel) exportsPanel.hidden = !isAdmin || roleSwitcher?.value !== "admin";
   };
@@ -61,6 +62,8 @@
   form.addEventListener("submit", async event => {
     event.preventDefault();
     if (!preferencesLoaded) return setStatus("No se han podido cargar tus preferencias. Cierra y vuelve a abrir el formulario.");
+    if (saveInProgress) return;
+    saveInProgress = true;
     const saveButton = form.querySelector('button[type="submit"]');
     saveButton.disabled = true;
     setStatus("Guardando…");
@@ -71,6 +74,7 @@
     } catch (error) {
       setStatus(error.message);
     } finally {
+      saveInProgress = false;
       saveButton.disabled = false;
     }
   });
