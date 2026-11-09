@@ -136,6 +136,7 @@ function buildDiplomaLayout(model, settings, verifyUrl) {
   const bodyStart = front.length;
   const center = (value, y, size, width = 658, color = INK) => text(front, value, (PAGE_WIDTH - width) / 2, y, size, width, color, "center");
   let y = center(model.certificateTitle, 158, 23, 658, RED) + 8;
+  if (bilingual) y = center("CERTIFICAT DE FORMACIÓ / ASSISTÈNCIA", y - 2, 10, 658, RED) + 4;
   y = center(bilingual ? "La asociación / associació certifica que" : "La asociación certifica que", y, bilingual ? 11 : 12) + 8;
   // Fit unusually long names/titles without touching the fixed signature/footer area.
   const nameSize = textWidth(model.member.name, 28) > 1400 ? 19 : 28;
