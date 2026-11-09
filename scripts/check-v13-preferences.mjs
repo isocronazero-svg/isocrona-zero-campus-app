@@ -12,19 +12,21 @@ assert.deepEqual(normalizeV13Preferences({ shirtSize: "M" }, { diplomaLanguage: 
   shirtSize: "M", diplomaLanguage: "es"
 });
 assert.throws(() => normalizeV13Preferences({ diplomaLanguage: "fr" }), RangeError);
+assert.throws(() => normalizeV13Preferences({ sex: "invalid" }), RangeError);
+assert.equal(normalizeV13Preferences({ sex: "prefiero-no-indicar" }).sex, "prefiero-no-indicar");
 assert.throws(() => normalizeV13Preferences({ shirtSize: "XXXL-no" }), RangeError);
 assert.throws(() => normalizeV13Preferences({ shirtConfirmed: true }), RangeError);
 assert.throws(() => normalizeV13Preferences({ shirtSize: "M", shirtConfirmed: "true" }), RangeError);
 assert.equal(normalizeV13Preferences({ shirtSize: "M", shirtCut: "unisex", shirtConfirmed: true }).shirtConfirmed, true);
 assert.equal(normalizeV13Preferences({ shirtSize: "L" }, { shirtSize: "M", shirtCut: "unisex", shirtConfirmed: true }).shirtConfirmed, false);
 const members = [
-  { id: "1", name: "=HYPERLINK(1)", surname: "Ejemplo", v13Preferences: { shirtSize: "M", shirtCut: "mujer", diplomaLanguage: "es-va", shirtConfirmed: true } },
+  { id: "1", name: "=HYPERLINK(1)", surname: "Ejemplo", v13Preferences: { sex: "mujer", shirtSize: "M", shirtCut: "mujer", diplomaLanguage: "es-va", shirtConfirmed: true } },
   { id: "2", name: "Socio", surname: "Sin datos" }
 ];
 const shirts = projectV13Export(members, "shirts");
 assert.equal(shirts.rows[0][1], "'=HYPERLINK(1)");
-assert.deepEqual(shirts.rows[0].slice(3), ["M", "mujer", "Sí"]);
-assert.deepEqual(shirts.rows[1].slice(3), ["", "", "No"]);
+assert.deepEqual(shirts.rows[0].slice(3), ["mujer", "M", "mujer", "Sí"]);
+assert.deepEqual(shirts.rows[1].slice(3), ["", "", "", "No"]);
 assert.equal(projectV13Export(members, "diplomas").rows[0][3], "Castellano + valenciano");
 assert.equal(projectV13Export(members, "diplomas").rows[1][3], "Castellano");
 const file = workbookXlsx(shirts);
