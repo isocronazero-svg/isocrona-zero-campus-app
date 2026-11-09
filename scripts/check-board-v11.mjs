@@ -154,7 +154,7 @@ assert.match(boardSource, /response\.headers\.get\("content-length"\)/, "Comprob
 assert.match(boardSource, /await response\.body\?\.cancel\(\)/, "Cancelar descargas declaradas demasiado grandes");
 assert.match(boardSource, /"image\/jpeg", "image\/png", "image\/gif", "image\/webp"/, "No incrustar formatos de imagen activos como SVG");
 assert.match(boardSource, /if \(proofObjectUrl\) URL\.revokeObjectURL\(proofObjectUrl\);\s*proofObjectUrl = "";\s*const dialog = ensureProofDialog\(\)/, "Cambiar de justificante libera el archivo anterior antes de iniciar la nueva petición");
-assert.match(boardSource, /await blob\.slice\(0, 5\)\.arrayBuffer\(\);[\s\S]*?if \(requestId !== proofPreviewRequestId \|\| !dialog\.open\) return;/, "Verificar vigencia también tras la lectura asíncrona de cabecera");
+assert.match(boardSource, /await blob\.slice\(0, 5\)\.arrayBuffer\(\)\);[\s\S]*?if \(requestId !== proofPreviewRequestId \|\| !dialog\.open\) return;/, "Verificar vigencia también tras la lectura asíncrona de cabecera");
 
 assert.match(boardSource, /Abrir archivo/);
 assert.match(boardSource, /El archivo no está disponible o no existe/);
