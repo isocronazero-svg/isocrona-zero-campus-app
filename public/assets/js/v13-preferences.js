@@ -15,6 +15,7 @@
   const size = document.getElementById("v13ShirtSize");
   const cut = document.getElementById("v13ShirtCut");
   const language = document.getElementById("v13DiplomaLanguage");
+  const confirmed = document.getElementById("v13ShirtConfirmed");
   if (!open || !dialog || !form) return;
   const setStatus = message => { status.textContent = message; };
   async function request(method, body) {
@@ -36,6 +37,7 @@
       size.value = p.shirtSize || "";
       cut.value = p.shirtCut || "";
       language.value = p.diplomaLanguage || "es";
+      confirmed.checked = p.shirtConfirmed === true;
       setStatus("");
     } catch (error) {
       setStatus(error.message);
@@ -46,7 +48,8 @@
     event.preventDefault();
     setStatus("Guardando…");
     try {
-      await request("PATCH", { shirtSize: size.value, shirtCut: cut.value, diplomaLanguage: language.value });
+      if (confirmed.checked && (!size.value || !cut.value)) throw new Error("Selecciona talla y corte antes de confirmar el pedido.");
+      await request("PATCH", { shirtSize: size.value, shirtCut: cut.value, shirtConfirmed: confirmed.checked, diplomaLanguage: language.value });
       setStatus("Preferencias guardadas correctamente.");
     } catch (error) {
       setStatus(error.message);
