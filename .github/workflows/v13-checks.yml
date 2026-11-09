@@ -20,6 +20,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: node --check server.js && node --check public/assets/js/v13-preferences.js
       - run: node scripts/check-v13-preferences.mjs
       - run: node scripts/check-v13-bilingual-certificate.mjs
       - run: node scripts/check-v13-bilingual-diploma.mjs
