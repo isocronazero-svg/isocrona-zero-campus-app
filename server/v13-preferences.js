@@ -44,7 +44,7 @@ function projectV13Export(associates = [], type = "shirts") {
     : ["ID socio", "Nombre", "Apellidos", "Idioma diploma"];
   const rows = associates.map(a => {
     const p = a.v13Preferences || {};
-    const common = [a.id || "", a.name || a.firstName || "", a.surname || a.lastName || ""];
+    const common = [a.id || "", a.firstName || a.name || "", a.lastName || a.surname || ""];
     return (type === "shirts"
       ? [...common, p.shirtSize || "", p.shirtCut || "", p.shirtConfirmed ? "Sí" : "No"]
       : [...common, p.diplomaLanguage === "es-va" ? "Castellano + valenciano" : "Castellano"])
