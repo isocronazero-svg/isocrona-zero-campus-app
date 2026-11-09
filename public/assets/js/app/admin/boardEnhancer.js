@@ -217,8 +217,13 @@ async function openProofPreview(href, label = "Justificante") {
         let renderSequence = 0;
         const renderPage = async () => {
           const sequence = ++renderSequence;
-          proofPdfRenderTask?.cancel();
+          const previousTask = proofPdfRenderTask;
+          previousTask?.cancel();
           proofPdfRenderTask = null;
+          if (previousTask) {
+            try { await previousTask.promise; } catch { /* Render cancellation is expected. */ }
+          }
+          if (sequence !== renderSequence || requestId !== proofPreviewRequestId || !dialog.open) return;
           try {
             const page = await pdf.getPage(currentPage);
             if (sequence !== renderSequence || requestId !== proofPreviewRequestId || !dialog.open) return;
