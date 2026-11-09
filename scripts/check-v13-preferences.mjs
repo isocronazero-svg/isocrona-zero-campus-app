@@ -59,7 +59,7 @@ assert.match(exportRoute, /requireAdminDbUser\(req, res\)/);
 const frontend = readFileSync(new URL("../public/assets/js/v13-preferences.js", import.meta.url), "utf8");
 assert.match(frontend, /const version = \+\+roleCheckVersion/);
 assert.match(frontend, /if \(version !== roleCheckVersion\) return/);
-assert.match(frontend, /document\.getElementById\("logoutButton"\)\?\.addEventListener\("click", \(\) => \{\s*roleCheckVersion\+\+;/);
+assert.match(frontend, /document\.getElementById\("logoutButton"\)\?\.addEventListener\("click", \(\) => \{[\s\S]*?roleCheckVersion\+\+;/);
 assert.match(frontend, /const requestVersion = \+\+preferencesRequestVersion/);
 assert.match(frontend, /requestVersion !== preferencesRequestVersion \|\| !dialog\.open/);
 assert.match(frontend, /dialog\.addEventListener\("close", \(\) => \{ preferencesRequestVersion\+\+; preferencesLoaded = false; \}\)/);
