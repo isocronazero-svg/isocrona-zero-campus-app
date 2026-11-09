@@ -6,6 +6,7 @@
   let isAdmin = false;
   let preferencesLoaded = false;
   let saveInProgress = false;
+  let preferencesRequestVersion = 0;
   let roleCheckVersion = 0;
   const syncExports = async () => {
     if (exportsPanel) exportsPanel.hidden = true;
@@ -28,6 +29,9 @@
     if (exportsPanel) exportsPanel.hidden = true;
   });
   document.getElementById("logoutButton")?.addEventListener("click", () => {
+    preferencesRequestVersion++;
+    preferencesLoaded = false;
+    if (dialog?.open) dialog.close();
     roleCheckVersion++;
     isAdmin = false;
     if (exportsPanel) exportsPanel.hidden = true;
@@ -58,12 +62,14 @@
     return data.preferences || {};
   }
   open.addEventListener("click", async () => {
+    const requestVersion = ++preferencesRequestVersion;
     preferencesLoaded = false;
     form.querySelector('button[type="submit"]').disabled = true;
     setStatus("Cargando tus preferencias…");
     dialog.showModal();
     try {
       const p = await request("GET");
+      if (requestVersion !== preferencesRequestVersion || !dialog.open) return;
       size.value = p.shirtSize || "";
       sex.value = p.sex || "";
       cut.value = p.shirtCut || "";
@@ -73,9 +79,10 @@
       form.querySelector('button[type="submit"]').disabled = false;
       setStatus("");
     } catch (error) {
-      setStatus(error.message);
+      if (requestVersion === preferencesRequestVersion && dialog.open) setStatus(error.message);
     }
   });
+  dialog.addEventListener("close", () => { preferencesRequestVersion++; preferencesLoaded = false; });
   document.getElementById("v13PreferencesClose")?.addEventListener("click", () => dialog.close());
   form.addEventListener("submit", async event => {
     event.preventDefault();
