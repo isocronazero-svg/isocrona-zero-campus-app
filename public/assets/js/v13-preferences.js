@@ -28,6 +28,7 @@
     if (exportsPanel) exportsPanel.hidden = true;
   });
   document.getElementById("logoutButton")?.addEventListener("click", () => {
+    roleCheckVersion++;
     isAdmin = false;
     if (exportsPanel) exportsPanel.hidden = true;
   });
