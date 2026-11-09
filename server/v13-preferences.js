@@ -17,6 +17,10 @@ function normalizeV13Preferences(input = {}, previous = {}) {
     if (raw && !allowed.includes(raw)) throw new RangeError("Valor no permitido para " + field);
     value[field] = raw;
   }
+  if (Object.prototype.hasOwnProperty.call(input, "shirtConfirmed")) {
+    if (typeof input.shirtConfirmed !== "boolean") throw new RangeError("Confirmación de camiseta inválida");
+    value.shirtConfirmed = input.shirtConfirmed;
+  }
   return value;
 }
 
