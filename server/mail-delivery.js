@@ -9,7 +9,9 @@ function getMailSettings(state = {}, env = process.env) {
     ...(state.settings?.smtp || {})
   };
   const provider = String(env.IZ_EMAIL_PROVIDER || "smtp").trim().toLowerCase();
-  if (provider !== "resend") return { ...smtp, provider, enabled: true };
+  // Isolated QA must never send real mail, regardless of provider or SMTP settings.
+  const qaDisabled = env.IZ_QA_ISOLATED === "true";
+  if (provider !== "resend") return { ...smtp, provider, enabled: !qaDisabled };
   return {
     provider,
     apiKey: String(env.RESEND_API_KEY || "").trim(),
@@ -17,7 +19,7 @@ function getMailSettings(state = {}, env = process.env) {
     fromName: String(env.IZ_EMAIL_FROM_NAME || "Isócrona Zero · Campus").trim(),
     replyTo: String(env.IZ_EMAIL_REPLY_TO || "").trim(),
     testTo: String(env.IZ_EMAIL_TEST_TO || "").trim(),
-    enabled: env.IZ_EMAIL_ENABLED === "true"
+    enabled: !qaDisabled && env.IZ_EMAIL_ENABLED === "true"
   };
 }
 
@@ -49,7 +51,7 @@ function createMailSender({ fetchImpl = (...args) => fetch(...args), smtpSend = 
     if (!isMailConfigured(config)) {
       throw new Error("Falta configurar el correo saliente (proveedor y remitente)");
     }
-    if (!testOnly && !isMailReady(config)) {
+    if (!isMailReady(config)) {
       throw new Error("El correo saliente esta en pausa; completa la prueba antes de activarlo");
     }
     if (config.provider === "smtp") return smtpSend(config, message);
