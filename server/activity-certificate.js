@@ -25,7 +25,7 @@ function buildActivityCertificate(state, memberId) {
     .sort((a, b) => String(a.endDate || "").localeCompare(String(b.endDate || "")) || a.id.localeCompare(b.id));
   return {
     name: String(member.name || ""),
-    diplomaLanguage: (state.associates || []).some(a => String(a.memberId || "") === String(memberId) && a.v13Preferences?.diplomaLanguage === "es-va") ? "es-va" : "es",
+    diplomaLanguage: (state.associates || []).some(a => (a.id === member.associateId || a.linkedMemberId === memberId) && a.v13Preferences?.diplomaLanguage === "es-va") ? "es-va" : "es",
     documentId: String(member.dni || member.documentId || ""),
     organization: String(state.settings?.organization || "Asociacion Isocrona Zero"),
     issuedAt: new Date().toISOString(),
