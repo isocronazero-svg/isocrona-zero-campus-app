@@ -9602,7 +9602,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     if (!memberId || !canAccessMemberResource(account, memberId)) {
       return sendJson(res, 403, { ok: false, error: "No tienes acceso a este certificado" });
     }
-    const model = buildActivityCertificate(state, memberId);
+    const certificateMember = (state.members || []).find(item => item.id === memberId);
+    const model = buildActivityCertificate(state, memberId, certificateMember ? findAssociateForAccount(state, null, certificateMember) : null);
     if (!model?.activities.length) {
       return sendJson(res, 404, { ok: false, error: "Todavia no hay actividades acreditadas para este certificado" });
     }
