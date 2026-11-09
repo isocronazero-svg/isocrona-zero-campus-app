@@ -8,6 +8,7 @@ on:
       - 'server/v13-*'
       - 'server/activity-certificate.js'
       - 'server/diploma-layout.js'
+      - 'server/mail-delivery.js'
       - 'scripts/check-v13-*'
       - 'package.json'
       - '.github/workflows/v13-checks.yml'
@@ -25,3 +26,4 @@ jobs:
       - run: node scripts/check-v13-preference-concurrency.mjs
       - run: node scripts/check-v13-bilingual-certificate.mjs
       - run: node scripts/check-v13-bilingual-diploma.mjs
+      - run: node scripts/check-v13-qa-mail-guard.mjs
