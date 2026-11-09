@@ -251,6 +251,8 @@ async function openProofPreview(href, label = "Justificante") {
       } catch (error) {
         if (requestId === proofPreviewRequestId && dialog.open) {
           note.textContent = "No se ha podido mostrar el PDF dentro de la página. Puedes descargar el justificante.";
+          note.className = "status-note warning";
+          console.warn("Fallo al renderizar justificante PDF:", error);
         }
       }
     } else {
