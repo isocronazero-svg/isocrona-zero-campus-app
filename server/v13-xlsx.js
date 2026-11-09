@@ -27,14 +27,14 @@ function zip(entries) {
     const filename = Buffer.from(name), raw = Buffer.from(body), data = zlib.deflateRawSync(raw);
     const crc = crc32(raw);
     const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(8, 6);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0, 6);
     local.writeUInt16LE(8, 8); local.writeUInt32LE(crc, 14);
     local.writeUInt32LE(data.length, 18); local.writeUInt32LE(raw.length, 22);
     local.writeUInt16LE(filename.length, 26);
     locals.push(local, filename, data);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4);
-    central.writeUInt16LE(20, 6); central.writeUInt16LE(8, 8); central.writeUInt16LE(8, 10);
+    central.writeUInt16LE(20, 6); central.writeUInt16LE(0, 8); central.writeUInt16LE(8, 10);
     central.writeUInt32LE(crc, 16); central.writeUInt32LE(data.length, 20);
     central.writeUInt32LE(raw.length, 24); central.writeUInt16LE(filename.length, 28);
     central.writeUInt32LE(offset, 42);
