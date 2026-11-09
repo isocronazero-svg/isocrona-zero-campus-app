@@ -199,6 +199,7 @@
           <p class="status-note" id="sessionStatus">Sin sesion activa</p>
           <p class="status-note" id="syncStatus">Cargando datos...</p>
           <div class="sidebar-toolbar">
+            <button class="ghost-button" type="button" id="v13PreferencesOpen">Camiseta e idioma del diploma</button>
             <button class="ghost-button" id="logoutButton">Cerrar sesion</button>
           </div>
         </section>
@@ -237,6 +238,26 @@
       </main>
     </div>
 
+    <dialog id="v13PreferencesDialog" aria-labelledby="v13PreferencesTitle" style="max-width:480px;width:calc(100% - 32px);border-radius:14px;padding:24px;border:1px solid #ddd;">
+      <form id="v13PreferencesForm" class="stack">
+        <h2 id="v13PreferencesTitle">Mis preferencias</h2>
+        <p>Elige la talla y el idioma de tus próximos diplomas.</p>
+        <label class="inline-field">Talla camiseta
+          <select id="v13ShirtSize"><option value="">Sin seleccionar</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>2XL</option><option>3XL</option><option>4XL</option></select>
+        </label>
+        <label class="inline-field">Tipo de corte
+          <select id="v13ShirtCut"><option value="">Sin seleccionar</option><option value="unisex">Unisex</option><option value="mujer">Mujer</option></select>
+        </label>
+        <label class="inline-field">Idioma de los diplomas
+          <select id="v13DiplomaLanguage"><option value="es">Castellano</option><option value="es-va">Castellano y valenciano</option></select>
+        </label>
+        <p class="status-note" id="v13PreferencesStatus" role="status" aria-live="polite"></p>
+        <div class="chip-row">
+          <button class="primary-button" type="submit">Guardar preferencias</button>
+          <button class="ghost-button" type="button" id="v13PreferencesClose">Cerrar</button>
+        </div>
+      </form>
+    </dialog>
     <div class="toast-layer" id="toastLayer" aria-live="polite" aria-atomic="true"></div>
     <input id="globalFilePicker" type="file" hidden />
 
@@ -272,5 +293,6 @@
 
     <script type="module" src="./assets/js/app/main.js"></script>
     <script type="module" src="./app.js"></script>
+    <script src="./assets/js/v13-preferences.js" defer></script>
   </body>
 </html>
