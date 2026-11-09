@@ -13,6 +13,10 @@ assert.deepEqual(normalizeV13Preferences({ shirtSize: "M" }, { diplomaLanguage: 
 });
 assert.throws(() => normalizeV13Preferences({ diplomaLanguage: "fr" }), RangeError);
 assert.throws(() => normalizeV13Preferences({ shirtSize: "XXXL-no" }), RangeError);
+assert.throws(() => normalizeV13Preferences({ shirtConfirmed: true }), RangeError);
+assert.throws(() => normalizeV13Preferences({ shirtSize: "M", shirtConfirmed: "true" }), RangeError);
+assert.equal(normalizeV13Preferences({ shirtSize: "M", shirtCut: "unisex", shirtConfirmed: true }).shirtConfirmed, true);
+assert.equal(normalizeV13Preferences({ shirtSize: "L" }, { shirtSize: "M", shirtCut: "unisex", shirtConfirmed: true }).shirtConfirmed, false);
 const members = [
   { id: "1", name: "=HYPERLINK(1)", surname: "Ejemplo", v13Preferences: { shirtSize: "M", shirtCut: "mujer", diplomaLanguage: "es-va", shirtConfirmed: true } },
   { id: "2", name: "Socio", surname: "Sin datos" }
