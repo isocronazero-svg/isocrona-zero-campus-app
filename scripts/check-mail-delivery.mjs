@@ -226,7 +226,13 @@ function client() {
       ? await response.json() : Buffer.from(await response.arrayBuffer()) };
   };
 }
-const logged = () => readFileSync(requestLog, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+const logged = () => {
+  // The mock provider appends JSON lines asynchronously; a concurrent read can
+  // observe a partial final line. Only consume newline-terminated records.
+  const content = readFileSync(requestLog, "utf8");
+  const lastNewline = content.lastIndexOf("\n");
+  return lastNewline < 0 ? [] : content.slice(0, lastNewline).split("\n").filter(Boolean).map(line => JSON.parse(line));
+};
 try {
   await start(false);
   const admin = client(), member = client(), anonymous = client();
