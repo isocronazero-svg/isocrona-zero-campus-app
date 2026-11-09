@@ -63,4 +63,7 @@ assert.match(frontend, /document\.getElementById\("logoutButton"\)\?\.addEventLi
 assert.match(frontend, /const requestVersion = \+\+preferencesRequestVersion/);
 assert.match(frontend, /requestVersion !== preferencesRequestVersion \|\| !dialog\.open/);
 assert.match(frontend, /dialog\.addEventListener\("close", \(\) => \{ preferencesRequestVersion\+\+; preferencesLoaded = false; \}\)/);
-console.log("V1.3 preferencias, XLSX, permisos y cancelación de respuestas obsoletas: OK");
+assert.match(frontend, /const requestVersion = preferencesRequestVersion/);
+assert.match(frontend, /if \(requestVersion === preferencesRequestVersion && dialog\.open\) setStatus\("Preferencias guardadas correctamente\."\)/);
+assert.match(frontend, /if \(requestVersion === preferencesRequestVersion && dialog\.open\) saveButton\.disabled = false/);
+console.log("V1.3 preferencias, XLSX, permisos y respuestas obsoletas de carga y guardado: OK");
