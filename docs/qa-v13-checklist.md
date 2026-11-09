@@ -28,3 +28,11 @@
 
 ## Criterio de publicación
 No fusionar PR #349 ni publicar en `main` hasta completar las casillas, confirmar los permisos y dejar evidencia del resultado. No trasladar a producción las variables `NODE_ENV=development` ni ninguna excepción de seguridad para cuentas demo.
+
+## Preparación segura antes de abrir QA al navegador
+1. La plantilla existente `.env.qa.example` exige `NODE_ENV=production`, `IZ_DEFAULT_STATE_PATH=/app/data/qa-private-seed.json` e `IZ_EMAIL_ENABLED=false`; el archivo `data/qa-private-seed.json` se verifica sin cuentas ni socios precargados.
+2. **No basta con cambiar `NODE_ENV` en el servicio ya iniciado**: el volumen persistente puede contener un estado previo con administrador demo. Comprobar y sanear primero el estado del volumen QA, sin afectar jamás el volumen de producción. Si no puede verificarse, preparar un volumen QA nuevo y vacío.
+3. Configurar `IZ_BOOTSTRAP_ADMIN_EMAIL` y `IZ_BOOTSTRAP_ADMIN_PASSWORD` como secretos privados de Railway, nunca en Git. Confirmar que la aplicación realmente los consume y que no hay otras cuentas demo accesibles.
+4. Añadir una barrera externa de acceso (autenticación previa o red restringida) y verificarla **antes** de generar un dominio público. Una contraseña en el login de la aplicación por sí sola no equivale a restringir la exposición del entorno.
+5. Tras cambiar configuración, ejecutar las pruebas de login, autorización y persistencia con datos ficticios; comprobar que no se envían correos.
+6. Retirar el dominio temporal y las credenciales de prueba al finalizar.
