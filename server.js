@@ -88,6 +88,7 @@ const {
   verifyLegacyAccountPassword
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
+const { normalizeV13Preferences } = require("./server/v13-preferences");
 const handleJourneyReports = JourneyParticipation.createJourneyReportHandler({readState, requireAuthenticatedAccount, sendJson, sendJsonError});
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
 const { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
@@ -4653,6 +4654,27 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, user: buildLegacyCurrentUser(account, state) });
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "No se pudo cargar el usuario actual" });
+    }
+  }
+
+  // V1.3: member-owned preferences; keep identity and billing fields unchanged.
+  if (requestUrl.pathname === "/api/v1.3/preferences" && req.method === "PATCH") {
+    const state = readState();
+    const account = requireAuthenticatedAccount(req, res, state);
+    if (!account) return;
+    const associate = (state.associates || []).find(item =>
+      String(item.id) === String(account.associateId || "") ||
+      (account.memberId && String(item.memberId || "") === String(account.memberId))
+    );
+    if (!associate) return sendJson(res, 404, { ok: false, error: "No se encontró la ficha de socio vinculada a tu cuenta." });
+    try {
+      const body = await readJsonBody(req);
+      const fields = normalizeV13Preferences(body, associate.v13Preferences || {});
+      associate.v13Preferences = fields;
+      writeState(state);
+      return sendJson(res, 200, { ok: true, preferences: fields });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "Preferencias inválidas" });
     }
   }
 
