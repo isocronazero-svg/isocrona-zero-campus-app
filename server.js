@@ -4658,6 +4658,18 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (requestUrl.pathname === "/api/v1.3/preferences" && req.method === "GET") {
+    const state = readState();
+    const account = requireAuthenticatedAccount(req, res, state);
+    if (!account) return;
+    const associate = (state.associates || []).find(item =>
+      String(item.id) === String(account.associateId || "") ||
+      (account.memberId && String(item.memberId || "") === String(account.memberId))
+    );
+    if (!associate) return sendJson(res, 404, { ok: false, error: "No se encontró tu ficha de socio." });
+    return sendJson(res, 200, { ok: true, preferences: associate.v13Preferences || {} });
+  }
+
   // V1.3: member-owned preferences; keep identity and billing fields unchanged.
   if (requestUrl.pathname === "/api/v1.3/preferences" && req.method === "PATCH") {
     const state = readState();
