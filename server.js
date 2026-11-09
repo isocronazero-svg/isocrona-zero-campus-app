@@ -6506,6 +6506,8 @@ const server = http.createServer(async (req, res) => {
         if (proofs) associate.legacyPaymentProofs = proofs;
         else delete associate.legacyPaymentProofs;
         const current = currentFeeAssociates.get(associate.id);
+        // Dedicated preferences API owns these values; old whole-state saves must not overwrite them.
+        if (current) associate.v13Preferences = current.v13Preferences || {};
         if (current) for (const field of ["membershipFeeYear", "membershipFeeYearAssignedAt", "membershipFeeYearSource"]) {
           associate[field] = current[field];
         }
