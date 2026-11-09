@@ -4663,7 +4663,7 @@ const server = http.createServer(async (req, res) => {
     const account = requireAuthenticatedAccount(req, res, state);
     if (!account) return;
     const associate = (state.associates || []).find(item =>
-      String(item.id) === String(account.associateId || "") ||
+      (account.associateId && String(item.id) === String(account.associateId)) ||
       (account.memberId && String(item.memberId || "") === String(account.memberId))
     );
     if (!associate) return sendJson(res, 404, { ok: false, error: "No se encontró tu ficha de socio." });
@@ -4676,7 +4676,7 @@ const server = http.createServer(async (req, res) => {
     const account = requireAuthenticatedAccount(req, res, state);
     if (!account) return;
     const associate = (state.associates || []).find(item =>
-      String(item.id) === String(account.associateId || "") ||
+      (account.associateId && String(item.id) === String(account.associateId)) ||
       (account.memberId && String(item.memberId || "") === String(account.memberId))
     );
     if (!associate) return sendJson(res, 404, { ok: false, error: "No se encontró la ficha de socio vinculada a tu cuenta." });
