@@ -29,6 +29,7 @@ assert.equal(projectV13Export(members, "diplomas").rows[0][3], "Castellano + val
 assert.equal(projectV13Export(members, "diplomas").rows[1][3], "Castellano");
 const file = workbookXlsx(shirts);
 assert.equal(file.readUInt32LE(0), 0x04034b50);
+assert.equal(file.readUInt16LE(6), 0, "ZIP flags must not claim an absent data descriptor");
 assert.equal(file.readUInt32LE(file.length - 22), 0x06054b50);
 assert.equal(file.readUInt16LE(file.length - 12), 5);
 let pos = 0, sheetXml = "";
