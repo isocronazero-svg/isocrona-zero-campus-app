@@ -3,11 +3,18 @@
   const open = document.getElementById("v13PreferencesOpen");
   const exportsPanel = document.getElementById("v13AdminExports");
   const roleSwitcher = document.getElementById("roleSwitcher");
+  let isAdmin = false;
   const syncExports = () => {
-    if (exportsPanel) exportsPanel.hidden = roleSwitcher?.value !== "admin" || !document.getElementById("shell")?.offsetParent;
+    if (exportsPanel) exportsPanel.hidden = !isAdmin || roleSwitcher?.value !== "admin";
   };
   roleSwitcher?.addEventListener("change", syncExports);
-  document.addEventListener("click", syncExports);
+  fetch("/api/auth/me", { credentials: "same-origin" })
+    .then(response => response.ok ? response.json() : null)
+    .then(data => {
+      isAdmin = data?.user?.role === "admin";
+      syncExports();
+    })
+    .catch(() => { isAdmin = false; syncExports(); });
   syncExports();
   const dialog = document.getElementById("v13PreferencesDialog");
   const form = document.getElementById("v13PreferencesForm");
