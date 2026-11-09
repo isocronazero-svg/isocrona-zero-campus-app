@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 const { normalizeV13Preferences, projectV13Export } = require("../server/v13-preferences.js");
 const { workbookXlsx } = require("../server/v13-xlsx.js");
 import { inflateRawSync } from "node:zlib";
+import { readFileSync } from "node:fs";
 
 assert.deepEqual(normalizeV13Preferences({ shirtSize: "XL", shirtCut: "unisex", diplomaLanguage: "es-va" }), {
   shirtSize: "XL", shirtCut: "unisex", diplomaLanguage: "es-va"
@@ -48,4 +49,9 @@ while (file.readUInt32LE(pos) === 0x04034b50) {
 }
 assert.match(sheetXml, /Castellano|Talla/);
 assert.match(sheetXml, /&apos;=HYPERLINK/);
-console.log("V1.3 preferencias y XLSX: OK");
+const server = readFileSync(new URL("../server.js", import.meta.url), "utf8");
+const exportRoute = server.slice(server.indexOf('if (requestUrl.pathname === "/api/v1.3/export"'), server.indexOf('if (requestUrl.pathname === "/api/admin/users"'));
+assert.match(exportRoute, /getAuthenticatedAccount\(req, exportState\)/);
+assert.match(exportRoute, /cookieAccount\.role !== "admin"/);
+assert.match(exportRoute, /requireAdminDbUser\(req, res\)/);
+console.log("V1.3 preferencias, XLSX y permisos de exportación: OK");
