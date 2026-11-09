@@ -22,5 +22,6 @@ jobs:
           node-version: '22'
       - run: node --check server.js && node --check public/assets/js/v13-preferences.js
       - run: node scripts/check-v13-preferences.mjs
+      - run: node scripts/check-v13-preference-concurrency.mjs
       - run: node scripts/check-v13-bilingual-certificate.mjs
       - run: node scripts/check-v13-bilingual-diploma.mjs
