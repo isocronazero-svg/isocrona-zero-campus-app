@@ -103,13 +103,14 @@ function tryCurriculumLayout(sections, { columns, size }, top, bottom) {
 
 function buildCurriculumBack(model, verifyUrl) {
   const back = basePage("REVERSO");
-  let cursor = text(back, "CONTENIDOS FORMATIVOS", 84, 158, 18, 658, RED) + 4;
+  const bilingual = model.diplomaLanguage === "es-va";
+  let cursor = text(back, bilingual ? "CONTENIDOS FORMATIVOS / CONTINGUTS FORMATIUS" : "CONTENIDOS FORMATIVOS", 84, 158, bilingual ? 15 : 18, 658, RED) + 4;
   cursor = text(back, model.course.title, 84, cursor, 10, 658) + 2;
   const top = cursor;
   const bottom = 452;
   const sections = model.sections.length
     ? model.sections
-    : [{ title: "Programa del curso", items: ["No hay contenidos formativos detallados registrados para esta actividad."] }];
+    : [{ title: bilingual ? "Programa del curso / Programa del curs" : "Programa del curso", items: [bilingual ? "No hay contenidos detallados / No hi ha continguts detallats registrats." : "No hay contenidos formativos detallados registrados para esta actividad."] }];
   const configurations = [
     ...[9, 8.5, 8, 7.5, 7, 6.5, 6].map(size => ({ columns: 2, size })),
     ...[7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.5, 3].map(size => ({ columns: 3, size }))
@@ -123,8 +124,8 @@ function buildCurriculumBack(model, verifyUrl) {
     throw new Error("El contenido del curso no cabe en el reverso del diploma incluso con maquetacion compacta");
   }
   back.push(...curriculum);
-  text(back, `Certificado n.o ${model.registryNumber}`, 84, 466, 8, 658, MUTED);
-  text(back, `C\u00f3digo de verificaci\u00f3n: ${model.code}`, 84, 480, 8, 658);
+  text(back, bilingual ? `Certificado / Certificat núm. ${model.registryNumber}` : `Certificado n.o ${model.registryNumber}`, 84, 466, 8, 658, MUTED);
+  text(back, bilingual ? `Código / Codi de verificació: ${model.code}` : `Código de verificación: ${model.code}`, 84, 480, 8, 658);
   text(back, verifyUrl, 84, 494, 7, 658, MUTED);
   return back;
 }
