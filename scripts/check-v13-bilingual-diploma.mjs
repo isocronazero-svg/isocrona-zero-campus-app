@@ -22,5 +22,5 @@ model.diplomaLanguage = "es";
 const spanish = buildDiplomaLayout(model, {}, "")[0].filter(x => x.type === "text").map(x => x.text).join(" ");
 assert.doesNotMatch(spanish, /associació|Duració:|Certificat núm\./);
 const spanishReverse = buildDiplomaLayout(model, {}, "")[1].filter(x => x.type === "text").map(x => x.text).join(" ");
-assert.doesNotMatch(spanishReverse, /CONTINGUTS FORMATIUS|verificació/);
+assert.doesNotMatch(spanishReverse, /CONTINGUTS FORMATIUS|Codi de verificació:/);
 console.log("V1.3 diploma individual bilingüe: OK");
