@@ -29,4 +29,10 @@ second.associates[0].v13Preferences.sex = "prefiero-no-indicar";
 access.writeState(second);
 assert.equal(stored.associates[0].v13Preferences.shirtCut, "unisex");
 assert.equal(stored.associates[0].v13Preferences.sex, "prefiero-no-indicar");
-console.log("V1.3 preferencias: escrituras concurrentes conservadas");
+// Importing or saving an untouched legacy member must not add empty V1.3 metadata.
+stored.associates.push({ id: "s2", firstName: "Socio", lastName: "Antiguo" });
+const legacy = access.readState();
+legacy.settings.legacyImport = true;
+access.writeState(legacy);
+assert.equal(Object.hasOwn(stored.associates.find(a => a.id === "s2"), "v13Preferences"), false);
+console.log("V1.3 preferencias: concurrencia y fichas antiguas conservadas");
