@@ -11,7 +11,7 @@
     "prestart": "npm run check:frontend-syntax",
     "start": "node server-entry.js",
     "start:local": "node server-entry.js",
-    "check:app": "node scripts/check-app.mjs && node scripts/check-course-pricing.mjs && node scripts/check-course-finance.mjs && node scripts/check-v1.2-payment-account-default.mjs && node scripts/check-v1.2-treasury-validation-confirm.mjs && node scripts/check-v1.2-treasury-scoped-metrics.mjs && node scripts/check-v1.2-course-create-advanced.mjs && node scripts/check-v1.2-course-treasury-ui.mjs && node scripts/check-audit-log.mjs && node scripts/check-diploma-preview.mjs && node scripts/check-board-v11.mjs && node scripts/check-membership-fee-policy.mjs && node scripts/check-v1.2-associate-fees-ui.mjs && node scripts/check-admin-context-v11.mjs && node scripts/check-qa-private-seed.mjs && node scripts/check-no-prepublication-secrets.mjs && node scripts/check-course-reservation-concurrency.mjs && node scripts/check-password-recovery.mjs && node scripts/check-password-recovery-concurrency.mjs && node scripts/check-db-session-revocation.mjs && npm run check:v1.3-preferences && npm run check:v1.3-bilingual",
+    "check:app": "node scripts/check-app.mjs && node scripts/check-course-pricing.mjs && node scripts/check-course-finance.mjs && node scripts/check-v1.2-payment-account-default.mjs && node scripts/check-v1.2-treasury-validation-confirm.mjs && node scripts/check-v1.2-treasury-scoped-metrics.mjs && node scripts/check-v1.2-course-create-advanced.mjs && node scripts/check-v1.2-course-treasury-ui.mjs && node scripts/check-audit-log.mjs && node scripts/check-diploma-preview.mjs && node scripts/check-board-v11.mjs && node scripts/check-membership-fee-policy.mjs && node scripts/check-v1.2-associate-fees-ui.mjs && node scripts/check-admin-context-v11.mjs && node scripts/check-qa-private-seed.mjs && node scripts/check-no-prepublication-secrets.mjs && node scripts/check-course-reservation-concurrency.mjs && node scripts/check-password-recovery.mjs && node scripts/check-password-recovery-concurrency.mjs && node scripts/check-db-session-revocation.mjs && npm run check:v1.3-preferences && npm run check:v1.3-bilingual && npm run check:v1.3-diploma",
     "check:course-pricing": "node scripts/check-course-pricing.mjs",
     "check:course-finance": "node scripts/check-course-finance.mjs",
     "check:v1.2-course-treasury-ui": "node scripts/check-v1.2-course-treasury-ui.mjs",
@@ -47,7 +47,8 @@
     "check:postgres-security": "node scripts/check-postgres-security.mjs",
     "check:browser": "playwright test --config=playwright.config.mjs",
     "check:v1.3-preferences": "node scripts/check-v13-preferences.mjs",
-    "check:v1.3-bilingual": "node scripts/check-v13-bilingual-certificate.mjs"
+    "check:v1.3-bilingual": "node scripts/check-v13-bilingual-certificate.mjs",
+    "check:v1.3-diploma": "node scripts/check-v13-bilingual-diploma.mjs"
   },
   "dependencies": {
     "jsonwebtoken": "^9.0.3",
