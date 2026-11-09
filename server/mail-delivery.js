@@ -51,7 +51,7 @@ function createMailSender({ fetchImpl = (...args) => fetch(...args), smtpSend = 
     if (!isMailConfigured(config)) {
       throw new Error("Falta configurar el correo saliente (proveedor y remitente)");
     }
-    if (!isMailReady(config)) {
+    if (process.env.IZ_QA_ISOLATED === "true" || (!testOnly && !isMailReady(config))) {
       throw new Error("El correo saliente esta en pausa; completa la prueba antes de activarlo");
     }
     if (config.provider === "smtp") return smtpSend(config, message);
