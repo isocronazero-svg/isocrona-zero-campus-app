@@ -1,7 +1,7 @@
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
 
-function buildActivityCertificate(state, memberId) {
+function buildActivityCertificate(state, memberId, resolvedAssociate = null) {
   const member = (state.members || []).find((item) => item.id === memberId);
   if (!member) return null;
   const seen = new Set();
@@ -25,7 +25,7 @@ function buildActivityCertificate(state, memberId) {
     .sort((a, b) => String(a.endDate || "").localeCompare(String(b.endDate || "")) || a.id.localeCompare(b.id));
   return {
     name: String(member.name || ""),
-    diplomaLanguage: (state.associates || []).some(a => (a.id === member.associateId || a.linkedMemberId === memberId) && a.v13Preferences?.diplomaLanguage === "es-va") ? "es-va" : "es",
+    diplomaLanguage: (resolvedAssociate || (state.associates || []).find(a => a.id === member.associateId || a.linkedMemberId === memberId))?.v13Preferences?.diplomaLanguage === "es-va" ? "es-va" : "es",
     documentId: String(member.dni || member.documentId || ""),
     organization: String(state.settings?.organization || "Asociacion Isocrona Zero"),
     issuedAt: new Date().toISOString(),
