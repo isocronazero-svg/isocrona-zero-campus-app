@@ -4,6 +4,7 @@
   const exportsPanel = document.getElementById("v13AdminExports");
   const roleSwitcher = document.getElementById("roleSwitcher");
   let isAdmin = false;
+  let preferencesLoaded = false;
   const syncExports = () => {
     if (exportsPanel) exportsPanel.hidden = !isAdmin || roleSwitcher?.value !== "admin";
   };
@@ -38,6 +39,8 @@
     return data.preferences || {};
   }
   open.addEventListener("click", async () => {
+    preferencesLoaded = false;
+    form.querySelector('button[type="submit"]').disabled = true;
     setStatus("Cargando tus preferencias…");
     dialog.showModal();
     try {
@@ -47,6 +50,8 @@
       cut.value = p.shirtCut || "";
       language.value = p.diplomaLanguage || "es";
       confirmed.checked = p.shirtConfirmed === true;
+      preferencesLoaded = true;
+      form.querySelector('button[type="submit"]').disabled = false;
       setStatus("");
     } catch (error) {
       setStatus(error.message);
@@ -55,6 +60,9 @@
   document.getElementById("v13PreferencesClose")?.addEventListener("click", () => dialog.close());
   form.addEventListener("submit", async event => {
     event.preventDefault();
+    if (!preferencesLoaded) return setStatus("No se han podido cargar tus preferencias. Cierra y vuelve a abrir el formulario.");
+    const saveButton = form.querySelector('button[type="submit"]');
+    saveButton.disabled = true;
     setStatus("Guardando…");
     try {
       if (confirmed.checked && (!size.value || !cut.value)) throw new Error("Selecciona talla y corte antes de confirmar el pedido.");
@@ -62,6 +70,8 @@
       setStatus("Preferencias guardadas correctamente.");
     } catch (error) {
       setStatus(error.message);
+    } finally {
+      saveButton.disabled = false;
     }
   });
 })();
