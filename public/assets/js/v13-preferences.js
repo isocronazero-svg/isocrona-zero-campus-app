@@ -6,17 +6,34 @@
   let isAdmin = false;
   let preferencesLoaded = false;
   let saveInProgress = false;
-  const syncExports = () => {
-    if (exportsPanel) exportsPanel.hidden = !isAdmin || roleSwitcher?.value !== "admin";
+  let roleCheckPending = false;
+  const syncExports = async () => {
+    if (exportsPanel) exportsPanel.hidden = true;
+    if (roleSwitcher?.value !== "admin" || roleCheckPending) return;
+    roleCheckPending = true;
+    try {
+      const response = await fetch("/api/auth/me", { credentials: "same-origin" });
+      const data = response.ok ? await response.json() : null;
+      isAdmin = data?.user?.role === "admin";
+      if (exportsPanel) exportsPanel.hidden = !isAdmin || roleSwitcher?.value !== "admin";
+    } catch {
+      isAdmin = false;
+    } finally {
+      roleCheckPending = false;
+    }
   };
   roleSwitcher?.addEventListener("change", syncExports);
-  fetch("/api/auth/me", { credentials: "same-origin" })
-    .then(response => response.ok ? response.json() : null)
-    .then(data => {
-      isAdmin = data?.user?.role === "admin";
-      syncExports();
-    })
-    .catch(() => { isAdmin = false; syncExports(); });
+  document.getElementById("loginForm")?.addEventListener("submit", () => {
+    isAdmin = false;
+    if (exportsPanel) exportsPanel.hidden = true;
+  });
+  document.getElementById("logoutButton")?.addEventListener("click", () => {
+    isAdmin = false;
+    if (exportsPanel) exportsPanel.hidden = true;
+  });
+  document.addEventListener("click", event => {
+    if (event.target.closest("#roleSwitcher, #v13PreferencesOpen")) syncExports();
+  });
   syncExports();
   const dialog = document.getElementById("v13PreferencesDialog");
   const form = document.getElementById("v13PreferencesForm");
