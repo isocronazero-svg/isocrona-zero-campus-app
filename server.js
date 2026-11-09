@@ -11316,6 +11316,10 @@ function buildCertificateModel(state, courseId, memberId) {
     code,
     registryNumber,
     verifyUrl,
+    diplomaLanguage: (state.associates || []).some(a =>
+      (String(a.memberId || "") === String(memberId) || String(a.id || "") === String(member.associateId || ""))
+      && a.v13Preferences?.diplomaLanguage === "es-va"
+    ) ? "es-va" : "es",
     certificateTitle: buildCertificateTitle(course),
     documentId: getMemberDocumentId(state, member),
     dateRange: formatDateRange(course.startDate, course.endDate),
