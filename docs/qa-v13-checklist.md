@@ -8,7 +8,8 @@
 - Commit fijado: `7c23c38720f61ac3348ef181007193f07b7fc9c8`. Despliegue `bd665d0c-2265-4337-8f0f-107c2cea7b4d`: SUCCESS; estado online, una réplica, cero alertas.
 - `IZ_QA_ISOLATED=true` impide los envíos de correo SMTP y Resend, incluso los de prueba, mediante `server/mail-delivery.js`; prueba automática `scripts/check-v13-qa-mail-guard.mjs` integrada en la batería específica V1.3.
 - `IZ_EMAIL_ENABLED=false` está configurada en Railway QA como defensa adicional; no sustituye la protección por `IZ_QA_ISOLATED` para SMTP.
-- Sin dominio público. **No generar dominio mientras existan cuentas demo accesibles sin una barrera de acceso adicional.**
+- Sin dominio público. **No generar dominio mientras no exista una barrera de acceso adicional verificada.**
+- En la rama V1.3, `server/fixture-account-policy.js` bloquea autenticación con cuentas o contraseñas del fixture si `IZ_QA_ISOLATED=true`, incluso bajo `NODE_ENV=development`. Prueba `scripts/check-v13-qa-fixture-auth.mjs` incorporada a CI. **Esta corrección no sustituye la barrera externa ni demuestra que el volumen persistente esté saneado.**
 - No compartir secretos, bases de datos, volúmenes ni credenciales con el portal de socios de producción.
 
 ## Automatización superada
@@ -34,7 +35,7 @@ No fusionar PR #349 ni publicar en `main` hasta completar las casillas, confirma
 ## Preparación segura antes de abrir QA al navegador
 1. La plantilla existente `.env.qa.example` exige `NODE_ENV=production`, `IZ_DEFAULT_STATE_PATH=/app/data/qa-private-seed.json` e `IZ_EMAIL_ENABLED=false`; el archivo `data/qa-private-seed.json` se verifica sin cuentas ni socios precargados.
 2. **No basta con cambiar `NODE_ENV` en el servicio ya iniciado**: el volumen persistente puede contener un estado previo con administrador demo. Comprobar y sanear primero el estado del volumen QA, sin afectar jamás el volumen de producción. Si no puede verificarse, preparar un volumen QA nuevo y vacío.
-3. Configurar `IZ_BOOTSTRAP_ADMIN_EMAIL` y `IZ_BOOTSTRAP_ADMIN_PASSWORD` como secretos privados de Railway, nunca en Git. Confirmar que la aplicación realmente los consume y que no hay otras cuentas demo accesibles.
+3. Configurar `IZ_BOOTSTRAP_ADMIN_EMAIL` y `IZ_BOOTSTRAP_ADMIN_PASSWORD` como secretos privados de Railway, nunca en Git. Estas variables se consumen desde `db.js` **solo si `NODE_ENV=production`**; en el QA actual (`development`) no crean el administrador. No cambiar a producción sin comprobar primero el volumen y el arranque. Confirmar que no hay otras cuentas demo accesibles.
 4. Añadir una barrera externa de acceso (autenticación previa o red restringida) y verificarla **antes** de generar un dominio público. Una contraseña en el login de la aplicación por sí sola no equivale a restringir la exposición del entorno.
 5. Tras cambiar configuración, ejecutar las pruebas de login, autorización y persistencia con datos ficticios; comprobar que no se envían correos.
 6. Retirar el dominio temporal y las credenciales de prueba al finalizar.
