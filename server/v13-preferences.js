@@ -3,6 +3,7 @@
 // V1.3: shared validation and export projection; no migration of existing member records.
 const SIZES = Object.freeze(["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"]);
 const CUTS = Object.freeze(["unisex", "mujer"]);
+const SEXES = Object.freeze(["hombre", "mujer", "otro", "prefiero-no-indicar"]);
 const DIPLOMA_LANGUAGES = Object.freeze(["es", "es-va"]);
 
 function normalizeV13Preferences(input = {}, previous = {}) {
@@ -10,6 +11,7 @@ function normalizeV13Preferences(input = {}, previous = {}) {
   for (const [field, allowed] of [
     ["shirtSize", SIZES],
     ["shirtCut", CUTS],
+    ["sex", SEXES],
     ["diplomaLanguage", DIPLOMA_LANGUAGES]
   ]) {
     if (!Object.prototype.hasOwnProperty.call(input, field)) continue;
@@ -40,17 +42,17 @@ function excelSafe(value) {
 function projectV13Export(associates = [], type = "shirts") {
   if (!["shirts", "diplomas"].includes(type)) throw new RangeError("Exportación desconocida");
   const headers = type === "shirts"
-    ? ["ID socio", "Nombre", "Apellidos", "Talla", "Corte", "Confirmada"]
+    ? ["ID socio", "Nombre", "Apellidos", "Sexo", "Talla", "Corte", "Confirmada"]
     : ["ID socio", "Nombre", "Apellidos", "Idioma diploma"];
   const rows = associates.map(a => {
     const p = a.v13Preferences || {};
     const common = [a.id || "", a.firstName || a.name || "", a.lastName || a.surname || ""];
     return (type === "shirts"
-      ? [...common, p.shirtSize || "", p.shirtCut || "", p.shirtConfirmed ? "Sí" : "No"]
+      ? [...common, p.sex || "", p.shirtSize || "", p.shirtCut || "", p.shirtConfirmed ? "Sí" : "No"]
       : [...common, p.diplomaLanguage === "es-va" ? "Castellano + valenciano" : "Castellano"])
       .map(excelSafe);
   });
   return { headers, rows };
 }
 
-module.exports = { SIZES, CUTS, DIPLOMA_LANGUAGES, normalizeV13Preferences, projectV13Export };
+module.exports = { SIZES, CUTS, SEXES, DIPLOMA_LANGUAGES, normalizeV13Preferences, projectV13Export };
