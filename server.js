@@ -4662,10 +4662,7 @@ const server = http.createServer(async (req, res) => {
     const state = readState();
     const account = requireAuthenticatedAccount(req, res, state);
     if (!account) return;
-    const associate = (state.associates || []).find(item =>
-      (account.associateId && String(item.id) === String(account.associateId)) ||
-      (account.memberId && String(item.memberId || "") === String(account.memberId))
-    );
+    const associate = resolveAssociateForAuthenticatedAccount(state, account);
     if (!associate) return sendJson(res, 404, { ok: false, error: "No se encontró tu ficha de socio." });
     return sendJson(res, 200, { ok: true, preferences: associate.v13Preferences || {} });
   }
@@ -4675,10 +4672,7 @@ const server = http.createServer(async (req, res) => {
     const state = readState();
     const account = requireAuthenticatedAccount(req, res, state);
     if (!account) return;
-    const associate = (state.associates || []).find(item =>
-      (account.associateId && String(item.id) === String(account.associateId)) ||
-      (account.memberId && String(item.memberId || "") === String(account.memberId))
-    );
+    const associate = resolveAssociateForAuthenticatedAccount(state, account);
     if (!associate) return sendJson(res, 404, { ok: false, error: "No se encontró la ficha de socio vinculada a tu cuenta." });
     try {
       const body = await readJsonBody(req);
@@ -11316,10 +11310,7 @@ function buildCertificateModel(state, courseId, memberId) {
     code,
     registryNumber,
     verifyUrl,
-    diplomaLanguage: (state.associates || []).some(a =>
-      (String(a.memberId || "") === String(memberId) || String(a.id || "") === String(member.associateId || ""))
-      && a.v13Preferences?.diplomaLanguage === "es-va"
-    ) ? "es-va" : "es",
+    diplomaLanguage: Boolean(findAssociateForAccount(state, null, member)?.v13Preferences?.diplomaLanguage === "es-va") ? "es-va" : "es",
     certificateTitle: buildCertificateTitle(course),
     documentId: getMemberDocumentId(state, member),
     dateRange: formatDateRange(course.startDate, course.endDate),
