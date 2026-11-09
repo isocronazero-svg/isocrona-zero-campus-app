@@ -4,6 +4,15 @@ let latestState = null;
 let proofObjectUrl = "";
 let proofPreviewRequestId = 0;
 let proofPreviewController = null;
+let proofPdfDocument = null;
+let proofPdfRenderTask = null;
+function disposeProofPdf() {
+  proofPdfRenderTask?.cancel();
+  proofPdfRenderTask = null;
+  proofPdfDocument?.destroy();
+  proofPdfDocument = null;
+}
+
 const renderedProofNotices = new WeakMap();
 
 function clean(value) {
@@ -54,7 +63,8 @@ function ensureStyles() {
     #proofPreviewDialog::backdrop,#accountingLedgerDialog::backdrop{background:rgba(0,0,0,.58)}
     .proof-preview-shell,.accounting-ledger-shell{padding:18px;max-height:94vh;overflow:auto}
     .proof-preview-head,.accounting-ledger-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}
-    .proof-preview-frame{width:100%;height:min(72vh,850px);border:1px solid rgba(127,127,127,.25);border-radius:12px;background:#fff}
+    .proof-preview-canvas{display:block;max-width:100%;height:auto;margin:12px auto;background:#fff;box-shadow:0 1px 10px #0002}
+    .proof-preview-controls{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px;margin:12px 0}
     .proof-preview-image{display:block;max-width:100%;max-height:75vh;margin:auto;border-radius:12px}
     .ledger-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0}
     .ledger-metric{padding:12px;border:1px solid rgba(127,127,127,.25);border-radius:12px}
@@ -78,6 +88,7 @@ function ensureProofDialog() {
     proofPreviewRequestId += 1;
     proofPreviewController?.abort();
     proofPreviewController = null;
+    disposeProofPdf();
     if (proofObjectUrl) URL.revokeObjectURL(proofObjectUrl);
     proofObjectUrl = "";
   });
@@ -89,6 +100,7 @@ function ensureProofDialog() {
 async function openProofPreview(href, label = "Justificante") {
   const requestId = ++proofPreviewRequestId;
   proofPreviewController?.abort();
+  disposeProofPdf();
   const controller = new AbortController();
   proofPreviewController = controller;
   // Release any previous preview before replacing its controls or starting a new fetch.
@@ -150,7 +162,7 @@ async function openProofPreview(href, label = "Justificante") {
     open.target = "_blank";
     open.rel = "noopener noreferrer";
     actions.append(open);
-    shell.innerHTML = header(isPdf ? "PDF adjunto · si tu móvil no muestra la vista previa, utiliza Abrir archivo o Descargar justificante." : "Archivo adjunto disponible.");
+    shell.innerHTML = header(isPdf ? "PDF adjunto · vista previa integrada y descarga disponible." : "Archivo adjunto disponible.");
     shell.append(actions);
     if (isImage) {
       const image = document.createElement("img");
@@ -159,11 +171,88 @@ async function openProofPreview(href, label = "Justificante") {
       image.alt = "Justificante";
       shell.append(image);
     } else if (isPdf) {
-      const frame = document.createElement("iframe");
-      frame.className = "proof-preview-frame";
-      frame.src = proofObjectUrl;
-      frame.title = "Vista previa del justificante PDF";
-      shell.append(frame);
+      const controls = document.createElement("div");
+      controls.className = "proof-preview-controls";
+      const previous = document.createElement("button");
+      previous.type = "button";
+      previous.className = "mini-button";
+      previous.textContent = "Página anterior";
+      const next = document.createElement("button");
+      next.type = "button";
+      next.className = "mini-button";
+      next.textContent = "Página siguiente";
+      const status = document.createElement("span");
+      status.setAttribute("role", "status");
+      const canvas = document.createElement("canvas");
+      canvas.className = "proof-preview-canvas";
+      canvas.setAttribute("aria-label", "Página del justificante PDF");
+      const note = document.createElement("p");
+      note.className = "muted";
+      note.textContent = "Preparando vista previa PDF…";
+      controls.append(previous, status, next);
+      shell.append(controls, note, canvas);
+      try {
+        const pdfjs = await import("/vendor/pdfjs/pdf.mjs");
+        if (requestId !== proofPreviewRequestId || !dialog.open) return;
+        pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/pdf.worker.mjs";
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        if (requestId !== proofPreviewRequestId || !dialog.open) return;
+        const task = pdfjs.getDocument({ data: bytes });
+        const pdf = await task.promise;
+        if (requestId !== proofPreviewRequestId || !dialog.open) { await pdf.destroy(); return; }
+        proofPdfDocument = pdf;
+        let currentPage = 1;
+        let scale = 1;
+        const zoomOut = document.createElement("button");
+        zoomOut.type = "button";
+        zoomOut.className = "mini-button";
+        zoomOut.textContent = "−";
+        zoomOut.setAttribute("aria-label", "Reducir zoom");
+        const zoomIn = document.createElement("button");
+        zoomIn.type = "button";
+        zoomIn.className = "mini-button";
+        zoomIn.textContent = "+";
+        zoomIn.setAttribute("aria-label", "Ampliar zoom");
+        controls.append(zoomOut, zoomIn);
+        let renderSequence = 0;
+        const renderPage = async () => {
+          const sequence = ++renderSequence;
+          proofPdfRenderTask?.cancel();
+          proofPdfRenderTask = null;
+          try {
+            const page = await pdf.getPage(currentPage);
+            if (sequence !== renderSequence || requestId !== proofPreviewRequestId || !dialog.open) return;
+            const natural = page.getViewport({ scale: 1 });
+            const available = Math.max(200, Math.min(shell.clientWidth - 38, 950));
+            const viewport = page.getViewport({ scale: Math.min(2, available / natural.width) * scale });
+            const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+            canvas.width = Math.ceil(viewport.width * pixelRatio);
+            canvas.height = Math.ceil(viewport.height * pixelRatio);
+            canvas.style.width = viewport.width + "px";
+            const context = canvas.getContext("2d");
+            proofPdfRenderTask = page.render({ canvas, canvasContext: context, viewport, transform: [pixelRatio, 0, 0, pixelRatio, 0, 0] });
+            await proofPdfRenderTask.promise;
+            if (sequence !== renderSequence || requestId !== proofPreviewRequestId || !dialog.open) return;
+            note.textContent = "";
+            status.textContent = "Página " + currentPage + " de " + pdf.numPages;
+            previous.disabled = currentPage === 1;
+            next.disabled = currentPage === pdf.numPages;
+          } catch (error) {
+            if (error?.name === "RenderingCancelledException") return;
+            if (sequence !== renderSequence || requestId !== proofPreviewRequestId || !dialog.open) return;
+            note.textContent = "No se ha podido mostrar esta página del PDF. Puedes descargar el justificante.";
+          }
+        };
+        previous.addEventListener("click", () => { if (currentPage > 1) { currentPage--; renderPage(); } });
+        next.addEventListener("click", () => { if (currentPage < pdf.numPages) { currentPage++; renderPage(); } });
+        zoomOut.addEventListener("click", () => { scale = Math.max(.6, scale - .25); renderPage(); });
+        zoomIn.addEventListener("click", () => { scale = Math.min(2.5, scale + .25); renderPage(); });
+        await renderPage();
+      } catch (error) {
+        if (requestId === proofPreviewRequestId && dialog.open) {
+          note.textContent = "No se ha podido mostrar el PDF dentro de la página. Puedes descargar el justificante.";
+        }
+      }
     } else {
       const note = document.createElement("p");
       note.className = "status-note warning";
