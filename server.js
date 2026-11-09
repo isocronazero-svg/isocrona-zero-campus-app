@@ -4687,12 +4687,19 @@ const server = http.createServer(async (req, res) => {
 
   // Administrative exports are restricted to authenticated administrators.
   if (requestUrl.pathname === "/api/v1.3/export" && req.method === "GET") {
-    if (isDatabaseEnabled()) {
+    // Browser download links send the session cookie, not a Bearer header.
+    // Accept a validated legacy cookie session or a PostgreSQL Bearer session.
+    const exportState = readState();
+    const cookieAccount = getAuthenticatedAccount(req, exportState);
+    if (cookieAccount) {
+      if (cookieAccount.role !== "admin") {
+        return sendJson(res, 403, { ok: false, error: "Esta exportación requiere permisos de administración." });
+      }
+    } else if (isDatabaseEnabled()) {
       const admin = await requireAdminDbUser(req, res);
       if (!admin) return;
     } else {
-      const authState = readState();
-      if (!requireAdminAccount(req, res, authState)) return;
+      return sendJson(res, 401, { ok: false, error: "Inicia sesión para descargar el listado." });
     }
     const type = requestUrl.searchParams.get("type");
     if (type !== "shirts" && type !== "diplomas") {
