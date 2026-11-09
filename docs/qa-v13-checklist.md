@@ -5,12 +5,14 @@
 - Servicio `portal-v13-qa` (`c80d2dc4-16b8-4834-98c7-4cb7a8674e2d`).
 - Volumen **exclusivo de QA** `v13-qa-only-data`, 1 GB, montado en `/var/data/isocrona-zero`; variable `IZ_DATA_DIR` apuntando a ese directorio.
 - `NODE_ENV=development` solo para este entorno de pruebas; **nunca reutilizar en producción**.
-- Commit fijado: `b2460bcc9b15cacf50567be8ec0fc724e17f9ab2`. Despliegue `1753f042-31e5-4610-9056-52cdabadec6a`: SUCCESS; estado online, una réplica, cero alertas.
+- Commit fijado: `7c23c38720f61ac3348ef181007193f07b7fc9c8`. Despliegue `bd665d0c-2265-4337-8f0f-107c2cea7b4d`: SUCCESS; estado online, una réplica, cero alertas.
+- `IZ_QA_ISOLATED=true` impide los envíos de correo SMTP y Resend, incluso los de prueba, mediante `server/mail-delivery.js`; prueba automática `scripts/check-v13-qa-mail-guard.mjs` integrada en la batería específica V1.3.
+- `IZ_EMAIL_ENABLED=false` está configurada en Railway QA como defensa adicional; no sustituye la protección por `IZ_QA_ISOLATED` para SMTP.
 - Sin dominio público. **No generar dominio mientras existan cuentas demo accesibles sin una barrera de acceso adicional.**
 - No compartir secretos, bases de datos, volúmenes ni credenciales con el portal de socios de producción.
 
 ## Automatización superada
-- GitHub Actions «App checks» y «V1.3 regression checks» en commit `b2460bcc`: success.
+- GitHub Actions «App checks» y «V1.3 regression checks» en commit `7c23c38`: success.
 - Esto NO sustituye la prueba real de los flujos con sesión iniciada.
 
 ## Pruebas funcionales pendientes (usar únicamente cuentas y socios ficticios)
