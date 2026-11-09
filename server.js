@@ -88,7 +88,8 @@ const {
   verifyLegacyAccountPassword
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
-const { normalizeV13Preferences } = require("./server/v13-preferences");
+const { normalizeV13Preferences, projectV13Export } = require("./server/v13-preferences");
+const { workbookXlsx } = require("./server/v13-xlsx");
 const handleJourneyReports = JourneyParticipation.createJourneyReportHandler({readState, requireAuthenticatedAccount, sendJson, sendJsonError});
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
 const { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
@@ -4676,6 +4677,31 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       return sendJson(res, 400, { ok: false, error: error.message || "Preferencias inválidas" });
     }
+  }
+
+  // Administrative exports are restricted to authenticated administrators.
+  if (requestUrl.pathname === "/api/v1.3/export" && req.method === "GET") {
+    if (isDatabaseEnabled()) {
+      const admin = await requireAdminDbUser(req, res);
+      if (!admin) return;
+    } else {
+      const authState = readState();
+      if (!requireAdminAccount(req, res, authState)) return;
+    }
+    const type = requestUrl.searchParams.get("type");
+    if (type !== "shirts" && type !== "diplomas") {
+      return sendJson(res, 400, { ok: false, error: "Tipo de exportación no válido." });
+    }
+    const data = projectV13Export(readState().associates || [], type);
+    const file = workbookXlsx(data);
+    res.writeHead(200, {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": 'attachment; filename="isocrona-v13-' + type + '.xlsx"',
+      "Content-Length": file.length,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    return res.end(file);
   }
 
   if (requestUrl.pathname === "/api/admin/users" && req.method === "GET") {
