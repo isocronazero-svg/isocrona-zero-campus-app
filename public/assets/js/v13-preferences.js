@@ -1,6 +1,14 @@
 (() => {
   "use strict";
   const open = document.getElementById("v13PreferencesOpen");
+  const exportsPanel = document.getElementById("v13AdminExports");
+  const roleSwitcher = document.getElementById("roleSwitcher");
+  const syncExports = () => {
+    if (exportsPanel) exportsPanel.hidden = roleSwitcher?.value !== "admin" || !document.getElementById("shell")?.offsetParent;
+  };
+  roleSwitcher?.addEventListener("change", syncExports);
+  document.addEventListener("click", syncExports);
+  syncExports();
   const dialog = document.getElementById("v13PreferencesDialog");
   const form = document.getElementById("v13PreferencesForm");
   const status = document.getElementById("v13PreferencesStatus");
