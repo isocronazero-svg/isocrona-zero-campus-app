@@ -1,0 +1,45 @@
+"use strict";
+
+// V1.3: shared validation and export projection; no migration of existing member records.
+const SIZES = Object.freeze(["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL"]);
+const CUTS = Object.freeze(["unisex", "mujer"]);
+const DIPLOMA_LANGUAGES = Object.freeze(["es", "es-va"]);
+
+function normalizeV13Preferences(input = {}, previous = {}) {
+  const value = { ...previous };
+  for (const [field, allowed] of [
+    ["shirtSize", SIZES],
+    ["shirtCut", CUTS],
+    ["diplomaLanguage", DIPLOMA_LANGUAGES]
+  ]) {
+    if (!Object.prototype.hasOwnProperty.call(input, field)) continue;
+    const raw = String(input[field] ?? "").trim();
+    if (raw && !allowed.includes(raw)) throw new RangeError("Valor no permitido para " + field);
+    value[field] = raw;
+  }
+  return value;
+}
+
+function excelSafe(value) {
+  const text = String(value ?? "").replace(/[\r\n\t]+/g, " ").trim();
+  // Protect spreadsheet users against CSV/XLSX formula injection.
+  return /^[=+@\-]/.test(text) ? "'" + text : text;
+}
+
+function projectV13Export(associates = [], type = "shirts") {
+  if (!["shirts", "diplomas"].includes(type)) throw new RangeError("Exportación desconocida");
+  const headers = type === "shirts"
+    ? ["ID socio", "Nombre", "Apellidos", "Talla", "Corte", "Confirmada"]
+    : ["ID socio", "Nombre", "Apellidos", "Idioma diploma"];
+  const rows = associates.map(a => {
+    const p = a.v13Preferences || {};
+    const common = [a.id || "", a.name || a.firstName || "", a.surname || a.lastName || ""];
+    return (type === "shirts"
+      ? [...common, p.shirtSize || "", p.shirtCut || "", p.shirtConfirmed ? "Sí" : "No"]
+      : [...common, p.diplomaLanguage === "es-va" ? "Castellano + valenciano" : "Castellano"])
+      .map(excelSafe);
+  });
+  return { headers, rows };
+}
+
+module.exports = { SIZES, CUTS, DIPLOMA_LANGUAGES, normalizeV13Preferences, projectV13Export };
