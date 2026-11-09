@@ -9,6 +9,7 @@ on:
       - 'server/activity-certificate.js'
       - 'server/diploma-layout.js'
       - 'server/mail-delivery.js'
+      - 'server/fixture-account-policy.js'
       - 'scripts/check-v13-*'
       - 'package.json'
       - '.github/workflows/v13-checks.yml'
@@ -27,3 +28,4 @@ jobs:
       - run: node scripts/check-v13-bilingual-certificate.mjs
       - run: node scripts/check-v13-bilingual-diploma.mjs
       - run: node scripts/check-v13-qa-mail-guard.mjs
+      - run: node scripts/check-v13-qa-fixture-auth.mjs
