@@ -50,7 +50,9 @@ while (file.readUInt32LE(pos) === 0x04034b50) {
 assert.match(sheetXml, /Castellano|Talla/);
 assert.match(sheetXml, /&apos;=HYPERLINK/);
 const server = readFileSync(new URL("../server.js", import.meta.url), "utf8");
-const exportRoute = server.slice(server.indexOf('if (requestUrl.pathname === "/api/v1.3/export"'), server.indexOf('if (requestUrl.pathname === "/api/admin/users"'));
+const exportStart = server.indexOf('if (requestUrl.pathname === "/api/v1.3/export"');
+assert.ok(exportStart >= 0, "Admin export route must exist");
+const exportRoute = server.slice(exportStart, exportStart + 2100);
 assert.match(exportRoute, /getAuthenticatedAccount\(req, exportState\)/);
 assert.match(exportRoute, /cookieAccount\.role !== "admin"/);
 assert.match(exportRoute, /requireAdminDbUser\(req, res\)/);
