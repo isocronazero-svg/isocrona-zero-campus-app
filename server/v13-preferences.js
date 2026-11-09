@@ -21,6 +21,13 @@ function normalizeV13Preferences(input = {}, previous = {}) {
     if (typeof input.shirtConfirmed !== "boolean") throw new RangeError("Confirmación de camiseta inválida");
     value.shirtConfirmed = input.shirtConfirmed;
   }
+  if (value.shirtConfirmed && (!value.shirtSize || !value.shirtCut)) {
+    throw new RangeError("Para confirmar el pedido es obligatorio indicar talla y corte");
+  }
+  if (value.shirtConfirmed && (value.shirtSize !== previous.shirtSize || value.shirtCut !== previous.shirtCut)
+      && !Object.prototype.hasOwnProperty.call(input, "shirtConfirmed")) {
+    value.shirtConfirmed = false;
+  }
   return value;
 }
 
