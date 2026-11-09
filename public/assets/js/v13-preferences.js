@@ -89,18 +89,19 @@
     if (!preferencesLoaded) return setStatus("No se han podido cargar tus preferencias. Cierra y vuelve a abrir el formulario.");
     if (saveInProgress) return;
     saveInProgress = true;
+    const requestVersion = preferencesRequestVersion;
     const saveButton = form.querySelector('button[type="submit"]');
     saveButton.disabled = true;
     setStatus("Guardando…");
     try {
       if (confirmed.checked && (!size.value || !cut.value)) throw new Error("Selecciona talla y corte antes de confirmar el pedido.");
       await request("PATCH", { sex: sex.value, shirtSize: size.value, shirtCut: cut.value, shirtConfirmed: confirmed.checked, diplomaLanguage: language.value });
-      setStatus("Preferencias guardadas correctamente.");
+      if (requestVersion === preferencesRequestVersion && dialog.open) setStatus("Preferencias guardadas correctamente.");
     } catch (error) {
-      setStatus(error.message);
+      if (requestVersion === preferencesRequestVersion && dialog.open) setStatus(error.message);
     } finally {
       saveInProgress = false;
-      saveButton.disabled = false;
+      if (requestVersion === preferencesRequestVersion && dialog.open) saveButton.disabled = false;
     }
   });
 })();
