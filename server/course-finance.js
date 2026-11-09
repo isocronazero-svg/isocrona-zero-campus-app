@@ -139,8 +139,21 @@ function sendProof(res, proof) {
     return;
   }
   const bytes = Buffer.from(String(proof.contentBase64), "base64");
+  if (!bytes.length) {
+    res.writeHead(422, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" });
+    res.end(JSON.stringify({ ok: false, error: "El justificante adjunto está vacío. Solicita un nuevo archivo." }));
+    return;
+  }
+  const declaredType = clean(proof.type || proof.mimeType).split(";")[0].toLowerCase();
+  const isPdf = bytes.subarray(0, 5).toString("ascii") === "%PDF-";
+  if (declaredType === "application/pdf" && !isPdf) {
+    res.writeHead(422, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" });
+    res.end(JSON.stringify({ ok: false, error: "El justificante PDF está dañado o tiene un formato incorrecto." }));
+    return;
+  }
+  const responseType = isPdf ? "application/pdf" : declaredType || "application/octet-stream";
   res.writeHead(200, {
-    "Content-Type": clean(proof.type || proof.mimeType) || "application/octet-stream",
+    "Content-Type": responseType,
     "Content-Length": String(bytes.length),
     "Content-Disposition": `inline; filename="${safeFileName(proof.name || proof.fileName)}"`,
     "Cache-Control": "private, no-store"

@@ -4338,6 +4338,23 @@ const server = http.createServer(async (req, res) => {
   if (await handleBanners(req, res, requestUrl)) return;
   if (await handleNotices(req, res, requestUrl)) return;
 
+  if (req.method === "GET" && (requestUrl.pathname === "/vendor/pdfjs/pdf.mjs" || requestUrl.pathname === "/vendor/pdfjs/pdf.worker.mjs")) {
+    const filename = requestUrl.pathname.endsWith("/pdf.worker.mjs") ? "pdf.worker.mjs" : "pdf.mjs";
+    const filenamePath = path.join(__dirname, "node_modules", "pdfjs-dist", "build", filename);
+    if (!fs.existsSync(filenamePath)) {
+      res.writeHead(503, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+      res.end("El visor PDF no está disponible en este despliegue.");
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "application/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+      "X-Content-Type-Options": "nosniff"
+    });
+    fs.createReadStream(filenamePath).on("error", () => res.destroy()).pipe(res);
+    return;
+  }
+
   if (requestUrl.pathname === "/healthz" && req.method === "GET") {
     return sendJson(res, 200, {
       ok: true,
