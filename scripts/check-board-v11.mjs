@@ -149,6 +149,10 @@ assert.match(boardSource, /signal: controller\.signal/, "La descarga de justific
 assert.match(boardSource, /controller\.signal\.aborted/, "Una petición cancelada no debe mostrar un error obsoleto");
 assert.match(boardSource, /requestId !== proofPreviewRequestId/, "La respuesta tardía no debe sobrescribir otro justificante");
 assert.match(boardSource, /signature === "%PDF-"/, "Reconocer PDF por contenido aunque la URL no tenga extensión");
+assert.match(boardSource, /import\("\/vendor\/pdfjs\/pdf\.mjs"\)/, "Cargar PDF.js desde el mismo dominio");
+assert.match(boardSource, /pdf\.worker\.mjs/, "Usar worker PDF.js local");
+assert.match(boardSource, /document\.createElement\("canvas"\)/, "Renderizar PDF en canvas para Android");
+assert.doesNotMatch(boardSource, /document\.createElement\("iframe"\)/, "No depender del visor PDF nativo del navegador");
 assert.match(boardSource, /blob\.size > 25 \* 1024 \* 1024/, "Limitar archivos grandes en la vista previa");
 assert.match(boardSource, /response\.headers\.get\("content-length"\)/, "Comprobar el tamaño antes de descargar todo el justificante");
 assert.match(boardSource, /await response\.body\?\.cancel\(\)/, "Cancelar descargas declaradas demasiado grandes");
