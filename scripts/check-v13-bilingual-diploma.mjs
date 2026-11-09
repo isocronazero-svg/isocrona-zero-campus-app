@@ -12,6 +12,7 @@ const model = {
 const pages = buildDiplomaLayout(model, {}, "");
 const front = pages[0].filter(x => x.type === "text").map(x => x.text).join(" ");
 assert.match(front, /associació/);
+assert.match(front, /ACTIVITAT FORMATIVA/);
 assert.match(front, /Duració/);
 assert.match(front, /Certificat/);
 const reverse = pages[1].filter(x => x.type === "text").map(x => x.text).join(" ");
