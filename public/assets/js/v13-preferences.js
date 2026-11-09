@@ -6,24 +6,24 @@
   let isAdmin = false;
   let preferencesLoaded = false;
   let saveInProgress = false;
-  let roleCheckPending = false;
+  let roleCheckVersion = 0;
   const syncExports = async () => {
     if (exportsPanel) exportsPanel.hidden = true;
-    if (roleSwitcher?.value !== "admin" || roleCheckPending) return;
-    roleCheckPending = true;
+    const version = ++roleCheckVersion;
+    if (roleSwitcher?.value !== "admin") return;
     try {
       const response = await fetch("/api/auth/me", { credentials: "same-origin" });
       const data = response.ok ? await response.json() : null;
+      if (version !== roleCheckVersion) return;
       isAdmin = data?.user?.role === "admin";
       if (exportsPanel) exportsPanel.hidden = !isAdmin || roleSwitcher?.value !== "admin";
     } catch {
-      isAdmin = false;
-    } finally {
-      roleCheckPending = false;
+      if (version === roleCheckVersion) isAdmin = false;
     }
   };
   roleSwitcher?.addEventListener("change", syncExports);
   document.getElementById("loginForm")?.addEventListener("submit", () => {
+    roleCheckVersion++;
     isAdmin = false;
     if (exportsPanel) exportsPanel.hidden = true;
   });
