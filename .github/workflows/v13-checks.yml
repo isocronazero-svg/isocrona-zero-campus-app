@@ -1,0 +1,25 @@
+name: V1.3 regression checks
+on:
+  push:
+    branches:
+      - feature/v1.3-shirts-bilingual-diplomas
+  pull_request:
+    paths:
+      - 'server/v13-*'
+      - 'server/activity-certificate.js'
+      - 'server/diploma-layout.js'
+      - 'scripts/check-v13-*'
+      - 'package.json'
+      - '.github/workflows/v13-checks.yml'
+jobs:
+  v13:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/check-v13-preferences.mjs
+      - run: node scripts/check-v13-bilingual-certificate.mjs
+      - run: node scripts/check-v13-bilingual-diploma.mjs
