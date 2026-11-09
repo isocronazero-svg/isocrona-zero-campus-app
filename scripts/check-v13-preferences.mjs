@@ -60,4 +60,7 @@ const frontend = readFileSync(new URL("../public/assets/js/v13-preferences.js", 
 assert.match(frontend, /const version = \+\+roleCheckVersion/);
 assert.match(frontend, /if \(version !== roleCheckVersion\) return/);
 assert.match(frontend, /document\.getElementById\("logoutButton"\)\?\.addEventListener\("click", \(\) => \{\s*roleCheckVersion\+\+;/);
-console.log("V1.3 preferencias, XLSX, permisos y control de sesiones de exportación: OK");
+assert.match(frontend, /const requestVersion = \+\+preferencesRequestVersion/);
+assert.match(frontend, /requestVersion !== preferencesRequestVersion \|\| !dialog\.open/);
+assert.match(frontend, /dialog\.addEventListener\("close", \(\) => \{ preferencesRequestVersion\+\+; preferencesLoaded = false; \}\)/);
+console.log("V1.3 preferencias, XLSX, permisos y cancelación de respuestas obsoletas: OK");
