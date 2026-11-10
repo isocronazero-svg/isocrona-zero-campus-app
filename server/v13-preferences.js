@@ -23,8 +23,7 @@ function normalizeV13Preferences(input = {}, previous = {}) {
     if (typeof input.shirtConfirmed !== "boolean") throw new RangeError("Confirmación de camiseta inválida");
     value.shirtConfirmed = input.shirtConfirmed;
   }
-  if (value.shirtConfirmed && (value.shirtSize !== previous.shirtSize || value.shirtCut !== previous.shirtCut)
-      && !Object.prototype.hasOwnProperty.call(input, "shirtConfirmed")) {
+  if (previous.shirtConfirmed === true && (value.shirtSize !== previous.shirtSize || value.shirtCut !== previous.shirtCut)) {
     value.shirtConfirmed = false;
   }
   if (value.shirtConfirmed && (!value.shirtSize || !value.shirtCut)) {
