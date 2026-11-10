@@ -95,6 +95,7 @@ function capture(state) {
   const protectedMemberIds = new Set(associates.map(item => item.linkedMemberId).filter(Boolean));
   return {
     allAssociateIds: new Set((state.associates || []).map(item => item.id).filter(Boolean)),
+    v13Preferences: new Map((state.associates || []).map(item => [item.id, structuredClone(item.v13Preferences || {})])),
     feeYears: new Map((state.associates || []).map(item => [item.id, {
       membershipFeeYear: item.membershipFeeYear,
       membershipFeeYearAssignedAt: item.membershipFeeYearAssignedAt,
@@ -135,6 +136,25 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
     if (current.applicationProofs.has(application.id) &&
         baseline.applicationProofs.get(application.id) !== current.applicationProofs.get(application.id)) {
       application.paymentProof = current.applicationProofs.get(application.id);
+    }
+  }
+  // V1.3 preferences belong to every associate, including those without onboarding metadata.
+  // Three-way merge avoids stale asynchronous state writers reverting a member's choices.
+  if (baseline) for (const associate of state.associates || []) {
+    const before = baseline.v13Preferences?.get(associate.id);
+    const latest = current.v13Preferences?.get(associate.id);
+    if (before === undefined || latest === undefined) continue;
+    const incoming = associate.v13Preferences || {};
+    const merged = { ...latest };
+    for (const key of new Set([...Object.keys(before), ...Object.keys(incoming)])) {
+      if (JSON.stringify(incoming[key]) === JSON.stringify(before[key])) continue;
+      if (Object.hasOwn(incoming, key)) merged[key] = incoming[key];
+      else delete merged[key];
+    }
+    // Do not introduce an empty field on legacy records during unrelated imports.
+    if (Object.keys(merged).length || Object.hasOwn(associate, "v13Preferences") ||
+        Object.keys(latest).length || Object.keys(incoming).length) {
+      associate.v13Preferences = merged;
     }
   }
   for (const course of state.courses || []) {

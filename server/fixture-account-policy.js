@@ -53,7 +53,7 @@ function hasFixtureCredential(account) {
 }
 
 function canAuthenticateAccount(account) {
-  return Boolean(account) && (!isProduction() || (!isFixtureEmail(account.email) && !hasFixtureCredential(account)));
+  return Boolean(account) && (!(isProduction() || process.env.IZ_QA_ISOLATED === "true") || (!isFixtureEmail(account.email) && !hasFixtureCredential(account)));
 }
 
 module.exports = { canAuthenticateAccount, demoAdminEmail, isFixtureEmail, isFixturePassword, isProduction };

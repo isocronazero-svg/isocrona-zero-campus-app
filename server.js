@@ -88,6 +88,8 @@ const {
   verifyLegacyAccountPassword
 } = require("./server/auth");
 const { createStateTransport } = require("./server/state-transport");
+const { normalizeV13Preferences, projectV13Export } = require("./server/v13-preferences");
+const { workbookXlsx } = require("./server/v13-xlsx");
 const handleJourneyReports = JourneyParticipation.createJourneyReportHandler({readState, requireAuthenticatedAccount, sendJson, sendJsonError});
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
 const { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
@@ -4656,6 +4658,65 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (requestUrl.pathname === "/api/v1.3/preferences" && req.method === "GET") {
+    const state = readState();
+    const account = requireAuthenticatedAccount(req, res, state);
+    if (!account) return;
+    const associate = resolveAssociateForAuthenticatedAccount(state, account);
+    if (!associate) return sendJson(res, 404, { ok: false, error: "No se encontró tu ficha de socio." });
+    return sendJson(res, 200, { ok: true, preferences: associate.v13Preferences || {} });
+  }
+
+  // V1.3: member-owned preferences; keep identity and billing fields unchanged.
+  if (requestUrl.pathname === "/api/v1.3/preferences" && req.method === "PATCH") {
+    const state = readState();
+    const account = requireAuthenticatedAccount(req, res, state);
+    if (!account) return;
+    const associate = resolveAssociateForAuthenticatedAccount(state, account);
+    if (!associate) return sendJson(res, 404, { ok: false, error: "No se encontró la ficha de socio vinculada a tu cuenta." });
+    try {
+      const body = await readJsonBody(req);
+      const fields = normalizeV13Preferences(body, associate.v13Preferences || {});
+      associate.v13Preferences = fields;
+      writeState(state);
+      return sendJson(res, 200, { ok: true, preferences: fields });
+    } catch (error) {
+      return sendJson(res, 400, { ok: false, error: error.message || "Preferencias inválidas" });
+    }
+  }
+
+  // Administrative exports are restricted to authenticated administrators.
+  if (requestUrl.pathname === "/api/v1.3/export" && req.method === "GET") {
+    // Browser download links send the session cookie, not a Bearer header.
+    // Accept a validated legacy cookie session or a PostgreSQL Bearer session.
+    const exportState = readState();
+    const cookieAccount = getAuthenticatedAccount(req, exportState);
+    if (cookieAccount) {
+      if (cookieAccount.role !== "admin") {
+        return sendJson(res, 403, { ok: false, error: "Esta exportación requiere permisos de administración." });
+      }
+    } else if (isDatabaseEnabled()) {
+      const admin = await requireAdminDbUser(req, res);
+      if (!admin) return;
+    } else {
+      return sendJson(res, 401, { ok: false, error: "Inicia sesión para descargar el listado." });
+    }
+    const type = requestUrl.searchParams.get("type");
+    if (type !== "shirts" && type !== "diplomas") {
+      return sendJson(res, 400, { ok: false, error: "Tipo de exportación no válido." });
+    }
+    const data = projectV13Export(readState().associates || [], type);
+    const file = workbookXlsx(data);
+    res.writeHead(200, {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": 'attachment; filename="isocrona-v13-' + type + '.xlsx"',
+      "Content-Length": file.length,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    return res.end(file);
+  }
+
   if (requestUrl.pathname === "/api/admin/users" && req.method === "GET") {
     try {
       if (isDatabaseEnabled()) {
@@ -6484,6 +6545,8 @@ const server = http.createServer(async (req, res) => {
         if (proofs) associate.legacyPaymentProofs = proofs;
         else delete associate.legacyPaymentProofs;
         const current = currentFeeAssociates.get(associate.id);
+        // Dedicated preferences API owns these values; old whole-state saves must not overwrite them.
+        if (current) associate.v13Preferences = current.v13Preferences || {};
         if (current) for (const field of ["membershipFeeYear", "membershipFeeYearAssignedAt", "membershipFeeYearSource"]) {
           associate[field] = current[field];
         }
@@ -9546,7 +9609,8 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     if (!memberId || !canAccessMemberResource(account, memberId)) {
       return sendJson(res, 403, { ok: false, error: "No tienes acceso a este certificado" });
     }
-    const model = buildActivityCertificate(state, memberId);
+    const certificateMember = (state.members || []).find(item => item.id === memberId);
+    const model = buildActivityCertificate(state, memberId, certificateMember ? findAssociateForAccount(state, null, certificateMember) : null);
     if (!model?.activities.length) {
       return sendJson(res, 404, { ok: false, error: "Todavia no hay actividades acreditadas para este certificado" });
     }
@@ -11254,6 +11318,7 @@ function buildCertificateModel(state, courseId, memberId) {
     code,
     registryNumber,
     verifyUrl,
+    diplomaLanguage: Boolean(findAssociateForAccount(state, null, member)?.v13Preferences?.diplomaLanguage === "es-va") ? "es-va" : "es",
     certificateTitle: buildCertificateTitle(course),
     documentId: getMemberDocumentId(state, member),
     dateRange: formatDateRange(course.startDate, course.endDate),

@@ -1,7 +1,7 @@
 const PAGE_WIDTH = 595;
 const PAGE_HEIGHT = 842;
 
-function buildActivityCertificate(state, memberId) {
+function buildActivityCertificate(state, memberId, resolvedAssociate = null) {
   const member = (state.members || []).find((item) => item.id === memberId);
   if (!member) return null;
   const seen = new Set();
@@ -25,6 +25,7 @@ function buildActivityCertificate(state, memberId) {
     .sort((a, b) => String(a.endDate || "").localeCompare(String(b.endDate || "")) || a.id.localeCompare(b.id));
   return {
     name: String(member.name || ""),
+    diplomaLanguage: (resolvedAssociate || (state.associates || []).find(a => a.id === member.associateId || a.linkedMemberId === memberId))?.v13Preferences?.diplomaLanguage === "es-va" ? "es-va" : "es",
     documentId: String(member.dni || member.documentId || ""),
     organization: String(state.settings?.organization || "Asociacion Isocrona Zero"),
     issuedAt: new Date().toISOString(),
@@ -78,6 +79,7 @@ function buildActivityCertificatePages(model, escapePdfText) {
     if (line) lines.push(line);
     return lines.length ? lines : [""];
   };
+  const bilingual = model.diplomaLanguage === "es-va";
   const commands = [];
   const text = (value, x, y, size, opts = {}) => {
     const color = opts.color || "0.12 0.12 0.12";
@@ -105,11 +107,11 @@ function buildActivityCertificatePages(model, escapePdfText) {
   text("FORMACIÓN · COOPERACIÓN · ENTRENAMIENTO", 153, 356, 12, { color: "0.95 0.95 0.95" });
   line(72, 742, 523, 742, 1.2, "0.91 0.58 0.34");
 
-  text("CERTIFICADO DE FORMACIÓN ACUMULADA", 117, 714, 17, { color: "0.12 0.12 0.12" });
-  text("La Asociación Isócrona Zero certifica que", 166, 686, 10.5, { color: "0.32 0.32 0.32" });
+  text(bilingual ? "CERTIFICADO DE FORMACIÓN / FORMACIÓ ACUMULADA" : "CERTIFICADO DE FORMACIÓN ACUMULADA", bilingual ? 79 : 117, 714, bilingual ? 14 : 17, { color: "0.12 0.12 0.12" });
+  text(bilingual ? "La Asociación Isócrona Zero / Associació Isócrona Zero certifica que" : "La Asociación Isócrona Zero certifica que", bilingual ? 99 : 166, 686, bilingual ? 9 : 10.5, { color: "0.32 0.32 0.32" });
   text(model.name || "", 90, 660, 16, { color: "0.08 0.08 0.08" });
   if (model.documentId) text(`DNI/NIE: ${model.documentId}`, 90, 642, 9.5, { color: "0.32 0.32 0.32" });
-  text("ha realizado las siguientes actividades formativas acreditadas por la asociación:", 90, 622, 9.5,
+  text(bilingual ? "ha realizado las siguientes actividades / ha realitzat les activitats següents:" : "ha realizado las siguientes actividades formativas acreditadas por la asociación:", 90, 622, 9.5,
     { color: "0.32 0.32 0.32" });
 
   const activities = model.activities || [];
@@ -164,11 +166,11 @@ function buildActivityCertificatePages(model, escapePdfText) {
   }
 
   line(90, 186, 505, 186, 1.1, "0.91 0.58 0.34");
-  text(`TOTAL FORMACIÓN ACUMULADA: ${number(model.totalHours)} HORAS`, 132, 160, 14,
+  text(bilingual ? `TOTAL FORMACIÓN / FORMACIÓ: ${number(model.totalHours)} HORAS / HORES` : `TOTAL FORMACIÓN ACUMULADA: ${number(model.totalHours)} HORAS`, bilingual ? 103 : 132, 160, bilingual ? 12 : 14,
     { color: "0.12 0.12 0.12" });
-  text(`Actividades acreditadas: ${activities.length}`, 90, 136, 9, { color: "0.35 0.35 0.35" });
-  text(`Emitido el ${date(model.issuedAt)}`, 398, 136, 9, { color: "0.35 0.35 0.35" });
-  text("Las horas corresponden a la duración acreditada de cada actividad formativa.", 129, 112, 8,
+  text(bilingual ? `Actividades / Activitats: ${activities.length}` : `Actividades acreditadas: ${activities.length}`, 90, 136, 9, { color: "0.35 0.35 0.35" });
+  text(bilingual ? `Emisión / Emissió: ${date(model.issuedAt)}` : `Emitido el ${date(model.issuedAt)}`, bilingual ? 356 : 398, 136, bilingual ? 8 : 9, { color: "0.35 0.35 0.35" });
+  text(bilingual ? "Horas acreditadas de cada actividad / Hores acreditades de cada activitat." : "Las horas corresponden a la duración acreditada de cada actividad formativa.", bilingual ? 120 : 129, 112, 8,
     { color: "0.42 0.42 0.42" });
   line(90, 86, 505, 86, 0.7, "0.82 0.82 0.82");
   text("ISÓCRONA ZERO · Asociación sin ánimo de lucro", 90, 68, 7.5, { color: "0.38 0.38 0.38" });

@@ -103,13 +103,14 @@ function tryCurriculumLayout(sections, { columns, size }, top, bottom) {
 
 function buildCurriculumBack(model, verifyUrl) {
   const back = basePage("REVERSO");
-  let cursor = text(back, "CONTENIDOS FORMATIVOS", 84, 158, 18, 658, RED) + 4;
+  const bilingual = model.diplomaLanguage === "es-va";
+  let cursor = text(back, bilingual ? "CONTENIDOS FORMATIVOS / CONTINGUTS FORMATIUS" : "CONTENIDOS FORMATIVOS", 84, 158, bilingual ? 15 : 18, 658, RED) + 4;
   cursor = text(back, model.course.title, 84, cursor, 10, 658) + 2;
   const top = cursor;
   const bottom = 452;
   const sections = model.sections.length
     ? model.sections
-    : [{ title: "Programa del curso", items: ["No hay contenidos formativos detallados registrados para esta actividad."] }];
+    : [{ title: bilingual ? "Programa del curso / Programa del curs" : "Programa del curso", items: [bilingual ? "No hay contenidos detallados / No hi ha continguts detallats registrats." : "No hay contenidos formativos detallados registrados para esta actividad."] }];
   const configurations = [
     ...[9, 8.5, 8, 7.5, 7, 6.5, 6].map(size => ({ columns: 2, size })),
     ...[7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.5, 3].map(size => ({ columns: 3, size }))
@@ -123,30 +124,35 @@ function buildCurriculumBack(model, verifyUrl) {
     throw new Error("El contenido del curso no cabe en el reverso del diploma incluso con maquetacion compacta");
   }
   back.push(...curriculum);
-  text(back, `Certificado n.o ${model.registryNumber}`, 84, 466, 8, 658, MUTED);
-  text(back, `C\u00f3digo de verificaci\u00f3n: ${model.code}`, 84, 480, 8, 658);
+  text(back, bilingual ? `Certificado / Certificat núm. ${model.registryNumber}` : `Certificado n.o ${model.registryNumber}`, 84, 466, 8, 658, MUTED);
+  text(back, bilingual ? `Código / Codi de verificació: ${model.code}` : `Código de verificación: ${model.code}`, 84, 480, 8, 658);
   text(back, verifyUrl, 84, 494, 7, 658, MUTED);
   return back;
 }
 
 function buildDiplomaLayout(model, settings, verifyUrl) {
+  const bilingual = model.diplomaLanguage === "es-va";
   const front = basePage(model.preview ? "VISTA PREVIA" : "CERTIFICADO");
   const bodyStart = front.length;
   const center = (value, y, size, width = 658, color = INK) => text(front, value, (PAGE_WIDTH - width) / 2, y, size, width, color, "center");
   let y = center(model.certificateTitle, 158, 23, 658, RED) + 8;
-  y = center("La asociaci\u00f3n certifica que", y, 12) + 8;
+  if (bilingual) y = center("CERTIFICAT D’ACTIVITAT FORMATIVA", y - 2, 10, 658, RED) + 4;
+  y = center(bilingual ? "La asociación / associació certifica que" : "La asociación certifica que", y, bilingual ? 11 : 12) + 8;
   // Fit unusually long names/titles without touching the fixed signature/footer area.
   const nameSize = textWidth(model.member.name, 28) > 1400 ? 19 : 28;
   y = center(model.member.name, y, nameSize) + 5;
   if (model.documentId || model.kind !== "instructor") y = center(`con DNI/NIE ${model.documentId}`, y, 11) + 10;
-  const participation = model.kind === "instructor" ? "ha participado como INSTRUCTOR/A en la actividad formativa" : /asistencia/i.test(model.certificateTitle)
-    ? "ha asistido a la actividad formativa" : "ha realizado y superado con aprovechamiento la actividad formativa";
+  const participation = model.kind === "instructor"
+    ? (bilingual ? "ha participado como INSTRUCTOR/A / ha participat com a INSTRUCTOR/A" : "ha participado como INSTRUCTOR/A en la actividad formativa")
+    : /asistencia/i.test(model.certificateTitle)
+      ? (bilingual ? "ha asistido / ha assistit a la actividad formativa" : "ha asistido a la actividad formativa")
+      : (bilingual ? "ha realizado y superado / ha realitzat i superat la actividad formativa" : "ha realizado y superado con aprovechamiento la actividad formativa");
   y = center(participation, y, 12) + 8;
   const titleSize = textWidth(model.course.title, 23) > 1400 ? 16 : 23;
   y = center(model.course.title, y, titleSize) + 10;
-  y = center(`Duraci\u00f3n: ${model.course.hours} horas lectivas. ${model.dateRange}.`, y, 11) + 8;
-  y = center(`En ${model.city}, a ${model.issueDate}.`, y, 11) + 8;
-  if (model.kind !== "instructor") center(`Certificado n.o ${model.registryNumber}`, y, 10, 658, MUTED);
+  y = center(bilingual ? `Duración / Duració: ${model.course.hours} horas / hores. ${model.dateRange}.` : `Duración: ${model.course.hours} horas lectivas. ${model.dateRange}.`, y, 11) + 8;
+  y = center(bilingual ? `En / A ${model.city}, ${model.issueDate}.` : `En ${model.city}, a ${model.issueDate}.`, y, 11) + 8;
+  if (model.kind !== "instructor") center(bilingual ? `Certificado / Certificat núm. ${model.registryNumber}` : `Certificado n.o ${model.registryNumber}`, y, 10, 658, MUTED);
   if (y > 424) {
     // Compress only the variable body for exceptionally long metadata, never truncate it.
     const scale = (438 - 158) / (y + 14 - 158);

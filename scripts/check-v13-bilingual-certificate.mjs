@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const { buildActivityCertificate, buildActivityCertificatePages } = require("../server/activity-certificate.js");
+const member = { id: "member-1", name: "Persona Ejemplo" };
+const state = { members: [member], associates: [{ id: "associate-1", linkedMemberId: "member-1", v13Preferences: { diplomaLanguage: "es-va" } }], courses: [], settings: {} };
+const model = buildActivityCertificate(state, member.id);
+assert.equal(model.diplomaLanguage, "es-va");
+const pages = buildActivityCertificatePages(model, value => String(value).replace(/[()\\]/g, "\\$&"));
+assert.equal(pages.length, 1);
+assert.match(pages[0], /FORMACI/);
+assert.match(pages[0], /Activitats/);
+state.associates[0].v13Preferences.diplomaLanguage = "es";
+const spanish = buildActivityCertificate(state, member.id);
+assert.equal(spanish.diplomaLanguage, "es");
+assert.doesNotMatch(buildActivityCertificatePages(spanish, x => x)[0], /Activitats/);
+console.log("V1.3 certificado acumulado bilingüe: OK");
