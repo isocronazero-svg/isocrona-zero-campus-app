@@ -20,6 +20,9 @@ assert.throws(() => normalizeV13Preferences({ shirtConfirmed: true }), RangeErro
 assert.throws(() => normalizeV13Preferences({ shirtSize: "M", shirtConfirmed: "true" }), RangeError);
 assert.equal(normalizeV13Preferences({ shirtSize: "M", shirtCut: "unisex", shirtConfirmed: true }).shirtConfirmed, true);
 assert.equal(normalizeV13Preferences({ shirtSize: "L" }, { shirtSize: "M", shirtCut: "unisex", shirtConfirmed: true }).shirtConfirmed, false);
+assert.equal(normalizeV13Preferences({ shirtSize: "L", shirtConfirmed: true }, { shirtSize: "M", shirtCut: "unisex", shirtConfirmed: true }).shirtConfirmed, false, "A size change must invalidate old confirmation even if stale UI submits true");
+assert.equal(normalizeV13Preferences({ shirtCut: "mujer", shirtConfirmed: true }, { shirtSize: "M", shirtCut: "unisex", shirtConfirmed: true }).shirtConfirmed, false, "A cut change must invalidate old confirmation");
+assert.equal(normalizeV13Preferences({ diplomaLanguage: "es-va", shirtConfirmed: true }, { shirtSize: "M", shirtCut: "unisex", shirtConfirmed: true }).shirtConfirmed, true, "Language-only change preserves shirt confirmation");
 const members = [
   { id: "1", name: "=HYPERLINK(1)", surname: "Ejemplo", v13Preferences: { sex: "mujer", shirtSize: "M", shirtCut: "mujer", diplomaLanguage: "es-va", shirtConfirmed: true } },
   { id: "2", name: "Socio", surname: "Sin datos" }
