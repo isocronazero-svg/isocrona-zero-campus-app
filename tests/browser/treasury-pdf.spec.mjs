@@ -69,3 +69,33 @@ test("Android: PDF de dos páginas se renderiza en canvas, navega y permite desc
     await new Promise(resolve => server.close(resolve));
   }
 });
+
+test("Tesorería: un justificante denegado no ofrece descarga ni vista previa", async ({ browser }) => {
+  const server = createServer((req, res) => {
+    if (req.url === "/") {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.end('<a href="/api/course-finance/courses/test/submissions/test/proof">Ver justificante</a><script type="module">import {installBoardEnhancer} from "/boardEnhancer.js";installBoardEnhancer();</script>');
+    } else if (req.url === "/boardEnhancer.js") {
+      res.setHeader("Content-Type", "application/javascript");
+      res.end(readFileSync(join(root, "public/assets/js/app/admin/boardEnhancer.js")));
+    } else if (req.url?.endsWith("/proof")) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "forbidden" }));
+    } else {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await context.newPage();
+    await page.goto("http://127.0.0.1:" + server.address().port);
+    await page.getByText("Ver justificante").click();
+    await expect(page.getByText("No tienes permiso para consultar este justificante.")).toBeVisible();
+    await expect(page.getByText("Descargar justificante")).toHaveCount(0);
+    await expect(page.locator(".proof-preview-canvas")).toHaveCount(0);
+  } finally {
+    await context.close();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
