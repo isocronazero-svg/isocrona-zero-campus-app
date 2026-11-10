@@ -70,7 +70,12 @@ test("Android: PDF de dos páginas se renderiza en canvas, navega y permite desc
   }
 });
 
-test("Tesorería: un justificante denegado no ofrece descarga ni vista previa", async ({ browser }) => {
+for (const scenario of [
+  { status: 401, message: "Tu sesión ha caducado. Inicia sesión de nuevo." },
+  { status: 403, message: "No tienes permiso para consultar este justificante." },
+  { status: 404, message: "El archivo no está disponible o no existe. Solicita otro justificante." }
+]) {
+test(`Tesorería: error ${scenario.status} no ofrece descarga ni vista previa`, async ({ browser }) => {
   const server = createServer((req, res) => {
     if (req.url === "/") {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -79,7 +84,7 @@ test("Tesorería: un justificante denegado no ofrece descarga ni vista previa", 
       res.setHeader("Content-Type", "application/javascript");
       res.end(readFileSync(join(root, "public/assets/js/app/admin/boardEnhancer.js")));
     } else if (req.url?.endsWith("/proof")) {
-      res.writeHead(403, { "Content-Type": "application/json" });
+      res.writeHead(scenario.status, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "forbidden" }));
     } else {
       res.writeHead(404).end();
@@ -91,7 +96,7 @@ test("Tesorería: un justificante denegado no ofrece descarga ni vista previa", 
     const page = await context.newPage();
     await page.goto("http://127.0.0.1:" + server.address().port);
     await page.getByText("Ver justificante").click();
-    await expect(page.getByText("No tienes permiso para consultar este justificante.")).toBeVisible();
+    await expect(page.getByText(scenario.message)).toBeVisible();
     await expect(page.getByText("Descargar justificante")).toHaveCount(0);
     await expect(page.locator(".proof-preview-canvas")).toHaveCount(0);
   } finally {
@@ -99,3 +104,4 @@ test("Tesorería: un justificante denegado no ofrece descarga ni vista previa", 
     await new Promise(resolve => server.close(resolve));
   }
 });
+}
