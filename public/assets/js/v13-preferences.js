@@ -49,6 +49,9 @@
   const language = document.getElementById("v13DiplomaLanguage");
   const confirmed = document.getElementById("v13ShirtConfirmed");
   if (!open || !dialog || !form) return;
+  // A changed size/cut requires a fresh, explicit confirmation on a later save.
+  size.addEventListener("change", () => { confirmed.checked = false; });
+  cut.addEventListener("change", () => { confirmed.checked = false; });
   const setStatus = message => { status.textContent = message; };
   async function request(method, body) {
     const response = await fetch("/api/v1.3/preferences", {
