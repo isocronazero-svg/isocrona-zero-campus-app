@@ -35,7 +35,8 @@ export function adaptStatePricing(payload) {
     ...payload,
     courses: payload.courses.map((course) => ({
       ...course,
-      // The legacy card renderer reads enrollmentFee. Display the member price for everyone;\n      // the server still calculates the actual participant fee at enrollment.
+      // The legacy card renderer reads enrollmentFee. Display the member price for everyone;
+      // the server still calculates the actual participant fee at enrollment.
       enrollmentFee: getMemberEnrollmentFee(course)
     }))
   };
