@@ -169,7 +169,7 @@ const { readJsonBody } = require("../server/http.js");
     selectedCourseId: "course-2",
     courses: [{ id: "course-2", enrollmentFee: 60, memberEnrollmentFee: 0, nonMemberEnrollmentFee: 60 }]
   });
-  assert.equal(externalState.courses[0].enrollmentFee, 60);
+  assert.equal(externalState.courses[0].enrollmentFee, 0, "El listado debe mostrar el precio de socios también a visitantes externos");
   resetCoursePricingEnhancerForTests();
 }
 
