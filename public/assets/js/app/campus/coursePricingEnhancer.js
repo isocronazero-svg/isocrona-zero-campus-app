@@ -30,14 +30,13 @@ function rememberPricingFromState(payload) {
 
 export function adaptStatePricing(payload) {
   rememberPricingFromState(payload);
-  if (!payload || payload.role !== "member" || !Array.isArray(payload.courses)) return payload;
-  const participantType = payload.selectedAssociateId ? "member" : "external";
+  if (!payload || !Array.isArray(payload.courses)) return payload;
   return {
     ...payload,
     courses: payload.courses.map((course) => ({
       ...course,
-      // The legacy renderer still reads enrollmentFee. Feed it the correct price for this account.
-      enrollmentFee: getApplicableCourseFee(course, participantType)
+      // The legacy card renderer reads enrollmentFee. Display the member price for everyone;\n      // the server still calculates the actual participant fee at enrollment.
+      enrollmentFee: getMemberEnrollmentFee(course)
     }))
   };
 }
