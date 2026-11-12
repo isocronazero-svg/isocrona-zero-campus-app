@@ -43,4 +43,17 @@ const newCertificate = buildEnrollmentCertificateModel(state, "c1", "m1");
 assert.equal(newCertificate?.memberId, "m1",
   "Historical cancellation must not shadow a fresh confirmed enrollment");
 
+
+// Guard the integration points that can silently break when server.js changes.
+import { readFileSync } from "node:fs";
+const serverSource = readFileSync(new URL("../server.js", import.meta.url), "utf8");
+assert.match(serverSource, /id: `enrollment-\$\{randomUUID\(\)\}`/,
+  "New enrollments must have collision-resistant IDs");
+assert.match(serverSource, /\.\.\.\(course\.enrollmentSubmissions \|\| \[\]\)/,
+  "New enrollments must preserve historical submissions");
+assert.match(serverSource, /item\.memberId === member\.id && !\["cancelled", "rejected"\]\.includes\(item\.status\)/,
+  "Payment proof upload must only target an active enrollment");
+assert.match(serverSource, /promotedSubmission\.status =/,
+  "Waitlist promotion must update the linked enrollment");
+
 console.log("Course refund accounting OK");
