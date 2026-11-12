@@ -128,8 +128,10 @@ assert.match(serverSource, /promotedSubmission\.status =/,
   "Waitlist promotion must update the linked enrollment");
 
 const appSource = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
-assert.match(appSource, /item\.refund\?\.status === "completed" && item\.paymentStatus === "validated"/,
-  "Admin finance summary must not subtract refunds from unvalidated payments");
+assert.match(appSource, /refundedAmount: item\.refund\?\.status === "completed" \? Math\.min\(validRefund, paidAmount\) : 0/,
+  "Admin finance summary must only subtract completed refunds from validated payments");
+assert.match(appSource, /Object\.prototype\.hasOwnProperty\.call\(item, "amount"\)/,
+  "Admin finance summary must use the same legacy amount fallback as treasury");
 
 assert.match(serverSource, /\["cancelled", "rejected"\]\.includes\(submission\.status\)/,
   "Closed enrollments must not be reactivated through admin review");
