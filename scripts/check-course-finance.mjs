@@ -189,4 +189,42 @@ function seedState() {
   assert.equal(state.auditLog[0].action, "validate-payment");
 }
 
+// Synthetic proof errors must remain distinct from authorization failures.
+{
+  const state = seedState();
+  let account = state.accounts[0];
+  const handler = createCourseFinanceHandler({
+    readState: () => state,
+    requireAuthenticatedAccount: () => account,
+    sendJson: (res, status, payload) => { res.status = status; res.payload = payload; }
+  });
+  const endpoint = (id) => new URL(`http://test/api/course-finance/courses/course-finance-qa/submissions/${id}/proof`);
+  function mockResponse() {
+    return {
+      status: null,
+      headers: {},
+      payload: null,
+      writeHead(status, headers) { this.status = status; this.headers = headers; },
+      end(body) { this.payload = body; }
+    };
+  }
+  const missing = mockResponse();
+  await handler({ method: "GET" }, missing, endpoint("submission-external"));
+  assert.equal(missing.status, 404);
+  assert.equal(JSON.parse(missing.payload).code, "NO_ATTACHED");
+
+  const invalid = mockResponse();
+  await handler({ method: "GET" }, invalid, endpoint("submission-member"));
+  assert.equal(invalid.status, 422);
+  assert.equal(JSON.parse(invalid.payload).code, "INVALID_FILE");
+  assert.equal(invalid.headers["Cache-Control"], "private, no-store");
+
+  account = state.accounts[1];
+  const forbidden = mockResponse();
+  await handler({ method: "GET" }, forbidden, endpoint("submission-external"));
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.payload.error, "No tienes permiso de tesoreria");
+  assert.equal(forbidden.payload.code, undefined);
+}
+
 console.log("Course finance V1.1: permisos, estados, justificantes, validacion y auditoria OK.");
