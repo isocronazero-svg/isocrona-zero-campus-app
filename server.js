@@ -9160,6 +9160,43 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
+  // Baja administrativa: conserva el pago original y no ejecuta transferencias.
+  const cancellationMatch = requestUrl.pathname.match(/^\\/api\\/courses\\/([^/]+)\\/enrollment-submissions\\/([^/]+)\\/cancel$/);
+  if (cancellationMatch && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      const payload = await readJsonBodyOrDefault(req);
+      const course = (state.courses || []).find(item => item.id === decodeURIComponent(cancellationMatch[1]));
+      if (!course) return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
+      const submission = (course.enrollmentSubmissions || []).find(item => item.id === decodeURIComponent(cancellationMatch[2]));
+      if (!submission) return sendJson(res, 404, { ok: false, error: "Inscripción no encontrada" });
+      if (submission.status === "cancelled") return sendJson(res, 409, { ok: false, error: "La inscripción ya está dada de baja" });
+      const reason = String(payload.reason || "").trim();
+      if (!reason || reason.length > 500) return sendJson(res, 400, { ok: false, error: "Indica un motivo de baja (máximo 500 caracteres)" });
+      const paid = submission.paymentStatus === "validated" ? Number(submission.amount) : 0;
+      if (!Number.isFinite(paid) || paid < 0) return sendJson(res, 409, { ok: false, error: "Importe de pago no válido" });
+      const refundAmount = Number(payload.refundAmount ?? 0);
+      if (!Number.isFinite(refundAmount) || refundAmount < 0 || refundAmount > paid || Math.round(refundAmount * 100) !== refundAmount * 100) {
+        return sendJson(res, 400, { ok: false, error: "La devolución debe estar entre 0 y el importe validado" });
+      }
+      const now = new Date().toISOString();
+      submission.status = "cancelled";
+      submission.cancelledAt = now;
+      submission.cancelledBy = account.name;
+      submission.cancellationReason = reason;
+      submission.refund = { amount: refundAmount, status: refundAmount ? "pending" : "none", createdAt: now, createdBy: account.name };
+      course.enrolledIds = (course.enrolledIds || []).filter(id => id !== submission.memberId);
+      course.waitingIds = (course.waitingIds || []).filter(id => id !== submission.memberId);
+      appendActivity(state, "admin", account.name, `Baja en ${course.title}: inscripción ${submission.id}; devolución pendiente ${refundAmount} EUR. Motivo: ${reason}`);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, message: "Baja registrada y plaza liberada", refund: submission.refund });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo registrar la baja");
+    }
+  }
+
   const academicRoute = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)(?:\/members\/([^/]+))?\/(academic|close)$/);
   if (academicRoute && ((academicRoute[3] === "academic" && ["GET", "PATCH"].includes(req.method)) ||
       (academicRoute[3] === "close" && req.method === "POST"))) {
