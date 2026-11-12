@@ -15733,7 +15733,7 @@ function renderCourseCard(course, role) {
   const currentMemberId = state.selectedMemberId;
   const isEnrolled = currentMemberId && course.enrolledIds.includes(currentMemberId);
   const isWaiting = currentMemberId && course.waitingIds.includes(currentMemberId);
-  const certificateSubmission = (course.enrollmentSubmissions || []).find((item) => item.memberId === currentMemberId);
+  const certificateSubmission = getCourseEnrollmentSubmission(course, currentMemberId);
   const certificateMember = (state.members || []).find((item) => item.id === currentMemberId);
   const certificateIsAssociate = (state.associates || []).some((associate) =>
     (certificateMember?.associateId && associate.id === certificateMember.associateId) ||
@@ -18286,7 +18286,7 @@ function getCourseFeedbackResponse(course, memberId) {
 }
 
 function getCourseEnrollmentSubmission(course, memberId) {
-  return (course.enrollmentSubmissions || []).find((submission) => submission.memberId === memberId) || null;
+  return (course.enrollmentSubmissions || []).find((submission) => submission.memberId === memberId && !["cancelled", "rejected"].includes(submission.status)) || null;
 }
 
 function getEnrollmentSubmissionStatusLabel(status) {
@@ -18301,6 +18301,8 @@ function getEnrollmentSubmissionStatusLabel(status) {
       return "En lista de espera";
     case "rejected":
       return "Rechazada";
+    case "cancelled":
+      return "Baja registrada";
     default:
       return status || "Pendiente";
   }
