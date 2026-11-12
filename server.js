@@ -9200,6 +9200,31 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
+  const refundConfirmationMatch = requestUrl.pathname.match(/^\\/api\\/courses\\/([^/]+)\\/enrollment-submissions\\/([^/]+)\\/refund-confirm$/);
+  if (refundConfirmationMatch && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      const course = (state.courses || []).find(item => item.id === decodeURIComponent(refundConfirmationMatch[1]));
+      if (!course) return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
+      const submission = (course.enrollmentSubmissions || []).find(item => item.id === decodeURIComponent(refundConfirmationMatch[2]));
+      if (!submission) return sendJson(res, 404, { ok: false, error: "Inscripción no encontrada" });
+      if (submission.status !== "cancelled" || submission.refund?.status !== "pending" ||
+          !(Number(submission.refund.amount) > 0)) {
+        return sendJson(res, 409, { ok: false, error: "No existe una devolución pendiente para confirmar" });
+      }
+      submission.refund.status = "completed";
+      submission.refund.completedAt = new Date().toISOString();
+      submission.refund.completedBy = account.name;
+      appendActivity(state, "admin", account.name, `Devolución completada: ${submission.refund.amount} EUR de la inscripción ${submission.id} en ${course.title}`);
+      writeState(state);
+      return sendJson(res, 200, { ok: true, message: "Devolución registrada como realizada", refund: submission.refund });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo confirmar la devolución");
+    }
+  }
+
   const academicRoute = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)(?:\/members\/([^/]+))?\/(academic|close)$/);
   if (academicRoute && ((academicRoute[3] === "academic" && ["GET", "PATCH"].includes(req.method)) ||
       (academicRoute[3] === "close" && req.method === "POST"))) {
