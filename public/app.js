@@ -14636,9 +14636,31 @@ function renderCourseWorkbench(course) {
           <div class="mail-card" id="courseStudentsLedger">
             <h4>Inscripciones y pagos</h4>
             ${(() => {
-              const paid = enrollmentSubmissions.reduce((sum, item) => sum + (item.paymentStatus === "validated" ? Number(item.amount || 0) : 0), 0);
-              const returned = enrollmentSubmissions.reduce((sum, item) => sum + (item.refund?.status === "completed" && item.paymentStatus === "validated" ? Math.min(Number(item.refund.amount || 0), Number(item.amount || 0)) : 0), 0);
-              const pending = enrollmentSubmissions.reduce((sum, item) => sum + (item.refund?.status === "pending" ? Number(item.refund.amount || 0) : 0), 0);
+              // Match the finance ledger's stored-amount fallback and cash-flow rules.
+              const financialRows = enrollmentSubmissions.map((item) => {
+                const member = (state.members || []).find((entry) => entry.id === item.memberId);
+                const associate = (state.associates || []).some((entry) =>
+                  (member?.associateId && entry.id === member.associateId) ||
+                  entry.linkedMemberId === item.memberId);
+                const participantType = ["member", "external"].includes(item.participantType)
+                  ? item.participantType : associate ? "member" : "external";
+                const fee = Number(participantType === "member"
+                  ? course.memberEnrollmentFee ?? course.enrollmentFee ?? 0
+                  : course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0);
+                const amount = Object.prototype.hasOwnProperty.call(item, "amount") &&
+                  Number.isFinite(Number(item.amount)) ? Number(item.amount) : fee;
+                const paidAmount = amount > 0 && item.paymentStatus === "validated" ? amount : 0;
+                const refundAmount = Number(item.refund?.amount);
+                const validRefund = Number.isFinite(refundAmount) && refundAmount >= 0 ? refundAmount : 0;
+                return {
+                  paidAmount,
+                  refundedAmount: item.refund?.status === "completed" ? Math.min(validRefund, paidAmount) : 0,
+                  pendingRefund: item.refund?.status === "pending" ? validRefund : 0
+                };
+              });
+              const paid = financialRows.reduce((sum, item) => sum + item.paidAmount, 0);
+              const returned = financialRows.reduce((sum, item) => sum + item.refundedAmount, 0);
+              const pending = financialRows.reduce((sum, item) => sum + item.pendingRefund, 0);
               return `<p class="muted">Cobrado: <strong>${paid.toFixed(2)} €</strong> · Devoluciones realizadas: <strong>${returned.toFixed(2)} €</strong> · Pendientes: <strong>${pending.toFixed(2)} €</strong> · Saldo neto: <strong>${(paid - returned).toFixed(2)} €</strong></p>`;
             })()}
             ${
