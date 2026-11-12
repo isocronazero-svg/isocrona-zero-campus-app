@@ -9164,7 +9164,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
   }
 
   // Baja administrativa: conserva el pago original y no ejecuta transferencias.
-  const cancellationMatch = requestUrl.pathname.match(/^\\/api\\/courses\\/([^/]+)\\/enrollment-submissions\\/([^/]+)\\/cancel$/);
+  const cancellationMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/enrollment-submissions\/([^/]+)\/cancel$/);
   if (cancellationMatch && req.method === "POST") {
     try {
       const state = readState();
@@ -9200,7 +9200,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
-  const refundConfirmationMatch = requestUrl.pathname.match(/^\\/api\\/courses\\/([^/]+)\\/enrollment-submissions\\/([^/]+)\\/refund-confirm$/);
+  const refundConfirmationMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/enrollment-submissions\/([^/]+)\/refund-confirm$/);
   if (refundConfirmationMatch && req.method === "POST") {
     try {
       const state = readState();
