@@ -135,20 +135,20 @@ function safeFileName(value) {
 function sendProof(res, proof) {
   if (!proof?.contentBase64) {
     res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ ok: false, error: "No hay justificante adjunto" }));
+    res.end(JSON.stringify({ ok: false, code: "NO_ATTACHED", error: "No hay justificante adjunto" }));
     return;
   }
   const bytes = Buffer.from(String(proof.contentBase64), "base64");
   if (!bytes.length) {
     res.writeHead(422, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" });
-    res.end(JSON.stringify({ ok: false, error: "El justificante adjunto está vacío. Solicita un nuevo archivo." }));
+    res.end(JSON.stringify({ ok: false, code: "INVALID_FILE", error: "El justificante adjunto está vacío. Solicita un nuevo archivo." }));
     return;
   }
   const declaredType = clean(proof.type || proof.mimeType).split(";")[0].toLowerCase();
   const isPdf = bytes.subarray(0, 5).toString("ascii") === "%PDF-";
   if (declaredType === "application/pdf" && !isPdf) {
     res.writeHead(422, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "private, no-store" });
-    res.end(JSON.stringify({ ok: false, error: "El justificante PDF está dañado o tiene un formato incorrecto." }));
+    res.end(JSON.stringify({ ok: false, code: "INVALID_FILE", error: "El justificante PDF está dañado o tiene un formato incorrecto." }));
     return;
   }
   const responseType = isPdf ? "application/pdf" : declaredType || "application/octet-stream";
