@@ -9101,6 +9101,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Solicitud no encontrada" });
       }
 
+      if (submission.status === "cancelled") {
+        return sendJson(res, 409, { ok: false, error: "Una inscripción cancelada no se puede reactivar desde revisión. Debe tramitarse una nueva inscripción." });
+      }
       const nextStatus = String(payload.status || "").trim() || "confirmed";
       submission.status = nextStatus;
       submission.reviewedAt = new Date().toISOString();
