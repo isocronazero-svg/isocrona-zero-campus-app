@@ -73,6 +73,12 @@ const appSource = readFileSync(new URL("../public/app.js", import.meta.url), "ut
 assert.match(appSource, /item\.refund\?\.status === "completed" && item\.paymentStatus === "validated"/,
   "Admin finance summary must not subtract refunds from unvalidated payments");
 
+assert.match(serverSource, /\["cancelled", "rejected"\]\.includes\(submission\.status\)/,
+  "Closed enrollments must not be reactivated through admin review");
+assert.match(serverSource, /Estado de revisión no permitido/,
+  "Admin review must reject unsupported status transitions");
+assert.match(serverSource, /Hay otra inscripción activa para este alumno/,
+  "Admin review must reject conflicting duplicate active enrollments");
 const clientSource = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 assert.match(clientSource, /const certificateSubmission = getCourseEnrollmentSubmission\(course, currentMemberId\)/,
   "Member certificate UI must resolve the active submission");
