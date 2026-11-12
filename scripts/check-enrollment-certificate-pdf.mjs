@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const { buildEnrollmentCertificatePages } = require("../server/enrollment-certificate-pdf.js");
+const model = { name: "Alumno", title: "Curso de rescate", startDate: "2026-11-16", endDate: "2026-11-19", hours: 24, location: "Castellón", organizer: "Isócrona Zero", instructors: ["Instructor A"], issuedAt: "2026-11-12" };
+const pages = buildEnrollmentCertificatePages(model, value => String(value).replaceAll("\\", "\\\\").replaceAll("(", "\\(").replaceAll(")", "\\)"));
+assert.equal(pages.length, 1);
+assert.match(pages[0], /CERTIFICADO DE INSCRIPCI/);
+assert.match(pages[0], /no la asistencia efectiva/);
+assert.match(pages[0], /Curso de rescate/);
+console.log("Enrollment certificate PDF layout OK");

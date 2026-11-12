@@ -92,6 +92,10 @@ const { normalizeV13Preferences, projectV13Export } = require("./server/v13-pref
 const { workbookXlsx } = require("./server/v13-xlsx");
 const handleJourneyReports = JourneyParticipation.createJourneyReportHandler({readState, requireAuthenticatedAccount, sendJson, sendJsonError});
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
+const { buildEnrollmentCertificateModel } = require("./server/enrollment-certificate-model");
+const { buildEnrollmentCertificatePages } = require("./server/enrollment-certificate-pdf");
+const { getApplicableCourseFee } = require("./server/course-pricing");
+const { participantTypeForMember } = require("./server/course-finance");
 const { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
@@ -8900,6 +8904,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         ? course.enrollmentSubmissions
         : [];
 
+      const enrollmentAmount = getApplicableCourseFee(course, participantTypeForMember(state, member));
       const hasPaymentProof = Boolean(payload.paymentProof && payload.paymentProof.contentBase64);
       if ((course.enrolledIds || []).length < Number(course.capacity || 0)) {
         course.enrolledIds.push(member.id);
@@ -8914,13 +8919,13 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
           memberId: member.id,
           submittedAt: new Date().toISOString(),
           status: (course.enrolledIds || []).includes(member.id)
-            ? hasPaymentProof || Number(payload.amount || course.enrollmentFee || 0) <= 0
+            ? hasPaymentProof || enrollmentAmount <= 0
               ? "confirmed"
               : "pending-proof"
             : "waiting",
           note: String(payload.note || "").trim(),
           paymentProof: payload.paymentProof || null,
-          amount: Number(payload.amount || course.enrollmentFee || 0),
+          amount: enrollmentAmount,
           method: String(payload.method || "Transferencia").trim() || "Transferencia"
         }
       ];
@@ -9599,6 +9604,30 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     } catch (error) {
       return sendJsonError(res, error, "No se pudo generar el certificado de instructor");
     }
+  }
+
+  const enrollmentCertificateMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([^/]+)\/enrollment-certificate\.pdf$/);
+  if (enrollmentCertificateMatch && req.method === "GET") {
+    const state = readState();
+    const account = requireAuthenticatedAccount(req, res, state);
+    if (!account) return;
+    const memberId = account.memberId;
+    if (!memberId || !canAccessMemberResource(account, memberId)) {
+      return sendJson(res, 403, { ok: false, error: "No tienes acceso a este certificado" });
+    }
+    const courseId = decodeURIComponent(enrollmentCertificateMatch[1]);
+    const model = buildEnrollmentCertificateModel(state, courseId, memberId);
+    if (!model) {
+      return sendJson(res, 404, { ok: false, error: "No hay una inscripción confirmada y un pago validado para este curso" });
+    }
+    const pdf = buildPdfDocument(buildEnrollmentCertificatePages(model, escapePdfText));
+    res.writeHead(200, {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `${requestUrl.searchParams.get("download") === "1" ? "attachment" : "inline"}; filename="certificado-inscripcion.pdf"`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    return res.end(pdf);
   }
 
   if (requestUrl.pathname === "/api/member/activity-certificate.pdf" && req.method === "GET") {

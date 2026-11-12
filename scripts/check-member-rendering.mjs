@@ -184,7 +184,8 @@ for (const fee of [0, 25]) {
   const html = renderEnrollment({ fee });
   assert.match(html, /id="courseEnrollmentForm"/);
   assert.match(html, /id="courseEnrollmentNote"/);
-  for (const id of ["courseEnrollmentAmount", "courseEnrollmentMethod", "courseEnrollmentProof"]) {
+  assert.doesNotMatch(html, /id="courseEnrollmentAmount"/, "Amount is calculated on the server");
+  for (const id of ["courseEnrollmentMethod", "courseEnrollmentProof"]) {
     assert.equal(html.includes(`id="${id}"`), fee > 0, `${id} for fee ${fee}`);
   }
   assert.equal(html.includes("Indicaciones de pago"), fee > 0);

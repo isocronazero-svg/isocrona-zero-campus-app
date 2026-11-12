@@ -14833,7 +14833,15 @@ function renderSelectedCourse(course) {
   const enrollmentCall = getCourseEnrollmentCall(course);
   const isPreviewMode = isMemberPreviewSession();
   const enrollmentSubmission = getCourseEnrollmentSubmission(course, state.selectedMemberId);
-  const enrollmentRequiresPayment = Number(course.enrollmentFee || 0) > 0 || Number(enrollmentSubmission?.amount || 0) > 0;
+  const enrollmentMember = (state.members || []).find((item) => item.id === state.selectedMemberId);
+  const isAssociateParticipant = (state.associates || []).some((associate) =>
+    (enrollmentMember?.associateId && associate.id === enrollmentMember.associateId) ||
+    associate.linkedMemberId === state.selectedMemberId
+  );
+  const enrollmentApplicableFee = Number(isAssociateParticipant
+    ? course.memberEnrollmentFee ?? course.enrollmentFee ?? 0
+    : course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0);
+  const enrollmentRequiresPayment = enrollmentApplicableFee > 0 || Number(enrollmentSubmission?.amount || 0) > 0;
   const enrollmentNeedsProof = enrollmentSubmission?.status === "pending-proof" ||
     (enrollmentRequiresPayment && !enrollmentSubmission?.paymentProof) ||
     (state.memberNotifications || []).some(notice => !notice.resolvedAt && notice.id ===
@@ -15012,12 +15020,10 @@ function renderSelectedCourse(course) {
                       <strong>${escapeHtml(enrollmentCall.audienceLabel)}</strong>
                       <p class="muted">${escapeHtml(enrollmentCall.audienceHint)}</p>
                     </div>
+                    <p class="muted">Precio socios: ${Number(course.memberEnrollmentFee ?? course.enrollmentFee ?? 0).toLocaleString("es-ES")} € · Precio no socios: ${Number(course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0).toLocaleString("es-ES")} €</p>
                     <form id="courseEnrollmentForm" class="studio-grid">
                       ${enrollmentRequiresPayment ? `
-                      <label class="inline-field">
-                        Importe
-                        <input id="courseEnrollmentAmount" type="number" min="0" step="0.01" value="${course.enrollmentFee || 0}" />
-                      </label>
+                      <p class="muted studio-full">El importe aplicable se calcula automáticamente según tu condición de socio. No es necesario introducirlo.</p>
                       <label class="inline-field">
                         Metodo
                         <select id="courseEnrollmentMethod">
@@ -15660,6 +15666,23 @@ function renderCourseCard(course, role) {
   const currentMemberId = state.selectedMemberId;
   const isEnrolled = currentMemberId && course.enrolledIds.includes(currentMemberId);
   const isWaiting = currentMemberId && course.waitingIds.includes(currentMemberId);
+  const certificateSubmission = (course.enrollmentSubmissions || []).find((item) => item.memberId === currentMemberId);
+  const certificateMember = (state.members || []).find((item) => item.id === currentMemberId);
+  const certificateIsAssociate = (state.associates || []).some((associate) =>
+    (certificateMember?.associateId && associate.id === certificateMember.associateId) ||
+    associate.linkedMemberId === currentMemberId
+  );
+  const certificateConfiguredAmount = Number(certificateIsAssociate
+    ? course.memberEnrollmentFee ?? course.enrollmentFee ?? 0
+    : course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0);
+  const certificateStoredAmount = certificateSubmission?.amount;
+  const certificateAmount = certificateStoredAmount != null && certificateStoredAmount !== "" &&
+    Number.isFinite(Number(certificateStoredAmount))
+    ? Number(certificateStoredAmount) : certificateConfiguredAmount;
+  const canDownloadEnrollmentCertificate = role === "member" && isEnrolled &&
+    certificateSubmission?.status === "confirmed" &&
+    Number.isFinite(certificateAmount) && certificateAmount >= 0 &&
+    (certificateAmount === 0 || certificateSubmission?.paymentStatus === "validated");
 
   fragment.querySelector('[data-slot="type"]').textContent = describeCourseType(course);
   fragment.querySelector('[data-slot="status"]').textContent = EnrollmentTime.courseWindowState(course) === "closed"
@@ -15667,6 +15690,7 @@ function renderCourseCard(course, role) {
   fragment.querySelector('[data-slot="title"]').textContent = course.title;
   fragment.querySelector('[data-slot="summary"]').textContent = [
     course.summary,
+    `Precio socios: ${Number(course.memberEnrollmentFee ?? course.enrollmentFee ?? 0) > 0 ? `${Number(course.memberEnrollmentFee ?? course.enrollmentFee).toLocaleString("es-ES")} €` : "Gratuito"}`,
     getCourseTemplateLabel(course.contentTemplate || inferCourseTemplate(course)),
     `${(course.modules || []).length} modulo(s)`,
     `${getPublishedLessonCount(course)} leccion(es) publicadas`,
@@ -15690,6 +15714,7 @@ function renderCourseCard(course, role) {
           : "Ver resumen"
       : "Gestionar";
   actions.innerHTML = `
+    ${canDownloadEnrollmentCertificate ? `<a class="mini-button" href="/api/member/courses/${encodeURIComponent(course.id)}/enrollment-certificate.pdf?download=1">Descargar certificado de inscripción</a>` : ""}
     <button class="mini-button" data-action="${role === "member" && isEnrolled ? "open-course-workbench-tab" : "select-course"}" data-course-id="${course.id}" ${role === "member" && isEnrolled ? 'data-mode="learner"' : ""}>${openLabel}</button>
     ${
       role === "member"
