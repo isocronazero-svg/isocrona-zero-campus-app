@@ -15673,6 +15673,7 @@ function renderCourseCard(course, role) {
   fragment.querySelector('[data-slot="title"]').textContent = course.title;
   fragment.querySelector('[data-slot="summary"]').textContent = [
     course.summary,
+    `Precio socios: ${Number(course.memberEnrollmentFee ?? course.enrollmentFee ?? 0) > 0 ? `${Number(course.memberEnrollmentFee ?? course.enrollmentFee).toLocaleString("es-ES")} €` : "Gratuito"}`,
     getCourseTemplateLabel(course.contentTemplate || inferCourseTemplate(course)),
     `${(course.modules || []).length} modulo(s)`,
     `${getPublishedLessonCount(course)} leccion(es) publicadas`,
