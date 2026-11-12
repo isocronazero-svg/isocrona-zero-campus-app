@@ -60,4 +60,8 @@ assert.match(serverSource, /Math\.abs\(refundAmount \* 100 - Math\.round\(refund
 assert.match(serverSource, /promotedSubmission\.status =/,
   "Waitlist promotion must update the linked enrollment");
 
+const appSource = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+assert.match(appSource, /item\.refund\?\.status === "completed" && item\.paymentStatus === "validated"/,
+  "Admin finance summary must not subtract refunds from unvalidated payments");
+
 console.log("Course refund accounting OK");
