@@ -53,6 +53,10 @@ assert.match(serverSource, /\.\.\.\(course\.enrollmentSubmissions \|\| \[\]\)/,
   "New enrollments must preserve historical submissions");
 assert.match(serverSource, /item\.memberId === member\.id && !\["cancelled", "rejected"\]\.includes\(item\.status\)/,
   "Payment proof upload must only target an active enrollment");
+assert.match(serverSource, /Existe otra inscripción activa para este alumno/,
+  "Cancellation must not accidentally release a seat owned by another active enrollment");
+assert.match(serverSource, /Math\.abs\(refundAmount \* 100 - Math\.round\(refundAmount \* 100\)\) > 1e-7/,
+  "Cent validation must tolerate floating-point representation of valid amounts");
 assert.match(serverSource, /promotedSubmission\.status =/,
   "Waitlist promotion must update the linked enrollment");
 
