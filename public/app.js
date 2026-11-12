@@ -15012,6 +15012,7 @@ function renderSelectedCourse(course) {
                       <strong>${escapeHtml(enrollmentCall.audienceLabel)}</strong>
                       <p class="muted">${escapeHtml(enrollmentCall.audienceHint)}</p>
                     </div>
+                    <p class="muted">Precio socios: ${Number(course.memberEnrollmentFee ?? course.enrollmentFee ?? 0).toLocaleString("es-ES")} € · Precio no socios: ${Number(course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0).toLocaleString("es-ES")} €</p>
                     <form id="courseEnrollmentForm" class="studio-grid">
                       ${enrollmentRequiresPayment ? `
                       <label class="inline-field">
