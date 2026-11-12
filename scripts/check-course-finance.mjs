@@ -189,4 +189,27 @@ function seedState() {
   assert.equal(state.auditLog[0].action, "validate-payment");
 }
 
+{
+  const state = seedState();
+  const submissions = state.courses[0].enrollmentSubmissions;
+  submissions[0].paymentStatus = "validated";
+  submissions[1].paymentStatus = "validated";
+  submissions[0].status = "cancelled";
+  submissions[0].refund = { amount: 10, status: "pending" };
+  let snapshot = buildCourseFinanceSnapshot(state);
+  assert.equal(snapshot.summary.grossPaid, 70);
+  assert.equal(snapshot.summary.refundsPending, 10);
+  assert.equal(snapshot.summary.refundsCompleted, 0);
+  assert.equal(snapshot.summary.netPaid, 70, "Pending refunds do not reduce treasury");
+  submissions[0].refund = { amount: 10, status: "completed", completedAt: "2099-01-01T12:00:00Z", completedBy: "Admin QA" };
+  snapshot = buildCourseFinanceSnapshot(state);
+  assert.equal(snapshot.summary.grossPaid, 70);
+  assert.equal(snapshot.summary.refundsPending, 0);
+  assert.equal(snapshot.summary.refundsCompleted, 10);
+  assert.equal(snapshot.summary.netPaid, 60, "Completed refund reduces net balance once");
+  assert.equal(snapshot.courses[0].rows[0].refundCompletedBy, "Admin QA");
+  assert.equal(snapshot.courses[0].netPaid, 60);
+  assert.equal(buildCourseFinanceSnapshot(state).summary.netPaid, 60, "Repeated reads never double-count");
+}
+
 console.log("Course finance V1.1: permisos, estados, justificantes, validacion y auditoria OK.");
