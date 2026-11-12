@@ -9167,10 +9167,14 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
   const cancellationMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/enrollment-submissions\/([^/]+)\/cancel$/);
   if (cancellationMatch && req.method === "POST") {
     try {
+      const authState = readState();
+      const authenticated = requireAdminAccount(req, res, authState);
+      if (!authenticated) return;
+      const payload = await readJsonBodyOrDefault(req);
+      // Body parsing yields: reload state and recheck authorization before mutating.
       const state = readState();
       const account = requireAdminAccount(req, res, state);
       if (!account) return;
-      const payload = await readJsonBodyOrDefault(req);
       const course = (state.courses || []).find(item => item.id === decodeURIComponent(cancellationMatch[1]));
       if (!course) return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
       const submission = (course.enrollmentSubmissions || []).find(item => item.id === decodeURIComponent(cancellationMatch[2]));
