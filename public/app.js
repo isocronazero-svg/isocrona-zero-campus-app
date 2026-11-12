@@ -15667,7 +15667,18 @@ function renderCourseCard(course, role) {
   const isEnrolled = currentMemberId && course.enrolledIds.includes(currentMemberId);
   const isWaiting = currentMemberId && course.waitingIds.includes(currentMemberId);
   const certificateSubmission = (course.enrollmentSubmissions || []).find((item) => item.memberId === currentMemberId);
-  const certificateAmount = Number(certificateSubmission?.amount);
+  const certificateMember = (state.members || []).find((item) => item.id === currentMemberId);
+  const certificateIsAssociate = (state.associates || []).some((associate) =>
+    (certificateMember?.associateId && associate.id === certificateMember.associateId) ||
+    associate.linkedMemberId === currentMemberId
+  );
+  const certificateConfiguredAmount = Number(certificateIsAssociate
+    ? course.memberEnrollmentFee ?? course.enrollmentFee ?? 0
+    : course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0);
+  const certificateStoredAmount = certificateSubmission?.amount;
+  const certificateAmount = certificateStoredAmount != null && certificateStoredAmount !== "" &&
+    Number.isFinite(Number(certificateStoredAmount))
+    ? Number(certificateStoredAmount) : certificateConfiguredAmount;
   const canDownloadEnrollmentCertificate = role === "member" && isEnrolled &&
     certificateSubmission?.status === "confirmed" &&
     Number.isFinite(certificateAmount) && certificateAmount >= 0 &&
