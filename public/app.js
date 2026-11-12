@@ -1721,6 +1721,45 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
+  if ((action === "cancel-course-enrollment" || action === "confirm-course-refund") && isAdminView() && courseId) {
+    const submissionId = actionTarget.dataset.submissionId;
+    if (!submissionId) return;
+    const cancelling = action === "cancel-course-enrollment";
+    let body = {};
+    if (cancelling) {
+      const reason = window.prompt("Motivo de la baja del alumno:");
+      if (reason === null) return;
+      if (!reason.trim()) return showToast("Es obligatorio indicar el motivo de la baja.", "error");
+      const amountText = window.prompt("Importe de devolución en euros (0 si no se devuelve nada):", "0");
+      if (amountText === null) return;
+      const refundAmount = Number(amountText.trim().replace(",", "."));
+      if (!amountText.trim() || !Number.isFinite(refundAmount) || refundAmount < 0) {
+        return showToast("Indica un importe de devolución válido.", "error");
+      }
+      if (!window.confirm(`¿Dar de baja al alumno y liberar su plaza? Devolución pendiente: ${refundAmount.toFixed(2)} €.`)) return;
+      body = { reason: reason.trim(), refundAmount };
+    } else if (!window.confirm("¿Confirmas que la asociación YA ha devuelto el dinero? Se descontará del balance.")) {
+      return;
+    }
+    try {
+      const suffix = cancelling ? "cancel" : "refund-confirm";
+      const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/enrollment-submissions/${encodeURIComponent(submissionId)}/${suffix}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const payload = await readJsonResponse(response, "No se pudo registrar la operación.");
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || "Operación no completada.");
+      await refreshState();
+      applySessionToState();
+      showToast(payload.message || "Operación registrada", "success");
+      render();
+    } catch (error) {
+      showToast(error.message || "No se pudo completar la operación", "error");
+    }
+    return;
+  }
+
   if (action === "set-enrollment-submission-status" && isAdminView() && courseId) {
     const submissionId = actionTarget.dataset.submissionId;
     const nextStatus = actionTarget.dataset.status;
@@ -14626,7 +14665,14 @@ function renderCourseWorkbench(course) {
                                 <td>${escapeHtml(submission.note || "-")}</td>
                                 <td>
                                   <div class="chip-row">
-                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Validar</button>
+                                    ${submission.status === "cancelled"
+                                      ? `<span class="small-chip">Baja registrada</span>${submission.refund?.status === "pending"
+                                        ? `<button class="mini-button" type="button" data-action="confirm-course-refund" data-course-id="${course.id}" data-submission-id="${submission.id}">Confirmar devolución (${Number(submission.refund.amount).toFixed(2)} €)</button>`
+                                        : submission.refund?.status === "completed"
+                                          ? `<span class="small-chip">Devueltos ${Number(submission.refund.amount).toFixed(2)} €</span>`
+                                          : ""}`
+                                      : `<button class="mini-button" type="button" data-action="cancel-course-enrollment" data-course-id="${course.id}" data-submission-id="${submission.id}">Dar de baja</button>
+                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Validar</button>`}
                                     <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="pending-proof">Pedir justificante</button>
                                     <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>
                                   </div>
