@@ -9603,7 +9603,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
     }
   }
 
-  const enrollmentCertificateMatch = requestUrl.pathname.match(/^\\/api\\/member\\/courses\\/([^/]+)\\/enrollment-certificate\\.pdf$/);
+  const enrollmentCertificateMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([^/]+)\/enrollment-certificate\.pdf$/);
   if (enrollmentCertificateMatch && req.method === "GET") {
     const state = readState();
     const account = requireAuthenticatedAccount(req, res, state);
