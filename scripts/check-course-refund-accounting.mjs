@@ -73,4 +73,10 @@ const appSource = readFileSync(new URL("../public/app.js", import.meta.url), "ut
 assert.match(appSource, /item\.refund\?\.status === "completed" && item\.paymentStatus === "validated"/,
   "Admin finance summary must not subtract refunds from unvalidated payments");
 
+const clientSource = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
+assert.match(clientSource, /const certificateSubmission = getCourseEnrollmentSubmission\(course, currentMemberId\)/,
+  "Member certificate UI must resolve the active submission");
+assert.match(clientSource, /submission\.memberId === memberId && !\["cancelled", "rejected"\]\.includes\(submission\.status\)/,
+  "Enrollment lookup must exclude cancelled and rejected history");
+
 console.log("Course refund accounting OK");
