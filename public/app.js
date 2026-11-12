@@ -14833,7 +14833,15 @@ function renderSelectedCourse(course) {
   const enrollmentCall = getCourseEnrollmentCall(course);
   const isPreviewMode = isMemberPreviewSession();
   const enrollmentSubmission = getCourseEnrollmentSubmission(course, state.selectedMemberId);
-  const enrollmentRequiresPayment = Number(course.enrollmentFee || 0) > 0 || Number(enrollmentSubmission?.amount || 0) > 0;
+  const enrollmentMember = (state.members || []).find((item) => item.id === state.selectedMemberId);
+  const isAssociateParticipant = (state.associates || []).some((associate) =>
+    (enrollmentMember?.associateId && associate.id === enrollmentMember.associateId) ||
+    associate.linkedMemberId === state.selectedMemberId
+  );
+  const enrollmentApplicableFee = Number(isAssociateParticipant
+    ? course.memberEnrollmentFee ?? course.enrollmentFee ?? 0
+    : course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0);
+  const enrollmentRequiresPayment = enrollmentApplicableFee > 0 || Number(enrollmentSubmission?.amount || 0) > 0;
   const enrollmentNeedsProof = enrollmentSubmission?.status === "pending-proof" ||
     (enrollmentRequiresPayment && !enrollmentSubmission?.paymentProof) ||
     (state.memberNotifications || []).some(notice => !notice.resolvedAt && notice.id ===
