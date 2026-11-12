@@ -152,13 +152,13 @@ async function openProofPreview(href, label = "Justificante") {
     const download = document.createElement("a");
     download.className = "mini-button";
     download.textContent = "Descargar justificante";
-    download.href = proofObjectUrl;
+    download.href = href + (href.includes("?") ? "&" : "?") + "download=1";
     download.download = isPdf ? "justificante.pdf" : isImage ? "justificante." + (type.split("/")[1] === "jpeg" ? "jpg" : type.split("/")[1] || "imagen") : "justificante";
     actions.append(download);
     const open = document.createElement("a");
     open.className = "mini-button";
     open.textContent = "Abrir archivo";
-    open.href = proofObjectUrl;
+    open.href = href;
     open.target = "_blank";
     open.rel = "noopener noreferrer";
     actions.append(open);
