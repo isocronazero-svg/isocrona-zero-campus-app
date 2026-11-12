@@ -293,5 +293,6 @@ module.exports = {
   canManageCourseFinance,
   createCourseFinanceHandler,
   normalizedPaymentStatus,
+  participantTypeForMember,
   resolveAccountAssociate
 };
