@@ -8976,7 +8976,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Curso o persona no encontrada" });
       }
 
-      const submission = (course.enrollmentSubmissions || []).find((item) => item.memberId === member.id);
+      const submission = (course.enrollmentSubmissions || []).find((item) => item.memberId === member.id && !["cancelled", "rejected"].includes(item.status));
       if (!submission) {
         return sendJson(res, 404, { ok: false, error: "No tienes una solicitud abierta en este curso" });
       }
