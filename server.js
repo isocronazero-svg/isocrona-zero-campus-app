@@ -9213,6 +9213,13 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       course.enrolledIds = (course.enrolledIds || []).filter(id => id !== submission.memberId);
       course.waitingIds = (course.waitingIds || []).filter(id => id !== submission.memberId);
       appendActivity(state, "admin", account.name, `Baja en ${course.title}: inscripción ${submission.id}; devolución pendiente ${refundAmount} EUR. Motivo: ${reason}`);
+      require("./server/audit-log").appendAuditEvent(state, {
+        account, module: "course-finance", entityType: "course-enrollment",
+        entityId: submission.id, entityLabel: course.title,
+        action: "cancel-enrollment",
+        before: { status: "active", paidAmount: paid },
+        after: { status: "cancelled", refundAmount, refundStatus: submission.refund.status, reason }
+      });
       writeState(state);
       return sendJson(res, 200, { ok: true, message: "Baja registrada y plaza liberada", refund: submission.refund });
     } catch (error) {
@@ -9238,6 +9245,13 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       submission.refund.completedAt = new Date().toISOString();
       submission.refund.completedBy = account.name;
       appendActivity(state, "admin", account.name, `Devolución completada: ${submission.refund.amount} EUR de la inscripción ${submission.id} en ${course.title}`);
+      require("./server/audit-log").appendAuditEvent(state, {
+        account, module: "course-finance", entityType: "course-refund",
+        entityId: submission.id, entityLabel: course.title,
+        action: "complete-refund",
+        before: { refundStatus: "pending", refundAmount: submission.refund.amount },
+        after: { refundStatus: "completed", refundAmount: submission.refund.amount, completedAt: submission.refund.completedAt }
+      });
       writeState(state);
       return sendJson(res, 200, { ok: true, message: "Devolución registrada como realizada", refund: submission.refund });
     } catch (error) {
