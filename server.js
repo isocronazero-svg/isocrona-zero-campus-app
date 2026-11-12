@@ -8896,7 +8896,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         });
       }
 
-      if ((course.enrolledIds || []).includes(member.id) || (course.waitingIds || []).includes(member.id)) {
+      if ((course.enrolledIds || []).includes(member.id) || (course.waitingIds || []).includes(member.id) ||
+          (course.enrollmentSubmissions || []).some(item => item.memberId === member.id &&
+            !["cancelled", "rejected"].includes(item.status))) {
         return sendJson(res, 200, { ok: true, message: "Ya estabas registrado en este curso" });
       }
 
@@ -8913,9 +8915,11 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       course.enrollmentSubmissions = [
-        ...(course.enrollmentSubmissions || []).filter((item) => item.memberId !== member.id),
+        // Preserve cancelled/rejected history for treasury and audit; only
+        // remove obsolete active duplicates (guarded against above).
+        ...(course.enrollmentSubmissions || []),
         {
-          id: `enrollment-${Date.now()}`,
+          id: `enrollment-${randomUUID()}`,
           memberId: member.id,
           submittedAt: new Date().toISOString(),
           status: (course.enrolledIds || []).includes(member.id)
