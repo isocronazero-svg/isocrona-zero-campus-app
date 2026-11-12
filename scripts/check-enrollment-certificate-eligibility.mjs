@@ -17,7 +17,7 @@ const { buildEnrollmentCertificateModel } = require("../server/enrollment-certif
 const state = {
   members: [{ id: "member-1", name: "Alumno de prueba" }],
   courses: [{
-    id: "course-1", title: "Rescate", hours: 16, startDate: "2026-11-16",
+    id: "course-1", title: "Rescate", hours: 16, startDate: "2026-11-16", enrolledIds: ["member-1"],
     enrollmentSubmissions: [{ id: "submission-1", memberId: "member-1", status: "confirmed", amount: 50, paymentStatus: "validated" }]
   }]
 };
@@ -28,4 +28,7 @@ assert.equal(model.certificateType, "confirmed-enrollment");
 assert.equal(buildEnrollmentCertificateModel(state, "course-1", "member-2"), null);
 state.courses[0].enrollmentSubmissions[0].paymentStatus = "pending";
 assert.equal(buildEnrollmentCertificateModel(state, "course-1", "member-1"), null);
+state.courses[0].enrollmentSubmissions[0].paymentStatus = "validated";
+state.courses[0].enrolledIds = [];
+assert.equal(buildEnrollmentCertificateModel(state, "course-1", "member-1"), null, "Sin plaza asignada no hay certificado");
 console.log("Enrollment certificate eligibility and model OK");
