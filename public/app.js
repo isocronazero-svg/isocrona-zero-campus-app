@@ -14635,6 +14635,12 @@ function renderCourseWorkbench(course) {
           </div>
           <div class="mail-card" id="courseStudentsLedger">
             <h4>Inscripciones y pagos</h4>
+            ${(() => {
+              const paid = enrollmentSubmissions.reduce((sum, item) => sum + (item.paymentStatus === "validated" ? Number(item.amount || 0) : 0), 0);
+              const returned = enrollmentSubmissions.reduce((sum, item) => sum + (item.refund?.status === "completed" ? Number(item.refund.amount || 0) : 0), 0);
+              const pending = enrollmentSubmissions.reduce((sum, item) => sum + (item.refund?.status === "pending" ? Number(item.refund.amount || 0) : 0), 0);
+              return `<p class="muted">Cobrado: <strong>${paid.toFixed(2)} €</strong> · Devoluciones realizadas: <strong>${returned.toFixed(2)} €</strong> · Pendientes: <strong>${pending.toFixed(2)} €</strong> · Saldo neto: <strong>${(paid - returned).toFixed(2)} €</strong></p>`;
+            })()}
             ${
               enrollmentSubmissions.length
                 ? `
