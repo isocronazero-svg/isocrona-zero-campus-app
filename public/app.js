@@ -15015,10 +15015,7 @@ function renderSelectedCourse(course) {
                     <p class="muted">Precio socios: ${Number(course.memberEnrollmentFee ?? course.enrollmentFee ?? 0).toLocaleString("es-ES")} € · Precio no socios: ${Number(course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0).toLocaleString("es-ES")} €</p>
                     <form id="courseEnrollmentForm" class="studio-grid">
                       ${enrollmentRequiresPayment ? `
-                      <label class="inline-field">
-                        Importe
-                        <input id="courseEnrollmentAmount" type="number" min="0" step="0.01" value="${course.enrollmentFee || 0}" />
-                      </label>
+                      <p class="muted studio-full">El importe aplicable se calcula automáticamente según tu condición de socio. No es necesario introducirlo.</p>
                       <label class="inline-field">
                         Metodo
                         <select id="courseEnrollmentMethod">
