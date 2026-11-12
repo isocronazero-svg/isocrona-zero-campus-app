@@ -83,6 +83,9 @@ assert.match(serverSource, /action: "cancel-enrollment"/,
   "Cancellation must be recorded in the financial audit log");
 assert.match(serverSource, /action: "complete-refund"/,
   "Completed refunds must be recorded in the financial audit log");
+const financeSource = readFileSync(new URL("../server/course-finance.js", import.meta.url), "utf8");
+assert.match(financeSource, /submission\.status === "cancelled" \|\| \["pending", "completed"\]\.includes\(submission\.refund\?\.status\)/,
+  "Treasury must not rewrite payments on cancelled or refunded enrollments");
 const clientSource = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 assert.match(clientSource, /const certificateSubmission = getCourseEnrollmentSubmission\(course, currentMemberId\)/,
   "Member certificate UI must resolve the active submission");
