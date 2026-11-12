@@ -79,6 +79,10 @@ assert.match(serverSource, /Estado de revisión no permitido/,
   "Admin review must reject unsupported status transitions");
 assert.match(serverSource, /Hay otra inscripción activa para este alumno/,
   "Admin review must reject conflicting duplicate active enrollments");
+assert.match(serverSource, /action: "cancel-enrollment"/,
+  "Cancellation must be recorded in the financial audit log");
+assert.match(serverSource, /action: "complete-refund"/,
+  "Completed refunds must be recorded in the financial audit log");
 const clientSource = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 assert.match(clientSource, /const certificateSubmission = getCourseEnrollmentSubmission\(course, currentMemberId\)/,
   "Member certificate UI must resolve the active submission");
