@@ -44,6 +44,15 @@ assert.equal(newCertificate?.memberId, "m1",
   "Historical cancellation must not shadow a fresh confirmed enrollment");
 
 
+// A second enrollment is a distinct financial event. Preserve both historical
+// income and refund when aggregating by course and by association.
+let historySnapshot = buildCourseFinanceSnapshot(state);
+assert.equal(historySnapshot.summary.total, 2);
+assert.equal(historySnapshot.summary.grossPaid, 220);
+assert.equal(historySnapshot.summary.refundsCompleted, 35);
+assert.equal(historySnapshot.summary.netPaid, 185);
+assert.equal(historySnapshot.courses[0].rows.filter(row => row.memberId === "m1").length, 2);
+
 // Guard the integration points that can silently break when server.js changes.
 import { readFileSync } from "node:fs";
 const serverSource = readFileSync(new URL("../server.js", import.meta.url), "utf8");
