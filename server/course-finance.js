@@ -232,6 +232,12 @@ function createCourseFinanceHandler(deps) {
           return true;
         }
         const beforeRow = buildFinanceRow(state, course, submission);
+        // A refund is a historical cash movement: changing its payment status
+        // would silently rewrite gross and net accounting.
+        if (submission.status === "cancelled" || ["pending", "completed"].includes(submission.refund?.status)) {
+          deps.sendJson(res, 409, { ok: false, error: "Inscripción cancelada o con devolución: el pago histórico no se puede modificar" });
+          return true;
+        }
         if (beforeRow.amount <= 0) {
           deps.sendJson(res, 409, { ok: false, error: "Este curso no requiere pago" });
           return true;
