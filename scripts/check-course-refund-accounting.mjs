@@ -25,4 +25,22 @@ submission.refund.amount=35;
 snapshot=buildCourseFinanceSnapshot(state);
 assert.equal(snapshot.summary.netPaid,75);
 assert.equal(snapshot.summary.refundsCompleted,35);
+
+// Cross-module contract: cancellation revokes the enrollment certificate, while
+// a later confirmed enrollment of the same member can legitimately obtain one.
+const { buildEnrollmentCertificateModel } = require("../server/enrollment-certificate-model.js");
+state.courses[0].enrolledIds = ["m1"];
+state.courses[0].startDate = "2099-11-16";
+state.courses[0].endDate = "2099-11-19";
+state.courses[0].hours = 24;
+assert.equal(buildEnrollmentCertificateModel(state, "c1", "m1"), null,
+  "Cancelled enrollment cannot produce a certificate even with stale enrolledIds");
+state.courses[0].enrollmentSubmissions.push({
+  id: "s2", memberId: "m1", participantType: "external", amount: 110,
+  status: "confirmed", paymentStatus: "validated"
+});
+const newCertificate = buildEnrollmentCertificateModel(state, "c1", "m1");
+assert.equal(newCertificate?.memberId, "m1",
+  "Historical cancellation must not shadow a fresh confirmed enrollment");
+
 console.log("Course refund accounting OK");
