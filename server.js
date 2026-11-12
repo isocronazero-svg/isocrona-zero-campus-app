@@ -9183,7 +9183,10 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if (!course) return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
       const submission = (course.enrollmentSubmissions || []).find(item => item.id === decodeURIComponent(cancellationMatch[2]));
       if (!submission) return sendJson(res, 404, { ok: false, error: "Inscripción no encontrada" });
-      if (submission.status === "cancelled") return sendJson(res, 409, { ok: false, error: "La inscripción ya está dada de baja" });
+      if (["cancelled", "rejected"].includes(submission.status)) return sendJson(res, 409, { ok: false, error: "La inscripción ya está cancelada o rechazada" });
+      if ((course.enrollmentSubmissions || []).some(item => item.id !== submission.id && item.memberId === submission.memberId && !["cancelled", "rejected"].includes(item.status))) {
+        return sendJson(res, 409, { ok: false, error: "Existe otra inscripción activa para este alumno; revisa el historial antes de tramitar la baja" });
+      }
       const reason = String(payload.reason || "").trim();
       if (!reason || reason.length > 500) return sendJson(res, 400, { ok: false, error: "Indica un motivo de baja (máximo 500 caracteres)" });
       // Match treasury's effective payment calculation, including historical fee records.
@@ -9191,7 +9194,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       const paid = financeRow.paidAmount;
       if (!Number.isFinite(paid) || paid < 0) return sendJson(res, 409, { ok: false, error: "Importe de pago no válido" });
       const refundAmount = Number(payload.refundAmount ?? 0);
-      if (!Number.isFinite(refundAmount) || refundAmount < 0 || refundAmount > paid || Math.round(refundAmount * 100) !== refundAmount * 100) {
+      if (!Number.isFinite(refundAmount) || refundAmount < 0 || refundAmount > paid || Math.abs(refundAmount * 100 - Math.round(refundAmount * 100)) > 1e-7) {
         return sendJson(res, 400, { ok: false, error: "La devolución debe estar entre 0 y el importe validado" });
       }
       const now = new Date().toISOString();
