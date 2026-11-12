@@ -9182,7 +9182,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       if (submission.status === "cancelled") return sendJson(res, 409, { ok: false, error: "La inscripción ya está dada de baja" });
       const reason = String(payload.reason || "").trim();
       if (!reason || reason.length > 500) return sendJson(res, 400, { ok: false, error: "Indica un motivo de baja (máximo 500 caracteres)" });
-      const paid = submission.paymentStatus === "validated" ? Number(submission.amount) : 0;
+      // Match treasury's effective payment calculation, including historical fee records.
+      const financeRow = require("./server/course-finance").buildFinanceRow(state, course, submission);
+      const paid = financeRow.paidAmount;
       if (!Number.isFinite(paid) || paid < 0) return sendJson(res, 409, { ok: false, error: "Importe de pago no válido" });
       const refundAmount = Number(payload.refundAmount ?? 0);
       if (!Number.isFinite(refundAmount) || refundAmount < 0 || refundAmount > paid || Math.round(refundAmount * 100) !== refundAmount * 100) {
