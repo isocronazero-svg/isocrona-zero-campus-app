@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const { enrollmentCertificateEligibility } = require("../server/enrollment-certificate-eligibility.js");
+const course = { id: "course-1" };
+const check = (submission) => enrollmentCertificateEligibility(course, submission).allowed;
+assert.equal(check({ status: "confirmed", amount: 50, paymentStatus: "validated" }), true);
+assert.equal(check({ status: "confirmed", amount: 0 }), true);
+assert.equal(check({ status: "confirmed", amount: 50, paymentStatus: "pending" }), false);
+assert.equal(check({ status: "confirmed", amount: 50, paymentStatus: "incident" }), false);
+assert.equal(check({ status: "pending-proof", amount: 50, paymentStatus: "validated" }), false);
+assert.equal(check({ status: "cancelled", amount: 0 }), false);
+assert.equal(check({ status: "confirmed", paymentStatus: "validated" }), false);
+assert.equal(check({ status: "confirmed", amount: -1, paymentStatus: "validated" }), false);
+assert.equal(enrollmentCertificateEligibility(null, {}).allowed, false);
+console.log("Enrollment certificate eligibility OK");
