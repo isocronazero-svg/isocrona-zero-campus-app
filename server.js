@@ -94,6 +94,8 @@ const handleJourneyReports = JourneyParticipation.createJourneyReportHandler({re
 const { buildActivityCertificate, buildActivityCertificatePages } = require("./server/activity-certificate");
 const { buildEnrollmentCertificateModel } = require("./server/enrollment-certificate-model");
 const { buildEnrollmentCertificatePages } = require("./server/enrollment-certificate-pdf");
+const { getApplicableCourseFee } = require("./server/course-pricing");
+const { participantTypeForMember } = require("./server/course-finance");
 const { reserveInstructorAssignments, assertInstructorAssignmentEditable, validateInstructorAssociateIds, validateInstructorAssociateUpdate, canDownloadInstructorCertificate, isInstructorCertificateAvailable, buildInstructorCertificateModel } = require("./server/instructor-certificate");
 const { getCertificateTemplateImage } = require("./server/certificate-template-image");
 const { buildDiplomaLayout, buildDiplomaPdfStreams, renderDiplomaPagesHtml,
@@ -8902,6 +8904,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         ? course.enrollmentSubmissions
         : [];
 
+      const enrollmentAmount = getApplicableCourseFee(course, participantTypeForMember(state, member));
       const hasPaymentProof = Boolean(payload.paymentProof && payload.paymentProof.contentBase64);
       if ((course.enrolledIds || []).length < Number(course.capacity || 0)) {
         course.enrolledIds.push(member.id);
@@ -8916,13 +8919,13 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
           memberId: member.id,
           submittedAt: new Date().toISOString(),
           status: (course.enrolledIds || []).includes(member.id)
-            ? hasPaymentProof || Number(payload.amount || course.enrollmentFee || 0) <= 0
+            ? hasPaymentProof || enrollmentAmount <= 0
               ? "confirmed"
               : "pending-proof"
             : "waiting",
           note: String(payload.note || "").trim(),
           paymentProof: payload.paymentProof || null,
-          amount: Number(payload.amount || course.enrollmentFee || 0),
+          amount: enrollmentAmount,
           method: String(payload.method || "Transferencia").trim() || "Transferencia"
         }
       ];
