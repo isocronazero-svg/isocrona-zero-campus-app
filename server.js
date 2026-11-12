@@ -9105,10 +9105,17 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Solicitud no encontrada" });
       }
 
-      if (submission.status === "cancelled") {
-        return sendJson(res, 409, { ok: false, error: "Una inscripción cancelada no se puede reactivar desde revisión. Debe tramitarse una nueva inscripción." });
+      if (["cancelled", "rejected"].includes(submission.status)) {
+        return sendJson(res, 409, { ok: false, error: "Una inscripción cerrada no se puede reactivar desde revisión. Debe tramitarse una nueva inscripción." });
+      }
+      if ((course.enrollmentSubmissions || []).some(item => item.id !== submission.id &&
+          item.memberId === submission.memberId && !["cancelled", "rejected"].includes(item.status))) {
+        return sendJson(res, 409, { ok: false, error: "Hay otra inscripción activa para este alumno. Revisa el historial antes de modificar el estado." });
       }
       const nextStatus = String(payload.status || "").trim() || "confirmed";
+      if (!["confirmed", "pending-proof", "rejected"].includes(nextStatus)) {
+        return sendJson(res, 400, { ok: false, error: "Estado de revisión no permitido" });
+      }
       submission.status = nextStatus;
       submission.reviewedAt = new Date().toISOString();
       submission.reviewedBy = account.name;
