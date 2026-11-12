@@ -4,7 +4,8 @@ const { buildFinanceRow } = require("./course-finance");
 function buildEnrollmentCertificateModel(state, courseId, memberId) {
   const course = (state?.courses || []).find(item => item.id === courseId);
   const member = (state?.members || []).find(item => item.id === memberId);
-  const submission = (course?.enrollmentSubmissions || []).find(item => item.memberId === memberId);
+  // A cancelled historical registration must not shadow a later valid registration.
+  const submission = (course?.enrollmentSubmissions || []).find(item => item.memberId === memberId && item.status !== "cancelled");
   if (!course || !member || !submission) return null;
   // Use the same effective fee and payment normalization as treasury, including legacy records.
   const financeRow = buildFinanceRow(state, course, submission);
