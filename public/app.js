@@ -14841,6 +14841,15 @@ function renderSelectedCourse(course) {
   const enrollmentApplicableFee = Number(isAssociateParticipant
     ? course.memberEnrollmentFee ?? course.enrollmentFee ?? 0
     : course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0);
+  const certificateStoredAmount = enrollmentSubmission?.amount;
+  const certificateAmount = certificateStoredAmount != null && certificateStoredAmount !== "" &&
+    Number.isFinite(Number(certificateStoredAmount))
+    ? Number(certificateStoredAmount) : enrollmentApplicableFee;
+  const canDownloadEnrollmentCertificate = !isPreviewMode && journey.enrolled &&
+    enrollmentSubmission?.status === "confirmed" &&
+    Number.isFinite(certificateAmount) && certificateAmount >= 0 &&
+    (certificateAmount === 0 || enrollmentSubmission?.paymentStatus === "validated");
+  const enrollmentCertificateUrl = `/api/member/courses/${encodeURIComponent(course.id)}/enrollment-certificate.pdf?download=1`;
   const enrollmentRequiresPayment = enrollmentApplicableFee > 0 || Number(enrollmentSubmission?.amount || 0) > 0;
   const enrollmentNeedsProof = enrollmentSubmission?.status === "pending-proof" ||
     (enrollmentRequiresPayment && !enrollmentSubmission?.paymentProof) ||
@@ -14874,7 +14883,7 @@ function renderSelectedCourse(course) {
       { key: "overview", label: isPracticalCourse ? "Resumen" : "Programa" },
       ...(!isPracticalCourse ? [{ key: "sessions", label: "Sesiones" }] : []),
       { key: "resources", label: isPracticalCourse ? "Documentacion" : "Recursos" },
-      { key: "certificate", label: "Certificado" },
+      { key: "certificate", label: "Certificado de inscripción" },
       { key: "status", label: "Inscripcion" }
     ];
   const activeDetailMode = detailModes.some((item) => item.key === learnerCourseDetailsMode)
@@ -14979,11 +14988,17 @@ function renderSelectedCourse(course) {
         activeDetailMode === "certificate"
           ? `
             <div class="mail-card compact-panel" id="courseDetailModeCertificate">
-              <h4>Certificado final</h4>
-              ${
-                sections.length
-                  ? `<ul class="compact-list">${sections.map((section) => `<li>${escapeHtml(section.title)} · ${section.items.length} item(s)</li>`).join("")}</ul>`
-                  : `<p class="muted">El certificado tomara estructura del curso cuando se cierre la formacion.</p>`
+              <h4>Certificado de inscripción</h4>
+              <p class="muted">Acredita tu inscripción confirmada para solicitar el permiso de formación. No acredita asistencia.</p>
+              ${canDownloadEnrollmentCertificate
+                ? `<a class="primary-button" href="${enrollmentCertificateUrl}" download="certificado-inscripcion.pdf">Descargar certificado de inscripción (PDF)</a>`
+                : `<p class="muted">Todavía no está disponible. ${!enrollmentSubmission
+                    ? "No consta una solicitud de inscripción."
+                    : !journey.enrolled || enrollmentSubmission.status !== "confirmed"
+                      ? "La inscripción está pendiente de confirmación."
+                      : certificateAmount > 0 && enrollmentSubmission.paymentStatus !== "validated"
+                        ? "Tesorería debe validar el pago."
+                        : "Comprueba el estado de tu inscripción con la asociación."}</p>`
               }
             </div>
           `
