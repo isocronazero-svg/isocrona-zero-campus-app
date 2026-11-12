@@ -14020,7 +14020,19 @@ async function runAutomationEngine(state, options = {}) {
     if (!detectOnly && state.settings?.automation?.autoPromoteWaitlist) {
       while (waitingIds.length && enrolledIds.length < course.capacity) {
         const promotedId = waitingIds.shift();
+        // Keep the active enrollment record aligned with actual seat allocation.
+        const promotedSubmission = (course.enrollmentSubmissions || []).find(item =>
+          item.memberId === promotedId && item.status === "waiting");
+        if (!promotedSubmission) {
+          appendActivity(state, "system", "Motor de automatizacion",
+            `Entrada de lista de espera sin inscripción activa omitida: ${promotedId} en ${course.title}`);
+          continue;
+        }
         enrolledIds.push(promotedId);
+        const promotedFee = Number(promotedSubmission.amount ?? 0);
+        promotedSubmission.status = promotedFee > 0 && promotedSubmission.paymentStatus !== "validated"
+          ? "pending-proof" : "confirmed";
+        promotedSubmission.updatedAt = new Date().toISOString();
         summary.promotedWaitlist += 1;
 
         const member = state.members.find((item) => item.id === promotedId);
