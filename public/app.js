@@ -15660,6 +15660,12 @@ function renderCourseCard(course, role) {
   const currentMemberId = state.selectedMemberId;
   const isEnrolled = currentMemberId && course.enrolledIds.includes(currentMemberId);
   const isWaiting = currentMemberId && course.waitingIds.includes(currentMemberId);
+  const certificateSubmission = (course.enrollmentSubmissions || []).find((item) => item.memberId === currentMemberId);
+  const certificateAmount = Number(certificateSubmission?.amount);
+  const canDownloadEnrollmentCertificate = role === "member" && isEnrolled &&
+    certificateSubmission?.status === "confirmed" &&
+    Number.isFinite(certificateAmount) && certificateAmount >= 0 &&
+    (certificateAmount === 0 || certificateSubmission?.paymentStatus === "validated");
 
   fragment.querySelector('[data-slot="type"]').textContent = describeCourseType(course);
   fragment.querySelector('[data-slot="status"]').textContent = EnrollmentTime.courseWindowState(course) === "closed"
@@ -15690,6 +15696,7 @@ function renderCourseCard(course, role) {
           : "Ver resumen"
       : "Gestionar";
   actions.innerHTML = `
+    ${canDownloadEnrollmentCertificate ? `<a class="mini-button" href="/api/member/courses/${encodeURIComponent(course.id)}/enrollment-certificate.pdf?download=1">Descargar certificado de inscripción</a>` : ""}
     <button class="mini-button" data-action="${role === "member" && isEnrolled ? "open-course-workbench-tab" : "select-course"}" data-course-id="${course.id}" ${role === "member" && isEnrolled ? 'data-mode="learner"' : ""}>${openLabel}</button>
     ${
       role === "member"
