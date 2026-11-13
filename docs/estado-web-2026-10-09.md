@@ -380,3 +380,15 @@ GitHub + esta bitácora son la fuente común para móvil, escritorio y Codex. An
 - Volumen persistente montado; dominio `portal.isocronazero.org` verificado, CNAME propagado y certificado válido.
 - Dos cambios de configuración ajenos permanecen staged, sin aplicar (CPU 19 vCPU y credencial de Drive). La copia automática S3 de esta madrugada fue correcta; no consta restauración aislada verificada.
 - Pendiente QA manual post-publicación con cuenta de prueba autorizada (correo real, cambio de contraseña y tesorería) y comprobación HTTP externa. No se han realizado operaciones sobre datos reales de socios.
+
+
+## V1.3 — Bajas de alumnos y devoluciones (pendiente de implementación)
+
+- Desde Administración > Cursos > Alumnado, permitir dar de baja una inscripción con plaza asignada, incluso si el pago está validado.
+- Solicitar motivo y tipo de devolución: sin devolución, total o parcial (importe entre 0 y el importe efectivamente abonado).
+- Liberar la plaza sin borrar la inscripción ni su pago histórico; registrar autor y fecha de la baja.
+- La asociación ejecuta la devolución bancaria fuera de la aplicación. Registrar primero devolución pendiente y después confirmación de devolución realizada, con usuario, fecha e importe.
+- Tesorería: conservar ingreso original, contabilizar la devolución como movimiento negativo **solo cuando se confirme realizada**, calcular saldo neto y evitar duplicados, importes negativos o devoluciones superiores al cobrado.
+- Invalidar certificados de inscripción de reservas canceladas; no alterar diplomas de asistencia ya emitidos.
+- Probar concurrencia de bajas, doble confirmación, reingreso y ocupación de plazas antes de publicar.
+- No tocar producción hasta completar implementación y pruebas.
