@@ -14700,9 +14700,9 @@ function renderCourseWorkbench(course) {
                                           ? `<span class="small-chip">Devueltos ${Number(submission.refund.amount).toFixed(2)} €</span>`
                                           : ""}`
                                       : submission.status === "rejected" ? `<span class="small-chip">Solicitud rechazada</span>` : `<button class="mini-button" type="button" data-action="cancel-course-enrollment" data-course-id="${course.id}" data-submission-id="${submission.id}">Dar de baja</button>
-                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Validar</button>`}
+                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Validar</button>
                                     <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="pending-proof">Pedir justificante</button>
-                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>
+                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>`}
                                   </div>
                                 </td>
                               </tr>
