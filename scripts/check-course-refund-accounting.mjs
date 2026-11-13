@@ -152,4 +152,6 @@ assert.match(clientSource, /const certificateSubmission = getCourseEnrollmentSub
 assert.match(clientSource, /submission\.memberId === memberId && !\["cancelled", "rejected"\]\.includes\(submission\.status\)/,
   "Enrollment lookup must exclude cancelled and rejected history");
 
+assert.match(clientSource, /data-status="rejected">Rechazar<\/button>\`\}/,
+  "Admin review actions must be inside the active-enrollment branch");
 console.log("Course refund accounting OK");
