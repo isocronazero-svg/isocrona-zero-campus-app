@@ -14274,6 +14274,11 @@ function renderCourseWorkbench(course) {
           </div>
         </details>
         <p class="muted">Organiza el curso por tareas: <strong>Ficha</strong> para los datos generales, <strong>Alumnado</strong> para plazas e inscripciones y <strong>${isPracticalCourse ? "Diploma" : "Certificado"}</strong> para el cierre. El contenido y las sesiones se gestionan en sus propias pestañas.</p>
+        <div class="course-admin-quick-access">
+          <button class="primary-button" type="button" data-action="set-course-workbench-mode" data-mode="students" data-scroll-target="courseStudentsLedger">
+            Inscripciones y pagos · Bajas y devoluciones
+          </button>
+        </div>
         <div class="workbench-tabs">
           ${workbenchTabs
             .map(
