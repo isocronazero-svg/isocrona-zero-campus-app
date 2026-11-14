@@ -154,4 +154,12 @@ assert.match(clientSource, /submission\.memberId === memberId && !\["cancelled",
 
 assert.match(clientSource, /data-status="rejected">Rechazar<\/button>\`\}/,
   "Admin review actions must be inside the active-enrollment branch");
+assert.match(serverSource, /const authenticated = requireAdminAccount\(req, res, authState\)/,
+  "Cancellation must authenticate before parsing the request");
+assert.match(serverSource, /const account = requireAdminAccount\(req, res, state\)/,
+  "Cancellation must reauthorize after parsing the request");
+assert.match(serverSource, /refundAmount > paid/,
+  "Cancellation must reject refunds larger than the validated payment");
+assert.match(serverSource, /submission\.refund\?\.status !== "pending"/,
+  "Refund confirmation must reject duplicate completed refunds");
 console.log("Course refund accounting OK");
