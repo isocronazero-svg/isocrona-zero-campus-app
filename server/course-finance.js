@@ -63,6 +63,13 @@ function buildFinanceRow(state, course, submission) {
     Number.isFinite(Number(submission.amount));
   const amount = hasStoredAmount ? Number(submission.amount) : configuredAmount;
   const paymentStatus = normalizedPaymentStatus(submission, amount);
+  const refund = submission.refund && typeof submission.refund === "object" ? submission.refund : null;
+  const refundAmount = refund && Number.isFinite(Number(refund.amount)) && Number(refund.amount) >= 0
+    ? Number(refund.amount) : 0;
+  const refundStatus = refund?.status === "completed" ? "completed"
+    : refund?.status === "pending" ? "pending" : "none";
+  const paidAmount = paymentStatus === "validated" ? amount : 0;
+  const refundedAmount = refundStatus === "completed" ? Math.min(refundAmount, paidAmount) : 0;
   return {
     courseId: course.id,
     courseTitle: course.title || "Curso",
@@ -76,6 +83,13 @@ function buildFinanceRow(state, course, submission) {
     amount,
     enrollmentStatus: clean(submission.status || "pending"),
     paymentStatus,
+    paidAmount,
+    refundAmount,
+    refundStatus,
+    refundedAmount,
+    netAmount: paidAmount - refundedAmount,
+    refundCompletedAt: clean(refund?.completedAt),
+    refundCompletedBy: clean(refund?.completedBy),
     paymentProof: compactProof(submission.paymentProof),
     hasPaymentProof: Boolean(submission.paymentProof?.contentBase64),
     paymentReviewedBy: clean(submission.paymentReviewedBy || submission.paymentValidatedBy),
@@ -101,7 +115,11 @@ function buildCourseFinanceSnapshot(state) {
       rows,
       pendingCount: rows.filter((row) => row.paymentStatus === "pending" && row.amount > 0).length,
       incidentCount: rows.filter((row) => row.paymentStatus === "incident").length,
-      validatedCount: rows.filter((row) => row.paymentStatus === "validated").length
+      validatedCount: rows.filter((row) => row.paymentStatus === "validated").length,
+      grossPaid: rows.reduce((sum, row) => sum + row.paidAmount, 0),
+      refundsCompleted: rows.reduce((sum, row) => sum + row.refundedAmount, 0),
+      refundsPending: rows.reduce((sum, row) => sum + (row.refundStatus === "pending" ? row.refundAmount : 0), 0),
+      netPaid: rows.reduce((sum, row) => sum + row.netAmount, 0)
     };
   });
   const rows = courses.flatMap((course) => course.rows);
@@ -112,7 +130,11 @@ function buildCourseFinanceSnapshot(state) {
       pending: rows.filter((row) => row.paymentStatus === "pending" && row.amount > 0).length,
       validated: rows.filter((row) => row.paymentStatus === "validated").length,
       incidents: rows.filter((row) => row.paymentStatus === "incident").length,
-      noPaymentRequired: rows.filter((row) => row.paymentStatus === "not-required").length
+      noPaymentRequired: rows.filter((row) => row.paymentStatus === "not-required").length,
+      grossPaid: rows.reduce((sum, row) => sum + row.paidAmount, 0),
+      refundsCompleted: rows.reduce((sum, row) => sum + row.refundedAmount, 0),
+      refundsPending: rows.reduce((sum, row) => sum + (row.refundStatus === "pending" ? row.refundAmount : 0), 0),
+      netPaid: rows.reduce((sum, row) => sum + row.netAmount, 0)
     }
   };
 }
@@ -210,6 +232,12 @@ function createCourseFinanceHandler(deps) {
           return true;
         }
         const beforeRow = buildFinanceRow(state, course, submission);
+        // A refund is a historical cash movement: changing its payment status
+        // would silently rewrite gross and net accounting.
+        if (submission.status === "cancelled" || ["pending", "completed"].includes(submission.refund?.status)) {
+          deps.sendJson(res, 409, { ok: false, error: "Inscripción cancelada o con devolución: el pago histórico no se puede modificar" });
+          return true;
+        }
         if (beforeRow.amount <= 0) {
           deps.sendJson(res, 409, { ok: false, error: "Este curso no requiere pago" });
           return true;
