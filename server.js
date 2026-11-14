@@ -8896,7 +8896,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         });
       }
 
-      if ((course.enrolledIds || []).includes(member.id) || (course.waitingIds || []).includes(member.id)) {
+      if ((course.enrolledIds || []).includes(member.id) || (course.waitingIds || []).includes(member.id) ||
+          (course.enrollmentSubmissions || []).some(item => item.memberId === member.id &&
+            !["cancelled", "rejected"].includes(item.status))) {
         return sendJson(res, 200, { ok: true, message: "Ya estabas registrado en este curso" });
       }
 
@@ -8913,9 +8915,11 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       course.enrollmentSubmissions = [
-        ...(course.enrollmentSubmissions || []).filter((item) => item.memberId !== member.id),
+        // Preserve cancelled/rejected history for treasury and audit; only
+        // remove obsolete active duplicates (guarded against above).
+        ...(course.enrollmentSubmissions || []),
         {
-          id: `enrollment-${Date.now()}`,
+          id: `enrollment-${randomUUID()}`,
           memberId: member.id,
           submittedAt: new Date().toISOString(),
           status: (course.enrolledIds || []).includes(member.id)
@@ -8972,7 +8976,7 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Curso o persona no encontrada" });
       }
 
-      const submission = (course.enrollmentSubmissions || []).find((item) => item.memberId === member.id);
+      const submission = (course.enrollmentSubmissions || []).find((item) => item.memberId === member.id && !["cancelled", "rejected"].includes(item.status));
       if (!submission) {
         return sendJson(res, 404, { ok: false, error: "No tienes una solicitud abierta en este curso" });
       }
@@ -9101,7 +9105,17 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         return sendJson(res, 404, { ok: false, error: "Solicitud no encontrada" });
       }
 
+      if (["cancelled", "rejected"].includes(submission.status)) {
+        return sendJson(res, 409, { ok: false, error: "Una inscripción cerrada no se puede reactivar desde revisión. Debe tramitarse una nueva inscripción." });
+      }
+      if ((course.enrollmentSubmissions || []).some(item => item.id !== submission.id &&
+          item.memberId === submission.memberId && !["cancelled", "rejected"].includes(item.status))) {
+        return sendJson(res, 409, { ok: false, error: "Hay otra inscripción activa para este alumno. Revisa el historial antes de modificar el estado." });
+      }
       const nextStatus = String(payload.status || "").trim() || "confirmed";
+      if (!["confirmed", "pending-proof", "rejected"].includes(nextStatus)) {
+        return sendJson(res, 400, { ok: false, error: "Estado de revisión no permitido" });
+      }
       submission.status = nextStatus;
       submission.reviewedAt = new Date().toISOString();
       submission.reviewedBy = account.name;
@@ -9157,6 +9171,91 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         writeState(state);
       }
       return sendJsonError(res, error, "No se pudo actualizar la inscripcion");
+    }
+  }
+
+  // Baja administrativa: conserva el pago original y no ejecuta transferencias.
+  const cancellationMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/enrollment-submissions\/([^/]+)\/cancel$/);
+  if (cancellationMatch && req.method === "POST") {
+    try {
+      const authState = readState();
+      const authenticated = requireAdminAccount(req, res, authState);
+      if (!authenticated) return;
+      const payload = await readJsonBodyOrDefault(req);
+      // Body parsing yields: reload state and recheck authorization before mutating.
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      const course = (state.courses || []).find(item => item.id === decodeURIComponent(cancellationMatch[1]));
+      if (!course) return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
+      const submission = (course.enrollmentSubmissions || []).find(item => item.id === decodeURIComponent(cancellationMatch[2]));
+      if (!submission) return sendJson(res, 404, { ok: false, error: "Inscripción no encontrada" });
+      if (["cancelled", "rejected"].includes(submission.status)) return sendJson(res, 409, { ok: false, error: "La inscripción ya está cancelada o rechazada" });
+      if ((course.enrollmentSubmissions || []).some(item => item.id !== submission.id && item.memberId === submission.memberId && !["cancelled", "rejected"].includes(item.status))) {
+        return sendJson(res, 409, { ok: false, error: "Existe otra inscripción activa para este alumno; revisa el historial antes de tramitar la baja" });
+      }
+      const reason = String(payload.reason || "").trim();
+      if (!reason || reason.length > 500) return sendJson(res, 400, { ok: false, error: "Indica un motivo de baja (máximo 500 caracteres)" });
+      // Match treasury's effective payment calculation, including historical fee records.
+      const financeRow = require("./server/course-finance").buildFinanceRow(state, course, submission);
+      const paid = financeRow.paidAmount;
+      if (!Number.isFinite(paid) || paid < 0) return sendJson(res, 409, { ok: false, error: "Importe de pago no válido" });
+      const refundAmount = Number(payload.refundAmount ?? 0);
+      if (!Number.isFinite(refundAmount) || refundAmount < 0 || refundAmount > paid || Math.abs(refundAmount * 100 - Math.round(refundAmount * 100)) > 1e-7) {
+        return sendJson(res, 400, { ok: false, error: "La devolución debe estar entre 0 y el importe validado" });
+      }
+      const now = new Date().toISOString();
+      submission.status = "cancelled";
+      submission.cancelledAt = now;
+      submission.cancelledBy = account.name;
+      submission.cancellationReason = reason;
+      submission.refund = { amount: refundAmount, status: refundAmount ? "pending" : "none", createdAt: now, createdBy: account.name };
+      course.enrolledIds = (course.enrolledIds || []).filter(id => id !== submission.memberId);
+      course.waitingIds = (course.waitingIds || []).filter(id => id !== submission.memberId);
+      appendActivity(state, "admin", account.name, `Baja en ${course.title}: inscripción ${submission.id}; devolución pendiente ${refundAmount} EUR. Motivo: ${reason}`);
+      require("./server/audit-log").appendAuditEvent(state, {
+        account, module: "course-finance", entityType: "course-enrollment",
+        entityId: submission.id, entityLabel: course.title,
+        action: "cancel-enrollment",
+        before: { status: "active", paidAmount: paid },
+        after: { status: "cancelled", refundAmount, refundStatus: submission.refund.status, reason }
+      });
+      writeState(state);
+      return sendJson(res, 200, { ok: true, message: "Baja registrada y plaza liberada", refund: submission.refund });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo registrar la baja");
+    }
+  }
+
+  const refundConfirmationMatch = requestUrl.pathname.match(/^\/api\/courses\/([^/]+)\/enrollment-submissions\/([^/]+)\/refund-confirm$/);
+  if (refundConfirmationMatch && req.method === "POST") {
+    try {
+      const state = readState();
+      const account = requireAdminAccount(req, res, state);
+      if (!account) return;
+      const course = (state.courses || []).find(item => item.id === decodeURIComponent(refundConfirmationMatch[1]));
+      if (!course) return sendJson(res, 404, { ok: false, error: "Curso no encontrado" });
+      const submission = (course.enrollmentSubmissions || []).find(item => item.id === decodeURIComponent(refundConfirmationMatch[2]));
+      if (!submission) return sendJson(res, 404, { ok: false, error: "Inscripción no encontrada" });
+      if (submission.status !== "cancelled" || submission.refund?.status !== "pending" ||
+          !(Number(submission.refund.amount) > 0)) {
+        return sendJson(res, 409, { ok: false, error: "No existe una devolución pendiente para confirmar" });
+      }
+      submission.refund.status = "completed";
+      submission.refund.completedAt = new Date().toISOString();
+      submission.refund.completedBy = account.name;
+      appendActivity(state, "admin", account.name, `Devolución completada: ${submission.refund.amount} EUR de la inscripción ${submission.id} en ${course.title}`);
+      require("./server/audit-log").appendAuditEvent(state, {
+        account, module: "course-finance", entityType: "course-refund",
+        entityId: submission.id, entityLabel: course.title,
+        action: "complete-refund",
+        before: { refundStatus: "pending", refundAmount: submission.refund.amount },
+        after: { refundStatus: "completed", refundAmount: submission.refund.amount, completedAt: submission.refund.completedAt }
+      });
+      writeState(state);
+      return sendJson(res, 200, { ok: true, message: "Devolución registrada como realizada", refund: submission.refund });
+    } catch (error) {
+      return sendJsonError(res, error, "No se pudo confirmar la devolución");
     }
   }
 
@@ -13945,7 +14044,19 @@ async function runAutomationEngine(state, options = {}) {
     if (!detectOnly && state.settings?.automation?.autoPromoteWaitlist) {
       while (waitingIds.length && enrolledIds.length < course.capacity) {
         const promotedId = waitingIds.shift();
+        // Keep the active enrollment record aligned with actual seat allocation.
+        const promotedSubmission = (course.enrollmentSubmissions || []).find(item =>
+          item.memberId === promotedId && item.status === "waiting");
+        if (!promotedSubmission) {
+          appendActivity(state, "system", "Motor de automatizacion",
+            `Entrada de lista de espera sin inscripción activa omitida: ${promotedId} en ${course.title}`);
+          continue;
+        }
         enrolledIds.push(promotedId);
+        const promotedFee = Number(promotedSubmission.amount ?? 0);
+        promotedSubmission.status = promotedFee > 0 && promotedSubmission.paymentStatus !== "validated"
+          ? "pending-proof" : "confirmed";
+        promotedSubmission.updatedAt = new Date().toISOString();
         summary.promotedWaitlist += 1;
 
         const member = state.members.find((item) => item.id === promotedId);

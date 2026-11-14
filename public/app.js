@@ -1721,6 +1721,45 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
+  if ((action === "cancel-course-enrollment" || action === "confirm-course-refund") && isAdminView() && courseId) {
+    const submissionId = actionTarget.dataset.submissionId;
+    if (!submissionId) return;
+    const cancelling = action === "cancel-course-enrollment";
+    let body = {};
+    if (cancelling) {
+      const reason = window.prompt("Motivo de la baja del alumno:");
+      if (reason === null) return;
+      if (!reason.trim()) return showToast("Es obligatorio indicar el motivo de la baja.", "error");
+      const amountText = window.prompt("Importe de devolución en euros (0 si no se devuelve nada):", "0");
+      if (amountText === null) return;
+      const refundAmount = Number(amountText.trim().replace(",", "."));
+      if (!amountText.trim() || !Number.isFinite(refundAmount) || refundAmount < 0) {
+        return showToast("Indica un importe de devolución válido.", "error");
+      }
+      if (!window.confirm(`¿Dar de baja al alumno y liberar su plaza? Devolución pendiente: ${refundAmount.toFixed(2)} €.`)) return;
+      body = { reason: reason.trim(), refundAmount };
+    } else if (!window.confirm("¿Confirmas que la asociación YA ha devuelto el dinero? Se descontará del balance.")) {
+      return;
+    }
+    try {
+      const suffix = cancelling ? "cancel" : "refund-confirm";
+      const response = await fetch(`/api/courses/${encodeURIComponent(courseId)}/enrollment-submissions/${encodeURIComponent(submissionId)}/${suffix}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const payload = await readJsonResponse(response, "No se pudo registrar la operación.");
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || "Operación no completada.");
+      await refreshState();
+      applySessionToState();
+      showToast(payload.message || "Operación registrada", "success");
+      render();
+    } catch (error) {
+      showToast(error.message || "No se pudo completar la operación", "error");
+    }
+    return;
+  }
+
   if (action === "set-enrollment-submission-status" && isAdminView() && courseId) {
     const submissionId = actionTarget.dataset.submissionId;
     const nextStatus = actionTarget.dataset.status;
@@ -14596,6 +14635,34 @@ function renderCourseWorkbench(course) {
           </div>
           <div class="mail-card" id="courseStudentsLedger">
             <h4>Inscripciones y pagos</h4>
+            ${(() => {
+              // Match the finance ledger's stored-amount fallback and cash-flow rules.
+              const financialRows = enrollmentSubmissions.map((item) => {
+                const member = (state.members || []).find((entry) => entry.id === item.memberId);
+                const associate = (state.associates || []).some((entry) =>
+                  (member?.associateId && entry.id === member.associateId) ||
+                  entry.linkedMemberId === item.memberId);
+                const participantType = ["member", "external"].includes(item.participantType)
+                  ? item.participantType : associate ? "member" : "external";
+                const fee = Number(participantType === "member"
+                  ? course.memberEnrollmentFee ?? course.enrollmentFee ?? 0
+                  : course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0);
+                const amount = Object.prototype.hasOwnProperty.call(item, "amount") &&
+                  Number.isFinite(Number(item.amount)) ? Number(item.amount) : fee;
+                const paidAmount = amount > 0 && item.paymentStatus === "validated" ? amount : 0;
+                const refundAmount = Number(item.refund?.amount);
+                const validRefund = Number.isFinite(refundAmount) && refundAmount >= 0 ? refundAmount : 0;
+                return {
+                  paidAmount,
+                  refundedAmount: item.refund?.status === "completed" ? Math.min(validRefund, paidAmount) : 0,
+                  pendingRefund: item.refund?.status === "pending" ? validRefund : 0
+                };
+              });
+              const paid = financialRows.reduce((sum, item) => sum + item.paidAmount, 0);
+              const returned = financialRows.reduce((sum, item) => sum + item.refundedAmount, 0);
+              const pending = financialRows.reduce((sum, item) => sum + item.pendingRefund, 0);
+              return `<p class="muted">Cobrado: <strong>${paid.toFixed(2)} €</strong> · Devoluciones realizadas: <strong>${returned.toFixed(2)} €</strong> · Pendientes: <strong>${pending.toFixed(2)} €</strong> · Saldo neto: <strong>${(paid - returned).toFixed(2)} €</strong></p>`;
+            })()}
             ${
               enrollmentSubmissions.length
                 ? `
@@ -14626,9 +14693,16 @@ function renderCourseWorkbench(course) {
                                 <td>${escapeHtml(submission.note || "-")}</td>
                                 <td>
                                   <div class="chip-row">
+                                    ${submission.status === "cancelled"
+                                      ? `<span class="small-chip">Baja registrada</span>${submission.refund?.status === "pending"
+                                        ? `<button class="mini-button" type="button" data-action="confirm-course-refund" data-course-id="${course.id}" data-submission-id="${submission.id}">Confirmar devolución (${Number(submission.refund.amount).toFixed(2)} €)</button>`
+                                        : submission.refund?.status === "completed"
+                                          ? `<span class="small-chip">Devueltos ${Number(submission.refund.amount).toFixed(2)} €</span>`
+                                          : ""}`
+                                      : submission.status === "rejected" ? `<span class="small-chip">Solicitud rechazada</span>` : `<button class="mini-button" type="button" data-action="cancel-course-enrollment" data-course-id="${course.id}" data-submission-id="${submission.id}">Dar de baja</button>
                                     <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Validar</button>
                                     <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="pending-proof">Pedir justificante</button>
-                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>
+                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>`}
                                   </div>
                                 </td>
                               </tr>
@@ -15681,7 +15755,7 @@ function renderCourseCard(course, role) {
   const currentMemberId = state.selectedMemberId;
   const isEnrolled = currentMemberId && course.enrolledIds.includes(currentMemberId);
   const isWaiting = currentMemberId && course.waitingIds.includes(currentMemberId);
-  const certificateSubmission = (course.enrollmentSubmissions || []).find((item) => item.memberId === currentMemberId);
+  const certificateSubmission = getCourseEnrollmentSubmission(course, currentMemberId);
   const certificateMember = (state.members || []).find((item) => item.id === currentMemberId);
   const certificateIsAssociate = (state.associates || []).some((associate) =>
     (certificateMember?.associateId && associate.id === certificateMember.associateId) ||
@@ -18234,7 +18308,7 @@ function getCourseFeedbackResponse(course, memberId) {
 }
 
 function getCourseEnrollmentSubmission(course, memberId) {
-  return (course.enrollmentSubmissions || []).find((submission) => submission.memberId === memberId) || null;
+  return (course.enrollmentSubmissions || []).find((submission) => submission.memberId === memberId && !["cancelled", "rejected"].includes(submission.status)) || null;
 }
 
 function getEnrollmentSubmissionStatusLabel(status) {
@@ -18249,6 +18323,8 @@ function getEnrollmentSubmissionStatusLabel(status) {
       return "En lista de espera";
     case "rejected":
       return "Rechazada";
+    case "cancelled":
+      return "Baja registrada";
     default:
       return status || "Pendiente";
   }
