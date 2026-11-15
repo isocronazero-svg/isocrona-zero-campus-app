@@ -1,21 +1,26 @@
 const { enrollmentCertificateEligibility } = require("./enrollment-certificate-eligibility");
 const { buildFinanceRow } = require("./course-finance");
 
-function buildEnrollmentCertificateModel(state, courseId, memberId) {
-  const course = (state?.courses || []).find(item => item.id === courseId);
-  const member = (state?.members || []).find(item => item.id === memberId);
+function canIssueEnrollmentCertificate(state, course, memberId) {
+  if (!(course?.enrolledIds || []).includes(memberId)) return false;
   // A cancelled historical registration must not shadow a later valid registration.
-  const submission = (course?.enrollmentSubmissions || []).find(item => item.memberId === memberId && !["cancelled", "rejected"].includes(item.status));
-  if (!course || !member || !submission) return null;
-  // Use the same effective fee and payment normalization as treasury, including legacy records.
+  const submission = (course.enrollmentSubmissions || []).find(item =>
+    item.memberId === memberId && !["cancelled", "rejected"].includes(item.status));
+  if (!submission) return false;
+
+  // Use the effective fee and payment normalization from treasury for legacy records.
   const financeRow = buildFinanceRow(state, course, submission);
-  const eligibility = enrollmentCertificateEligibility(course, {
+  return enrollmentCertificateEligibility(course, {
     status: financeRow.enrollmentStatus,
     amount: financeRow.amount,
     paymentStatus: financeRow.paymentStatus
-  });
-  if (!(course.enrolledIds || []).includes(memberId)) return null;
-  if (!eligibility.allowed) return null;
+  }).allowed;
+}
+
+function buildEnrollmentCertificateModel(state, courseId, memberId) {
+  const course = (state?.courses || []).find(item => item.id === courseId);
+  const member = (state?.members || []).find(item => item.id === memberId);
+  if (!member || !canIssueEnrollmentCertificate(state, course, memberId)) return null;
   const hours = Number(course.hours);
   return {
     courseId: course.id,
@@ -33,4 +38,4 @@ function buildEnrollmentCertificateModel(state, courseId, memberId) {
     certificateType: "confirmed-enrollment"
   };
 }
-module.exports = { buildEnrollmentCertificateModel };
+module.exports = { buildEnrollmentCertificateModel, canIssueEnrollmentCertificate };

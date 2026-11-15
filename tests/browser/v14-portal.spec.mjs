@@ -173,12 +173,13 @@ for (const { name, browserName, options } of profiles) {
       const campus = await createCampus();
       let member;
       let admin;
+      let other;
       let webkitBrowser;
       try {
         if (browserName === "webkit") webkitBrowser = await webkit.launch();
         const engine = webkitBrowser || browser;
         member = await openAs(engine, campus, "member", options);
-        admin = await openAs(engine, campus, "admin", profiles[0].options);
+        admin = await openAs(engine, campus, "admin", options);
         const panel = member.locator("#mainPanel");
         const nav = member.locator(options.isMobile ? "#memberQuickNav" : "#nav");
         const course = panel.locator('[data-course-card-id="public-qa"]');
@@ -220,6 +221,7 @@ for (const { name, browserName, options } of profiles) {
         expect((await member.request.get(`${rowURL}/proof`)).status()).toBe(403);
         expect((await member.request.patch(rowURL, { data: { paymentStatus: "validated" } })).status()).toBe(403);
 
+        if (options.isMobile) await admin.getByRole("button", { name: "Abrir menú principal" }).click();
         await admin.locator("#courseFinanceNavButton").click();
         const financeDialog = admin.locator("#courseFinanceDialog");
         const financeRow = financeDialog.locator(".course-finance-row").filter({ hasText: "Socio QA V14" });
@@ -231,6 +233,7 @@ for (const { name, browserName, options } of profiles) {
         expect((await member.request.get(certificatePath)).status()).toBe(404);
 
         await admin.reload();
+        if (options.isMobile) await admin.getByRole("button", { name: "Abrir menú principal" }).click();
         await admin.locator("#nav").getByRole("button", { name: "Campus", exact: true }).click();
         await admin.locator('[data-course-card-id="public-qa"]').getByRole("button", { name: "Gestionar curso" }).click();
         await admin.getByRole("button", { name: /Inscripciones y pagos/ }).click();
@@ -249,26 +252,39 @@ for (const { name, browserName, options } of profiles) {
         await expect(course.locator(".member-course-status")).toContainText("Validado");
         await course.getByRole("button", { name: "Ver inscripción", exact: true }).click();
         await panel.getByRole("button", { name: "Certificado de inscripción", exact: true }).click();
+        const courseCertificate = panel.getByRole("link", { name: /Descargar certificado de inscripción/ });
+        await expect(courseCertificate).toHaveAttribute("href", new URL(certificatePath).pathname + "?download=1");
+
+        await nav.getByRole("button", { name: "Mis certificados", exact: true }).click();
+        const certificates = panel.locator(".member-certificate-course").filter({ hasText: "Jornada pública QA" });
+        await expect(certificates.getByText("Diploma del curso")).toBeVisible();
+        await expect(certificates.getByText(/Pendiente:/)).toBeVisible();
         const downloadPromise = member.waitForEvent("download");
-        await panel.getByRole("link", { name: /Descargar certificado de inscripción/ }).click();
+        await certificates.getByRole("link", { name: /Descargar certificado de inscripción/ }).click();
         const download = await downloadPromise;
         expect(download.suggestedFilename()).toBe("certificado-inscripcion.pdf");
         expect((await readFile(await download.path())).subarray(0, 4).toString()).toBe("%PDF");
 
-        const otherPDF = `${campus.baseURL}/api/diplomas/history-qa/member.pdf`;
-        expect((await member.request.get(otherPDF)).status()).toBe(403);
+        other = await openAs(engine, campus, "external", options);
+        expect((await other.request.get(certificatePath)).status()).toBe(404);
+        const diplomaURL = `${campus.baseURL}/api/diplomas/history-qa/member.pdf`;
+        expect((await member.request.get(diplomaURL)).status()).toBe(403);
         const academic = `${campus.baseURL}/api/courses/history-qa/members/member`;
         const attendance = await admin.request.patch(`${academic}/academic`, { data: { attendance: 100, evaluation: "Apto" } });
         expect(attendance.status(), await attendance.text()).toBe(200);
         const generate = await admin.request.post(`${academic}/diploma`);
         expect(generate.status(), await generate.text()).toBe(200);
+        expect((await other.request.get(diplomaURL)).status()).toBe(403);
         await member.reload();
         await nav.getByRole("button", { name: "Mis certificados", exact: true }).click();
         const diploma = panel.locator("article.table-card").filter({ hasText: "Práctica realizada QA" });
         await expect(diploma).toContainText("100% asistencia");
         const diplomaPromise = member.waitForEvent("download");
         await diploma.getByRole("link", { name: "Descargar PDF", exact: true }).click();
-        expect((await readFile(await (await diplomaPromise).path())).subarray(0, 4).toString()).toBe("%PDF");
+        const diplomaBytes = await readFile(await (await diplomaPromise).path());
+        expect(diplomaBytes.subarray(0, 4).toString()).toBe("%PDF");
+        expect(diplomaBytes.includes(Buffer.from("CERTIFICADO DE APROVECHAMIENTO"))).toBe(true);
+        await expect(panel.getByRole("link", { name: "Descargar PDF acumulado" })).toBeVisible();
 
         const cancelDialogs = ["Baja ficticia QA", "30"];
         const handleCancel = (dialog) => dialog.accept(cancelDialogs.shift());
@@ -290,13 +306,15 @@ for (const { name, browserName, options } of profiles) {
         });
 
         await member.reload();
+        await nav.getByRole("button", { name: "Mis certificados", exact: true }).click();
+        await expect(certificates).toHaveCount(0);
         await nav.getByRole("button", { name: "Cursos", exact: true }).click();
         await panel.getByRole("button", { name: /^Historial/ }).click();
         await expect(course.locator(".member-course-status")).toContainText("Baja registrada");
         await expect(course.locator(".member-course-status")).toContainText("Devolución registrada");
         await expect(panel.locator('[data-course-card-id="history-qa"]')).toContainText("100 %");
       } finally {
-        await Promise.allSettled([member?.context().close(), admin?.context().close()]);
+        await Promise.allSettled([member?.context().close(), admin?.context().close(), other?.context().close()]);
         await Promise.allSettled([webkitBrowser?.close(), campus.close()]);
       }
     });

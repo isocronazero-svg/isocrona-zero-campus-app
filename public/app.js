@@ -7035,7 +7035,8 @@ function renderMemberOverview() {
     .sort((left, right) => (left.startDate || "9999").localeCompare(right.startDate || "9999"))
     .slice(0, 3);
   const primaryCourse = getPrimaryMemberCourse(member?.id);
-  const diplomaCourses = state.courses.filter((course) => course.diplomaReady.includes(member?.id));
+  const availableDocuments = state.courses.reduce((count, course) =>
+    count + Number(course.diplomaReady.includes(member?.id)) + Number(course.enrollmentCertificateAvailable === true), 0);
 
   return `
     <div class="panel-stack member-home">
@@ -7058,8 +7059,8 @@ function renderMemberOverview() {
 
         <section class="mail-card" aria-labelledby="memberHomeCertificates">
           <h4 id="memberHomeCertificates">Mis certificados</h4>
-          ${diplomaCourses.length
-            ? `<p>${diplomaCourses.length === 1 ? "1 diploma disponible" : `${diplomaCourses.length} diplomas disponibles`}</p>`
+          ${availableDocuments
+            ? `<p>${availableDocuments === 1 ? "1 documento de cursos disponible" : `${availableDocuments} documentos de cursos disponibles`}</p>`
             : '<p class="muted">Consulta el estado de tus documentos.</p>'}
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Ver documentos</button>
         </section>
@@ -7171,7 +7172,7 @@ function renderJoinView() {
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionPaymentProof">Cuota y justificante</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses" data-catalog-filter="mine">Mis cursos</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Avisos${member && getUnreadMemberNotifications(member.id).length ? ` <span class="notice-count">${getUnreadMemberNotifications(member.id).length} sin leer</span>` : ""}</button>
-          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Mis diplomas</button>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Mis certificados</button>
         </div>
 
         <div class="course-grid associate-anchor" id="joinSectionProfileStatus">
@@ -10421,7 +10422,7 @@ function renderCampus() {
                 : effectiveCampusSectionMode === "diplomas"
                   ? isAdminView()
                     ? "Diplomas"
-                    : "Mis diplomas"
+                    : "Mis certificados"
                   : effectiveCampusSectionMode === "operations"
                     ? "Operativa"
                     : isAdminView()
@@ -10620,7 +10621,7 @@ function renderCourses() {
           <div class="course-page-actions">
             <button type="button" class="ghost-button" data-action="set-course-section-mode" data-mode="catalog">Volver a cursos</button>
             ${learnerStudyMode ? `<button type="button" class="ghost-button" data-action="set-course-section-mode" data-mode="details">Ver ficha del curso</button>` : ""}
-            <button type="button" class="ghost-button" data-action="set-campus-section-mode" data-mode="diplomas">Mis diplomas</button>
+            <button type="button" class="ghost-button" data-action="set-campus-section-mode" data-mode="diplomas">Mis certificados</button>
           </div>
         ` : ""}
       </div>
@@ -11052,122 +11053,82 @@ function renderInstructorCertificates(course, ownMember = null) {
   </section>`;
 }
 
+function enrollmentCertificateDownloadUrl(courseId) {
+  return `/api/member/courses/${encodeURIComponent(courseId)}/enrollment-certificate.pdf?download=1`;
+}
+
 function renderMemberDiplomas(member) {
   if (!member) {
-    return `<div class="empty-state">No hay persona activa para consultar tus diplomas.</div>`;
+    return '<div class="empty-state">No hay persona activa para consultar tus certificados.</div>';
   }
-
-  const memberCourses = state.courses.filter(
-    (course) =>
-      course.enrolledIds.includes(member.id) ||
-      course.waitingIds.includes(member.id) ||
-      course.diplomaReady.includes(member.id)
-  );
-
-  const teachingCertificates = state.courses.map(course => renderInstructorCertificates(course, member)).join("");
-  if (!memberCourses.length) {
-    return `
-      <div class="panel-stack">
-        <div class="panel-header associate-anchor" id="diplomaSectionActions">
-          <div>
-            <p class="eyebrow">Campus · Mis diplomas</p>
-            <h3>Todavia no tienes cursos vinculados</h3>
-            <p class="muted">Cuando te inscribas o completes un curso, aqui veras su salida acreditativa.</p>
-          </div>
-        </div>
-        <div class="empty-state">Todavia no hay diplomas ni cursos asociados a tu ficha.</div>
-        ${teachingCertificates}
-      </div>
-    `;
-  }
-
-  const diplomaCards = memberCourses
-    .map((course) => {
-      const journey = getLearnerCourseJourney(course, member.id);
-      const pendingReasons = getLearnerPendingDiplomaReasons(course, journey);
-      const pendingItems = pendingReasons.filter((item) => !item.ok);
-      const pendingSummary = pendingItems.length
-        ? pendingItems.map((item) => item.label).join(", ")
-        : "No queda nada pendiente";
-
-      return `
-        <article class="table-card">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Curso</p>
-              <h4>${escapeHtml(course.title)}</h4>
-              <p class="muted">${
-                journey.hasDiploma
-                  ? "Tu diploma ya esta disponible."
-                  : pendingItems.length
-                    ? `Todavia falta: ${escapeHtml(pendingSummary)}.`
-                    : "El curso esta en revision final para emitir el diploma."
-              }</p>
-            </div>
-            <div class="chip-row compact-chip-row">
-              <span class="small-chip">${escapeHtml(journey.hasDiploma ? "Diploma disponible" : "Pendiente de cierre")}</span>
-              <span class="small-chip">${escapeHtml(String(journey.evaluation || "Pendiente"))}</span>
-              <span class="small-chip">${escapeHtml(`${Number(journey.attendance || 0)}% asistencia`)}</span>
-            </div>
-          </div>
-          <div class="status-note ${journey.hasDiploma ? "success" : pendingItems.length ? "warning" : "info"}">
-            ${
-              journey.hasDiploma
-                ? "Puedes abrirlo o descargarlo ahora mismo."
-                : pendingItems.length
-                  ? `Sigue pendiente: ${escapeHtml(pendingSummary)}.`
-                  : "El curso esta en revision final para emitir el diploma."
-            }
-          </div>
-          <div class="chip-row">
-            ${
-              journey.hasDiploma
-                ? `
-                    <a class="button-link" target="_blank" rel="noreferrer" href="/api/diplomas/${course.id}/${member.id}">Abrir diploma</a>
-                    <a class="mini-button" href="/api/diplomas/${course.id}/${member.id}.pdf">Descargar PDF</a>
-                    <a class="mini-button" href="/api/diplomas/${course.id}/${member.id}.docx">Descargar Word</a>
-                  `
-                : ""
-            }
-            <button class="${journey.hasDiploma ? "ghost-button" : "primary-button"}" data-action="select-course" data-course-id="${course.id}">
-              ${journey.hasDiploma ? "Ver curso" : "Abrir ficha del curso"}
-            </button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-
+  const memberCourses = state.courses.filter((course) =>
+    course.enrolledIds.includes(member.id) || course.waitingIds.includes(member.id) ||
+    course.diplomaReady.includes(member.id));
   const availableDiplomas = memberCourses.filter((course) => course.diplomaReady.includes(member.id)).length;
-  const pendingDiplomas = memberCourses.length - availableDiplomas;
+  const teachingCertificates = state.courses.map((course) => renderInstructorCertificates(course, member)).join("");
 
   return `
-    <div class="panel-stack">
-      <div class="panel-header associate-anchor" id="diplomaSectionActions">
+    <div class="panel-stack member-certificates">
+      <header class="panel-header associate-anchor" id="diplomaSectionActions">
         <div>
-          <p class="eyebrow">Campus · Mis diplomas</p>
-          <h3>${escapeHtml(member.name)}</h3>
-          <p class="muted">Aqui ves todos tus cursos con salida acreditativa: los diplomas disponibles y lo que falta en cada caso.</p>
+          <h3>Mis certificados</h3>
+          <p class="muted">Certificados de inscripción, diplomas del curso y formación acumulada.</p>
         </div>
-      </div>
-      <div class="status-note info">
-        Ahora mismo tienes <strong>${availableDiplomas}</strong> diploma(s) disponible(s) y
-        <strong>${pendingDiplomas}</strong> curso(s) pendiente(s) de cierre.
-      </div>
-      <section aria-label="Certificado de actividad">
-        <h4>Certificado de actividad</h4>
-        ${availableDiplomas ? `
-          <p class="muted">${availableDiplomas} actividad(es) acreditada(s). El certificado incluye el detalle y el total de horas lectivas.</p>
-          <div class="chip-row">
-            <a class="button-link" target="_blank" rel="noopener noreferrer" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}">Ver certificado</a>
-            <a class="mini-button" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}&amp;download=1">Descargar PDF acumulado</a>
-          </div>
-        ` : `<p class="muted">El certificado acumulado estara disponible cuando tengas actividades acreditadas.</p>`}
-      </section>
+      </header>
+
       <div class="panel-stack associate-anchor" id="diplomaSectionDocuments">
-        ${diplomaCards}
+        ${memberCourses.length ? memberCourses.map((course) => {
+          const journey = getLearnerCourseJourney(course, member.id);
+          const enrollmentAvailable = course.enrollmentCertificateAvailable === true && !isMemberPreviewSession();
+          const pending = getLearnerPendingDiplomaReasons(course, journey).filter((item) => !item.ok);
+          const diplomaUrl = `/api/diplomas/${encodeURIComponent(course.id)}/${encodeURIComponent(member.id)}`;
+          return `
+            <article class="table-card member-certificate-course">
+              <div class="panel-header">
+                <div>
+                  <h4>${escapeHtml(course.title)}</h4>
+                  ${course.endDate ? `<p class="muted">${escapeHtml(formatDate(course.endDate))}</p>` : ""}
+                </div>
+              </div>
+              <div class="member-certificate-grid">
+                <section class="mail-card">
+                  <h5>Certificado de inscripción</h5>
+                  ${enrollmentAvailable
+                    ? `<p>Disponible</p><a class="mini-button button-link" href="${enrollmentCertificateDownloadUrl(course.id)}" download="certificado-inscripcion.pdf">Descargar certificado de inscripción</a>`
+                    : `<p class="muted">No disponible todavía.</p>
+                       <button class="ghost-button" type="button" data-action="select-course" data-mode="certificate" data-course-id="${escapeHtml(course.id)}">Consultar disponibilidad</button>`}
+                </section>
+                <section class="mail-card">
+                  <h5>Diploma del curso</h5>
+                  ${journey.hasDiploma
+                    ? `<p>Disponible · ${escapeHtml(String(journey.attendance || 0))}% asistencia</p>
+                       <div class="chip-row">
+                         <a class="button-link" target="_blank" rel="noopener noreferrer" href="${diplomaUrl}">Abrir diploma</a>
+                         <a class="mini-button button-link" href="${diplomaUrl}.pdf">Descargar PDF</a>
+                         <a class="mini-button button-link" href="${diplomaUrl}.docx">Descargar Word</a>
+                       </div>`
+                    : `<p class="muted">${pending.length
+                        ? `Pendiente: ${escapeHtml(pending.map((item) => item.label).join(", "))}.`
+                        : "Pendiente de cierre del curso."}</p>`}
+                </section>
+              </div>
+              <button class="ghost-button" type="button" data-action="select-course" data-course-id="${escapeHtml(course.id)}">Ver curso</button>
+            </article>
+          `;
+        }).join("") : '<p class="empty-state">Todavía no tienes cursos con documentos asociados.</p>'}
         ${teachingCertificates}
       </div>
+
+      <section class="mail-card" aria-label="Certificado de actividad">
+        <h4>Certificado de formación acumulada</h4>
+        ${availableDiplomas ? `
+          <p class="muted">${availableDiplomas} actividad(es) acreditada(s), con el detalle y el total de horas lectivas.</p>
+          <div class="chip-row">
+            <a class="button-link" target="_blank" rel="noopener noreferrer" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}">Ver certificado</a>
+            <a class="mini-button button-link" href="/api/member/activity-certificate.pdf?memberId=${encodeURIComponent(member.id)}&amp;download=1">Descargar PDF acumulado</a>
+          </div>
+        ` : '<p class="muted">Disponible cuando tengas actividades acreditadas.</p>'}
+      </section>
     </div>
   `;
 }
@@ -13005,7 +12966,7 @@ function renderLearnerActionStrip(course, memberId, options = {}) {
               data-action="${journey.hasDiploma ? "set-campus-section-mode" : "set-learner-course-workspace-mode"}"
               data-mode="${journey.hasDiploma ? "diplomas" : "feedback"}"
             >
-              ${escapeHtml(journey.hasDiploma ? "Ir a Mis diplomas" : "Ir a valoración")}
+              ${escapeHtml(journey.hasDiploma ? "Ir a Mis certificados" : "Ir a valoración")}
             </button>
           `
           : ""
@@ -14097,6 +14058,22 @@ function renderCourseWorkbench(course) {
             
           </div>
         </div>
+        <div class="course-admin-quick-access">
+          <button class="primary-button" type="button" data-action="set-course-workbench-mode" data-mode="students" data-scroll-target="courseStudentsLedger">
+            Inscripciones y pagos · Bajas y devoluciones
+          </button>
+        </div>
+        <nav class="workbench-tabs" aria-label="Secciones del curso">
+          ${workbenchTabs
+            .map(
+              (tab) => `
+                <button class="${normalizedWorkbenchMode === tab.mode ? "primary-button" : "ghost-button"}" type="button" aria-pressed="${normalizedWorkbenchMode === tab.mode}" data-action="set-course-workbench-mode" data-mode="${tab.mode}">
+                  ${tab.label}
+                </button>
+              `
+            )
+            .join("")}
+        </nav>
         <details class="course-review-details">
           <summary>Acciones avanzadas del curso</summary>
           <p class="muted">La eliminación es una acción excepcional. Comprueba que has seleccionado el curso correcto.</p>
@@ -14227,23 +14204,6 @@ function renderCourseWorkbench(course) {
         </div>
           </div>
         </details>
-        <p class="muted">Organiza el curso por tareas: <strong>Ficha</strong> para los datos generales, <strong>Alumnado</strong> para plazas e inscripciones y <strong>${isPracticalCourse ? "Diploma" : "Certificado"}</strong> para el cierre. El contenido y las sesiones se gestionan en sus propias pestañas.</p>
-        <div class="course-admin-quick-access">
-          <button class="primary-button" type="button" data-action="set-course-workbench-mode" data-mode="students" data-scroll-target="courseStudentsLedger">
-            Inscripciones y pagos · Bajas y devoluciones
-          </button>
-        </div>
-        <div class="workbench-tabs">
-          ${workbenchTabs
-            .map(
-              (tab) => `
-                <button class="${normalizedWorkbenchMode === tab.mode ? "primary-button" : "ghost-button"}" type="button" data-action="set-course-workbench-mode" data-mode="${tab.mode}">
-                  ${tab.label}
-                </button>
-              `
-            )
-            .join("")}
-        </div>
       </div>
 
       <form id="courseEditForm" class="stack">
@@ -14874,15 +14834,8 @@ function renderSelectedCourse(course) {
   const enrollmentApplicableFee = Number(isAssociateParticipant
     ? course.memberEnrollmentFee ?? course.enrollmentFee ?? 0
     : course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0);
-  const certificateStoredAmount = enrollmentSubmission?.amount;
-  const certificateAmount = certificateStoredAmount != null && certificateStoredAmount !== "" &&
-    Number.isFinite(Number(certificateStoredAmount))
-    ? Number(certificateStoredAmount) : enrollmentApplicableFee;
-  const canDownloadEnrollmentCertificate = !isPreviewMode && journey.enrolled &&
-    enrollmentSubmission?.status === "confirmed" &&
-    Number.isFinite(certificateAmount) && certificateAmount >= 0 &&
-    (certificateAmount === 0 || enrollmentSubmission?.paymentStatus === "validated");
-  const enrollmentCertificateUrl = `/api/member/courses/${encodeURIComponent(course.id)}/enrollment-certificate.pdf?download=1`;
+  const canDownloadEnrollmentCertificate = !isPreviewMode && course.enrollmentCertificateAvailable === true;
+  const enrollmentCertificateUrl = enrollmentCertificateDownloadUrl(course.id);
   const enrollmentRequiresPayment = enrollmentApplicableFee > 0 || Number(enrollmentSubmission?.amount || 0) > 0;
   const enrollmentNeedsProof = enrollmentSubmission?.status === "pending-proof" ||
     (enrollmentRequiresPayment && !enrollmentSubmission?.paymentProof) ||
@@ -14899,7 +14852,7 @@ function renderSelectedCourse(course) {
         : enrollmentCall.closedMode ? "Inscripción cerrada" : "Inscripcion no disponible";
   const enrollmentDescription = journey.enrolled
     ? journey.hasDiploma
-      ? "Has completado el curso y tu diploma ya esta disponible en Mis diplomas."
+      ? "Has completado el curso y tu diploma ya esta disponible en Mis certificados."
       : "Ya estas dentro del curso y puedes pasar directamente al aula."
     : journey.waiting
       ? "Tu solicitud ya esta registrada y esta pendiente de plaza o validacion administrativa."
@@ -15029,7 +14982,7 @@ function renderSelectedCourse(course) {
                     ? "No consta una solicitud de inscripción."
                     : !journey.enrolled || enrollmentSubmission.status !== "confirmed"
                       ? "La inscripción está pendiente de confirmación."
-                      : certificateAmount > 0 && enrollmentSubmission.paymentStatus !== "validated"
+                      : enrollmentRequiresPayment && enrollmentSubmission.paymentStatus !== "validated"
                         ? "Tesorería debe validar el pago."
                         : "Comprueba el estado de tu inscripción con la asociación."}</p>`
               }
@@ -15310,7 +15263,7 @@ function renderLearnerProgressGuard(course, memberId, options = {}) {
   let primaryActionHtml = "";
 
   if (journey.hasDiploma) {
-    primaryActionHtml = `<button class="primary-button" data-action="set-campus-section-mode" data-mode="diplomas">Ir a Mis diplomas</button>`;
+    primaryActionHtml = `<button class="primary-button" data-action="set-campus-section-mode" data-mode="diplomas">Ir a Mis certificados</button>`;
   } else if (!journey.enrolled && !journey.waiting) {
     primaryActionHtml = `<button class="primary-button" data-action="select-course" data-course-id="${course.id}">Ver inscripción</button>`;
   } else if (journey.waiting) {
@@ -15714,23 +15667,7 @@ function renderCourseCard(course, role) {
   const currentMemberId = state.selectedMemberId;
   const isEnrolled = currentMemberId && course.enrolledIds.includes(currentMemberId);
   const isWaiting = currentMemberId && course.waitingIds.includes(currentMemberId);
-  const certificateSubmission = getCourseEnrollmentSubmission(course, currentMemberId);
-  const certificateMember = (state.members || []).find((item) => item.id === currentMemberId);
-  const certificateIsAssociate = (state.associates || []).some((associate) =>
-    (certificateMember?.associateId && associate.id === certificateMember.associateId) ||
-    associate.linkedMemberId === currentMemberId
-  );
-  const certificateConfiguredAmount = Number(certificateIsAssociate
-    ? course.memberEnrollmentFee ?? course.enrollmentFee ?? 0
-    : course.nonMemberEnrollmentFee ?? course.enrollmentFee ?? 0);
-  const certificateStoredAmount = certificateSubmission?.amount;
-  const certificateAmount = certificateStoredAmount != null && certificateStoredAmount !== "" &&
-    Number.isFinite(Number(certificateStoredAmount))
-    ? Number(certificateStoredAmount) : certificateConfiguredAmount;
-  const canDownloadEnrollmentCertificate = role === "member" && isEnrolled &&
-    certificateSubmission?.status === "confirmed" &&
-    Number.isFinite(certificateAmount) && certificateAmount >= 0 &&
-    (certificateAmount === 0 || certificateSubmission?.paymentStatus === "validated");
+  const canDownloadEnrollmentCertificate = role === "member" && course.enrollmentCertificateAvailable === true;
 
   fragment.querySelector('[data-slot="type"]').textContent = describeCourseType(course);
   fragment.querySelector('[data-slot="status"]').textContent = EnrollmentTime.courseWindowState(course) === "closed"
@@ -15762,7 +15699,7 @@ function renderCourseCard(course, role) {
           : "Ver resumen"
       : "Gestionar";
   actions.innerHTML = `
-    ${canDownloadEnrollmentCertificate ? `<a class="mini-button" href="/api/member/courses/${encodeURIComponent(course.id)}/enrollment-certificate.pdf?download=1">Descargar certificado de inscripción</a>` : ""}
+    ${canDownloadEnrollmentCertificate ? `<a class="mini-button" href="${enrollmentCertificateDownloadUrl(course.id)}">Descargar certificado de inscripción</a>` : ""}
     <button class="mini-button" data-action="${role === "member" && isEnrolled ? "open-course-workbench-tab" : "select-course"}" data-course-id="${course.id}" ${role === "member" && isEnrolled ? 'data-mode="learner"' : ""}>${openLabel}</button>
     ${
       role === "member"
@@ -18245,7 +18182,7 @@ function renderLearnerJourneyCard(course, memberId, options = {}) {
           : ""
       }
       <div class="chip-row">
-        <button class="primary-button" type="button" data-action="${journey.hasDiploma ? "set-campus-section-mode" : journey.enrolled ? "open-course-workbench-tab" : "select-course"}" ${journey.hasDiploma ? 'data-mode="diplomas"' : `data-course-id="${course.id}" ${journey.enrolled ? 'data-mode="learner"' : ""}`}>${journey.hasDiploma ? "Ir a Mis diplomas" : journey.enrolled ? "Entrar al aula" : journey.waiting ? "Ver estado de matricula" : "Ver curso"}</button>
+        <button class="primary-button" type="button" data-action="${journey.hasDiploma ? "set-campus-section-mode" : journey.enrolled ? "open-course-workbench-tab" : "select-course"}" ${journey.hasDiploma ? 'data-mode="diplomas"' : `data-course-id="${course.id}" ${journey.enrolled ? 'data-mode="learner"' : ""}`}>${journey.hasDiploma ? "Ir a Mis certificados" : journey.enrolled ? "Entrar al aula" : journey.waiting ? "Ver estado de matricula" : "Ver curso"}</button>
         ${
           !journey.enrolled && !journey.waiting && String(course.status || "") === "Inscripcion abierta" && EnrollmentTime.courseWindowState(course) !== "closed" && !isMemberPreviewSession()
             ? `<button class="ghost-button" type="button" data-action="${isCourseOpenForEnrollment(course) ? "prepare-course-enrollment" : "select-course"}" data-course-id="${course.id}">${escapeHtml(isCourseOpenForEnrollment(course) ? getCourseEnrollmentCall(course).ctaLabel : "Ver apertura")}</button>`

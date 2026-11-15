@@ -1,4 +1,5 @@
 const { compactNotice, canAccessCampusNotice } = require("./notices");
+const { canIssueEnrollmentCertificate } = require("./enrollment-certificate-model");
 
 function createStateTransport(dependencies = {}) {
   const {
@@ -223,7 +224,8 @@ function createStateTransport(dependencies = {}) {
   function buildMemberScopedState(state, account, memberIdOverride) {
     const memberId = memberIdOverride || account.memberId || "";
     const scopedMember = (state.members || []).find((item) => item.id === memberId) || null;
-    if (account.role === "admin" && memberId !== account.memberId) {
+    const isAdminPreview = account.role === "admin" && memberId !== account.memberId;
+    if (isAdminPreview) {
       // Preview the selected person's identity, never the administrator's memberships or grants.
       const targetAccount = (state.accounts || []).find(item => item.memberId === memberId);
       account = { ...targetAccount, id: targetAccount?.id || "", role: "member", memberId,
@@ -293,7 +295,9 @@ function createStateTransport(dependencies = {}) {
           attendance: ownAttendance,
           evaluations: ownEvaluations,
           contentProgress: ownProgress,
-          enrollmentSubmissions: ownEnrollmentSubmissions
+          enrollmentSubmissions: ownEnrollmentSubmissions,
+          enrollmentCertificateAvailable: Boolean(scopedMember && !isAdminPreview &&
+            canIssueEnrollmentCertificate(state, course, memberId))
         };
       });
     const selectedCourseId = visibleCourses.some((course) => course.id === state.selectedCourseId)

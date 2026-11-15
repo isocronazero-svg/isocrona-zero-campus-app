@@ -160,7 +160,7 @@ for (const [changes, headline] of [
   assert.ok(html.includes(`<strong>${headline}</strong>`), headline);
   assert.doesNotMatch(html, /Curso completado/);
   if (headline === "Aula sin contenido publicado") assert.match(html, /Todavia no hay contenido publicado/);
-  if (headline === "Diploma disponible") assert.match(html, /Ir a Mis diplomas/);
+  if (headline === "Diploma disponible") assert.match(html, /Ir a Mis certificados/);
 }
 console.log("Learner journey distinguishes content progress from diploma completion.");
 
@@ -176,6 +176,7 @@ function renderEnrollment({ fee = 0, submission = null, waiting = false, full = 
     getCourseEnrolledCount: () => 1, isCourseOpenForEnrollment: () => open, getPublishedLessonCount: () => 0,
     getCourseEnrollmentCall: () => ({ waitlistMode: full, audienceLabel: "Solo socios", statusLabel: "Plazas disponibles", ctaLabel: full ? "Unirme a lista de espera" : "Inscribirme ahora" }),
     getCourseEnrollmentSubmission: () => submission, renderLearnerJourneyCard: () => "",
+    enrollmentCertificateDownloadUrl: (courseId) => `/api/member/courses/${courseId}/enrollment-certificate.pdf?download=1`,
     getEnrollmentSubmissionStatusLabel: (status) => status, getEnrollmentSubmissionTone: () => "neutral",
     renderStoredProofLink: (proof) => proof ? '<a href="/qa-proof">Abrir justificante</a>' : ""
   });

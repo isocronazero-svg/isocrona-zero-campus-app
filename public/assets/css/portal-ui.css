@@ -198,3 +198,16 @@
 }
 .portal-ui .member-course-status dt { color: var(--muted); }
 .portal-ui .member-course-status dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+
+.portal-ui .member-certificate-course { display: grid; gap: 12px; }
+.portal-ui .member-certificate-course > button { justify-self: start; }
+.portal-ui .member-certificate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.portal-ui .member-certificate-grid h5 { margin: 0; font-size: 1rem; }
+.portal-ui .member-certificate-grid .button-link { white-space: normal; }
+@media (max-width: 640px) {
+  .portal-ui .member-certificate-grid { grid-template-columns: minmax(0, 1fr); }
+}
