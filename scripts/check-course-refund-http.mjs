@@ -61,6 +61,14 @@ try {
   const cancel = await request("/api/courses/qa-course/enrollment-submissions/qa-enrollment/cancel",{reason:"Prueba automatizada QA",refundAmount:90},cookie);
   assert.equal(cancel.status,200,"Baja: "+JSON.stringify(cancel.json));
   assert.equal(cancel.json.refund?.status,"pending");
+  // A cancellation must not destroy the original enrollment record or its payment history.
+  const afterCancel = await request("/api/state",undefined,cookie);
+  assert.equal(afterCancel.status,200,"Estado posterior a baja: "+JSON.stringify(afterCancel.json).slice(0,350));
+  const cancelledCourse = afterCancel.json.courses?.find(course => course.id === "qa-course");
+  assert.ok(cancelledCourse,"El curso debe conservarse tras la baja");
+  const cancelledEnrollment = cancelledCourse.enrollmentSubmissions?.find(row => row.id === "qa-enrollment");
+  assert.equal(cancelledEnrollment?.status,"cancelled","Conservar inscripción histórica cancelada");
+  assert.ok(!cancelledCourse.enrolledIds?.includes("qa-member"),"Liberar la plaza del alumno dado de baja");
   const repeat = await request("/api/courses/qa-course/enrollment-submissions/qa-enrollment/cancel",{reason:"Repetida",refundAmount:90},cookie);
   assert.equal(repeat.status,409,"Una baja repetida debe rechazarse");
   const confirm = await request("/api/courses/qa-course/enrollment-submissions/qa-enrollment/refund-confirm",{},cookie);
