@@ -6235,7 +6235,8 @@ function renderNav() {
         { id: "diplomas", label: "Mis certificados", primary: true, view: "campus", mode: "diplomas" },
         { id: "test", label: "Zona Test", primary: true, sections: TEST_SECTION_LINKS },
         ...(!campusOnlySession ? [{ id: "groups", label: "Grupos internos", view: "campus", mode: "groups" }] : []),
-        { id: "join", label: campusOnlySession ? "Hazte socio" : "Mi perfil" }
+        { id: "preferences", label: "Mi perfil", view: "join" },
+        ...(campusOnlySession ? [{ id: "join", label: "Hazte socio" }] : [])
       ]
     : navItems;
   const isNavItemActive = (item) => {
@@ -6257,7 +6258,7 @@ function renderNav() {
     const noticeBadge = item.id === "alerts" && unreadNotificationCount > 0
       ? `<span class="notice-count" aria-label="${unreadNotificationCount} avisos sin leer">${unreadNotificationCount}</span>`
       : "";
-    return `<button class="${className}${active ? " active" : ""}" ${active ? 'aria-current="page"' : ""} type="button" data-action="${item.mode ? "open-member-campus-mode" : "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}${item.catalogFilter ? ` data-catalog-filter="${item.catalogFilter}"` : ""}>${escapeHtml(item.label)} ${noticeBadge}</button>`;
+    return `<button class="${className}${active ? " active" : ""}" ${active ? 'aria-current="page"' : ""} type="button" data-action="${item.id === "preferences" ? "open-member-preferences" : item.mode ? "open-member-campus-mode" : "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}${item.catalogFilter ? ` data-catalog-filter="${item.catalogFilter}"` : ""}>${escapeHtml(item.label)} ${noticeBadge}</button>`;
   };
   const allowedItems = effectiveNavItems.filter((item) => isViewAllowed(item.view || item.id));
   const quickItems = memberView && session && !session.mustChangePassword ? allowedItems.filter((item) => item.primary) : [];
