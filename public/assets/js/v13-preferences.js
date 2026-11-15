@@ -1,6 +1,13 @@
 (() => {
   "use strict";
   const open = document.getElementById("v13PreferencesOpen");
+  document.addEventListener("click", event => {
+    const profileLink = event.target.closest('[data-action="open-member-preferences"]');
+    if (!profileLink) return;
+    event.preventDefault();
+    open?.click();
+    document.getElementById("mobileMenuClose")?.click();
+  });
   const exportsPanel = document.getElementById("v13AdminExports");
   const roleSwitcher = document.getElementById("roleSwitcher");
   let isAdmin = false;
