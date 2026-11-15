@@ -51,6 +51,9 @@ try {
   assert.ok(ready,"Servidor no arrancó: "+logs.slice(-1800));
   const unauthorized = await request("/api/courses/qa-course/enrollment-submissions/qa-enrollment/cancel",{reason:"QA",refundAmount:90});
   assert.ok([401,403].includes(unauthorized.status),"Baja sin sesión debe ser rechazada: "+JSON.stringify(unauthorized));
+  const unauthorizedRefund = await request("/api/courses/qa-course/enrollment-submissions/qa-enrollment/refund-confirm",{});
+  assert.ok([401,403].includes(unauthorizedRefund.status),
+    "La confirmación de devolución sin sesión debe ser rechazada: "+JSON.stringify(unauthorizedRefund));
   const login = await request("/api/login",{email,password});
   assert.equal(login.status,200,"Login QA: "+JSON.stringify(login.json));
   const cookie = login.cookie?.split(";")[0];
