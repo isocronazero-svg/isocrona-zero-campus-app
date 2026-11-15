@@ -147,8 +147,11 @@ const financeSource = readFileSync(new URL("../server/course-finance.js", import
 assert.match(financeSource, /submission\.status === "cancelled" \|\| \["pending", "completed"\]\.includes\(submission\.refund\?\.status\)/,
   "Treasury must not rewrite payments on cancelled or refunded enrollments");
 const clientSource = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
-assert.match(clientSource, /const certificateSubmission = getCourseEnrollmentSubmission\(course, currentMemberId\)/,
-  "Member certificate UI must resolve the active submission");
+assert.match(clientSource, /course\.enrollmentCertificateAvailable === true/,
+  "Member certificate UI must use server-derived availability");
+const transportSource = readFileSync(new URL("../server/state-transport.js", import.meta.url), "utf8");
+assert.match(transportSource, /canIssueEnrollmentCertificate\(state, course, memberId\)/,
+  "The member state and PDF must apply the same active-enrollment rules");
 assert.match(clientSource, /submission\.memberId === memberId && !\["cancelled", "rejected"\]\.includes\(submission\.status\)/,
   "Enrollment lookup must exclude cancelled and rejected history");
 
