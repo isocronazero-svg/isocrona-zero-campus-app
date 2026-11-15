@@ -130,9 +130,10 @@ for (const success of [true, false]) {
   assert.equal(context.viewRole, "admin");
   assert.equal(context.roleSwitcher.value, "admin");
 }
-for (const view of ["overview", "test", "join"]) {
+for (const view of ["overview", "test"]) {
   assert.ok(memberButtons.some((tag) => tag.includes(`data-view="${view}"`) && tag.includes('data-action="nav"')));
 }
+assert.ok(memberButtons.some((tag) => tag.includes('data-view="join"') && tag.includes('data-action="open-member-preferences"')));
 assert.ok(memberButtons.some((tag) => tag.includes('data-action="open-member-campus-mode"') && tag.includes('data-mode="diplomas"')));
 const sessionStart = app.indexOf("function applySessionToState() {");
 const sessionEnd = app.indexOf("function getPreferredMemberCourseForMode(", sessionStart);
