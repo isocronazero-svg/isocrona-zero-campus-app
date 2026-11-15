@@ -18341,8 +18341,15 @@ function renderStoredProofLink(proof, label = "Abrir justificante") {
   if (!proof || !proof.contentBase64) {
     return "";
   }
-  const mimeType = proof.type || "application/octet-stream";
-  return `<a class="mini-button" target="_blank" rel="noreferrer" href="data:${escapeHtml(mimeType)};base64,${proof.contentBase64}">${label}</a>`;
+  const mimeType = String(proof.type || "application/octet-stream").toLowerCase();
+  const isPdf = mimeType === "application/pdf";
+  const isImage = /^image\/(png|jpeg|gif|webp)$/.test(mimeType);
+  const safeLabel = escapeHtml(label);
+  const safeSrc = escapeHtml(`data:${mimeType};base64,${proof.contentBase64}`);
+  if (isPdf || isImage) {
+    return `<button class="mini-button" type="button" data-action="preview-campus-attachment" data-preview-kind="${isPdf ? "pdf" : "image"}" data-preview-name="Justificante de pago" data-preview-src="${safeSrc}">${safeLabel}</button>`;
+  }
+  return `<a class="mini-button" target="_blank" rel="noreferrer" href="${safeSrc}">${safeLabel}</a>`;
 }
 
 function hasCampusAttachment(attachment) {
