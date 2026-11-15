@@ -56,7 +56,12 @@ async function createCampus() {
       capacity: 10, hours: 8, enrollmentFee: 30, memberEnrollmentFee: 30, nonMemberEnrollmentFee: 60 },
     { id: "member-qa", title: "Jornada para socios QA", courseClass: "practico", accessScope: "members",
       status: "Inscripcion abierta", startDate: dayFromNow(15), endDate: dayFromNow(15),
-      capacity: 8, hours: 8, enrollmentFee: 0 }
+      capacity: 8, hours: 8, enrollmentFee: 0 },
+    { id: "history-qa", title: "Práctica realizada QA", courseClass: "practico", status: "Cerrado",
+      startDate: dayFromNow(-15), endDate: dayFromNow(-15), hours: 8,
+      capacity: 8, enrolledIds: ["member"], attendance: {}, evaluations: {}, feedbackEnabled: false,
+      enrollmentSubmissions: [{ id: "history-enrollment", memberId: "member", status: "confirmed",
+        amount: 0, paymentStatus: "not-required", participantType: "member" }] }
   ];
   await writeFile(seedPath, JSON.stringify(seed));
   const inherited = Object.fromEntries(["PATH", "HOME", "TMPDIR", "SYSTEMROOT"]
@@ -161,6 +166,138 @@ for (const { name, browserName, options } of profiles) {
         await page?.context().close();
         await webkitBrowser?.close();
         await campus.close();
+      }
+    });
+
+    test("inscripción, justificante, cobro, acreditación, baja e historial con datos ficticios", async ({ browser }) => {
+      const campus = await createCampus();
+      let member;
+      let admin;
+      let webkitBrowser;
+      try {
+        if (browserName === "webkit") webkitBrowser = await webkit.launch();
+        const engine = webkitBrowser || browser;
+        member = await openAs(engine, campus, "member", options);
+        admin = await openAs(engine, campus, "admin", profiles[0].options);
+        const panel = member.locator("#mainPanel");
+        const nav = member.locator(options.isMobile ? "#memberQuickNav" : "#nav");
+        const course = panel.locator('[data-course-card-id="public-qa"]');
+        const certificatePath = `${campus.baseURL}/api/member/courses/public-qa/enrollment-certificate.pdf?download=1`;
+
+        await course.getByRole("button", { name: "Inscribirme ahora" }).click();
+        await expect(panel.locator("#courseEnrollmentForm")).toBeVisible();
+        const enrollment = member.waitForResponse((response) =>
+          response.url().endsWith("/courses/public-qa/enroll") && response.request().method() === "POST");
+        await panel.getByRole("button", { name: "Confirmar inscripcion" }).click();
+        expect((await enrollment).status()).toBe(200);
+        await expect(panel.locator("#courseEnrollmentSubmissionState")).toContainText("Pendiente de justificante");
+        expect((await member.request.get(certificatePath)).status()).toBe(404);
+
+        await nav.getByRole("button", { name: "Cursos", exact: true }).click();
+        await panel.getByRole("button", { name: /^Mis cursos/ }).click();
+        await expect(course.locator(".member-course-status")).toContainText("Pendiente de justificante");
+        await expect(course.locator(".member-course-status")).toContainText("Pendiente de registrar");
+        await course.getByRole("button", { name: "Ver inscripción", exact: true }).click();
+
+        const proof = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRlcAAAAASUVORK5CYII=", "base64");
+        await panel.locator("#courseEnrollmentProofUpdate").setInputFiles({
+          name: "justificante-ficticio.png", mimeType: "image/png", buffer: proof
+        });
+        const proofResponse = member.waitForResponse((response) =>
+          response.url().endsWith("/courses/public-qa/enrollment-proof") && response.request().method() === "POST");
+        await panel.getByRole("button", { name: "Enviar justificante" }).click();
+        expect((await proofResponse).status()).toBe(200);
+        await expect(panel.locator("#courseEnrollmentSubmissionState")).toContainText("justificante-ficticio.png");
+
+        const financeURL = `${campus.baseURL}/api/course-finance`;
+        const financeBefore = await (await admin.request.get(financeURL)).json();
+        const row = financeBefore.courses.find(({ id }) => id === "public-qa").rows[0];
+        expect(row).toMatchObject({ amount: 30, paymentStatus: "pending", hasPaymentProof: true });
+        const rowURL = `${financeURL}/courses/public-qa/submissions/${row.submissionId}`;
+        const proofAccess = await admin.request.get(`${rowURL}/proof`);
+        expect(proofAccess.status()).toBe(200);
+        expect(await proofAccess.body()).toEqual(proof);
+        expect((await member.request.get(`${rowURL}/proof`)).status()).toBe(403);
+        expect((await member.request.patch(rowURL, { data: { paymentStatus: "validated" } })).status()).toBe(403);
+
+        await admin.locator("#courseFinanceNavButton").click();
+        const financeDialog = admin.locator("#courseFinanceDialog");
+        const financeRow = financeDialog.locator(".course-finance-row").filter({ hasText: "Socio QA V14" });
+        admin.once("dialog", (dialog) => dialog.accept());
+        const payment = admin.waitForResponse((response) => response.url() === rowURL && response.request().method() === "PATCH");
+        await financeRow.getByRole("button", { name: "Validar pago" }).click();
+        expect((await (await payment).json()).row.paymentStatus).toBe("validated");
+        await financeDialog.locator("[data-finance-close]").click();
+        expect((await member.request.get(certificatePath)).status()).toBe(404);
+
+        await admin.reload();
+        await admin.locator("#nav").getByRole("button", { name: "Campus", exact: true }).click();
+        await admin.locator('[data-course-card-id="public-qa"]').getByRole("button", { name: "Gestionar curso" }).click();
+        await admin.getByRole("button", { name: /Inscripciones y pagos/ }).click();
+        const ledger = admin.locator("#courseStudentsLedger");
+        const validateEnrollment = ledger.getByRole("button", { name: "Validar", exact: true });
+        await expect(validateEnrollment).toBeVisible();
+        const status = admin.waitForResponse((response) => response.url().endsWith(`/${row.submissionId}/status`));
+        await validateEnrollment.click();
+        expect((await status).status()).toBe(200);
+        await expect(ledger).toContainText("Confirmada");
+
+        await member.reload();
+        await nav.getByRole("button", { name: "Cursos", exact: true }).click();
+        await panel.getByRole("button", { name: /^Mis cursos/ }).click();
+        await expect(course.locator(".member-course-status")).toContainText("Confirmada");
+        await expect(course.locator(".member-course-status")).toContainText("Validado");
+        await course.getByRole("button", { name: "Ver inscripción", exact: true }).click();
+        await panel.getByRole("button", { name: "Certificado de inscripción", exact: true }).click();
+        const downloadPromise = member.waitForEvent("download");
+        await panel.getByRole("link", { name: /Descargar certificado de inscripción/ }).click();
+        const download = await downloadPromise;
+        expect(download.suggestedFilename()).toBe("certificado-inscripcion.pdf");
+        expect((await readFile(await download.path())).subarray(0, 4).toString()).toBe("%PDF");
+
+        const otherPDF = `${campus.baseURL}/api/diplomas/history-qa/member.pdf`;
+        expect((await member.request.get(otherPDF)).status()).toBe(403);
+        const academic = `${campus.baseURL}/api/courses/history-qa/members/member`;
+        const attendance = await admin.request.patch(`${academic}/academic`, { data: { attendance: 100, evaluation: "Apto" } });
+        expect(attendance.status(), await attendance.text()).toBe(200);
+        const generate = await admin.request.post(`${academic}/diploma`);
+        expect(generate.status(), await generate.text()).toBe(200);
+        await member.reload();
+        await nav.getByRole("button", { name: "Mis certificados", exact: true }).click();
+        const diploma = panel.locator("article.table-card").filter({ hasText: "Práctica realizada QA" });
+        await expect(diploma).toContainText("100% asistencia");
+        const diplomaPromise = member.waitForEvent("download");
+        await diploma.getByRole("link", { name: "Descargar PDF", exact: true }).click();
+        expect((await readFile(await (await diplomaPromise).path())).subarray(0, 4).toString()).toBe("%PDF");
+
+        const cancelDialogs = ["Baja ficticia QA", "30"];
+        const handleCancel = (dialog) => dialog.accept(cancelDialogs.shift());
+        admin.on("dialog", handleCancel);
+        const cancel = admin.waitForResponse((response) => response.url().endsWith(`/${row.submissionId}/cancel`));
+        await ledger.getByRole("button", { name: "Dar de baja" }).click();
+        expect((await cancel).status()).toBe(200);
+        admin.off("dialog", handleCancel);
+        await expect(ledger).toContainText("Baja registrada");
+        expect((await member.request.get(certificatePath)).status()).toBe(404);
+        admin.once("dialog", (dialog) => dialog.accept());
+        const refund = admin.waitForResponse((response) => response.url().endsWith(`/${row.submissionId}/refund-confirm`));
+        await ledger.getByRole("button", { name: /Confirmar devolución/ }).click();
+        expect((await refund).status()).toBe(200);
+        await expect(ledger).toContainText("Devueltos 30.00 €");
+        const financeAfter = await (await admin.request.get(financeURL)).json();
+        expect(financeAfter.courses.find(({ id }) => id === "public-qa")).toMatchObject({
+          grossPaid: 30, refundsCompleted: 30, netPaid: 0
+        });
+
+        await member.reload();
+        await nav.getByRole("button", { name: "Cursos", exact: true }).click();
+        await panel.getByRole("button", { name: /^Historial/ }).click();
+        await expect(course.locator(".member-course-status")).toContainText("Baja registrada");
+        await expect(course.locator(".member-course-status")).toContainText("Devolución registrada");
+        await expect(panel.locator('[data-course-card-id="history-qa"]')).toContainText("100 %");
+      } finally {
+        await Promise.allSettled([member?.context().close(), admin?.context().close()]);
+        await Promise.allSettled([webkitBrowser?.close(), campus.close()]);
       }
     });
   });

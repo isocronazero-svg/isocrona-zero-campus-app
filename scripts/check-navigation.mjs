@@ -23,6 +23,7 @@ function render(admin, allowed = () => true, campusOnly = false) {
     state: { activeView: "overview" },
     session: { memberId: "member-qa" },
     campusSectionMode: "courses",
+    courseCatalogFilter: "all",
     isCampusOnlySession: () => campusOnly,
     getCurrentMember: () => ({ id: "member-qa" }),
     getUnreadMemberNotifications: () => [{}],
@@ -44,7 +45,8 @@ for (const [index, item] of navItems.entries()) {
 }
 assert.equal(render(true, (id) => id !== "reports").length, navItems.length - 1);
 const memberButtons = render(false);
-assert.equal(memberButtons.length, 7);
+assert.equal(memberButtons.length, 8);
+assert.match(renderedNav, /data-catalog-filter="mine">Mis cursos/);
 assert.ok(memberButtons.some((tag) => tag.includes('data-view="campus"') && tag.includes('data-mode="courses"')));
 assert.match(renderedNav, /data-mode="groups">Grupos internos/);
 assert.match(renderedNav, /data-mode="alerts">Avisos/);

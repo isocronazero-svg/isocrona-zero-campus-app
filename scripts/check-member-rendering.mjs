@@ -362,7 +362,7 @@ for (const scenario of ["available", "mine", "waiting", "history", "full", "sche
 }
 const filterStart = app.indexOf('  if (action === "set-course-catalog-filter") {');
 const filterEnd = app.indexOf('\n  if (action ===', filterStart + 1);
-const filterContext = { action: "set-course-catalog-filter", actionTarget: { dataset: { filter: "mine" } }, courseCatalogFilter: "all", render() {} };
+const filterContext = { action: "set-course-catalog-filter", actionTarget: { dataset: { filter: "mine" } }, courseCatalogFilter: "all", render() {}, saveUiSnapshot() {} };
 vm.runInNewContext(`(() => {${app.slice(filterStart, filterEnd)}})();`, filterContext);
 assert.equal(filterContext.courseCatalogFilter, "mine");
 for (const mode of ["courses", "operations", "groups", "diplomas"]) {

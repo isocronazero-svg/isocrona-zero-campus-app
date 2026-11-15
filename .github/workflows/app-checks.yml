@@ -6,7 +6,7 @@ on:
       - main
       - feature/v1.1
       - feature/v1.2
-      - feature/v1.4-ux
+      - "feature/v1.4-*"
   push:
     branches:
       - main
