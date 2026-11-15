@@ -6,6 +6,7 @@ on:
       - main
       - feature/v1.1
       - feature/v1.2
+      - feature/v1.4-ux
   push:
     branches:
       - main
@@ -108,9 +109,9 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
-      - name: Exercise desktop and mobile recovery with synthetic accounts
+      - name: Install Chromium and WebKit
+        run: npx playwright install --with-deps chromium webkit
+      - name: Exercise desktop and mobile flows with synthetic accounts
         run: npm run check:browser
       - name: Preserve synthetic QA report and screenshots
         if: always()

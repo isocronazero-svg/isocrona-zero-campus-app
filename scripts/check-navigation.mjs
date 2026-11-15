@@ -11,8 +11,11 @@ const end = app.indexOf("function renderMetrics()", start);
 assert.ok(start >= 0 && end > start, "Navigation renderer must exist");
 
 let renderedNav = "";
+let quickNav;
 function render(admin, allowed = () => true, campusOnly = false) {
+  quickNav = { innerHTML: "", hidden: true };
   const context = {
+    memberQuickNav: quickNav,
     navItems,
     TEST_SECTION_LINKS,
     CAMPUS_SECTION_LINKS,
@@ -21,7 +24,6 @@ function render(admin, allowed = () => true, campusOnly = false) {
     session: { memberId: "member-qa" },
     campusSectionMode: "courses",
     isCampusOnlySession: () => campusOnly,
-    shouldUseMemberProfileAsPrimaryView: () => !admin,
     getCurrentMember: () => ({ id: "member-qa" }),
     getUnreadMemberNotifications: () => [{}],
     isAdminView: () => admin,
@@ -42,13 +44,23 @@ for (const [index, item] of navItems.entries()) {
 }
 assert.equal(render(true, (id) => id !== "reports").length, navItems.length - 1);
 const memberButtons = render(false);
-assert.equal(memberButtons.length, 5);
+assert.equal(memberButtons.length, 7);
 assert.ok(memberButtons.some((tag) => tag.includes('data-view="campus"') && tag.includes('data-mode="courses"')));
-assert.match(renderedNav, /data-section-id="campusSectionGroups"/);
-assert.match(renderedNav, /data-section-id="campusSectionAlerts"/, "Campus keeps the notice entry from #217");
-render(false, () => true, true);
-assert.doesNotMatch(renderedNav, /data-section-id="campusSectionGroups"/, "External campus accounts do not gain internal groups");
-assert.match(renderedNav, /data-section-id="campusSectionAlerts"/, "External accounts retain notices scoped to them");
+assert.match(renderedNav, /data-mode="groups">Grupos internos/);
+assert.match(renderedNav, /data-mode="alerts">Avisos/);
+assert.match(quickNav.innerHTML, /data-mode="alerts">Avisos.*avisos sin leer/);
+assert.match(quickNav.innerHTML, /data-mode="courses">Cursos/);
+assert.match(quickNav.innerHTML, /data-mode="diplomas">Mis certificados/);
+assert.equal(quickNav.hidden, false);
+render(false, (view) => ["overview", "campus", "join"].includes(view), true);
+assert.doesNotMatch(renderedNav, /data-mode="groups"|Zona Test/, "External accounts retain their scoped menu");
+assert.match(renderedNav, /data-mode="alerts">Avisos/);
+render(false, (view) => view === "join");
+assert.match(renderedNav, /Mi perfil/);
+assert.doesNotMatch(renderedNav, /Inicio|data-view="campus"/);
+assert.equal(quickNav.hidden, true);
+render(true);
+assert.equal(quickNav.hidden, true);
 const campusOnlyStart = app.indexOf("function isCampusOnlySession() {");
 const campusOnlyEnd = app.indexOf("\nfunction ", campusOnlyStart + 1);
 for (const ownAdmin of [true, false]) {
