@@ -629,6 +629,21 @@ passwordLogoutButton.addEventListener("click", async () => {
   render();
 });
 
+// Demo-only convenience button. No production accounts or data are used.
+if (window.location.hostname === "isocrona-v14-demo-app-demo.up.railway.app") {
+  const demoButton = document.createElement("button");
+  demoButton.type = "button";
+  demoButton.textContent = "Entrar como socio de prueba";
+  demoButton.className = "button button-secondary";
+  demoButton.style.cssText = "display:block;width:100%;margin:12px 0;padding:14px;cursor:pointer";
+  demoButton.addEventListener("click", () => {
+    loginEmail.value = "socio-demo@example.invalid";
+    loginPassword.value = "demo";
+    loginForm.requestSubmit();
+  });
+  loginForm.appendChild(demoButton);
+}
+
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
