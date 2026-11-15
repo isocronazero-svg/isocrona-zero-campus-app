@@ -178,4 +178,12 @@ assert.match(clientSource, /if \(action === "set-course-workbench-mode"\)/,
 assert.match(clientSource, /focusElementById\(actionTarget\.dataset\.scrollTarget\)/,
   "Shortcut must focus its destination after rendering");
 
+// Payment receipts must reuse the existing internal preview, avoiding data-URL navigation on Safari.
+assert.match(clientSource, /function renderStoredProofLink\(proof, label = "Abrir justificante"\)/,
+  "Payment proof renderer must remain available");
+assert.match(clientSource, /data-action="preview-campus-attachment" data-preview-kind=/,
+  "PDF and image receipts must open through the internal viewer");
+assert.match(clientSource, /if \(previewKind === "pdf" && previewSrc\.startsWith\("data:"\)\)/,
+  "Internal PDF preview must convert embedded data to a Blob URL");
+
 console.log("Course refund accounting OK");
