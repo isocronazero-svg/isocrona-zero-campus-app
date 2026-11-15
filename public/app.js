@@ -14602,11 +14602,12 @@ function renderCourseWorkbench(course) {
             ${
               enrollmentSubmissions.length
                 ? `
-                  <div class="table-card">
+                  <p class="field-hint course-ledger-scroll-hint">En el móvil, desliza la tabla lateralmente para ver justificantes, bajas y devoluciones. Ninguna acción queda eliminada.</p>
+                  <div class="table-card course-ledger-table" role="region" aria-label="Inscripciones, pagos, bajas y devoluciones" tabindex="0">
                     <table>
                       <thead>
                         <tr>
-                          <th>Alumno</th>
+                          <th scope="col">Alumno</th>
                           <th>Estado</th>
                           <th>Importe</th>
                           <th>Metodo</th>
