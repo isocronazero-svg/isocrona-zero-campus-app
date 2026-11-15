@@ -6230,7 +6230,8 @@ function renderNav() {
     ? [
         { id: "overview", label: "Inicio", primary: true },
         { id: "alerts", label: "Avisos", primary: true, view: "campus", mode: "alerts" },
-        { id: "campus", label: "Campus y cursos", primary: true, mode: "courses" },
+        { id: "campus", label: "Cursos", primary: true, mode: "courses" },
+        { id: "campus-home", label: "Campus", view: "campus", mode: "all" },
         { id: "my-courses", label: "Mis cursos", view: "campus", mode: "courses", catalogFilter: "mine" },
         { id: "diplomas", label: "Mis certificados", primary: true, view: "campus", mode: "diplomas" },
         { id: "test", label: "Zona Test", primary: true, sections: TEST_SECTION_LINKS },
