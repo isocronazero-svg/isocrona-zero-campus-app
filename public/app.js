@@ -275,6 +275,7 @@ const ASSOCIATE_ONBOARDING_LABELS = {
 const ADMIN_ONLY_TOP_LEVEL_VIEWS = new Set(["associates", "validations", "members", "reports", "automation", "activity"]);
 
 const navElement = document.getElementById("nav");
+const memberQuickNav = document.getElementById("memberQuickNav");
 const metricsElement = document.getElementById("metrics");
 const mainPanel = document.getElementById("mainPanel");
 const sidePanel = document.getElementById("sidePanel");
@@ -354,10 +355,6 @@ function syncFrontendStore(overrides = {}) {
     campusSectionMode,
     ...overrides
   });
-}
-
-function shouldUseMemberProfileAsPrimaryView() {
-  return !isAdminView() && Boolean(getCurrentAssociate());
 }
 
 function normalizePrimaryMemberView() {
@@ -661,6 +658,10 @@ loginForm.addEventListener("submit", async (event) => {
       await ensureAdminStateLoaded();
     }
     applySessionToState();
+    if (session.role !== "admin" && isViewAllowed("overview")) {
+      state.activeView = "overview";
+      saveUiSnapshot();
+    }
     loginPassword.value = "";
     passwordChangeStatus = session.mustChangePassword
       ? "Tu cuenta usa una contrasena temporal. Actualizala para continuar."
@@ -802,9 +803,7 @@ document.addEventListener("click", async (event) => {
       expandedNavViews.add("test");
     }
     const requestedAnchorId = String(actionTarget.dataset.anchor || "").trim();
-    const normalizedRequestedView =
-      requestedView === "overview" && shouldUseMemberProfileAsPrimaryView() ? "join" : requestedView;
-    const effectiveRequestedView = resolveCampusAliasView(normalizedRequestedView);
+    const effectiveRequestedView = resolveCampusAliasView(requestedView);
     const navItem = navItems.find((item) => item.id === effectiveRequestedView);
 
     if (ADMIN_ONLY_TOP_LEVEL_VIEWS.has(effectiveRequestedView) && !isAdminView()) {
@@ -835,7 +834,7 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    if (normalizedRequestedView === state.activeView && effectiveRequestedView === "overview") {
+    if (requestedView === state.activeView && effectiveRequestedView === "overview") {
       expandedNavViews.add("overview");
       pendingViewAnchorId = "mainPanel";
       closeMobileMenu();
@@ -844,18 +843,18 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    if (normalizedRequestedView === state.activeView && navItem?.sections?.length) {
-      if (expandedNavViews.has(normalizedRequestedView)) {
-        expandedNavViews.delete(normalizedRequestedView);
+    if (requestedView === state.activeView && navItem?.sections?.length) {
+      if (expandedNavViews.has(requestedView)) {
+        expandedNavViews.delete(requestedView);
       } else {
-        expandedNavViews.add(normalizedRequestedView);
+        expandedNavViews.add(requestedView);
       }
       renderNav();
       saveUiSnapshot();
       return;
     }
 
-    if (normalizedRequestedView === "test") {
+    if (requestedView === "test") {
       const routeResult = navigateWithFrontendRouter("test");
       pendingViewAnchorId = "mainPanel";
       state.activeView = routeResult?.activeView || "test";
@@ -865,31 +864,31 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
-    if (!isAdminView() && normalizedRequestedView === "join") {
+    if (!isAdminView() && requestedView === "join") {
       syncMemberContextSelection("join");
       state.activeView = "join";
       pendingViewAnchorId = requestedAnchorId;
-    } else if (!isAdminView() && normalizedRequestedView === "courses") {
+    } else if (!isAdminView() && requestedView === "courses") {
       pendingViewAnchorId = "";
       activateMemberCampusMode("courses", { focusCatalog: true });
-    } else if (!isAdminView() && normalizedRequestedView === "diplomas") {
+    } else if (!isAdminView() && requestedView === "diplomas") {
       pendingViewAnchorId = "";
       activateMemberCampusMode("diplomas");
-    } else if (normalizedRequestedView === "courses") {
+    } else if (requestedView === "courses") {
       pendingViewAnchorId = "";
       state.activeView = "campus";
       campusSectionMode = "courses";
-    } else if (normalizedRequestedView === "operations") {
+    } else if (requestedView === "operations") {
       pendingViewAnchorId = "";
       state.activeView = "campus";
       campusSectionMode = "operations";
-    } else if (normalizedRequestedView === "diplomas") {
+    } else if (requestedView === "diplomas") {
       pendingViewAnchorId = "";
       state.activeView = "campus";
       campusSectionMode = "diplomas";
     } else {
       pendingViewAnchorId = requestedAnchorId;
-      state.activeView = normalizedRequestedView;
+      state.activeView = requestedView;
       setFocusedViewMode(state.activeView);
     }
 
@@ -1110,6 +1109,7 @@ document.addEventListener("click", async (event) => {
         focusCatalog: true
       });
       pendingViewAnchorId = "mainPanel";
+      saveUiSnapshot();
       closeMobileMenu();
       render();
       return;
@@ -6137,7 +6137,7 @@ function renderSidebarContextCard() {
   const selectedCourse = getSelectedCourse();
   const selectedGroup = getSelectedCampusGroup();
   const viewLabelMap = {
-    overview: isAdminView() ? "Panel general" : "Mi ficha de socio",
+    overview: isAdminView() ? "Panel general" : "Inicio",
     join: isAdminView() ? "Alta y seguimiento" : "Mi ficha de socio",
     associates: "Socios y cuotas",
     members: "Personas y accesos",
@@ -6198,47 +6198,49 @@ function renderSidebarContextCard() {
 
 function renderNav() {
   const campusOnlySession = isCampusOnlySession();
-  const memberPrimaryProfile = shouldUseMemberProfileAsPrimaryView();
+  const memberView = !isAdminView();
   const currentMemberId = getCurrentMember()?.id || session?.memberId || "";
-  const unreadNotificationCount = !isAdminView() && currentMemberId ? getUnreadMemberNotifications(currentMemberId).length : 0;
-  const effectiveNavItems = !isAdminView()
+  const unreadNotificationCount = memberView && currentMemberId ? getUnreadMemberNotifications(currentMemberId).length : 0;
+  const effectiveNavItems = memberView
     ? [
-        { id: "overview", label: "Mi aula", action: "nav", view: "overview" },
-        { id: "campus", label: "Campus", action: "open-member-campus-mode", mode: "courses", sections: CAMPUS_SECTION_LINKS.filter((section) => !campusOnlySession || section.id !== "campusSectionGroups") },
-        { id: "test", label: "Zona Test", action: "nav", view: "test", sections: TEST_SECTION_LINKS },
-        { id: "diplomas", label: "Mis diplomas", action: "open-member-campus-mode", mode: "diplomas" },
-        { id: "join", label: campusOnlySession ? "Hazte socio" : "Mi perfil", action: "nav", view: "join" }
+        { id: "overview", label: "Inicio", primary: true },
+        { id: "alerts", label: "Avisos", primary: true, view: "campus", mode: "alerts" },
+        { id: "campus", label: "Cursos", primary: true, mode: "courses" },
+        { id: "diplomas", label: "Mis certificados", primary: true, view: "campus", mode: "diplomas" },
+        { id: "test", label: "Zona Test", sections: TEST_SECTION_LINKS },
+        ...(!campusOnlySession ? [{ id: "groups", label: "Grupos internos", view: "campus", mode: "groups" }] : []),
+        { id: "join", label: campusOnlySession ? "Hazte socio" : "Mi perfil" }
       ]
     : navItems;
   const isNavItemActive = (item) => {
     if (item.id === "test") {
       return ["test", "tests", "test-add"].includes(state.activeView);
     }
-    if (item.id === "diplomas") {
-      return state.activeView === "campus" && campusSectionMode === "diplomas";
-    }
-    if (item.id === "campus" && !isAdminView()) {
-      return state.activeView === "campus" && campusSectionMode !== "diplomas";
+    if (item.mode) {
+      return state.activeView === "campus" && (campusSectionMode === item.mode ||
+        (item.mode === "courses" && campusSectionMode === "all"));
     }
     return state.activeView === item.id;
   };
+  const renderNavButton = (item, className) => {
+    const active = isNavItemActive(item);
+    const noticeBadge = item.id === "alerts" && unreadNotificationCount > 0
+      ? `<span class="notice-count" aria-label="${unreadNotificationCount} avisos sin leer">${unreadNotificationCount}</span>`
+      : "";
+    return `<button class="${className}${active ? " active" : ""}" ${active ? 'aria-current="page"' : ""} type="button" data-action="${item.mode ? "open-member-campus-mode" : "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}>${escapeHtml(item.label)} ${noticeBadge}</button>`;
+  };
+  const allowedItems = effectiveNavItems.filter((item) => isViewAllowed(item.view || item.id));
+  const quickItems = memberView && session && !session.mustChangePassword ? allowedItems.filter((item) => item.primary) : [];
+  memberQuickNav.hidden = !quickItems.length;
+  memberQuickNav.innerHTML = quickItems.map((item) => renderNavButton(item, "ghost-button")).join("");
 
-  navElement.innerHTML = effectiveNavItems
-    .filter((item) => isViewAllowed(item.id))
-    .filter((item) => !(memberPrimaryProfile && isAdminView() && item.id === "overview"))
-    .map(
-      (item) => {
-        const noticeBadge = item.id === "overview" && unreadNotificationCount > 0
-          ? `<span class="notice-count" aria-label="${unreadNotificationCount} avisos sin leer">${unreadNotificationCount}</span>`
-          : "";
-        return `
+  navElement.innerHTML = allowedItems
+    .map((item) => `
         <div class="nav-item-group ${isNavItemActive(item) ? "active" : ""}">
           <div class="nav-item-row">
-            <button class="nav-main-button ${isNavItemActive(item) ? "active" : ""}" ${isNavItemActive(item) ? 'aria-current="page"' : ""} type="button" data-action="${item.action || "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}>
-              ${escapeHtml(item.label)} ${noticeBadge}
-            </button>
+            ${renderNavButton(item, "nav-main-button")}
             ${
-              item.sections?.length && (isAdminView() || item.id === "test" || item.id === "campus")
+              item.sections?.length
                 ? `
                     <button
                       class="nav-toggle-button ${isNavGroupExpanded(item.id) ? "expanded" : ""}"
@@ -6272,9 +6274,7 @@ function renderNav() {
               : ""
           }
         </div>
-      `;
-      }
-    )
+      `)
     .join("");
 }
 
@@ -7007,146 +7007,80 @@ function renderMemberNotifications(memberId) {
 
 function renderMemberOverview() {
   const member = getCurrentMember();
-  const associate = getCurrentAssociate();
-  const ownCourses = state.courses.filter(
-    (course) => course.enrolledIds.includes(member?.id) || course.waitingIds.includes(member?.id)
-  );
-  const primaryCourse = getPrimaryMemberCourse(member?.id);
   const history = member ? getMemberHistory(member.id) : [];
+  const associate = getCurrentAssociate();
   const payments = getAssociatePayments(associate);
-  const visibleManualNotices = member ? getVisibleManualCampusNotices(member.id, ownCourses) : [];
-  const featuredNotice = visibleManualNotices[0] || null;
-  const diplomaCourses = state.courses.filter((course) => (course.diplomaReady || []).includes(member?.id));
+  const notices = member ? sortCurrentMemberNotifications(member.id) : [];
+  const unread = notices.filter((notice) => !isMemberNotificationRead(notice, member.id));
+  const featuredNotice = unread[0];
+  const priorityAlert = member ? getMemberCampusAlerts(member.id).find((alert) => alert.notice || alert.tone === "warning") : null;
+  const buckets = member ? getMemberCourseBuckets(member.id) : null;
+  const upcoming = [...(buckets?.enrollmentOpenCourses || []), ...(buckets?.upcomingCourses || [])]
+    .filter((course) => !isCampusOnlySession() || normalizeCourseAccessScope(course.accessScope, course.audience) === "public")
+    .sort((left, right) => (left.startDate || "9999").localeCompare(right.startDate || "9999"))
+    .slice(0, 3);
+  const primaryCourse = getPrimaryMemberCourse(member?.id);
+  const diplomaCourses = state.courses.filter((course) => course.diplomaReady.includes(member?.id));
 
   return `
-    <div class="panel-stack">
-      <div class="panel-header">
+    <div class="panel-stack member-home">
+      <header class="panel-header">
         <div>
-          <p class="eyebrow">Tu area personal</p>
-          <h3>Mi aula</h3>
-          <p class="muted">Aqui solo ves tu zona personal: aula, diplomas, avisos y tu ficha de socio.</p>
+          <h3>Inicio</h3>
+          ${member?.name ? `<p class="member-home-greeting">Hola, ${escapeHtml(member.name)}</p>` : ""}
         </div>
-        <div class="chip-row">
-          <button class="primary-button" type="button" data-action="nav" data-view="join">Mi ficha de socio</button>
-          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Ver cursos</button>
-          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Ver diplomas</button>
-        </div>
+      </header>
+
+      <div class="member-home-summary">
+        <section class="mail-card" aria-labelledby="memberHomeNotices">
+          <h4 id="memberHomeNotices">Avisos</h4>
+          ${featuredNotice
+            ? `<p class="member-home-notice">${featuredNotice.priority === "important" ? '<span class="notice-count">Importante</span> ' : ""}<strong>${escapeHtml(featuredNotice.title || "Aviso interno")}</strong></p>`
+            : !priorityAlert ? '<p class="muted">No tienes avisos sin leer.</p>' : ""}
+          ${priorityAlert ? `<p class="member-home-notice">${escapeHtml(priorityAlert.title)}</p>` : ""}
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Ver avisos${unread.length ? ` <span class="notice-count">${unread.length} sin leer</span>` : ""}</button>
+        </section>
+
+        <section class="mail-card" aria-labelledby="memberHomeCertificates">
+          <h4 id="memberHomeCertificates">Mis certificados</h4>
+          ${diplomaCourses.length
+            ? `<p>${diplomaCourses.length === 1 ? "1 diploma disponible" : `${diplomaCourses.length} diplomas disponibles`}</p>`
+            : '<p class="muted">Consulta el estado de tus documentos.</p>'}
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Ver documentos</button>
+        </section>
       </div>
 
-      <div class="status-note info">
-        ${escapeHtml(member?.name || "Sin ficha vinculada")} | ${escapeHtml(member?.email || "-")} | Estado socio ${
-          escapeHtml(associate?.status || "Sin ficha de socio")
-        } | Socio #${escapeHtml(associate?.associateNumber || "-")} | Cuota ${effectiveMembershipFeeYear(associate)}: ${
-          associate ? `${formatCurrency(getAssociateCurrentYearFee(associate))} / ${formatCurrency(associate.annualAmount || 0)}` : "-"
-        }.
-      </div>
-
-      ${
-        featuredNotice
-          ? `
-            <div class="status-note ${featuredNotice.tone === "warning" ? "warning" : featuredNotice.tone === "success" ? "success" : "info"}">
-              <strong>${escapeHtml(featuredNotice.title)}</strong>: ${escapeHtml(featuredNotice.detail)}
-              ${
-                featuredNotice.courseId
-                  ? ` <button class="mini-button" type="button" data-action="select-course" data-course-id="${featuredNotice.courseId}">${escapeHtml(featuredNotice.actionLabel || "Abrir curso")}</button>`
-                  : ` <button class="mini-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Ver avisos</button>`
-              }
-            </div>
-          `
-          : ""
-      }
-
-      ${member ? renderMemberAlerts(member.id) : ""}
-
-      ${member ? renderMemberNotifications(member.id) : ""}
-
-      ${
-        primaryCourse && member
-          ? `
-            <div class="mail-card">
-              <h4>Tu siguiente paso en el campus</h4>
-              ${renderLearnerJourneyCard(primaryCourse, member.id)}
-            </div>
-          `
-          : ""
-      }
-
-      <div class="mail-card">
-        <h4>Tus cursos y progreso</h4>
-        ${
-          ownCourses.length
-            ? ownCourses
-                .map((course) => {
-                  const progress = getLearnerCourseContentStats(course, member?.id);
-                  return `
-                    <div class="timeline-item">
-                      <strong>${escapeHtml(course.title)}</strong>
-                      <p>${escapeHtml(describeCourseType(course))} | ${formatDate(course.startDate)} - ${formatDate(course.endDate)}</p>
-                      <p class="muted">${
-                        course.enrolledIds.includes(member?.id)
-                          ? "Inscrito"
-                          : "En lista de espera"
-                      }</p>
-                      <p class="muted">Contenido ${progress.blockProgress}% | ${progress.blocksCompleted}/${progress.blocksTotal} bloque(s) completados | ${progress.lessonsCompleted}/${progress.lessonsTotal} leccion(es)</p>
-                      <div class="progress"><span style="width:${progress.blockProgress}%"></span></div>
-                      <p class="muted">${progress.updatedAt ? `Actualizado ${formatDateTime(progress.updatedAt)}` : "Sin actividad de contenido todavia"}</p>
-                    </div>
-                  `;
-                })
-                .join("")
-            : `<p class="muted">Todavia no tienes cursos asignados.</p>`
-        }
-      </div>
-
-      <div class="mail-card">
+      <section aria-labelledby="memberHomeCourses">
         <div class="panel-header">
-          <div>
-            <h4>Mis diplomas</h4>
-            <p class="muted">Accede a tus documentos disponibles sin depender de un curso activo.</p>
-          </div>
-          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Abrir diplomas</button>
+          <h4 id="memberHomeCourses">Próximos cursos</h4>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Ver cursos</button>
         </div>
-        ${
-          diplomaCourses.length
-            ? diplomaCourses
-                .slice(0, 4)
-                .map(
-                  (course) => `
-                    <div class="timeline-item">
-                      <strong>${escapeHtml(course.title)}</strong>
-                      <p class="muted">${escapeHtml(formatDate(course.endDate) || "Fecha pendiente")} | Disponible para descarga</p>
-                    </div>
-                  `
-                )
-                .join("")
-            : `<p class="muted">Todavia no tienes diplomas.</p>`
-        }
-      </div>
+        ${upcoming.length
+          ? `<div class="course-catalog-grid">${upcoming.map((course) => renderCompactCourseCard(course)).join("")}</div>`
+          : '<p class="muted">No hay nuevas formaciones disponibles.</p>'}
+      </section>
 
-      <div class="mail-card">
-        <h4>Historial formativo</h4>
+      ${primaryCourse && member ? `
+        <section class="mail-card" aria-labelledby="memberHomeNextStep">
+          <h4 id="memberHomeNextStep">Continúa tu formación</h4>
+          ${renderLearnerJourneyCard(primaryCourse, member.id)}
+        </section>` : ""}
+
+      <details class="mail-card">
+        <summary>Historial formativo</summary>
         ${renderMemberHistory(history)}
-      </div>
-
-      <div class="mail-card">
-        <h4>Tu historial de cuotas</h4>
-        ${
-          payments.length
-            ? payments
-                .slice(0, 8)
-                .map(
-                  (payment) => `
-                    <div class="timeline-item">
-                      <strong>${formatCurrency(payment.amount)} | ${escapeHtml(payment.method)}</strong>
-                      <p>${escapeHtml(payment.year)} | ${escapeHtml(formatDate(payment.date))}</p>
-                      <p class="muted">${escapeHtml(payment.note || "Movimiento registrado")}</p>
-                    </div>
-                  `
-                )
-                .join("")
-            : `<p class="muted">Todavia no hay pagos registrados en tu ficha.</p>`
-        }
-      </div>
+      </details>
+      ${associate ? `
+        <details class="mail-card">
+          <summary>Historial de cuotas</summary>
+          ${payments.length ? payments.slice(0, 8).map((payment) => `
+            <div class="timeline-item">
+              <strong>${formatCurrency(payment.amount)} · ${escapeHtml(payment.method)}</strong>
+              <p>${escapeHtml(payment.year)} · ${escapeHtml(formatDate(payment.date))}</p>
+              <p class="muted">${escapeHtml(payment.note || "Movimiento registrado")}</p>
+            </div>
+          `).join("") : '<p class="muted">Todavía no hay pagos registrados en tu ficha.</p>'}
+        </details>` : ""}
     </div>
   `;
 }

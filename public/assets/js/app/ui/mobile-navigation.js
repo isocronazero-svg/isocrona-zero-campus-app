@@ -7,7 +7,12 @@ export function createMobileNavigation({ shell, sidebar, content, mediaQuery }) 
   bar.innerHTML = `<button class="ghost-button mobile-shell-toggle" id="mobileShellToggle" type="button" aria-expanded="false" aria-controls="sidebar" aria-label="Abrir menú principal">
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Menú</span></button>
     <div class="portal-location"><span>Isócrona Zero</span><strong class="mobile-shell-title">Mi portal</strong></div><span class="portal-mode"></span>`;
-  content.prepend(bar);
+  const chrome = document.createElement('div');
+  chrome.className = 'mobile-shell-chrome';
+  chrome.append(bar);
+  const quickNav = content.querySelector('#memberQuickNav');
+  if (quickNav) chrome.append(quickNav);
+  content.prepend(chrome);
   const toggle = bar.querySelector('#mobileShellToggle'), title = bar.querySelector('.mobile-shell-title'), mode = bar.querySelector('.portal-mode');
   const closeButton = document.createElement('button');
   closeButton.type = 'button'; closeButton.className = 'ghost-button mobile-menu-close';
