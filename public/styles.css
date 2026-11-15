@@ -5323,3 +5323,28 @@ input[type="file"][name="attachments"] { width: 100%; min-width: 0; box-sizing: 
   .workbench-tabs .ghost-button,
   .workbench-tabs .primary-button { min-width: 0; width: 100%; white-space: normal; }
 }
+
+/* V1.4: show each enrollment as a readable card on narrow screens.
+   Preserve all seven ledger columns and existing admin action handlers. */
+@media (max-width: 600px) {
+  .course-ledger-scroll-hint { display: none; }
+  .course-ledger-table { overflow: visible; }
+  .course-ledger-table table,
+  .course-ledger-table tbody,
+  .course-ledger-table tr,
+  .course-ledger-table td { display: block; width: 100%; min-width: 0; }
+  .course-ledger-table thead { display: none; }
+  .course-ledger-table tbody { display: grid; gap: 12px; }
+  .course-ledger-table tbody tr { border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .course-ledger-table tbody td { border: 0; padding: 8px 0; overflow-wrap: anywhere; }
+  .course-ledger-table tbody td + td { border-top: 1px solid var(--line); }
+  .course-ledger-table tbody td::before { display: block; font-size: .78rem; font-weight: 700; margin-bottom: 4px; opacity: .75; }
+  .course-ledger-table tbody td:nth-child(1)::before { content: "Alumno"; }
+  .course-ledger-table tbody td:nth-child(2)::before { content: "Estado"; }
+  .course-ledger-table tbody td:nth-child(3)::before { content: "Importe"; }
+  .course-ledger-table tbody td:nth-child(4)::before { content: "Método"; }
+  .course-ledger-table tbody td:nth-child(5)::before { content: "Justificante"; }
+  .course-ledger-table tbody td:nth-child(6)::before { content: "Nota"; }
+  .course-ledger-table tbody td:nth-child(7)::before { content: "Acciones"; }
+  .course-ledger-table tbody td .chip-row { flex-wrap: wrap; }
+}
