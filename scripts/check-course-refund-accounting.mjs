@@ -196,4 +196,13 @@ assert.match(clientSource, /URL\.revokeObjectURL\(campusAttachmentPreview\.objec
 assert.match(clientSource, /if \(!proof \|\| !proof\.contentBase64\) \{\s*return "";\s*\}/,
   "Missing receipt data must not create a broken download link");
 
+const stylesSource = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+assert.match(clientSource, /class="table-card course-ledger-table" role="region" aria-label="Inscripciones, pagos, bajas y devoluciones" tabindex="0"/,
+  "Course ledger must remain discoverable and accessible");
+assert.match(stylesSource, /\.course-ledger-table tbody tr \{ border: 1px solid var\(--line\)/,
+  "Mobile course ledger must show individual student cards");
+for (const heading of ["Alumno", "Estado", "Importe", "Método", "Justificante", "Nota", "Acciones"]) {
+  assert.ok(stylesSource.includes('content: "' + heading + '";'),
+    "Mobile ledger must preserve field: " + heading);
+}
 console.log("Course refund accounting OK");
