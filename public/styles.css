@@ -5313,3 +5313,13 @@ input[type="file"][name="attachments"] { width: 100%; min-width: 0; box-sizing: 
 .journey-history-row details { grid-column: 1 / -1; overflow-wrap: anywhere; }
 .journey-history-count { padding: 8px 12px; background: var(--accent-soft); color: var(--accent-strong); border-radius: 10px; font-weight: 650; }
 @media(max-width:480px) { .journey-history-row { grid-template-columns: minmax(0,1fr); } .journey-history-count { justify-self: start; } }
+
+/* V1.4: course administration actions remain visible without horizontal scrolling on phones. */
+.course-admin-quick-access { margin: 12px 0; }
+.course-admin-quick-access > button { max-width: 100%; white-space: normal; text-align: center; }
+@media (max-width: 600px) {
+  .course-admin-quick-access > button { display: block; width: 100%; min-height: 48px; }
+  .workbench-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .workbench-tabs .ghost-button,
+  .workbench-tabs .primary-button { min-width: 0; width: 100%; white-space: normal; }
+}
