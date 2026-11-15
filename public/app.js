@@ -18699,6 +18699,7 @@ function renderCampusAttachmentPreviewModal() {
           </div>
           <div class="chip-row compact-chip-row">
             <a class="mini-button" target="_blank" rel="noreferrer" href="${openHref}">Abrir en pestaña</a>
+            <a class="mini-button" href="${previewSrc}" download="${previewName}">Descargar</a>
             <button class="mini-button" type="button" data-action="close-campus-attachment-preview">Cerrar</button>
           </div>
         </div>
