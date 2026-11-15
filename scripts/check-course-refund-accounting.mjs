@@ -186,4 +186,7 @@ assert.match(clientSource, /data-action="preview-campus-attachment" data-preview
 assert.match(clientSource, /if \(previewKind === "pdf" && previewSrc\.startsWith\("data:"\)\)/,
   "Internal PDF preview must convert embedded data to a Blob URL");
 
+assert.match(clientSource, /href="\\$\\{previewSrc\\}" download="\\$\\{previewName\\}"/,
+  "Document preview must expose a download option");
+
 console.log("Course refund accounting OK");
