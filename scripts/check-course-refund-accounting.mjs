@@ -165,4 +165,17 @@ assert.match(serverSource, /refundAmount > paid/,
   "Cancellation must reject refunds larger than the validated payment");
 assert.match(serverSource, /submission\.refund\?\.status !== "pending"/,
   "Refund confirmation must reject duplicate completed refunds");
+// Mobile administration must retain a direct, functioning route to the ledger.
+// The shortcut and destination must remain linked when simplifying navigation.
+assert.match(clientSource, /class="course-admin-quick-access"/,
+  "Course administration must expose its prominent payment/refund shortcut");
+assert.match(clientSource, /data-action="set-course-workbench-mode" data-mode="students" data-scroll-target="courseStudentsLedger"/,
+  "Shortcut must select students and focus the enrollment ledger");
+assert.match(clientSource, /id="courseStudentsLedger"/,
+  "The enrollment/payment ledger target must exist");
+assert.match(clientSource, /if \(action === "set-course-workbench-mode"\)/,
+  "Shortcut handler must remain wired");
+assert.match(clientSource, /focusElementById\(actionTarget\.dataset\.scrollTarget\)/,
+  "Shortcut must focus its destination after rendering");
+
 console.log("Course refund accounting OK");
