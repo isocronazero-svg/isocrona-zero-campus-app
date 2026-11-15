@@ -189,4 +189,11 @@ assert.match(clientSource, /if \(previewKind === "pdf" && previewSrc\.startsWith
 assert.match(clientSource, /href="\\$\\{previewSrc\\}" download="\\$\\{previewName\\}"/,
   "Document preview must expose a download option");
 
+assert.match(clientSource, /if \(action === "close-campus-attachment-preview"\) \{[\s\S]*?clearCampusAttachmentPreview\(\);[\s\S]*?render\(\);/,
+  "Closing the receipt preview must reset its state");
+assert.match(clientSource, /URL\.revokeObjectURL\(campusAttachmentPreview\.objectUrl\)/,
+  "Closing the receipt preview must release temporary Blob URLs");
+assert.match(clientSource, /if \(!proof \|\| !proof\.contentBase64\) \{\s*return "";\s*\}/,
+  "Missing receipt data must not create a broken download link");
+
 console.log("Course refund accounting OK");
