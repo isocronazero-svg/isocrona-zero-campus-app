@@ -199,7 +199,7 @@
           <p class="status-note" id="sessionStatus">Sin sesion activa</p>
           <p class="status-note" id="syncStatus">Cargando datos...</p>
           <div class="sidebar-toolbar">
-            <button class="ghost-button" type="button" id="v13PreferencesOpen">Camiseta e idioma del diploma</button>
+            <button class="ghost-button" type="button" id="v13PreferencesOpen" hidden aria-hidden="true" tabindex="-1">Preferencias del socio</button>
             <div id="v13AdminExports" hidden>
               <p class="eyebrow">Listados V1.3</p>
               <a class="ghost-button button-link" href="/api/v1.3/export?type=shirts">Excel camisetas</a>
@@ -246,7 +246,7 @@
 
     <dialog id="v13PreferencesDialog" aria-labelledby="v13PreferencesTitle" style="max-width:480px;width:calc(100% - 32px);border-radius:14px;padding:24px;border:1px solid #ddd;">
       <form id="v13PreferencesForm" class="stack">
-        <h2 id="v13PreferencesTitle">Mis preferencias</h2>
+        <h2 id="v13PreferencesTitle">Mi perfil · Preferencias</h2>
         <p>Elige la talla y el idioma de tus próximos diplomas.</p>
         <label class="inline-field">Sexo (opcional)
           <select id="v13Sex"><option value="">Sin indicar</option><option value="hombre">Hombre</option><option value="mujer">Mujer</option><option value="otro">Otro</option><option value="prefiero-no-indicar">Prefiero no indicarlo</option></select>
