@@ -182,3 +182,19 @@
 @media (max-width: 520px) {
   .portal-ui .member-home-summary { grid-template-columns: minmax(0, 1fr); }
 }
+
+.portal-ui .member-course-status {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 0;
+  background: var(--panel-muted);
+  border-radius: 10px;
+}
+.portal-ui .member-course-status > div {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) 2fr;
+  gap: 8px;
+}
+.portal-ui .member-course-status dt { color: var(--muted); }
+.portal-ui .member-course-status dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }

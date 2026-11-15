@@ -376,7 +376,8 @@ function saveUiSnapshot() {
       selectedCourseId: String(state.selectedCourseId || "").trim(),
       selectedCampusGroupId: String(state.selectedCampusGroupId || "").trim(),
       selectedCampusGroupModuleId: String(selectedCampusGroupModuleId || "").trim(),
-      campusSectionMode: String(campusSectionMode || "").trim()
+      campusSectionMode: String(campusSectionMode || "").trim(),
+      courseCatalogFilter
     };
     sessionStorage.setItem(`${UI_SNAPSHOT_KEY}:${session?.accountId || "guest"}`, JSON.stringify(snapshot));
   } catch (error) {
@@ -404,6 +405,10 @@ function restoreUiSnapshot() {
     const nextCampusSectionMode = String(snapshot?.campusSectionMode || "").trim();
     if (nextCampusSectionMode) {
       campusSectionMode = nextCampusSectionMode;
+    }
+
+    if (!isAdminView() && ["all", "mine", "history"].includes(snapshot?.courseCatalogFilter)) {
+      courseCatalogFilter = snapshot.courseCatalogFilter;
     }
 
     const selectedAssociateId = String(snapshot?.selectedAssociateId || "").trim();
@@ -660,6 +665,7 @@ loginForm.addEventListener("submit", async (event) => {
     applySessionToState();
     if (session.role !== "admin" && isViewAllowed("overview")) {
       state.activeView = "overview";
+      courseCatalogFilter = "all";
       saveUiSnapshot();
     }
     loginPassword.value = "";
@@ -1105,9 +1111,11 @@ document.addEventListener("click", async (event) => {
     }
 
     if (action === "open-member-campus-mode") {
-      activateMemberCampusMode(actionTarget.dataset.mode || "courses", {
-        focusCatalog: true
-      });
+      const mode = actionTarget.dataset.mode || "courses";
+      if (mode === "courses") {
+        courseCatalogFilter = actionTarget.dataset.catalogFilter === "mine" ? "mine" : "all";
+      }
+      activateMemberCampusMode(mode, { focusCatalog: true });
       pendingViewAnchorId = "mainPanel";
       saveUiSnapshot();
       closeMobileMenu();
@@ -1150,6 +1158,7 @@ document.addEventListener("click", async (event) => {
 
   if (action === "set-course-catalog-filter") {
     courseCatalogFilter = actionTarget.dataset.filter || "all";
+    saveUiSnapshot();
     render();
     return;
   }
@@ -1673,7 +1682,8 @@ document.addEventListener("click", async (event) => {
       courseWorkbenchMode = "ficha";
     } else {
       coursesSectionMode = "details";
-      learnerCourseDetailsMode = "overview";
+      const detail = actionTarget.dataset.mode;
+      learnerCourseDetailsMode = ["status", "certificate"].includes(detail) ? detail : "overview";
     }
     expandedNavViews.add("campus");
     syncStatus = "Curso cargado en la zona central";
@@ -6206,6 +6216,7 @@ function renderNav() {
         { id: "overview", label: "Inicio", primary: true },
         { id: "alerts", label: "Avisos", primary: true, view: "campus", mode: "alerts" },
         { id: "campus", label: "Cursos", primary: true, mode: "courses" },
+        { id: "my-courses", label: "Mis cursos", view: "campus", mode: "courses", catalogFilter: "mine" },
         { id: "diplomas", label: "Mis certificados", primary: true, view: "campus", mode: "diplomas" },
         { id: "test", label: "Zona Test", sections: TEST_SECTION_LINKS },
         ...(!campusOnlySession ? [{ id: "groups", label: "Grupos internos", view: "campus", mode: "groups" }] : []),
@@ -6216,18 +6227,22 @@ function renderNav() {
     if (item.id === "test") {
       return ["test", "tests", "test-add"].includes(state.activeView);
     }
+    if (item.mode === "courses") {
+      return state.activeView === "campus" && ["courses", "all"].includes(campusSectionMode) &&
+        (!item.catalogFilter || courseCatalogFilter === item.catalogFilter);
+    }
     if (item.mode) {
-      return state.activeView === "campus" && (campusSectionMode === item.mode ||
-        (item.mode === "courses" && campusSectionMode === "all"));
+      return state.activeView === "campus" && campusSectionMode === item.mode;
     }
     return state.activeView === item.id;
   };
   const renderNavButton = (item, className) => {
-    const active = isNavItemActive(item);
+    const active = isNavItemActive(item) && !(className === "nav-main-button" &&
+      item.id === "campus" && courseCatalogFilter === "mine");
     const noticeBadge = item.id === "alerts" && unreadNotificationCount > 0
       ? `<span class="notice-count" aria-label="${unreadNotificationCount} avisos sin leer">${unreadNotificationCount}</span>`
       : "";
-    return `<button class="${className}${active ? " active" : ""}" ${active ? 'aria-current="page"' : ""} type="button" data-action="${item.mode ? "open-member-campus-mode" : "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}>${escapeHtml(item.label)} ${noticeBadge}</button>`;
+    return `<button class="${className}${active ? " active" : ""}" ${active ? 'aria-current="page"' : ""} type="button" data-action="${item.mode ? "open-member-campus-mode" : "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}${item.catalogFilter ? ` data-catalog-filter="${item.catalogFilter}"` : ""}>${escapeHtml(item.label)} ${noticeBadge}</button>`;
   };
   const allowedItems = effectiveNavItems.filter((item) => isViewAllowed(item.view || item.id));
   const quickItems = memberView && session && !session.mustChangePassword ? allowedItems.filter((item) => item.primary) : [];
@@ -7053,7 +7068,10 @@ function renderMemberOverview() {
       <section aria-labelledby="memberHomeCourses">
         <div class="panel-header">
           <h4 id="memberHomeCourses">Próximos cursos</h4>
-          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Ver cursos</button>
+          <div class="chip-row">
+            <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Ver cursos</button>
+            <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses" data-catalog-filter="mine">Mis cursos</button>
+          </div>
         </div>
         ${upcoming.length
           ? `<div class="course-catalog-grid">${upcoming.map((course) => renderCompactCourseCard(course)).join("")}</div>`
@@ -7151,7 +7169,7 @@ function renderJoinView() {
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionProfileStatus">Resumen</button>
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionProfileEditor">Datos y cambios</button>
           <button class="ghost-button" type="button" data-action="nav" data-view="join" data-anchor="joinSectionPaymentProof">Cuota y justificante</button>
-          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses">Mis cursos</button>
+          <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="courses" data-catalog-filter="mine">Mis cursos</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Avisos${member && getUnreadMemberNotifications(member.id).length ? ` <span class="notice-count">${getUnreadMemberNotifications(member.id).length} sin leer</span>` : ""}</button>
           <button class="ghost-button" type="button" data-action="open-member-campus-mode" data-mode="diplomas">Mis diplomas</button>
         </div>
@@ -10822,7 +10840,7 @@ function renderCourseCatalog(memberBuckets = null) {
       <div class="course-catalog-filters" role="group" aria-label="Filtrar cursos">
         ${groups.map(group => `<button type="button" class="course-filter ${selected.id === group.id ? "is-active" : ""}" data-action="set-course-catalog-filter" data-filter="${group.id}" aria-pressed="${selected.id === group.id}">${group.label}<span>${new Set(group.courses.map(course => course.id)).size}</span></button>`).join("")}
       </div>
-      ${courses.length ? `<div class="course-catalog-grid">${courses.map(course => renderCompactCourseCard(course, admin ? "admin" : "member")).join("")}</div>` : `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`}
+      ${courses.length ? `<div class="course-catalog-grid">${courses.map(course => renderCompactCourseCard(course, admin ? "admin" : "member", !admin && selected.id !== "all")).join("")}</div>` : `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`}
     </section>
   `;
 }
@@ -17990,7 +18008,11 @@ function getMemberCourseBuckets(memberId) {
     ownCourses: sortedOwnCourses,
     activeCourses,
     closedCourses,
-    historyCourses: closedCourses,
+    historyCourses: [...closedCourses, ...(state.courses || []).filter((course) =>
+      !ownCourses.includes(course) && (course.diplomaReady.includes(memberId) ||
+        course.enrollmentSubmissions?.some((submission) =>
+          submission.memberId === memberId && ["cancelled", "rejected"].includes(submission.status)))
+      )],
     timelineHistory: getMemberHistory(memberId),
     enrollmentOpenCourses,
     upcomingCourses
@@ -18962,15 +18984,43 @@ function renderMemberCourseListSection(title, description, courses, options = {}
   `;
 }
 
-function renderCompactCourseCard(course, role = "member") {
+function renderMemberCourseStatus(course, memberId) {
+  const submission = getCourseEnrollmentSubmission(course, memberId) ||
+    (course.enrollmentSubmissions || []).findLast((item) => item.memberId === memberId);
+  const enrollment = submission ? getEnrollmentSubmissionStatusLabel(submission.status) :
+    course.waitingIds.includes(memberId) ? "En lista de espera" : "Inscrita";
+  const knownPaymentStatus = {
+    validated: "Validado",
+    incident: "En revisión por incidencia",
+    pending: submission?.paymentProof ? "Justificante enviado, pendiente de validar" : "Pendiente",
+    "not-required": "Sin coste"
+  };
+  const paymentLabel = knownPaymentStatus[submission?.paymentStatus] ||
+    (submission?.amount === 0 ? "Sin coste" : "Consultar inscripción");
+  const refundLabel = { completed: "Devolución registrada", pending: "Devolución pendiente" }[submission?.refund?.status];
+  const payment = refundLabel || paymentLabel;
+  const recordedAttendance = Number(course.attendance?.[memberId]) || 0;
+  const attendanceClosed = course.status === "Cerrado" || (course.diplomaReady || []).includes(memberId);
+  const attendance = recordedAttendance > 0 || attendanceClosed
+    ? `${recordedAttendance} %`
+    : course.enrolledIds.includes(memberId) ? "Pendiente de registrar" : "—";
+
+  return `<dl class="member-course-status">
+    <div><dt>Inscripción</dt><dd>${escapeHtml(enrollment)}</dd></div>
+    <div><dt>Pago</dt><dd>${escapeHtml(payment)}</dd></div>
+    <div><dt>Asistencia</dt><dd>${escapeHtml(attendance)}</dd></div>
+  </dl>`;
+}
+
+function renderCompactCourseCard(course, role = "member", showMemberStatus = false) {
   const memberId = state.selectedMemberId;
   const isMember = role === "member";
   const isEnrolled = isMember && memberId && course.enrolledIds.includes(memberId);
   const isWaiting = isMember && memberId && course.waitingIds.includes(memberId);
   const hasDiploma = isMember && memberId && course.diplomaReady.includes(memberId);
   const enrollmentCall = isMember ? getCourseEnrollmentCall(course) : null;
-  const canEnroll = isMember && !hasDiploma && !isEnrolled && !isWaiting && isCourseOpenForEnrollment(course) && !isMemberPreviewSession();
-  const primaryLabel = !isMember ? "Gestionar curso" : hasDiploma ? "Ver diploma" : isEnrolled ? "Entrar al aula" : isWaiting ? "Ver solicitud" : canEnroll ? enrollmentCall.ctaLabel : enrollmentCall.scheduledMode ? "Ver apertura" : "Ver curso";
+  const canEnroll = isMember && !showMemberStatus && !hasDiploma && !isEnrolled && !isWaiting && isCourseOpenForEnrollment(course) && !isMemberPreviewSession();
+  const primaryLabel = !isMember ? "Gestionar curso" : hasDiploma ? "Ver diploma" : isEnrolled ? "Entrar al aula" : isWaiting ? "Ver inscripción" : showMemberStatus ? "Ver curso" : canEnroll ? enrollmentCall.ctaLabel : enrollmentCall.scheduledMode ? "Ver apertura" : "Ver curso";
   const primaryAction = hasDiploma ? "set-campus-section-mode" : isEnrolled ? "open-course-workbench-tab" : canEnroll ? "prepare-course-enrollment" : "select-course";
   const statusLabel = hasDiploma ? "Diploma disponible" : isWaiting ? "En espera" : isEnrolled ? "Inscrito" : !isMember ? course.status : enrollmentCall.closedMode ? "Inscripción cerrada" : enrollmentCall.scheduledMode ? "Apertura programada" : canEnroll ? enrollmentCall.waitlistMode ? "Lista de espera" : "Inscripción abierta" : course.status;
   const accessLabel = COURSE_ACCESS_SCOPE_LABELS[normalizeCourseAccessScope(course.accessScope, course.audience)] || "Solo socios";
@@ -18980,7 +19030,7 @@ function renderCompactCourseCard(course, role = "member") {
     <article class="compact-course-card course-preview-card ${normalizeCourseClass(course.courseClass) === "practico" ? "course-preview-practical" : ""} ${isEnrolled ? "compact-course-card-active" : ""}" data-course-card-id="${escapeHtml(course.id)}">
       <div class="course-preview-band">
         <span>${escapeHtml(describeCourseType(course))}</span>
-        <span class="course-preview-status">${escapeHtml(statusLabel)}</span>
+        ${showMemberStatus ? "" : `<span class="course-preview-status">${escapeHtml(statusLabel)}</span>`}
       </div>
       <div class="course-preview-body">
         <p class="course-preview-date"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 2v6M17 2v6M3 11h18"/></svg>${escapeHtml(dateLabel)}</p>
@@ -18988,12 +19038,16 @@ function renderCompactCourseCard(course, role = "member") {
         ${course.summary ? `<p class="muted compact-course-summary">${escapeHtml(course.summary)}</p>` : ""}
         <dl class="course-preview-facts">
           <div><dt>Duración</dt><dd>${escapeHtml(course.hours)} h</dd></div>
-          <div><dt>Plazas ocupadas</dt><dd>${getCourseEnrolledCount(course)} / ${escapeHtml(course.capacity)}</dd></div>
-          <div><dt>Importe</dt><dd>${fee > 0 ? `${escapeHtml(fee)} €` : "Gratuito"}</dd></div>
+          ${showMemberStatus ? "" : `
+            <div><dt>Plazas ocupadas</dt><dd>${getCourseEnrolledCount(course)} / ${escapeHtml(course.capacity)}</dd></div>
+            <div><dt>Importe</dt><dd>${fee > 0 ? `${escapeHtml(fee)} €` : "Gratuito"}</dd></div>
+          `}
         </dl>
-        <p class="course-preview-access">${escapeHtml(accessLabel)}${isMember && !isEnrolled && !isWaiting && !hasDiploma && (canEnroll || enrollmentCall.scheduledMode) ? ` · ${escapeHtml(enrollmentCall.statusLabel)}` : ""}</p>
+        ${showMemberStatus ? "" : `<p class="course-preview-access">${escapeHtml(accessLabel)}${isMember && !isEnrolled && !isWaiting && !hasDiploma && (canEnroll || enrollmentCall.scheduledMode) ? ` · ${escapeHtml(enrollmentCall.statusLabel)}` : ""}</p>`}
+        ${showMemberStatus ? renderMemberCourseStatus(course, memberId) : ""}
         <div class="compact-course-footer course-preview-actions">
           <button type="button" class="primary-button" data-action="${primaryAction}" data-course-id="${escapeHtml(course.id)}" ${hasDiploma ? 'data-mode="diplomas"' : isEnrolled ? 'data-mode="learner"' : isWaiting ? 'data-mode="status"' : ""}>${escapeHtml(primaryLabel)}</button>
+          ${showMemberStatus && isEnrolled ? `<button type="button" class="ghost-button" data-action="select-course" data-mode="status" data-course-id="${escapeHtml(course.id)}">Ver inscripción</button>` : ""}
           ${canEnroll || hasDiploma || isWaiting ? `<button type="button" class="ghost-button" data-action="select-course" data-course-id="${escapeHtml(course.id)}">Ver detalles</button>` : ""}
         </div>
       </div>
