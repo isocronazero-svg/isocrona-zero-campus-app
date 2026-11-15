@@ -13,7 +13,7 @@ assert.equal(check({ status: "cancelled", amount: 0 }), false);
 assert.equal(check({ status: "confirmed", paymentStatus: "validated" }), false);
 assert.equal(check({ status: "confirmed", amount: -1, paymentStatus: "validated" }), false);
 assert.equal(enrollmentCertificateEligibility(null, {}).allowed, false);
-const { buildEnrollmentCertificateModel } = require("../server/enrollment-certificate-model.js");
+const { buildEnrollmentCertificateModel, canIssueEnrollmentCertificate } = require("../server/enrollment-certificate-model.js");
 const state = {
   members: [{ id: "member-1", name: "Alumno de prueba" }],
   courses: [{
@@ -31,4 +31,20 @@ assert.equal(buildEnrollmentCertificateModel(state, "course-1", "member-1"), nul
 state.courses[0].enrollmentSubmissions[0].paymentStatus = "validated";
 state.courses[0].enrolledIds = [];
 assert.equal(buildEnrollmentCertificateModel(state, "course-1", "member-1"), null, "Sin plaza asignada no hay certificado");
+const legacyCourse = {
+  id: "legacy", title: "Jornada antigua", enrolledIds: ["member-1"],
+  memberEnrollmentFee: 0, nonMemberEnrollmentFee: 60,
+  enrollmentSubmissions: [
+    { memberId: "member-1", status: "cancelled", amount: 0 },
+    { memberId: "member-1", status: " CONFIRMED ", participantType: "external" }
+  ]
+};
+state.courses.push(legacyCourse);
+state.associates = [{ id: "new-associate", linkedMemberId: "member-1" }];
+assert.equal(canIssueEnrollmentCertificate(state, legacyCourse, "member-1"), false,
+  "Keep the participant category captured on the registration, even after joining the association");
+assert.equal(buildEnrollmentCertificateModel(state, "legacy", "member-1"), null);
+legacyCourse.enrollmentSubmissions[1].paymentStatus = " Validated ";
+assert.equal(canIssueEnrollmentCertificate(state, legacyCourse, "member-1"), true);
+assert.ok(buildEnrollmentCertificateModel(state, "legacy", "member-1"));
 console.log("Enrollment certificate eligibility and model OK");
