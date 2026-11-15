@@ -45,8 +45,10 @@ for (const [index, item] of navItems.entries()) {
 }
 assert.equal(render(true, (id) => id !== "reports").length, navItems.length - 1);
 const memberButtons = render(false);
-assert.equal(memberButtons.length, 8);
+assert.equal(memberButtons.length, 9); // Dedicated Campus entry; no existing member route removed.
 assert.match(renderedNav, /data-catalog-filter="mine">Mis cursos/);
+assert.match(renderedNav, /data-mode="all">Campus/);
+assert.match(renderedNav, /data-action="open-member-preferences"[^>]*>Mi perfil/);
 assert.ok(memberButtons.some((tag) => tag.includes('data-view="campus"') && tag.includes('data-mode="courses"')));
 assert.match(renderedNav, /data-mode="groups">Grupos internos/);
 assert.match(renderedNav, /data-mode="alerts">Avisos/);
