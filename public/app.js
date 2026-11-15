@@ -8179,6 +8179,71 @@ function renderAssociates() {
         }
       </div>
 
+      <div class="mail-card associate-search-featured associate-anchor" id="associateQuickSearch">
+        <div class="panel-header">
+          <div>
+            <h4>Buscador de socios</h4>
+            <p class="muted">Busca un socio y abre su ficha al momento.</p>
+          </div>
+          ${
+            selectedAssociate
+              ? `<span class="small-chip">Ficha activa: ${escapeHtml(getAssociateFullName(selectedAssociate))}</span>`
+              : `<span class="small-chip">Sin ficha activa</span>`
+          }
+        </div>
+        <div class="course-grid associate-search-grid">
+          <label class="inline-field">
+            Buscar socio
+            <input id="associateSearchFilter" value="${escapeHtml(associateFilters.query)}" placeholder="Ej. Carlos, socio 1, DNI, telefono, CPBC..." />
+          </label>
+          <div class="associate-search-panel">
+            <div class="chip-row">
+              <button class="ghost-button" type="button" data-action="set-associate-filter-preset" data-preset="census">Ver todo el censo</button>
+              <button class="ghost-button" type="button" data-action="set-associate-filter-preset" data-preset="incidents">Solo incidencias</button>
+              <button class="primary-button" type="button" data-action="run-associate-search">Buscar</button>
+            </div>
+            <p class="muted">
+              ${
+                String(associateFilters.query || "").trim()
+                  ? `${quickAssociateMatches.length} resultado(s) rapido(s). Pulsa uno o usa Enter para abrir la primera ficha.`
+                  : "Empieza a escribir y abre la ficha al instante."
+              }
+            </p>
+            <div class="chip-row">
+              <span class="small-chip">Censo: ${state.associates.length}</span>
+              <span class="small-chip">Filtrados: ${filteredCollections.associates.length}</span>
+            </div>
+            <div class="associate-search-results">
+                ${
+                  String(associateFilters.query || "").trim()
+                    ? quickAssociateMatches.length
+                      ? quickAssociateMatches
+                          .map(
+                            (associate) => `
+                            <button class="ghost-button associate-search-result" type="button" data-action="select-associate" data-associate-id="${associate.id}">
+                              <strong>#${escapeHtml(String(associate.associateNumber || "-"))} ${escapeHtml(getAssociateFullName(associate))}</strong>
+                              <span>${escapeHtml(
+                                [
+                                  associate.service || "Sin servicio",
+                                  associate.status || "Sin estado",
+                                  getAssociateLegacyReviewIssues(associate).length
+                                    ? getAssociateLegacyReviewIssues(associate).join(" | ")
+                                    : associate.email || associate.phone || "Sin detalle"
+                                ].join(" • ")
+                              )}</span>
+                            </button>
+                          `
+                          )
+                          .join("")
+                      : `<p class="status-note warning">No hay socios que coincidan con esa busqueda.</p>`
+                    : `<p class="muted">Busca por nombre, numero, email, telefono, DNI o servicio.</p>`
+                }
+            </div>
+          </div>
+        </div>
+      </div>
+
+
       <section class="associate-anchor" id="associateOnboardingBatch" aria-busy="${associateOnboardingBusy}">
         <div class="panel-header">
           <div>
@@ -8399,69 +8464,6 @@ function renderAssociates() {
         }
       </div>
 
-      <div class="mail-card">
-        <div class="panel-header">
-          <div>
-            <h4>Buscador de socios</h4>
-            <p class="muted">Busca un socio y abre su ficha al momento.</p>
-          </div>
-          ${
-            selectedAssociate
-              ? `<span class="small-chip">Ficha activa: ${escapeHtml(getAssociateFullName(selectedAssociate))}</span>`
-              : `<span class="small-chip">Sin ficha activa</span>`
-          }
-        </div>
-        <div class="course-grid associate-search-grid">
-          <label class="inline-field">
-            Buscar socio
-            <input id="associateSearchFilter" value="${escapeHtml(associateFilters.query)}" placeholder="Ej. Carlos, socio 1, DNI, telefono, CPBC..." />
-          </label>
-          <div class="associate-search-panel">
-            <div class="chip-row">
-              <button class="ghost-button" type="button" data-action="set-associate-filter-preset" data-preset="census">Ver todo el censo</button>
-              <button class="ghost-button" type="button" data-action="set-associate-filter-preset" data-preset="incidents">Solo incidencias</button>
-              <button class="primary-button" type="button" data-action="run-associate-search">Buscar</button>
-            </div>
-            <p class="muted">
-              ${
-                String(associateFilters.query || "").trim()
-                  ? `${quickAssociateMatches.length} resultado(s) rapido(s). Pulsa uno o usa Enter para abrir la primera ficha.`
-                  : "Empieza a escribir y abre la ficha al instante."
-              }
-            </p>
-            <div class="chip-row">
-              <span class="small-chip">Censo: ${state.associates.length}</span>
-              <span class="small-chip">Filtrados: ${filteredCollections.associates.length}</span>
-            </div>
-            <div class="associate-search-results">
-                ${
-                  String(associateFilters.query || "").trim()
-                    ? quickAssociateMatches.length
-                      ? quickAssociateMatches
-                          .map(
-                            (associate) => `
-                            <button class="ghost-button associate-search-result" type="button" data-action="select-associate" data-associate-id="${associate.id}">
-                              <strong>#${escapeHtml(String(associate.associateNumber || "-"))} ${escapeHtml(getAssociateFullName(associate))}</strong>
-                              <span>${escapeHtml(
-                                [
-                                  associate.service || "Sin servicio",
-                                  associate.status || "Sin estado",
-                                  getAssociateLegacyReviewIssues(associate).length
-                                    ? getAssociateLegacyReviewIssues(associate).join(" | ")
-                                    : associate.email || associate.phone || "Sin detalle"
-                                ].join(" • ")
-                              )}</span>
-                            </button>
-                          `
-                          )
-                          .join("")
-                      : `<p class="status-note warning">No hay socios que coincidan con esa busqueda.</p>`
-                    : `<p class="muted">Busca por nombre, numero, email, telefono, DNI o servicio.</p>`
-                }
-            </div>
-          </div>
-        </div>
-      </div>
 
       <div class="chip-row">
         ${
