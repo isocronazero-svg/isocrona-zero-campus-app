@@ -1803,17 +1803,9 @@ function requestCourseCancellationDetails() {
     const cancelling = action === "cancel-course-enrollment";
     let body = {};
     if (cancelling) {
-      const reason = window.prompt("Motivo de la baja del alumno:");
-      if (reason === null) return;
-      if (!reason.trim()) return showToast("Es obligatorio indicar el motivo de la baja.", "error");
-      const amountText = window.prompt("Importe de devolución en euros (0 si no se devuelve nada):", "0");
-      if (amountText === null) return;
-      const refundAmount = Number(amountText.trim().replace(",", "."));
-      if (!amountText.trim() || !Number.isFinite(refundAmount) || refundAmount < 0) {
-        return showToast("Indica un importe de devolución válido.", "error");
-      }
-      if (!window.confirm(`¿Confirmar la baja? Se liberará la plaza y se conservará el historial de inscripción y pago. ${refundAmount > 0 ? `Se registrará una devolución PENDIENTE de ${refundAmount.toFixed(2)} €; no se realizará ninguna transferencia automáticamente.` : "No se registrará devolución económica."}`)) return;
-      body = { reason: reason.trim(), refundAmount };
+      const details = await requestCourseCancellationDetails();
+      if (!details) return;
+      body = details;
     } else if (!window.confirm("¿Confirmas que el dinero YA se ha devuelto por fuera de la aplicación? Esta acción solo registra la devolución como realizada y la descuenta del saldo neto de tesorería. No envía dinero ni realiza transferencias.")) {
       return;
     }
