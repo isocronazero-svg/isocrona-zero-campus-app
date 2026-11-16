@@ -152,6 +152,7 @@
 }
 
 .portal-ui .member-quick-nav { display: none; }
+.portal-ui .member-quick-nav[hidden] { display: none !important; }
 .portal-ui .member-home-summary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
