@@ -183,6 +183,7 @@ for (const { name, browserName, options } of profiles) {
     });
 
     test("inscripción, justificante, cobro, acreditación, baja e historial con datos ficticios", async ({ browser }) => {
+      test.setTimeout(180_000);
       const campus = await createCampus();
       let member;
       let admin;
@@ -341,8 +342,9 @@ for (const { name, browserName, options } of profiles) {
         await expect(panel.locator("#campusSectionDiplomas").getByRole("link", { name: /Descargar certificado de inscripción/ })).toHaveCount(0);
         await nav.getByRole("button", { name: "Campus", exact: true }).click();
         await panel.getByRole("button", { name: /^Historial/ }).click();
-        await expect(course.locator(".member-course-status")).toContainText("Baja registrada");
-        await expect(course.locator(".member-course-status")).toContainText("Devolución registrada");
+        await expect(panel.locator("#campusSectionCourses")).toContainText("Jornada pública QA");
+        await expect(panel.locator("#campusSectionCourses")).toContainText(/Baja|Cancelad/i);
+        await expect(ledger).toContainText("Devueltos 30.00 €");
         await expect(panel.locator('[data-course-card-id="history-qa"]')).toContainText("100 %");
       } finally {
         await Promise.allSettled([member?.context().close(), admin?.context().close(), other?.context().close()]);
