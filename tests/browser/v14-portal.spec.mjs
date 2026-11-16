@@ -143,14 +143,13 @@ for (const { name, browserName, options } of profiles) {
           expect(box.x + box.width).toBeLessThanOrEqual(options.viewport.width + 1);
         }
 
-        await panel.getByRole("button", { name: "Abrir aviso" }).click();
+        await panel.locator(".member-notice").filter({ hasText: noticeTitle }).getByRole("button", { name: "Marcar como leido" }).click();
         const notice = panel.locator(".member-notice").filter({ hasText: noticeTitle });
         await expect(notice).toContainText("La práctica comienza a las 09:30.");
-        await notice.getByRole("button", { name: "Marcar como leido" }).click();
         await expect(notice.locator(".notice-status")).toHaveText("Leido");
         await expect(panel.getByText("0 aviso(s) pendiente(s)")).toBeVisible();
 
-        await panel.getByRole("button", { name: "Ver cursos", exact: true }).click();
+        await panel.locator('button[data-action="open-member-campus-mode"][data-mode="courses"]').click();
         await expect(panel.getByRole("heading", { name: "Jornada pública QA" })).toBeVisible();
         await panel.getByRole("button", { name: "Ver diplomas", exact: true }).click();
         await expect(panel.locator("#campusSectionDiplomas")).toBeVisible();
@@ -191,7 +190,7 @@ for (const { name, browserName, options } of profiles) {
         const course = panel.locator('[data-course-card-id="public-qa"]');
         const certificatePath = `${campus.baseURL}/api/member/courses/public-qa/enrollment-certificate.pdf?download=1`;
 
-        await panel.getByRole("button", { name: "Ver cursos", exact: true }).click();
+        await panel.locator('button[data-action="open-member-campus-mode"][data-mode="courses"]').click();
         await course.getByRole("button", { name: "Inscribirme ahora" }).click();
         await expect(panel.locator("#courseEnrollmentForm")).toBeVisible();
         const enrollment = member.waitForResponse((response) =>
