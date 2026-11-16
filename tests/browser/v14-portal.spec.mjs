@@ -268,7 +268,6 @@ for (const { name, browserName, options } of profiles) {
         await expect(ledger).toContainText("Confirmada");
 
         await member.reload();
-        if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
         await nav.getByRole("button", { name: "Campus", exact: true }).click();
         await panel.getByRole("button", { name: /^Mis cursos/ }).click();
         await expect(course).toContainText("Inscrito");
@@ -339,8 +338,7 @@ for (const { name, browserName, options } of profiles) {
         await member.reload();
         if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
         await nav.getByRole("button", { name: "Mis diplomas", exact: true }).click();
-        await expect(certificates).toHaveCount(0);
-        if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
+        await expect(panel.locator("#campusSectionDiplomas").getByRole("link", { name: /Descargar certificado de inscripción/ })).toHaveCount(0);
         await nav.getByRole("button", { name: "Campus", exact: true }).click();
         await panel.getByRole("button", { name: /^Historial/ }).click();
         await expect(course.locator(".member-course-status")).toContainText("Baja registrada");
