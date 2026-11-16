@@ -152,7 +152,10 @@ assert.match(clientSource, /const certificateSubmission = getCourseEnrollmentSub
 assert.match(clientSource, /submission\.memberId === memberId && !\["cancelled", "rejected"\]\.includes\(submission\.status\)/,
   "Enrollment lookup must exclude cancelled and rejected history");
 
-assert.match(clientSource, /<details class="course-ledger-risk-actions">[\\s\\S]*?data-status="rejected">Rechazar<\\/button>[\\s\\S]*?<\\/details>\`\}/,
+const groupedActions = clientSource.slice(clientSource.indexOf('<details class="course-ledger-risk-actions">'));
+assert.ok(groupedActions.startsWith('<details class="course-ledger-risk-actions">') &&
+  groupedActions.indexOf('data-status="rejected">Rechazar</button>') > 0 &&
+  groupedActions.indexOf('data-status="rejected">Rechazar</button>') < groupedActions.indexOf('</details>'),
   "Admin rejection must remain inside the active-enrollment branch and grouped actions");
 assert.match(serverSource, /const authenticated = requireAdminAccount\(req, res, authState\)/,
   "Cancellation must authenticate before parsing the request");
