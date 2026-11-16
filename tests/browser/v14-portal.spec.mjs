@@ -152,10 +152,10 @@ for (const { name, browserName, options } of profiles) {
 
         await panel.getByRole("button", { name: "Ver cursos", exact: true }).click();
         await expect(panel.getByRole("heading", { name: "Jornada pública QA" })).toBeVisible();
-        await page.locator("#nav").getByRole("button", { name: "Mis diplomas", exact: true }).click();
+        await panel.getByRole("button", { name: "Ver diplomas", exact: true }).click();
         await expect(panel.locator("#campusSectionDiplomas")).toBeVisible();
+        if (options.isMobile) await page.getByRole("button", { name: "Abrir menú principal" }).click();
         await page.locator("#nav").getByRole("button", { name: "Mi aula", exact: true }).click();
-        await expect(panel.getByRole("heading", { name: "Mi aula", exact: true })).toBeVisible();
         await expect(panel.getByRole("heading", { name: "Mi aula", exact: true })).toBeVisible();
         await expect(panel.getByText(noticeTitle)).toHaveCount(0);
         await testInfo.attach("Inicio con datos ficticios", {
@@ -201,7 +201,8 @@ for (const { name, browserName, options } of profiles) {
         await expect(panel.locator("#courseEnrollmentSubmissionState")).toContainText("Pendiente de justificante");
         expect((await member.request.get(certificatePath)).status()).toBe(404);
 
-        await nav.getByRole("button", { name: "Cursos", exact: true }).click();
+        if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
+        await member.locator("#nav").getByRole("button", { name: "Campus", exact: true }).click();
         await panel.getByRole("button", { name: /^Mis cursos/ }).click();
         await expect(course.locator(".member-course-status")).toContainText("Pendiente de justificante");
         await expect(course.locator(".member-course-status")).toContainText("Pendiente de registrar");
