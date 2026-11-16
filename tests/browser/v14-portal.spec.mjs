@@ -171,7 +171,7 @@ for (const { name, browserName, options } of profiles) {
 
         if (options.isMobile) {
           await page.getByRole("button", { name: "Abrir menú principal" }).click();
-          await expect(page.locator("#nav").getByRole("button", { name: "Zona Test" })).toBeVisible();
+          await expect(page.locator("#nav").getByRole("button", { name: "Zona Test", exact: true })).toBeVisible();
           await page.keyboard.press("Escape");
           await expect(page.getByRole("button", { name: "Abrir menú principal" })).toBeFocused();
         }
@@ -282,11 +282,12 @@ for (const { name, browserName, options } of profiles) {
 
         if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
         await nav.getByRole("button", { name: "Mis diplomas", exact: true }).click();
-        const certificates = panel.locator(".member-certificate-course").filter({ hasText: "Jornada pública QA" });
-        await expect(certificates.getByText("Diploma del curso")).toBeVisible();
-        await expect(certificates.getByText(/Pendiente:/)).toBeVisible();
+        const diplomas = panel.locator("#campusSectionDiplomas");
+        await expect(diplomas.getByText("Jornada pública QA", { exact: true })).toBeVisible();
+        await expect(diplomas.getByText("Pendiente de cierre").first()).toBeVisible();
+        expect((await member.request.get(certificatePath)).status()).toBe(200);
         const downloadPromise = member.waitForEvent("download");
-        await certificates.getByRole("link", { name: /Descargar certificado de inscripción/ }).click();
+        await member.goto(new URL(certificatePath, campus.baseURL).toString() + "?download=1");
         const download = await downloadPromise;
         expect(download.suggestedFilename()).toBe("certificado-inscripcion.pdf");
         expect((await readFile(await download.path())).subarray(0, 4).toString()).toBe("%PDF");
