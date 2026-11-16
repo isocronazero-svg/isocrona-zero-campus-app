@@ -303,7 +303,8 @@ for (const { name, browserName, options } of profiles) {
         expect(generate.status(), await generate.text()).toBe(200);
         expect((await other.request.get(diplomaURL)).status()).toBe(403);
         await member.reload();
-        await nav.getByRole("button", { name: "Mis certificados", exact: true }).click();
+        if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
+        await nav.getByRole("button", { name: "Mis diplomas", exact: true }).click();
         const diploma = panel.locator("article.table-card").filter({ hasText: "Práctica realizada QA" });
         await expect(diploma).toContainText("100% asistencia");
         const diplomaPromise = member.waitForEvent("download");
@@ -336,9 +337,11 @@ for (const { name, browserName, options } of profiles) {
         });
 
         await member.reload();
-        await nav.getByRole("button", { name: "Mis certificados", exact: true }).click();
+        if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
+        await nav.getByRole("button", { name: "Mis diplomas", exact: true }).click();
         await expect(certificates).toHaveCount(0);
-        await nav.getByRole("button", { name: "Cursos", exact: true }).click();
+        if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
+        await nav.getByRole("button", { name: "Campus", exact: true }).click();
         await panel.getByRole("button", { name: /^Historial/ }).click();
         await expect(course.locator(".member-course-status")).toContainText("Baja registrada");
         await expect(course.locator(".member-course-status")).toContainText("Devolución registrada");
