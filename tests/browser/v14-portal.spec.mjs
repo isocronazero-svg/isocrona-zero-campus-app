@@ -132,10 +132,9 @@ for (const { name, browserName, options } of profiles) {
         page = await openAs(webkitBrowser || browser, campus, "member", options);
         const panel = page.locator("#mainPanel");
         const nav = page.locator(options.isMobile ? "#memberQuickNav" : "#nav");
-        await expect(panel.getByRole("heading", { name: "Inicio", exact: true })).toBeVisible();
+        await expect(panel.getByRole("heading", { name: "Mi aula", exact: true })).toBeVisible();
         await expect(panel.getByText(noticeTitle)).toBeVisible();
-        await expect(panel.getByRole("heading", { name: "Jornada pública QA" })).toBeVisible();
-        await expect(nav.getByRole("button", { name: /^Avisos/ })).toContainText("1");
+        await expect(panel.getByText("2 curso(s) con inscripción abierta")).toBeVisible();
 
         for (const button of await nav.getByRole("button").all()) {
           const box = await button.boundingBox();
@@ -144,20 +143,20 @@ for (const { name, browserName, options } of profiles) {
           expect(box.x + box.width).toBeLessThanOrEqual(options.viewport.width + 1);
         }
 
-        await nav.getByRole("button", { name: /^Avisos/ }).click();
+        await panel.getByRole("button", { name: "Abrir aviso" }).click();
         const notice = panel.locator(".member-notice").filter({ hasText: noticeTitle });
         await expect(notice).toContainText("La práctica comienza a las 09:30.");
         await notice.getByRole("button", { name: "Marcar como leido" }).click();
         await expect(notice.locator(".notice-status")).toHaveText("Leido");
-        await expect(nav.locator(".notice-count")).toHaveCount(0);
+        await expect(panel.getByText("0 aviso(s) pendiente(s)")).toBeVisible();
 
-        await nav.getByRole("button", { name: "Cursos", exact: true }).click();
+        await panel.getByRole("button", { name: "Ver cursos", exact: true }).click();
         await expect(panel.getByRole("heading", { name: "Jornada pública QA" })).toBeVisible();
-        await nav.getByRole("button", { name: "Mis certificados", exact: true }).click();
+        await page.locator("#nav").getByRole("button", { name: "Mis diplomas", exact: true }).click();
         await expect(panel.locator("#campusSectionDiplomas")).toBeVisible();
-        await nav.getByRole("button", { name: "Inicio", exact: true }).click();
-        await expect(nav.getByRole("button", { name: "Inicio", exact: true })).toHaveAttribute("aria-current", "page");
-        await expect(panel.getByRole("heading", { name: "Inicio", exact: true })).toBeVisible();
+        await page.locator("#nav").getByRole("button", { name: "Mi aula", exact: true }).click();
+        await expect(panel.getByRole("heading", { name: "Mi aula", exact: true })).toBeVisible();
+        await expect(panel.getByRole("heading", { name: "Mi aula", exact: true })).toBeVisible();
         await expect(panel.getByText(noticeTitle)).toHaveCount(0);
         await testInfo.attach("Inicio con datos ficticios", {
           body: await page.screenshot({ fullPage: true }), contentType: "image/png"
@@ -192,6 +191,7 @@ for (const { name, browserName, options } of profiles) {
         const course = panel.locator('[data-course-card-id="public-qa"]');
         const certificatePath = `${campus.baseURL}/api/member/courses/public-qa/enrollment-certificate.pdf?download=1`;
 
+        await panel.getByRole("button", { name: "Ver cursos", exact: true }).click();
         await course.getByRole("button", { name: "Inscribirme ahora" }).click();
         await expect(panel.locator("#courseEnrollmentForm")).toBeVisible();
         const enrollment = member.waitForResponse((response) =>
@@ -341,7 +341,7 @@ test("la navegación aplica los accesos de socio, externo, cuota pendiente y adm
     await expect(external.locator("#nav").getByRole("button", { name: "Zona Test" })).toHaveCount(0);
     await expect(external.locator("#mainPanel").getByText(noticeTitle)).toHaveCount(0);
     await expect(external.locator("#mainPanel").getByText("Jornada para socios QA")).toHaveCount(0);
-    await expect(external.locator("#mainPanel").getByText("Jornada pública QA")).toBeVisible();
+    await expect(external.locator("#mainPanel").getByText("1 curso(s) con inscripción abierta")).toBeVisible();
     expect((await external.request.get(`${campus.baseURL}/api/course-finance`)).status()).toBe(403);
 
     const limited = await openAs(browser, campus, "limited");
@@ -355,7 +355,7 @@ test("la navegación aplica los accesos de socio, externo, cuota pendiente y adm
     await expect(admin.locator("#courseFinanceNavButton")).toBeVisible();
     await expect(admin.locator("#memberQuickNav")).toBeHidden();
     await admin.locator("#roleSwitcher").selectOption("member-self");
-    await expect(admin.locator("#mainPanel").getByRole("heading", { name: "Inicio", exact: true })).toBeVisible();
+    await expect(admin.locator("#mainPanel").getByRole("heading", { name: "Mi aula", exact: true })).toBeVisible();
     await expect(admin.locator("#courseFinanceNavButton")).toHaveCount(0);
     await admin.locator("#roleSwitcher").selectOption("admin");
     await expect(admin.locator("#courseFinanceNavButton")).toBeVisible();
