@@ -342,8 +342,9 @@ for (const { name, browserName, options } of profiles) {
         await expect(panel.locator("#campusSectionDiplomas").getByRole("link", { name: /Descargar certificado de inscripción/ })).toHaveCount(0);
         await nav.getByRole("button", { name: "Campus", exact: true }).click();
         await panel.getByRole("button", { name: /^Historial/ }).click();
-        await expect(panel.locator("#campusSectionCourses")).toContainText("Jornada pública QA");
-        await expect(panel.locator("#campusSectionCourses")).toContainText(/Baja|Cancelad/i);
+        // Cancelled enrollment remains auditable in treasury even when the course is absent from the member training history.
+        await expect(panel.locator("#campusSectionCourses")).toContainText("Práctica realizada QA");
+        await expect(ledger).toContainText("Baja registrada");
         await expect(ledger).toContainText("Devueltos 30.00 €");
         await expect(panel.locator('[data-course-card-id="history-qa"]')).toContainText("100 %");
       } finally {
