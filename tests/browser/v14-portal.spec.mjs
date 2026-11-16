@@ -274,7 +274,7 @@ for (const { name, browserName, options } of profiles) {
         console.log("[V1.4 QA member] enrollment validated; reloading member");
         await member.reload();
         if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
-        await nav.getByRole("button", { name: "Campus", exact: true }).click();
+        await (options.isMobile ? member.locator("#nav") : nav).getByRole("button", { name: "Campus", exact: true }).click({ timeout: 12000 });
         await panel.getByRole("button", { name: /^Mis cursos/ }).click();
         await expect(course).toContainText("Inscrito");
         await course.getByRole("button", { name: "Entrar al aula" }).click();
@@ -286,7 +286,7 @@ for (const { name, browserName, options } of profiles) {
         await expect(courseCertificate).toHaveAttribute("href", new URL(certificatePath).pathname + "?download=1");
 
         if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
-        await nav.getByRole("button", { name: "Mis diplomas", exact: true }).click();
+        await (options.isMobile ? member.locator("#nav") : nav).getByRole("button", { name: "Mis diplomas", exact: true }).click({ timeout: 12000 });
         const diplomas = panel.locator("#campusSectionDiplomas");
         await expect(diplomas.getByText("Jornada pública QA", { exact: true })).toBeVisible();
         await expect(diplomas.getByText("Pendiente de cierre").first()).toBeVisible();
@@ -309,7 +309,7 @@ for (const { name, browserName, options } of profiles) {
         expect((await other.request.get(diplomaURL)).status()).toBe(403);
         await member.reload();
         if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
-        await nav.getByRole("button", { name: "Mis diplomas", exact: true }).click();
+        await (options.isMobile ? member.locator("#nav") : nav).getByRole("button", { name: "Mis diplomas", exact: true }).click({ timeout: 12000 });
         const diploma = panel.locator("article.table-card").filter({ hasText: "Práctica realizada QA" });
         await expect(diploma).toContainText("100% asistencia");
         const diplomaPromise = member.waitForEvent("download");
@@ -343,9 +343,9 @@ for (const { name, browserName, options } of profiles) {
 
         await member.reload();
         if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
-        await nav.getByRole("button", { name: "Mis diplomas", exact: true }).click();
+        await (options.isMobile ? member.locator("#nav") : nav).getByRole("button", { name: "Mis diplomas", exact: true }).click({ timeout: 12000 });
         await expect(panel.locator("#campusSectionDiplomas").getByRole("link", { name: /Descargar certificado de inscripción/ })).toHaveCount(0);
-        await nav.getByRole("button", { name: "Campus", exact: true }).click();
+        await (options.isMobile ? member.locator("#nav") : nav).getByRole("button", { name: "Campus", exact: true }).click({ timeout: 12000 });
         await panel.getByRole("button", { name: /^Historial/ }).click();
         // Cancelled enrollment remains auditable in treasury even when the course is absent from the member training history.
         await expect(panel.locator("#campusSectionCourses")).toContainText("Práctica realizada QA");
