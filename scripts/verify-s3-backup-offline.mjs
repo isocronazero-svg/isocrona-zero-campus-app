@@ -15,7 +15,7 @@ function decrypt(name) {
   const path = join(root, name);
   if (!existsSync(path)) throw new Error("Objeto ausente: " + name);
   const data = readFileSync(path);
-  if (data.length < 34 || !data.subarray(0, 6).equals(Buffer.from("IZBK2\\0", "ascii"))) throw new Error("Cabecera inválida: " + name);
+  if (data.length < 34 || !data.subarray(0, 6).equals(Buffer.from([73, 90, 66, 75, 50, 0]))) throw new Error("Cabecera inválida: " + name);
   const decipher = createDecipheriv("aes-256-gcm", key, data.subarray(6, 18));
   decipher.setAuthTag(data.subarray(-16));
   try { return Buffer.concat([decipher.update(data.subarray(18, -16)), decipher.final()]); }
