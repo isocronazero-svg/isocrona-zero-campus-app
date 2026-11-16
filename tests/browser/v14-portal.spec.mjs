@@ -290,6 +290,7 @@ for (const { name, browserName, options } of profiles) {
         const handleCancel = (dialog) => dialog.accept(cancelDialogs.shift());
         admin.on("dialog", handleCancel);
         const cancel = admin.waitForResponse((response) => response.url().endsWith(`/${row.submissionId}/cancel`));
+        await ledger.locator(".course-ledger-risk-actions").getByText("Otras acciones").click();
         await ledger.getByRole("button", { name: "Dar de baja" }).click();
         expect((await cancel).status()).toBe(200);
         admin.off("dialog", handleCancel);
