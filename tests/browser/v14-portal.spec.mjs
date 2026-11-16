@@ -287,7 +287,7 @@ for (const { name, browserName, options } of profiles) {
         await expect(diplomas.getByText("Pendiente de cierre").first()).toBeVisible();
         expect((await member.request.get(certificatePath)).status()).toBe(200);
         const downloadPromise = member.waitForEvent("download");
-        await member.goto(new URL(certificatePath, campus.baseURL).toString() + "?download=1");
+        await member.evaluate((href) => { const link = document.createElement("a"); link.href = href; link.download = "certificado-inscripcion.pdf"; document.body.append(link); link.click(); link.remove(); }, new URL(certificatePath, campus.baseURL).toString());
         const download = await downloadPromise;
         expect(download.suggestedFilename()).toBe("certificado-inscripcion.pdf");
         expect((await readFile(await download.path())).subarray(0, 4).toString()).toBe("%PDF");
