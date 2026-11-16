@@ -267,11 +267,14 @@ for (const { name, browserName, options } of profiles) {
         await expect(ledger).toContainText("Confirmada");
 
         await member.reload();
-        await nav.getByRole("button", { name: "Cursos", exact: true }).click();
+        if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
+        await nav.getByRole("button", { name: "Campus", exact: true }).click();
         await panel.getByRole("button", { name: /^Mis cursos/ }).click();
-        await expect(course.locator(".member-course-status")).toContainText("Confirmada");
-        await expect(course.locator(".member-course-status")).toContainText("Validado");
-        await course.getByRole("button", { name: "Ver inscripción", exact: true }).click();
+        await expect(course).toContainText("Inscrito");
+        await course.getByRole("button", { name: "Entrar al aula" }).click();
+        await panel.getByRole("button", { name: "Ver ficha del curso" }).click();
+        await panel.getByRole("button", { name: "Ver inscripción", exact: true }).click();
+        await expect(panel.locator("#courseEnrollmentSubmissionState")).toContainText("Confirmada");
         await panel.getByRole("button", { name: "Certificado de inscripción", exact: true }).click();
         const courseCertificate = panel.getByRole("link", { name: /Descargar certificado de inscripción/ });
         await expect(courseCertificate).toHaveAttribute("href", new URL(certificatePath).pathname + "?download=1");
