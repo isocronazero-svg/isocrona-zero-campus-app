@@ -98,11 +98,16 @@ async function openAs(browser, campus, user, options = {}) {
   await context.route("**/*", (route) => new URL(route.request().url()).origin === campus.baseURL
     ? route.continue() : route.abort());
   const page = await context.newPage();
+  const browserErrors = [];
+  page.on("pageerror", (error) => browserErrors.push(error.message));
   await page.goto(campus.baseURL);
   await page.locator("#loginEmail").fill(email(user));
   await page.locator("#loginPassword").fill(campus.password);
   await page.locator('#loginForm button[type="submit"]').click();
   await expect(page.locator("#loginScreen")).toBeHidden();
+  const panel = page.locator("#mainPanel");
+  await expect.poll(async () => (await panel.innerText().catch(() => "")).trim().length, { timeout: 10_000 }).toBeGreaterThan(0);
+  console.log(`[V1.4 QA ${user}] panel=${JSON.stringify((await panel.innerText()).slice(0, 1100))} errors=${JSON.stringify(browserErrors)}`);
   return page;
 }
 
