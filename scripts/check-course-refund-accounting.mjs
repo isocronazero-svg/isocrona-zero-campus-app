@@ -207,7 +207,7 @@ for (const heading of ["Alumno", "Estado", "Importe", "Método", "Justificante",
 }
 assert.match(clientSource, /Se liberará la plaza y se conservará el historial de inscripción y pago/,
   "Cancellation confirmation must explain seat release and preserved history");
-assert.match(clientSource, /devolución PENDIENTE/,
+assert.match(clientSource, /quedará pendiente hasta que se confirme su pago fuera de la aplicación/,
   "Cancellation must distinguish pending refunds from completed transfers");
 assert.match(clientSource, /No envía dinero ni realiza transferencias/,
   "Refund confirmation must state that no transfer is executed");
