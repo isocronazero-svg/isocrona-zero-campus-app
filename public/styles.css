@@ -5348,3 +5348,22 @@ input[type="file"][name="attachments"] { width: 100%; min-width: 0; box-sizing: 
   .course-ledger-table tbody td:nth-child(7)::before { content: "Acciones"; }
   .course-ledger-table tbody td .chip-row { flex-wrap: wrap; }
 }
+
+/* V1.4: clearly separate routine course actions from cancellations and rejections. */
+.course-ledger-risk-actions { width: 100%; margin-top: 8px; }
+.course-ledger-risk-actions > summary {
+  cursor: pointer;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-weight: 600;
+  width: fit-content;
+  max-width: 100%;
+}
+.course-ledger-risk-actions[open] > summary { margin-bottom: 10px; }
+.course-ledger-risk-actions > .chip-row { padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+@media (max-width: 600px) {
+  .course-ledger-risk-actions > summary { width: 100%; min-height: 44px; }
+  .course-ledger-risk-actions > .chip-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .course-ledger-risk-actions > .chip-row > button { width: 100%; min-height: 44px; white-space: normal; }
+}
