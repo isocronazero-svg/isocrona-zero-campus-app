@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+test.skip(process.env.IZ_V14_ACCEPTANCE !== "1", "V1.4 acceptance runs in its dedicated workflow");
+
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const email = (id) => `v14-${id}@example.test`;
 const noticeTitle = "Cambio de horario de la jornada QA";
