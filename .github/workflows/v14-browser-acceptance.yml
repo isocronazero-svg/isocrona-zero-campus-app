@@ -21,6 +21,7 @@ jobs:
     env:
       CI: 'true'
       IZ_SKIP_WEBKIT: '1'
+      IZ_V14_ACCEPTANCE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
