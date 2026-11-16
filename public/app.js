@@ -1721,24 +1721,67 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
+function requestCourseCancellationDetails() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "course-cancellation-overlay";
+    overlay.setAttribute("role", "presentation");
+    const dialog = document.createElement("section");
+    dialog.className = "course-cancellation-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-labelledby", "course-cancellation-title");
+    dialog.innerHTML = `<h2 id="course-cancellation-title">Dar de baja al alumno</h2>
+      <p>Se liberará la plaza y se conservará el historial de inscripción y pago.</p>
+      <form class="course-cancellation-form">
+        <label>Motivo de la baja <textarea name="reason" required maxlength="1000" rows="3"></textarea></label>
+        <label>Importe de devolución (€) <input name="amount" type="number" min="0" step="0.01" value="0" required inputmode="decimal"></label>
+        <p class="course-cancellation-note">Si hay devolución, quedará pendiente hasta que se confirme su pago fuera de la aplicación. No se realizan transferencias automáticamente.</p>
+        <div class="course-cancellation-buttons"><button type="button" data-cancel>Cancelar</button><button type="submit">Confirmar baja</button></div>
+      </form>`;
+    overlay.append(dialog);
+    document.body.append(overlay);
+    const previousFocus = document.activeElement;
+    const close = (value) => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      overlay.remove();
+      if (previousFocus && previousFocus.isConnected) previousFocus.focus();
+      resolve(value);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); close(null); }
+      if (event.key === "Tab") {
+        const controls = [...dialog.querySelectorAll("textarea, input, button")];
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    dialog.querySelector("[data-cancel]").addEventListener("click", () => close(null));
+    overlay.addEventListener("click", (event) => { if (event.target === overlay) close(null); });
+    dialog.querySelector("form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const reason = form.elements.reason.value.trim();
+      const refundAmount = Number(form.elements.amount.value);
+      if (!reason || !Number.isFinite(refundAmount) || refundAmount < 0) return;
+      close({ reason, refundAmount });
+    });
+    dialog.querySelector("textarea").focus();
+  });
+}
+
   if ((action === "cancel-course-enrollment" || action === "confirm-course-refund") && isAdminView() && courseId) {
     const submissionId = actionTarget.dataset.submissionId;
     if (!submissionId) return;
     const cancelling = action === "cancel-course-enrollment";
     let body = {};
     if (cancelling) {
-      const reason = window.prompt("Motivo de la baja del alumno:");
-      if (reason === null) return;
-      if (!reason.trim()) return showToast("Es obligatorio indicar el motivo de la baja.", "error");
-      const amountText = window.prompt("Importe de devolución en euros (0 si no se devuelve nada):", "0");
-      if (amountText === null) return;
-      const refundAmount = Number(amountText.trim().replace(",", "."));
-      if (!amountText.trim() || !Number.isFinite(refundAmount) || refundAmount < 0) {
-        return showToast("Indica un importe de devolución válido.", "error");
-      }
-      if (!window.confirm(`¿Dar de baja al alumno y liberar su plaza? Devolución pendiente: ${refundAmount.toFixed(2)} €.`)) return;
-      body = { reason: reason.trim(), refundAmount };
-    } else if (!window.confirm("¿Confirmas que la asociación YA ha devuelto el dinero? Se descontará del balance.")) {
+      const details = await requestCourseCancellationDetails();
+      if (!details) return;
+      body = details;
+    } else if (!window.confirm("¿Confirmas que el dinero YA se ha devuelto por fuera de la aplicación? Esta acción solo registra la devolución como realizada y la descuenta del saldo neto de tesorería. No envía dinero ni realiza transferencias.")) {
       return;
     }
     try {
