@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
@@ -18,4 +18,12 @@ for (const id of ["overview", "campus", "test", "diplomas"]) {
 assert.match(navigation, /isViewAllowed\(item\.id\)/, "Quick links must respect existing permissions");
 assert.match(navigation, /data-action=.*item\.action/, "Quick links must reuse existing handlers");
 assert.match(navigation, /memberQuickNav\.hidden = quickItems\.length === 0/, "No quick links for admin or logged-out users");
-console.log("V1.4 mobile quick navigation contracts passed.");
+// Release guard: isolated demo access must never be shipped with the candidate.
+assert.equal(existsSync(new URL("../server/demo-access-gate.js", import.meta.url)), false,
+  "V1.4 release candidate must not contain the demo access gate");
+const serverEntry = readFileSync(new URL("../server-entry.js", import.meta.url), "utf8");
+assert.doesNotMatch(serverEntry, /demo-access-gate|IZ_DEMO_ACCESS/i,
+  "Production entry point must not import or enable demo-only access");
+assert.doesNotMatch(app, /IZ_DEMO_ACCESS|demo-access-gate/i,
+  "Production client must not expose demo-only access");
+console.log("V1.4 mobile navigation and release isolation contracts passed.");
