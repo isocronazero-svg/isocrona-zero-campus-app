@@ -803,8 +803,7 @@ document.addEventListener("click", async (event) => {
       expandedNavViews.add("test");
     }
     const requestedAnchorId = String(actionTarget.dataset.anchor || "").trim();
-    const normalizedRequestedView =
-      requestedView === "overview" && shouldUseMemberProfileAsPrimaryView() ? "join" : requestedView;
+    const normalizedRequestedView = requestedView;
     const effectiveRequestedView = resolveCampusAliasView(normalizedRequestedView);
     const navItem = navItems.find((item) => item.id === effectiveRequestedView);
 
