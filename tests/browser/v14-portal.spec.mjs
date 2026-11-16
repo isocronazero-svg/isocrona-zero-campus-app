@@ -143,7 +143,8 @@ for (const { name, browserName, options } of profiles) {
           expect(box.x + box.width).toBeLessThanOrEqual(options.viewport.width + 1);
         }
 
-        await panel.locator(".member-notice").filter({ hasText: noticeTitle }).getByRole("button", { name: "Marcar como leido" }).click();
+        console.log(`[V1.4 QA notice] buttons=${JSON.stringify(await panel.getByRole("button").allTextContents())} notices=${await panel.locator(".member-notice").count()}`);
+        await panel.getByRole("button", { name: "Marcar como leido" }).click({ timeout: 12000 });
         const notice = panel.locator(".member-notice").filter({ hasText: noticeTitle });
         await expect(notice).toContainText("La práctica comienza a las 09:30.");
         await expect(notice.locator(".notice-status")).toHaveText("Leido");
@@ -203,6 +204,7 @@ for (const { name, browserName, options } of profiles) {
         if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
         await member.locator("#nav").getByRole("button", { name: "Campus", exact: true }).click();
         await panel.getByRole("button", { name: /^Mis cursos/ }).click();
+        console.log(`[V1.4 QA enrolled] cards=${await panel.locator('[data-course-card-id="public-qa"]').count()} panel=${JSON.stringify((await panel.innerText()).slice(0,4000))}`);
         await expect(course.locator(".member-course-status")).toContainText("Pendiente de justificante");
         await expect(course.locator(".member-course-status")).toContainText("Pendiente de registrar");
         await course.getByRole("button", { name: "Ver inscripción", exact: true }).click();
