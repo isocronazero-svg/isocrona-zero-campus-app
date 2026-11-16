@@ -5367,3 +5367,16 @@ input[type="file"][name="attachments"] { width: 100%; min-width: 0; box-sizing: 
   .course-ledger-risk-actions > .chip-row { display: grid; grid-template-columns: minmax(0, 1fr); }
   .course-ledger-risk-actions > .chip-row > button { width: 100%; min-height: 44px; white-space: normal; }
 }
+
+
+/* V1.4: mobile-first cancellation form, isolated from production accounting. */
+.course-cancellation-overlay { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .55); }
+.course-cancellation-dialog { width: min(100%, 480px); max-height: min(90dvh, 720px); overflow-y: auto; border-radius: 16px; padding: 24px; background: var(--surface, #fff); color: var(--text, #17212b); box-shadow: 0 18px 70px rgba(0,0,0,.25); }
+.course-cancellation-dialog h2 { margin-top: 0; }
+.course-cancellation-form { display: grid; gap: 16px; }
+.course-cancellation-form label { display: grid; gap: 6px; font-weight: 600; }
+.course-cancellation-form textarea, .course-cancellation-form input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px; font: inherit; border: 1px solid #9aa6b2; border-radius: 8px; background: #fff; color: #17212b; }
+.course-cancellation-note { font-size: .9rem; line-height: 1.5; }
+.course-cancellation-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.course-cancellation-buttons button { min-height: 44px; padding: 10px 16px; }
+@media (max-width: 480px) { .course-cancellation-dialog { padding: 18px; } .course-cancellation-buttons button { flex: 1 1 120px; } }
