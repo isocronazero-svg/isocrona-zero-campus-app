@@ -346,7 +346,7 @@ for (const { name, browserName, options } of profiles) {
         await expect(panel.locator("#campusSectionCourses")).toContainText("Práctica realizada QA");
         await expect(ledger).toContainText("Baja registrada");
         await expect(ledger).toContainText("Devueltos 30.00 €");
-        await expect(panel.locator('[data-course-card-id="history-qa"]')).toContainText("100 %");
+        await expect(panel.locator('[data-course-card-id="history-qa"]')).toContainText("Diploma disponible");
       } finally {
         await Promise.allSettled([member?.context().close(), admin?.context().close(), other?.context().close()]);
         await Promise.allSettled([webkitBrowser?.close(), campus.close()]);
