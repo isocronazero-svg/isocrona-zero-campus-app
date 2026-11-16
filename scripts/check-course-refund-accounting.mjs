@@ -205,4 +205,10 @@ for (const heading of ["Alumno", "Estado", "Importe", "Método", "Justificante",
   assert.ok(stylesSource.includes('content: "' + heading + '";'),
     "Mobile ledger must preserve field: " + heading);
 }
+assert.match(clientSource, /Se liberará la plaza y se conservará el historial de inscripción y pago/,
+  "Cancellation confirmation must explain seat release and preserved history");
+assert.match(clientSource, /devolución PENDIENTE/,
+  "Cancellation must distinguish pending refunds from completed transfers");
+assert.match(clientSource, /No envía dinero ni realiza transferencias/,
+  "Refund confirmation must state that no transfer is executed");
 console.log("Course refund accounting OK");
