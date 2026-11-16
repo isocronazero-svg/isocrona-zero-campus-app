@@ -1761,9 +1761,9 @@ document.addEventListener("click", async (event) => {
       if (!amountText.trim() || !Number.isFinite(refundAmount) || refundAmount < 0) {
         return showToast("Indica un importe de devolución válido.", "error");
       }
-      if (!window.confirm(`¿Dar de baja al alumno y liberar su plaza? Devolución pendiente: ${refundAmount.toFixed(2)} €.`)) return;
+      if (!window.confirm(`¿Confirmar la baja? Se liberará la plaza y se conservará el historial de inscripción y pago. ${refundAmount > 0 ? `Se registrará una devolución PENDIENTE de ${refundAmount.toFixed(2)} €; no se realizará ninguna transferencia automáticamente.` : "No se registrará devolución económica."}`)) return;
       body = { reason: reason.trim(), refundAmount };
-    } else if (!window.confirm("¿Confirmas que la asociación YA ha devuelto el dinero? Se descontará del balance.")) {
+    } else if (!window.confirm("¿Confirmas que el dinero YA se ha devuelto por fuera de la aplicación? Esta acción solo registra la devolución como realizada y la descuenta del saldo neto de tesorería. No envía dinero ni realiza transferencias.")) {
       return;
     }
     try {
