@@ -17,6 +17,7 @@ function render(admin, allowed = () => true, campusOnly = false) {
     TEST_SECTION_LINKS,
     CAMPUS_SECTION_LINKS,
     navElement: { innerHTML: "" },
+    memberQuickNav: { innerHTML: "", hidden: true },
     state: { activeView: "overview" },
     session: { memberId: "member-qa" },
     campusSectionMode: "courses",
@@ -31,6 +32,15 @@ function render(admin, allowed = () => true, campusOnly = false) {
   };
   vm.runInNewContext(`${app.slice(start, end)}\nrenderNav();`, context);
   renderedNav = context.navElement.innerHTML;
+  if (admin) {
+    assert.equal(context.memberQuickNav.hidden, true, "Admin must not see member quick navigation");
+  } else {
+    assert.equal(context.memberQuickNav.hidden, false, "Member must see quick navigation");
+    for (const view of ["overview", "campus", "test"]) {
+      assert.ok(context.memberQuickNav.innerHTML.includes(`data-view="${view}"`), `Quick navigation must retain ${view}`);
+    }
+    assert.ok(context.memberQuickNav.innerHTML.includes('data-mode="diplomas"'), "Quick navigation must retain diplomas");
+  }
   return [...context.navElement.innerHTML.matchAll(/<button class="nav-main-button[^>]*>/g)].map(([tag]) => tag);
 }
 
