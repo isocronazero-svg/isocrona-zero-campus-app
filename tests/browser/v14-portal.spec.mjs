@@ -244,8 +244,10 @@ for (const { name, browserName, options } of profiles) {
         expect((await member.request.get(`${rowURL}/proof`)).status()).toBe(403);
         expect((await member.request.patch(rowURL, { data: { paymentStatus: "validated" } })).status()).toBe(403);
 
+        console.log(`[V1.4 QA finance] opening admin finance, mobile=${options.isMobile}`);
         if (options.isMobile) await admin.getByRole("button", { name: "Abrir menú principal" }).click();
-        await admin.locator("#courseFinanceNavButton").click();
+        await admin.locator("#courseFinanceNavButton").click({ timeout: 12000 });
+        console.log("[V1.4 QA finance] finance dialog opened");
         const financeDialog = admin.locator("#courseFinanceDialog");
         const financeRow = financeDialog.locator(".course-finance-row").filter({ hasText: "Socio QA V14" });
         admin.once("dialog", (dialog) => dialog.accept());
@@ -255,6 +257,7 @@ for (const { name, browserName, options } of profiles) {
         await financeDialog.locator("[data-finance-close]").click();
         expect((await member.request.get(certificatePath)).status()).toBe(404);
 
+        console.log("[V1.4 QA finance] payment validated; reloading admin");
         await admin.reload();
         if (options.isMobile) await admin.getByRole("button", { name: "Abrir menú principal" }).click();
         await admin.locator("#nav").getByRole("button", { name: "Campus", exact: true }).click();
@@ -268,6 +271,7 @@ for (const { name, browserName, options } of profiles) {
         expect((await status).status()).toBe(200);
         await expect(ledger).toContainText("Confirmada");
 
+        console.log("[V1.4 QA member] enrollment validated; reloading member");
         await member.reload();
         if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
         await nav.getByRole("button", { name: "Campus", exact: true }).click();
