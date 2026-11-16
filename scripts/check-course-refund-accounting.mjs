@@ -155,8 +155,8 @@ assert.match(transportSource, /canIssueEnrollmentCertificate\(state, course, mem
 assert.match(clientSource, /submission\.memberId === memberId && !\["cancelled", "rejected"\]\.includes\(submission\.status\)/,
   "Enrollment lookup must exclude cancelled and rejected history");
 
-assert.match(clientSource, /data-status="rejected">Rechazar<\/button>\`\}/,
-  "Admin review actions must be inside the active-enrollment branch");
+assert.match(clientSource, /data-status="rejected">Rechazar<\/button>[\s\S]*?<\/details>\`\}/,
+  "Admin review actions must remain inside the active-enrollment branch and the optional actions group");
 assert.match(serverSource, /const authenticated = requireAdminAccount\(req, res, authState\)/,
   "Cancellation must authenticate before parsing the request");
 assert.match(serverSource, /const account = requireAdminAccount\(req, res, state\)/,
