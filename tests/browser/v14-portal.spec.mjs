@@ -286,13 +286,16 @@ for (const { name, browserName, options } of profiles) {
         expect(diplomaBytes.includes(Buffer.from("CERTIFICADO DE APROVECHAMIENTO"))).toBe(true);
         await expect(panel.getByRole("link", { name: "Descargar PDF acumulado" })).toBeVisible();
 
-        const cancelDialogs = ["Baja ficticia QA", "30"];
-        const handleCancel = (dialog) => dialog.accept(cancelDialogs.shift());
-        admin.on("dialog", handleCancel);
-        const cancel = admin.waitForResponse((response) => response.url().endsWith(`/${row.submissionId}/cancel`));
+        await ledger.locator(".course-ledger-risk-actions").getByText("Otras acciones").click();
         await ledger.getByRole("button", { name: "Dar de baja" }).click();
+        const cancellationForm = admin.getByRole("dialog", { name: "Dar de baja al alumno" });
+        await expect(cancellationForm).toBeVisible();
+        await cancellationForm.locator('textarea[name="reason"]').fill("Baja ficticia QA");
+        await cancellationForm.locator('input[name="amount"]').fill("30");
+        const cancel = admin.waitForResponse((response) => response.url().endsWith(`/${row.submissionId}/cancel`));
+        await cancellationForm.getByRole("button", { name: "Confirmar baja" }).click();
         expect((await cancel).status()).toBe(200);
-        admin.off("dialog", handleCancel);
+        await expect(cancellationForm).toHaveCount(0);
         await expect(ledger).toContainText("Baja registrada");
         expect((await member.request.get(certificatePath)).status()).toBe(404);
         admin.once("dialog", (dialog) => dialog.accept());

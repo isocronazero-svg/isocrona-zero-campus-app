@@ -629,6 +629,21 @@ passwordLogoutButton.addEventListener("click", async () => {
   render();
 });
 
+// Demo-only convenience button. No production accounts or data are used.
+if (window.location.hostname === "isocrona-v14-demo-app-demo.up.railway.app") {
+  const demoButton = document.createElement("button");
+  demoButton.type = "button";
+  demoButton.textContent = "Entrar como socio de prueba";
+  demoButton.className = "button button-secondary";
+  demoButton.style.cssText = "display:block;width:100%;margin:12px 0;padding:14px;cursor:pointer";
+  demoButton.addEventListener("click", () => {
+    loginEmail.value = "socio-demo@example.invalid";
+    loginPassword.value = "demo";
+    loginForm.requestSubmit();
+  });
+  loginForm.appendChild(demoButton);
+}
+
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -1731,24 +1746,67 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
+function requestCourseCancellationDetails() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "course-cancellation-overlay";
+    overlay.setAttribute("role", "presentation");
+    const dialog = document.createElement("section");
+    dialog.className = "course-cancellation-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-labelledby", "course-cancellation-title");
+    dialog.innerHTML = `<h2 id="course-cancellation-title">Dar de baja al alumno</h2>
+      <p>Se liberará la plaza y se conservará el historial de inscripción y pago.</p>
+      <form class="course-cancellation-form">
+        <label>Motivo de la baja <textarea name="reason" required maxlength="1000" rows="3"></textarea></label>
+        <label>Importe de devolución (€) <input name="amount" type="number" min="0" step="0.01" value="0" required inputmode="decimal"></label>
+        <p class="course-cancellation-note">Si hay devolución, quedará pendiente hasta que se confirme su pago fuera de la aplicación. No se realizan transferencias automáticamente.</p>
+        <div class="course-cancellation-buttons"><button type="button" data-cancel>Cancelar</button><button type="submit">Confirmar baja</button></div>
+      </form>`;
+    overlay.append(dialog);
+    document.body.append(overlay);
+    const previousFocus = document.activeElement;
+    const close = (value) => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      overlay.remove();
+      if (previousFocus && previousFocus.isConnected) previousFocus.focus();
+      resolve(value);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); close(null); }
+      if (event.key === "Tab") {
+        const controls = [...dialog.querySelectorAll("textarea, input, button")];
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    dialog.querySelector("[data-cancel]").addEventListener("click", () => close(null));
+    overlay.addEventListener("click", (event) => { if (event.target === overlay) close(null); });
+    dialog.querySelector("form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const reason = form.elements.reason.value.trim();
+      const refundAmount = Number(form.elements.amount.value);
+      if (!reason || !Number.isFinite(refundAmount) || refundAmount < 0) return;
+      close({ reason, refundAmount });
+    });
+    dialog.querySelector("textarea").focus();
+  });
+}
+
   if ((action === "cancel-course-enrollment" || action === "confirm-course-refund") && isAdminView() && courseId) {
     const submissionId = actionTarget.dataset.submissionId;
     if (!submissionId) return;
     const cancelling = action === "cancel-course-enrollment";
     let body = {};
     if (cancelling) {
-      const reason = window.prompt("Motivo de la baja del alumno:");
-      if (reason === null) return;
-      if (!reason.trim()) return showToast("Es obligatorio indicar el motivo de la baja.", "error");
-      const amountText = window.prompt("Importe de devolución en euros (0 si no se devuelve nada):", "0");
-      if (amountText === null) return;
-      const refundAmount = Number(amountText.trim().replace(",", "."));
-      if (!amountText.trim() || !Number.isFinite(refundAmount) || refundAmount < 0) {
-        return showToast("Indica un importe de devolución válido.", "error");
-      }
-      if (!window.confirm(`¿Dar de baja al alumno y liberar su plaza? Devolución pendiente: ${refundAmount.toFixed(2)} €.`)) return;
-      body = { reason: reason.trim(), refundAmount };
-    } else if (!window.confirm("¿Confirmas que la asociación YA ha devuelto el dinero? Se descontará del balance.")) {
+      const details = await requestCourseCancellationDetails();
+      if (!details) return;
+      body = details;
+    } else if (!window.confirm("¿Confirmas que el dinero YA se ha devuelto por fuera de la aplicación? Esta acción solo registra la devolución como realizada y la descuenta del saldo neto de tesorería. No envía dinero ni realiza transferencias.")) {
       return;
     }
     try {
@@ -6216,11 +6274,13 @@ function renderNav() {
         { id: "overview", label: "Inicio", primary: true },
         { id: "alerts", label: "Avisos", primary: true, view: "campus", mode: "alerts" },
         { id: "campus", label: "Cursos", primary: true, mode: "courses" },
+        { id: "campus-home", label: "Campus", view: "campus", mode: "all" },
         { id: "my-courses", label: "Mis cursos", view: "campus", mode: "courses", catalogFilter: "mine" },
         { id: "diplomas", label: "Mis certificados", primary: true, view: "campus", mode: "diplomas" },
-        { id: "test", label: "Zona Test", sections: TEST_SECTION_LINKS },
+        { id: "test", label: "Zona Test", primary: true, sections: TEST_SECTION_LINKS },
         ...(!campusOnlySession ? [{ id: "groups", label: "Grupos internos", view: "campus", mode: "groups" }] : []),
-        { id: "join", label: campusOnlySession ? "Hazte socio" : "Mi perfil" }
+        { id: "preferences", label: "Mi perfil", view: "join" },
+        ...(campusOnlySession ? [{ id: "join", label: "Hazte socio" }] : [])
       ]
     : navItems;
   const isNavItemActive = (item) => {
@@ -6242,7 +6302,7 @@ function renderNav() {
     const noticeBadge = item.id === "alerts" && unreadNotificationCount > 0
       ? `<span class="notice-count" aria-label="${unreadNotificationCount} avisos sin leer">${unreadNotificationCount}</span>`
       : "";
-    return `<button class="${className}${active ? " active" : ""}" ${active ? 'aria-current="page"' : ""} type="button" data-action="${item.mode ? "open-member-campus-mode" : "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}${item.catalogFilter ? ` data-catalog-filter="${item.catalogFilter}"` : ""}>${escapeHtml(item.label)} ${noticeBadge}</button>`;
+    return `<button class="${className}${active ? " active" : ""}" ${active ? 'aria-current="page"' : ""} type="button" data-action="${item.id === "preferences" ? "open-member-preferences" : item.mode ? "open-member-campus-mode" : "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}${item.catalogFilter ? ` data-catalog-filter="${item.catalogFilter}"` : ""}>${escapeHtml(item.label)} ${noticeBadge}</button>`;
   };
   const allowedItems = effectiveNavItems.filter((item) => isViewAllowed(item.view || item.id));
   const quickItems = memberView && session && !session.mustChangePassword ? allowedItems.filter((item) => item.primary) : [];
@@ -14585,11 +14645,12 @@ function renderCourseWorkbench(course) {
             ${
               enrollmentSubmissions.length
                 ? `
-                  <div class="table-card">
+                  <p class="field-hint course-ledger-scroll-hint">En el móvil, desliza la tabla lateralmente para ver justificantes, bajas y devoluciones. Ninguna acción queda eliminada.</p>
+                  <div class="table-card course-ledger-table" role="region" aria-label="Inscripciones, pagos, bajas y devoluciones" tabindex="0">
                     <table>
                       <thead>
                         <tr>
-                          <th>Alumno</th>
+                          <th scope="col">Alumno</th>
                           <th>Estado</th>
                           <th>Importe</th>
                           <th>Metodo</th>
@@ -14618,10 +14679,15 @@ function renderCourseWorkbench(course) {
                                         : submission.refund?.status === "completed"
                                           ? `<span class="small-chip">Devueltos ${Number(submission.refund.amount).toFixed(2)} €</span>`
                                           : ""}`
-                                      : submission.status === "rejected" ? `<span class="small-chip">Solicitud rechazada</span>` : `<button class="mini-button" type="button" data-action="cancel-course-enrollment" data-course-id="${course.id}" data-submission-id="${submission.id}">Dar de baja</button>
-                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Validar</button>
+                                      : submission.status === "rejected" ? `<span class="small-chip">Solicitud rechazada</span>` : `<button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Validar</button>
                                     <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="pending-proof">Pedir justificante</button>
-                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>`}
+                                    <details class="course-ledger-risk-actions">
+                                      <summary>Otras acciones</summary>
+                                      <div class="chip-row">
+                                        <button class="mini-button" type="button" data-action="cancel-course-enrollment" data-course-id="${course.id}" data-submission-id="${submission.id}">Dar de baja</button>
+                                        <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>
+                                      </div>
+                                    </details>`}
                                   </div>
                                 </td>
                               </tr>
@@ -18324,8 +18390,15 @@ function renderStoredProofLink(proof, label = "Abrir justificante") {
   if (!proof || !proof.contentBase64) {
     return "";
   }
-  const mimeType = proof.type || "application/octet-stream";
-  return `<a class="mini-button" target="_blank" rel="noreferrer" href="data:${escapeHtml(mimeType)};base64,${proof.contentBase64}">${label}</a>`;
+  const mimeType = String(proof.type || "application/octet-stream").toLowerCase();
+  const isPdf = mimeType === "application/pdf";
+  const isImage = /^image\/(png|jpeg|gif|webp)$/.test(mimeType);
+  const safeLabel = escapeHtml(label);
+  const safeSrc = escapeHtml(`data:${mimeType};base64,${proof.contentBase64}`);
+  if (isPdf || isImage) {
+    return `<button class="mini-button" type="button" data-action="preview-campus-attachment" data-preview-kind="${isPdf ? "pdf" : "image"}" data-preview-name="Justificante de pago" data-preview-src="${safeSrc}">${safeLabel}</button>`;
+  }
+  return `<a class="mini-button" target="_blank" rel="noreferrer" href="${safeSrc}">${safeLabel}</a>`;
 }
 
 function hasCampusAttachment(attachment) {
@@ -18675,6 +18748,7 @@ function renderCampusAttachmentPreviewModal() {
           </div>
           <div class="chip-row compact-chip-row">
             <a class="mini-button" target="_blank" rel="noreferrer" href="${openHref}">Abrir en pestaña</a>
+            <a class="mini-button" href="${previewSrc}" download="${previewName}">Descargar</a>
             <button class="mini-button" type="button" data-action="close-campus-attachment-preview">Cerrar</button>
           </div>
         </div>

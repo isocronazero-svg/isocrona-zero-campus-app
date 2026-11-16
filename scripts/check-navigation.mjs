@@ -45,8 +45,10 @@ for (const [index, item] of navItems.entries()) {
 }
 assert.equal(render(true, (id) => id !== "reports").length, navItems.length - 1);
 const memberButtons = render(false);
-assert.equal(memberButtons.length, 8);
+assert.equal(memberButtons.length, 9); // Dedicated Campus entry; no existing member route removed.
 assert.match(renderedNav, /data-catalog-filter="mine">Mis cursos/);
+assert.match(renderedNav, /data-mode="all">Campus/);
+assert.match(renderedNav, /data-action="open-member-preferences"[^>]*>Mi perfil/);
 assert.ok(memberButtons.some((tag) => tag.includes('data-view="campus"') && tag.includes('data-mode="courses"')));
 assert.match(renderedNav, /data-mode="groups">Grupos internos/);
 assert.match(renderedNav, /data-mode="alerts">Avisos/);
@@ -128,9 +130,10 @@ for (const success of [true, false]) {
   assert.equal(context.viewRole, "admin");
   assert.equal(context.roleSwitcher.value, "admin");
 }
-for (const view of ["overview", "test", "join"]) {
+for (const view of ["overview", "test"]) {
   assert.ok(memberButtons.some((tag) => tag.includes(`data-view="${view}"`) && tag.includes('data-action="nav"')));
 }
+assert.ok(memberButtons.some((tag) => tag.includes('data-view="join"') && tag.includes('data-action="open-member-preferences"')));
 assert.ok(memberButtons.some((tag) => tag.includes('data-action="open-member-campus-mode"') && tag.includes('data-mode="diplomas"')));
 const sessionStart = app.indexOf("function applySessionToState() {");
 const sessionEnd = app.indexOf("function getPreferredMemberCourseForMode(", sessionStart);

@@ -6773,6 +6773,27 @@ const server = http.createServer(async (req, res) => {
         state = readState();
         stateChanged = synchronizeAssociateStatuses(state);
       }
+      // Isolated V1.4 demo: a disposable member account, never enabled on production.
+      if (process.env.IZ_DEMO_MODE === "true" && !isDatabaseEnabled() &&
+          email === "socio-demo@example.invalid" && password === "demo") {
+        state.accounts = Array.isArray(state.accounts) ? state.accounts : [];
+        state.members = Array.isArray(state.members) ? state.members : [];
+        if (!state.accounts.some(item => item.email === email)) {
+          const memberId = "member-v14-demo";
+          state.members.push({
+            id: memberId, name: "Socio de prueba", email,
+            role: "Bombero", certifications: [], renewalsDue: 0
+          });
+          const demoAccount = {
+            id: "account-v14-demo", name: "Socio de prueba", email,
+            role: "member", memberId, associateId: "",
+            mustChangePassword: false, source: "demo"
+          };
+          setLegacyAccountPassword(demoAccount, password);
+          state.accounts.push(demoAccount);
+          stateChanged = true;
+        }
+      }
       let account = (state.accounts || []).find(
         (item) =>
           String(item.email || "").trim().toLowerCase() === email &&

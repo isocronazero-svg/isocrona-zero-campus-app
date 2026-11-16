@@ -155,8 +155,8 @@ assert.match(transportSource, /canIssueEnrollmentCertificate\(state, course, mem
 assert.match(clientSource, /submission\.memberId === memberId && !\["cancelled", "rejected"\]\.includes\(submission\.status\)/,
   "Enrollment lookup must exclude cancelled and rejected history");
 
-assert.match(clientSource, /data-status="rejected">Rechazar<\/button>\`\}/,
-  "Admin review actions must be inside the active-enrollment branch");
+assert.match(clientSource, /data-status="rejected">Rechazar<\/button>[\s\S]*?<\/details>\`\}/,
+  "Admin review actions must remain inside the active-enrollment branch and the optional actions group");
 assert.match(serverSource, /const authenticated = requireAdminAccount\(req, res, authState\)/,
   "Cancellation must authenticate before parsing the request");
 assert.match(serverSource, /const account = requireAdminAccount\(req, res, state\)/,
@@ -165,4 +165,50 @@ assert.match(serverSource, /refundAmount > paid/,
   "Cancellation must reject refunds larger than the validated payment");
 assert.match(serverSource, /submission\.refund\?\.status !== "pending"/,
   "Refund confirmation must reject duplicate completed refunds");
+// Mobile administration must retain a direct, functioning route to the ledger.
+// The shortcut and destination must remain linked when simplifying navigation.
+assert.match(clientSource, /class="course-admin-quick-access"/,
+  "Course administration must expose its prominent payment/refund shortcut");
+assert.match(clientSource, /data-action="set-course-workbench-mode" data-mode="students" data-scroll-target="courseStudentsLedger"/,
+  "Shortcut must select students and focus the enrollment ledger");
+assert.match(clientSource, /id="courseStudentsLedger"/,
+  "The enrollment/payment ledger target must exist");
+assert.match(clientSource, /if \(action === "set-course-workbench-mode"\)/,
+  "Shortcut handler must remain wired");
+assert.match(clientSource, /focusElementById\(actionTarget\.dataset\.scrollTarget\)/,
+  "Shortcut must focus its destination after rendering");
+
+// Payment receipts must reuse the existing internal preview, avoiding data-URL navigation on Safari.
+assert.match(clientSource, /function renderStoredProofLink\(proof, label = "Abrir justificante"\)/,
+  "Payment proof renderer must remain available");
+assert.match(clientSource, /data-action="preview-campus-attachment" data-preview-kind=/,
+  "PDF and image receipts must open through the internal viewer");
+assert.match(clientSource, /if \(previewKind === "pdf" && previewSrc\.startsWith\("data:"\)\)/,
+  "Internal PDF preview must convert embedded data to a Blob URL");
+
+assert.match(clientSource, /href="\$\{previewSrc\}" download="\$\{previewName\}"/,
+  "Document preview must expose a download option");
+
+assert.match(clientSource, /if \(action === "close-campus-attachment-preview"\) \{[\s\S]*?clearCampusAttachmentPreview\(\);[\s\S]*?render\(\);/,
+  "Closing the receipt preview must reset its state");
+assert.match(clientSource, /URL\.revokeObjectURL\(campusAttachmentPreview\.objectUrl\)/,
+  "Closing the receipt preview must release temporary Blob URLs");
+assert.match(clientSource, /if \(!proof \|\| !proof\.contentBase64\) \{\s*return "";\s*\}/,
+  "Missing receipt data must not create a broken download link");
+
+const stylesSource = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+assert.match(clientSource, /class="table-card course-ledger-table" role="region" aria-label="Inscripciones, pagos, bajas y devoluciones" tabindex="0"/,
+  "Course ledger must remain discoverable and accessible");
+assert.match(stylesSource, /\.course-ledger-table tbody tr \{ border: 1px solid var\(--line\)/,
+  "Mobile course ledger must show individual student cards");
+for (const heading of ["Alumno", "Estado", "Importe", "Método", "Justificante", "Nota", "Acciones"]) {
+  assert.ok(stylesSource.includes('content: "' + heading + '";'),
+    "Mobile ledger must preserve field: " + heading);
+}
+assert.match(clientSource, /Se liberará la plaza y se conservará el historial de inscripción y pago/,
+  "Cancellation confirmation must explain seat release and preserved history");
+assert.match(clientSource, /quedará pendiente hasta que se confirme su pago fuera de la aplicación/,
+  "Cancellation must distinguish pending refunds from completed transfers");
+assert.match(clientSource, /No envía dinero ni realiza transferencias/,
+  "Refund confirmation must state that no transfer is executed");
 console.log("Course refund accounting OK");
