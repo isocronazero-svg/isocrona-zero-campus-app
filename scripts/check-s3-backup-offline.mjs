@@ -22,7 +22,8 @@ function encrypt(bytes) {
 const manifest = {
   format: "isocrona-campus-backup-v2",
   state: { file: "state.json.aes256gcm", size: state.length, sha256: sha256(state) },
-  files: [{ slot: "file-0001.bin.aes256gcm", route: "/api/associates/files/fake", size: proof.length, sha256: sha256(proof) }]
+  files: [{ slot: "file-0001.bin.aes256gcm", route: "/api/associates/files/fake", size: proof.length, sha256: sha256(proof) }],
+  missingReferencedFiles: []
 };
 const manifestPath = join(directory, "manifest.json.aes256gcm");
 const statePath = join(directory, "state.json.aes256gcm");
@@ -45,7 +46,22 @@ try {
   writeFileSync(attachmentPath, encrypt(proof));
   const wrongKey = spawnSync(process.execPath, [script, directory], { env: { ...process.env, BACKUP_AES_KEY_B64: randomBytes(32).toString("base64") }, encoding: "utf8" });
   assert.notEqual(wrongKey.status, 0, "Must reject an incorrect key");
-  console.log("S3 offline verifier: valid fixture accepted, tampering and wrong key rejected");
+  const incompleteManifest = {
+    ...manifest,
+    missingReferencedFiles: [{ route: "/api/associates/files/missing", status: 404 }]
+  };
+  writeFileSync(manifestPath, encrypt(Buffer.from(JSON.stringify(incompleteManifest))));
+  const incomplete = run();
+  assert.notEqual(incomplete.status, 0, "Must reject an authenticated manifest with missing attachments");
+  assert.match(incomplete.stderr, /no se pudieron copiar/);
+  assert.doesNotMatch(incomplete.stderr, /associates\/files\/missing/);
+
+  writeFileSync(manifestPath, encrypt(Buffer.from(JSON.stringify({ ...manifest, missingReferencedFiles: undefined }))));
+  const unchecked = run();
+  assert.notEqual(unchecked.status, 0, "Must reject a manifest without a missing-attachment inventory");
+  assert.match(unchecked.stderr, /no informa de adjuntos faltantes/);
+
+  console.log("S3 offline verifier: valid fixture accepted, tampering, wrong key and incomplete manifests rejected");
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }

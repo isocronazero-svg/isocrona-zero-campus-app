@@ -31,6 +31,8 @@ const manifest = JSON.parse(decrypt("manifest.json.aes256gcm").toString("utf8"))
 assert.equal(manifest.format, "isocrona-campus-backup-v2");
 assert.equal(manifest.state?.file, "state.json.aes256gcm");
 assert(Array.isArray(manifest.files), "Adjuntos ausentes del manifiesto");
+assert(Array.isArray(manifest.missingReferencedFiles), "El manifiesto no informa de adjuntos faltantes");
+assert(manifest.missingReferencedFiles.length === 0, "El respaldo contiene adjuntos referenciados que no se pudieron copiar");
 const state = decrypt(manifest.state.file);
 verify(state, manifest.state, "estado");
 JSON.parse(state.toString("utf8"));
