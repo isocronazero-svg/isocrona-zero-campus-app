@@ -26,4 +26,17 @@ assert.doesNotMatch(serverEntry, /demo-access-gate|IZ_DEMO_ACCESS/i,
   "Production entry point must not import or enable demo-only access");
 assert.doesNotMatch(app, /IZ_DEMO_ACCESS|demo-access-gate/i,
   "Production client must not expose demo-only access");
+const mobile = readFileSync(new URL("../public/assets/js/app/ui/mobile-navigation.js", import.meta.url), "utf8");
+for (const contract of [
+  [/aria-expanded="false"/, "Menu toggle must expose collapsed state"],
+  [/aria-controls="sidebar"/, "Menu toggle must target existing sidebar"],
+  [/event\.key === 'Escape'/, "Escape must close the mobile menu"],
+  [/event\.key !== 'Tab'/, "Mobile menu must trap keyboard focus"],
+  [/content\.inert = open/, "Background content must be inert while menu is open"],
+  [/sidebar\.inert = mediaQuery\.matches && !open/, "Closed sidebar must be inert on mobile"],
+  [/backdrop\.hidden = !open/, "Backdrop must be hidden when menu closes"],
+  [/toggle\.focus\(/, "Closing menu must restore keyboard focus"],
+  [/mediaQuery\.addEventListener\('change'/, "Resizing must close menu"],
+  [/shell\.hidden = !visible/, "Unauthenticated users must not see the mobile shell"]
+]) assert.match(mobile, contract[0], contract[1]);
 console.log("V1.4 mobile navigation and release isolation contracts passed.");
