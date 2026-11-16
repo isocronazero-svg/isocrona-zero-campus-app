@@ -30,7 +30,9 @@ jobs:
       - run: npm ci
       - name: Install Chromium and WebKit
         run: npx playwright install --with-deps chromium webkit
-      - name: Verify encrypted S3 backup format with synthetic fixtures\n        run: node scripts/check-s3-backup-offline.mjs\n      - name: Run V1.4 browser acceptance on isolated synthetic data
+      - name: Verify encrypted S3 backup format with synthetic fixtures
+        run: node scripts/check-s3-backup-offline.mjs
+      - name: Run V1.4 browser acceptance on isolated synthetic data
         run: npx playwright test tests/browser/v14-portal.spec.mjs --config=playwright.config.mjs
       - name: Save browser failure evidence
         if: always()
