@@ -345,6 +345,7 @@ for (const { name, browserName, options } of profiles) {
         if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
         await (options.isMobile ? member.locator("#nav") : nav).getByRole("button", { name: "Mis diplomas", exact: true }).click({ timeout: 12000 });
         await expect(panel.locator("#campusSectionDiplomas").getByRole("link", { name: /Descargar certificado de inscripción/ })).toHaveCount(0);
+        if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
         await (options.isMobile ? member.locator("#nav") : nav).getByRole("button", { name: "Campus", exact: true }).click({ timeout: 12000 });
         await panel.getByRole("button", { name: /^Historial/ }).click();
         // Cancelled enrollment remains auditable in treasury even when the course is absent from the member training history.
