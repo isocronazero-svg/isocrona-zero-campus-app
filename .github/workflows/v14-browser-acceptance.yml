@@ -20,7 +20,6 @@ jobs:
     timeout-minutes: 25
     env:
       CI: 'true'
-      IZ_SKIP_WEBKIT: '1'
       IZ_V14_ACCEPTANCE: '1'
     steps:
       - uses: actions/checkout@v4
@@ -29,8 +28,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install Chromium and WebKit
+        run: npx playwright install --with-deps chromium webkit
       - name: Run V1.4 browser acceptance on isolated synthetic data
         run: npx playwright test tests/browser/v14-portal.spec.mjs --config=playwright.config.mjs
       - name: Save browser failure evidence
