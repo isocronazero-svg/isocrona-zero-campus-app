@@ -275,6 +275,7 @@ const ASSOCIATE_ONBOARDING_LABELS = {
 const ADMIN_ONLY_TOP_LEVEL_VIEWS = new Set(["associates", "validations", "members", "reports", "automation", "activity"]);
 
 const navElement = document.getElementById("nav");
+const memberQuickNav = document.getElementById("memberQuickNav");
 const metricsElement = document.getElementById("metrics");
 const mainPanel = document.getElementById("mainPanel");
 const sidePanel = document.getElementById("sidePanel");
@@ -6265,6 +6266,18 @@ function renderNav() {
     }
     return state.activeView === item.id;
   };
+
+  // Keep the full sidebar intact; quick access is a second, compact route to existing views.
+  if (memberQuickNav) {
+    const quickItems = !isAdminView() && session && !session.mustChangePassword
+      ? effectiveNavItems.filter((item) => ["overview", "campus", "test", "diplomas"].includes(item.id) && isViewAllowed(item.id))
+      : [];
+    memberQuickNav.hidden = quickItems.length === 0;
+    memberQuickNav.innerHTML = quickItems.map((item) => {
+      const active = isNavItemActive(item);
+      return `<button class="ghost-button${active ? " active" : ""}" type="button" data-action="${item.action || "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}${active ? ' aria-current="page"' : ""}>${escapeHtml(item.label)}</button>`;
+    }).join("");
+  }
 
   navElement.innerHTML = effectiveNavItems
     .filter((item) => isViewAllowed(item.id))
