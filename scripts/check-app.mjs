@@ -113,7 +113,8 @@ const extraCheckScripts = [
   "scripts/check-instructor-eligibility.mjs",
   "scripts/check-instructor-picker.mjs",
   "scripts/check-form-save-recovery.mjs",
-  "scripts/check-intensive-days.mjs"
+  "scripts/check-intensive-days.mjs",
+  "scripts/check-v14-mobile-navigation.mjs"
 ];
 const associateActionContracts = [
   "approve-associate",
