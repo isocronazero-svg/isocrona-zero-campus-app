@@ -155,8 +155,8 @@ for (const { name, browserName, options } of profiles) {
         console.log("[V1.4 QA navigation] opening courses");
         await panel.locator('button[data-action="open-member-campus-mode"][data-mode="courses"]').click({ timeout: 12000 });
         console.log("[V1.4 QA navigation] courses opened");
-        await expect(panel.getByRole("heading", { name: "Jornada pública QA" })).toBeVisible();
-        await panel.getByRole("button", { name: "Ver diplomas", exact: true }).click();
+        await expect(panel.getByText("Jornada pública QA", { exact: true }).first()).toBeVisible();
+        await panel.locator('button[data-action="set-campus-section-mode"][data-mode="diplomas"]').click({ timeout: 12000 });
         await expect(panel.locator("#campusSectionDiplomas")).toBeVisible();
         if (options.isMobile) await page.getByRole("button", { name: "Abrir menú principal" }).click();
         await page.locator("#nav").getByRole("button", { name: "Mi aula", exact: true }).click();
@@ -213,6 +213,8 @@ for (const { name, browserName, options } of profiles) {
         console.log(`[V1.4 QA course controls] ${JSON.stringify(await course.getByRole("button").allTextContents())}`);
         await course.getByRole("button", { name: "Entrar al aula" }).click({ timeout: 12000 });
         console.log(`[V1.4 QA course detail] ${JSON.stringify((await panel.innerText()).slice(0,4000))}`);
+        await panel.getByRole("button", { name: "Ver ficha del curso" }).click({ timeout: 12000 });
+        await expect(panel.locator("#courseEnrollmentProofUpdate")).toHaveCount(1);
 
         const proof = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRlcAAAAASUVORK5CYII=", "base64");
         await panel.locator("#courseEnrollmentProofUpdate").setInputFiles({
