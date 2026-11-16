@@ -163,14 +163,15 @@ for (const { name, browserName, options } of profiles) {
         await page.locator("#nav").getByRole("button", { name: "Mi aula", exact: true }).click();
         console.log(`[V1.4 QA return home] ${JSON.stringify((await panel.innerText()).slice(0,1800))}`);
         await expect(panel.getByRole("heading", { name: "Mi aula", exact: true })).toBeVisible();
-        await expect(panel.getByText(noticeTitle)).toHaveCount(0);
+        await expect(panel.locator(".member-notice").filter({ hasText: noticeTitle }).locator(".notice-status")).toHaveText("Leido");
+        await expect(panel.getByText("0 aviso(s) pendiente(s)")).toBeVisible();
         await testInfo.attach("Inicio con datos ficticios", {
           body: await page.screenshot({ fullPage: true }), contentType: "image/png"
         });
 
         if (options.isMobile) {
           await page.getByRole("button", { name: "Abrir menú principal" }).click();
-          await expect(page.locator("#nav").getByRole("button", { name: "Grupos internos" })).toBeVisible();
+          await expect(page.locator("#nav").getByRole("button", { name: "Zona Test" })).toBeVisible();
           await page.keyboard.press("Escape");
           await expect(page.getByRole("button", { name: "Abrir menú principal" })).toBeFocused();
         }
@@ -279,7 +280,8 @@ for (const { name, browserName, options } of profiles) {
         const courseCertificate = panel.getByRole("link", { name: /Descargar certificado de inscripción/ });
         await expect(courseCertificate).toHaveAttribute("href", new URL(certificatePath).pathname + "?download=1");
 
-        await nav.getByRole("button", { name: "Mis certificados", exact: true }).click();
+        if (options.isMobile) await member.getByRole("button", { name: "Abrir menú principal" }).click();
+        await nav.getByRole("button", { name: "Mis diplomas", exact: true }).click();
         const certificates = panel.locator(".member-certificate-course").filter({ hasText: "Jornada pública QA" });
         await expect(certificates.getByText("Diploma del curso")).toBeVisible();
         await expect(certificates.getByText(/Pendiente:/)).toBeVisible();
