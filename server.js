@@ -4272,9 +4272,9 @@ function getPreviewCertificateRecord(state, courseId, memberId) {
   return {
     course,
     member,
-    code: buildDiplomaCode(course, member),
-    registryNumber: buildRegistryNumber(course, member),
-    preview: !(course.diplomaReady || []).includes(memberId)
+    code: "SIN VALIDEZ",
+    registryNumber: "VISTA PREVIA",
+    preview: true
   };
 }
 
@@ -9819,25 +9819,38 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
   if (diplomaMatch && req.method === "GET") {
     const courseId = diplomaMatch[1];
     const memberId = diplomaMatch[2];
-    const state = readState();
-    const account = requireAuthenticatedAccount(req, res, state);
-    if (!account) {
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    try {
+      const state = readState();
+      const account = getAuthenticatedAccount(req, state);
+      if (!account) {
+        res.writeHead(401, { "Content-Type": "text/html; charset=utf-8" });
+        res.end('<!doctype html><html lang="es"><meta charset="utf-8"><title>Vuelve a iniciar sesión</title><main><h1>Vuelve a iniciar sesión</h1><p>Inicia sesión en el portal para volver a abrir el certificado.</p><a href="/" target="_top">Ir al Portal Socios</a></main></html>');
+        return;
+      }
+      if (!canAccessDiplomaRecord(state, account, courseId, memberId)) {
+        res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("No tienes acceso a este diploma.");
+        return;
+      }
+      const html = renderDiplomaHtml(state, courseId, memberId);
+      if (!html) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Diploma no encontrado.");
+        return;
+      }
+
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(html);
+      return;
+    } catch (error) {
+      console.error("Error al mostrar el certificado guardado:", error);
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("No se pudo mostrar el certificado. Vuelve a abrir la vista previa.");
       return;
     }
-    if (!canAccessDiplomaRecord(state, account, courseId, memberId)) {
-      return sendJson(res, 403, { ok: false, error: "No tienes acceso a este diploma" });
-    }
-    const html = renderDiplomaHtml(state, courseId, memberId);
-
-    if (!html) {
-      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end("Diploma no encontrado");
-      return;
-    }
-
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(html);
-    return;
   }
 
   if (requestUrl.pathname === "/api/verify" && req.method === "GET") {
@@ -11436,7 +11449,7 @@ function buildCertificateModel(state, courseId, memberId) {
   }
 
   const { course, member, code, registryNumber } = diploma;
-  const verifyUrl = `/verify.html?code=${encodeURIComponent(code)}`;
+  const verifyUrl = diploma.preview ? "" : `/verify.html?code=${encodeURIComponent(code)}`;
   const city = course.certificateCity || state.settings?.certificateCity || "Madrid";
 
   return {
@@ -11501,7 +11514,7 @@ function buildCertificateDocx(state, courseId, memberId) {
 function renderDiplomaHtml(state, courseId, memberId) {
   const model = buildCertificateModel(state, courseId, memberId);
   if (!model) return null;
-  const verifyUrl = buildAbsoluteCampusUrl(model.verifyUrl);
+  const verifyUrl = model.verifyUrl ? buildAbsoluteCampusUrl(model.verifyUrl) : "";
   const pages = buildDiplomaLayout(model, state.settings || {}, verifyUrl);
   return renderDiplomaPagesHtml(pages, model.certificateTitle, escapeHtml);
 }
@@ -11509,7 +11522,7 @@ function renderDiplomaHtml(state, courseId, memberId) {
 function buildDiplomaPdf(state, courseId, memberId) {
   const model = buildCertificateModel(state, courseId, memberId);
   if (!model) return null;
-  const verifyUrl = buildAbsoluteCampusUrl(model.verifyUrl);
+  const verifyUrl = model.verifyUrl ? buildAbsoluteCampusUrl(model.verifyUrl) : "";
   const pages = buildDiplomaLayout(model, state.settings || {}, verifyUrl);
   return buildPdfDocument(buildDiplomaPdfStreams(pages, escapePdfText), {
     pageWidth: DIPLOMA_PAGE_WIDTH, pageHeight: DIPLOMA_PAGE_HEIGHT,
