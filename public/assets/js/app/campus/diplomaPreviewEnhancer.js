@@ -46,7 +46,6 @@ function trackCourseSelection(event) {
 function buildEditDraft() {
   const base = coursesById.get(selectedCourseId) || {};
   return {
-    ...base,
     id: clean(base.id || selectedCourseId || "preview-course"),
     title: value("editCourseTitle", base.title || "NOMBRE DEL CURSO"),
     startDate: value("editCourseStart", base.startDate),
@@ -56,7 +55,13 @@ function buildEditDraft() {
     certificateCity: value("editCourseCertificateCity", base.certificateCity),
     certificateContents: listFromTextarea("editCourseCertificateContents", base.certificateContents),
     objectives: listFromTextarea("editCourseObjectives", base.objectives),
-    modules: Array.isArray(base.modules) ? base.modules : []
+    modules: Array.isArray(base.modules) ? base.modules.map((module) => ({
+      title: module?.title,
+      goal: module?.goal,
+      lessons: Array.isArray(module?.lessons) ? module.lessons.map((lesson) => ({
+        title: lesson?.title || lesson?.takeaway || lesson?.instructions
+      })) : []
+    })) : []
   };
 }
 
