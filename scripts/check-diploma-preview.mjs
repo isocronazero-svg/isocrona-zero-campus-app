@@ -91,4 +91,81 @@ function createResponseRecorder() {
   assert.equal(state.issuedDiplomas, undefined, "La vista previa no debe emitir ni guardar diplomas");
 }
 
+
+
+{
+  const fields = new Map([
+    ["editCourseTitle", { value: "Tráfico y ascensores" }],
+    ["editCourseCertificateContents", { value: "Maniobras | Levantamiento; Ampliación" }]
+  ]);
+  let previewButton;
+  const editForm = {
+    dataset: {},
+    querySelector: () => ({ before: (button) => { previewButton = button; } })
+  };
+  const frame = {};
+  const dialog = { open: true, querySelector: () => frame };
+  const capturedBodies = [];
+  const fixture = {
+    role: "admin",
+    selectedCourseId: "course-test",
+    courses: [{
+      id: "course-test",
+      title: "Curso guardado",
+      attachments: [{ dataUrl: "x".repeat(300 * 1024) }],
+      modules: [{
+        title: "Práctica",
+        goal: "Objetivo",
+        lessons: [{
+          instructions: "Instrucciones de la maniobra",
+          texture: "x".repeat(300 * 1024)
+        }]
+      }]
+    }]
+  };
+  globalThis.document = {
+    getElementById: (id) => {
+      if (id === "courseEditForm") return editForm;
+      if (id === "diplomaPreviewDialog") return dialog;
+      return fields.get(id);
+    },
+    createElement: () => ({
+      dataset: {},
+      addEventListener(_event, handler) { this.click = handler; }
+    }),
+    addEventListener() {}
+  };
+  globalThis.window = {
+    location: { href: "https://preview.test/", origin: "https://preview.test" },
+    async fetch(input, init) {
+      if (input === "/api/state") return { ok: true, clone: () => ({ json: async () => fixture }) };
+      assert.equal(input, "/api/admin/diploma-preview");
+      capturedBodies.push(init.body);
+      return { ok: true, text: async () => "<html><head></head><body></body></html>" };
+    }
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (...args) => window.fetch(...args);
+  try {
+    const { installDiplomaPreviewEnhancer } = await import("../public/assets/js/app/campus/diplomaPreviewEnhancer.js");
+    installDiplomaPreviewEnhancer();
+    await window.fetch("/api/state");
+    await previewButton.click();
+    const { course } = JSON.parse(capturedBodies[0]);
+    assert.ok(Buffer.byteLength(capturedBodies[0]) < 256 * 1024);
+    assert.equal(course.title, "Tráfico y ascensores");
+    assert.deepEqual(buildSections(course), [{ title: "Maniobras", items: ["Levantamiento", "Ampliación"] }]);
+    fields.get("editCourseCertificateContents").value = "";
+    await previewButton.click();
+    assert.notEqual(capturedBodies[0], capturedBodies[1]);
+    assert.deepEqual(buildSections(JSON.parse(capturedBodies[1]).course), [
+      { title: "Práctica", items: ["Instrucciones de la maniobra"] }
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete globalThis.window;
+    delete globalThis.document;
+  }
+}
+
 console.log("Diploma preview V1.1: borrador, permisos, contenido y no-emision OK.");
