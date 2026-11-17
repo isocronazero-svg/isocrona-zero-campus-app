@@ -17,9 +17,6 @@ jobs:
     timeout-minutes: 25
     environment: v14-s3-restore
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.IZ_S3_READ_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.IZ_S3_READ_SECRET_ACCESS_KEY }}
-      BACKUP_AES_KEY_B64: ${{ secrets.IZ_BACKUP_AES_KEY_B64 }}
       S3_ENDPOINT: ${{ vars.IZ_S3_ENDPOINT }}
       S3_BUCKET: ${{ vars.IZ_S3_BUCKET }}
       S3_REGION: ${{ vars.IZ_S3_REGION }}
@@ -28,11 +25,17 @@ jobs:
       AWS_PAGER: ''
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify required configuration without exposing secrets
+      - name: Verify and restore the S3 backup in an ephemeral runner
         shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.IZ_S3_READ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.IZ_S3_READ_SECRET_ACCESS_KEY }}
+          BACKUP_AES_KEY_B64: ${{ secrets.IZ_BACKUP_AES_KEY_B64 }}
         run: |
           set -euo pipefail
           for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY BACKUP_AES_KEY_B64 S3_ENDPOINT S3_BUCKET S3_REGION; do
@@ -41,10 +44,6 @@ jobs:
           [[ "$S3_ENDPOINT" == https://* ]] || { echo "::error::HTTPS S3 endpoint required"; exit 1; }
           [[ "$BACKUP_PREFIX" =~ ^campus/[0-9]{8}T[0-9]{9}Z/$ ]] || { echo "::error::Invalid backup prefix"; exit 1; }
           echo "Configuration present; no secret values logged."
-      - name: Verify S3 recovery in an ephemeral runner
-        shell: bash
-        run: |
-          set -euo pipefail
           umask 077
           export AWS_DEFAULT_REGION="$S3_REGION"
           export AWS_MAX_ATTEMPTS=2
@@ -82,9 +81,10 @@ jobs:
             aws --endpoint-url "$S3_ENDPOINT" s3api get-object \
               --bucket "$S3_BUCKET" --key "$key" "$TMP_BACKUP/$name" >/dev/null
           done < "$TMP_BACKUP/keys.txt"
-          # Only verification statistics are emitted. Decrypted bytes remain in process memory.
-          node scripts/verify-s3-backup-offline.mjs "$TMP_BACKUP"
-          echo "Real encrypted S3 objects verified in isolated runner; no production write performed."
+          # The offline restore writes only inside the temporary directory handled by the trap.
+          env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY TMPDIR="$TMP_BACKUP" \
+            node scripts/verify-s3-backup-offline.mjs "$TMP_BACKUP" --restore
+          echo "Real S3 backup verified and restored in the isolated runner."
       - name: Note runner cleanup
         if: always()
         run: echo "Ephemeral GitHub runner is discarded after job; no backup artifacts uploaded."
