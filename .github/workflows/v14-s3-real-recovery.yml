@@ -1,0 +1,90 @@
+name: V1.4 manual real S3 recovery verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_prefix:
+        description: 'Exact S3 backup prefix (campus/YYYYMMDDTHHMMSSmmmZ/)'
+        required: true
+        default: 'campus/20261116T033130503Z/'
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-s3-restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: v14-s3-restore
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.IZ_S3_READ_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.IZ_S3_READ_SECRET_ACCESS_KEY }}
+      BACKUP_AES_KEY_B64: ${{ secrets.IZ_BACKUP_AES_KEY_B64 }}
+      S3_ENDPOINT: ${{ vars.IZ_S3_ENDPOINT }}
+      S3_BUCKET: ${{ vars.IZ_S3_BUCKET }}
+      S3_REGION: ${{ vars.IZ_S3_REGION }}
+      BACKUP_PREFIX: ${{ inputs.backup_prefix }}
+      AWS_EC2_METADATA_DISABLED: 'true'
+      AWS_PAGER: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify required configuration without exposing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY BACKUP_AES_KEY_B64 S3_ENDPOINT S3_BUCKET S3_REGION; do
+            if [[ -z "${!v:-}" ]]; then echo "::error::Missing required secret or variable: $v"; exit 1; fi
+          done
+          [[ "$S3_ENDPOINT" == https://* ]] || { echo "::error::HTTPS S3 endpoint required"; exit 1; }
+          [[ "$BACKUP_PREFIX" =~ ^campus/[0-9]{8}T[0-9]{9}Z/$ ]] || { echo "::error::Invalid backup prefix"; exit 1; }
+          echo "Configuration present; no secret values logged."
+      - name: Verify S3 recovery in an ephemeral runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          export AWS_DEFAULT_REGION="$S3_REGION"
+          export AWS_MAX_ATTEMPTS=2
+          export AWS_RETRY_MODE=standard
+          TMP_BACKUP="$(mktemp -d)"
+          trap 'rm -rf "$TMP_BACKUP"' EXIT
+          # Restrict all object reads to one validated prefix and expected encrypted filenames.
+          aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 \
+            --bucket "$S3_BUCKET" --prefix "$BACKUP_PREFIX" \
+            --output json > "$TMP_BACKUP/objects.json"
+          node - "$TMP_BACKUP/objects.json" "$BACKUP_PREFIX" > "$TMP_BACKUP/keys.txt" <<'NODE'
+          const fs = require('node:fs');
+          const [file,prefix] = process.argv.slice(2);
+          const listing = JSON.parse(fs.readFileSync(file,'utf8'));
+          if (listing.IsTruncated) throw Error('Listing truncated: refuse partial backup');
+          const objects = listing.Contents || [];
+          if (objects.length < 2 || objects.length > 1000) throw Error('Unexpected object count');
+          let bytes=0;
+          const names=new Set();
+          for(const o of objects){
+            const key=o.Key;
+            if(typeof key!=='string'||!key.startsWith(prefix)) throw Error('Object outside prefix');
+            const name=key.slice(prefix.length);
+            if(!/^(manifest\.json|state\.json|file-[0-9]{4}\.bin)\.aes256gcm$/.test(name)||names.has(name)) throw Error('Unexpected or duplicate object');
+            if(!Number.isSafeInteger(o.Size)||o.Size<34) throw Error('Invalid encrypted size');
+            bytes+=o.Size;
+            if(bytes>1024*1024*1024) throw Error('Backup exceeds 1 GiB safety limit');
+            names.add(name);
+            process.stdout.write(key+'\n');
+          }
+          if(!names.has('manifest.json.aes256gcm')||!names.has('state.json.aes256gcm')) throw Error('Required encrypted objects missing');
+          NODE
+          while IFS= read -r key; do
+            name="${key##*/}"
+            aws --endpoint-url "$S3_ENDPOINT" s3api get-object \
+              --bucket "$S3_BUCKET" --key "$key" "$TMP_BACKUP/$name" >/dev/null
+          done < "$TMP_BACKUP/keys.txt"
+          # Only verification statistics are emitted. Decrypted bytes remain in process memory.
+          node scripts/verify-s3-backup-offline.mjs "$TMP_BACKUP"
+          echo "Real encrypted S3 objects verified in isolated runner; no production write performed."
+      - name: Note runner cleanup
+        if: always()
+        run: echo "Ephemeral GitHub runner is discarded after job; no backup artifacts uploaded."
