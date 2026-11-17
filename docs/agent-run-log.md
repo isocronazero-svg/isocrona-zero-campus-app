@@ -24,3 +24,11 @@
 - Railway QA aislado: proyecto y servicio identificados, sin cambios ni despliegues realizados en esta ejecución.
 - Riesgo: reconciliación manual limitada a un archivo, pendiente de CI y pruebas sintéticas completas. Rollback: revertir commit 3936885 en la rama de desarrollo. Siguiente paso: resolver divergencia formal de PR #357 y validar autorización, PDF y contabilidad sin datos reales.
 - Producción y FIREZONE intactos. Consumo medido: no disponible.
+
+## 2026-11-17 · Cabecera de privacidad #347
+- Verificado `main` 9f60de0, PR #349 cerrada, #350 abierta; normas de gobernanza leídas en rama alternativa.
+- Cambio mínimo en `server/course-finance.js`: respuesta 404 `NO_ATTACHED` incorpora `Cache-Control: private, no-store`, igual que 422 y respuesta binaria. Commit 12f72a29fef2b316bdbe9da475fcb0f54fe9c660.
+- Comprobación estática del reemplazo exacto: OK. `npm run check:app`, pruebas funcionales, Safari: NOT RUN (sin checkout ejecutable). CI pendiente de evidencia; no lanzar trabajos redundantes.
+- QA aislado sigue desplegado desde `feature/course-certificates-member-price` en c9f43b5: no valida el cambio.
+- PR #357 sigue en borrador; no fusionar. Riesgo bajo, rollback: revertir commit 12f72a2. Siguiente paso: reconciliar rama divergente y ejecutar pruebas reales con datos sintéticos.
+- Sin cambios en producción, FIREZONE ni Railway. Consumo medido: no disponible.
