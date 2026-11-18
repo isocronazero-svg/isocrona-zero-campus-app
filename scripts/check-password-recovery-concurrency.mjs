@@ -6,11 +6,29 @@ import { createRequire } from "node:module";
 import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 // Real HTTP + SQLite/storage; barriers replace only external mail and PostgreSQL I/O.
 // No live service, credentials or production data are used.
 const require = createRequire(import.meta.url);
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), "iz-reset-concurrency-"));
+const workerTemp = process.env.IZ_RESET_CONCURRENCY_WORKER;
+const temp = workerTemp || fs.mkdtempSync(path.join(os.tmpdir(), "iz-reset-concurrency-"));
+// Storage/bootstrap own SQLite connections until process exit. Clean only after exit.
+if (!workerTemp) {
+  let status = 1;
+  try {
+    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url)], {
+      env: { ...process.env, IZ_RESET_CONCURRENCY_WORKER: temp },
+      stdio: "inherit", timeout: 120_000
+    });
+    if (child.error) throw child.error;
+    status = child.status ?? 1;
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+  process.exit(status);
+}
 const seedPath = path.join(temp, "seed.json");
 const account = { id: "reset-account", email: "reset@example.test", name: "Synthetic Reset", role: "member", password: "Original-1234" };
 fs.writeFileSync(seedPath, JSON.stringify({ accounts: [account], courses: [], associates: [], auditLog: [] }));
@@ -153,5 +171,4 @@ try {
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
   sqlite.close();
-  fs.rmSync(temp, { recursive: true, force: true });
 }

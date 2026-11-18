@@ -216,7 +216,7 @@ assert.doesNotMatch(preview, /DNI OK/);
 const join = readFileSync(new URL("../public/join.html", import.meta.url), "utf8");
 assert.match(join, /id="joinDni"[^>]*required/);
 
-const tracking = readFileSync(new URL("../public/application.js", import.meta.url), "utf8");
+const tracking = readFileSync(new URL("../public/application.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const trackingRenderStart = tracking.indexOf("function renderApplication() {");
 const trackingRenderEnd = tracking.indexOf("\nfunction getApplicantName", trackingRenderStart);
 for (const [status, needsDni, visible] of [

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-const bank=readFileSync(new URL('../public/question-bank.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace('void boot();','');
+const bank=readFileSync(new URL('../public/question-bank.js',import.meta.url),'utf8').replace(/\r\n/g,'\n').replace(/^import .*;\n/gm,'').replace('void boot();','');
 const makeNode=()=>({innerHTML:'',textContent:'',disabled:false,dataset:{},children:[],elements:[],listeners:{},classList:{add:()=>{}},addEventListener(event,handler){this.listeners[event]=handler;},replaceChildren(...children){this.children=children;},append(child){this.children.push(child);},reset(){this.wasReset=true;}});
 for(const realAdmin of [false,true]){
   const nodes=new Map(),calls=[];const get=id=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id);};

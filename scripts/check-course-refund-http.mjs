@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 
 const dir = mkdtempSync(join(tmpdir(), "iz-refund-http-"));
@@ -21,7 +22,7 @@ writeFileSync(seedPath, JSON.stringify({
   }], activityLog:[], auditLog:[], settings:{ automation:{autoRunOnSave:false,autoPromoteWaitlist:false}, agent:{enabled:false} }
 }));
 const child = spawn(process.execPath, ["server-entry.js"], {
-  cwd: new URL("..", import.meta.url).pathname,
+  cwd: fileURLToPath(new URL("..", import.meta.url)),
   env: { ...process.env, NODE_ENV:"production", HOST:"127.0.0.1", PORT:String(port),
     IZ_BASE_URL:base, IZ_DATA_DIR:join(dir,"data"), IZ_DEFAULT_STATE_PATH:seedPath,
     IZ_EMAIL_ENABLED:"false", IZ_QA_ISOLATED:"true",

@@ -4,8 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "iz-password-reset-"));
 const dataDir = path.join(tempDir, "data");
 const seedPath = path.join(tempDir, "seed.json");
@@ -254,7 +255,8 @@ try {
     .get((await import("node:crypto")).createHash("sha256").update(token3).digest("hex"));
   assert.ok(row?.tokenHash, "El token debe persistirse solo como hash");
   assert.notEqual(row.tokenHash, token3, "Nunca se guarda el token en claro");
-  db.prepare("UPDATE password_reset_tokens SET expires_at = ? WHERE token_hash = ?").run(Date.now() - 1, row.tokenHash);
+  // Keep expiry unambiguously in the past across process clock resolution on Windows.
+  db.prepare("UPDATE password_reset_tokens SET expires_at = ? WHERE token_hash = ?").run(Date.now() - 60_000, row.tokenHash);
   db.close();
 
   const expired = await request(`/api/password-recovery/validate?token=${token3}`);
