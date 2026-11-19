@@ -361,6 +361,41 @@ for (const { name, browserName, options } of profiles) {
   });
 }
 
+test("preferencias personales dentro del perfil, sin acceso lateral ni eventos duplicados", async ({ browser }) => {
+  const campus = await createCampus();
+  let context;
+  try {
+    const page = await openAs(browser, campus, "limited");
+    context = page.context();
+    await expect(page.locator("aside #v13PreferencesOpen")).toHaveCount(0);
+    const button = page.locator("#mainPanel #v13PreferencesOpen");
+    await expect(button).toBeVisible();
+    let reads = 0;
+    page.on("request", request => {
+      if (request.url().endsWith("/api/v1.3/preferences") && request.method() === "GET") reads++;
+    });
+    for (let i = 0; i < 2; i++) {
+      await button.click();
+      await expect(page.locator('#v13PreferencesForm button[type="submit"]')).toBeEnabled();
+      await page.locator("#v13PreferencesClose").click();
+    }
+    expect(reads).toBe(2);
+    await button.click();
+    await expect(page.locator('#v13PreferencesForm button[type="submit"]')).toBeEnabled();
+    await page.locator("#v13ShirtSize").selectOption("L");
+    await page.locator("#v13DiplomaLanguage").selectOption("es-va");
+    await page.locator('#v13PreferencesForm button[type="submit"]').click();
+    await expect(page.locator("#v13PreferencesStatus")).toContainText("guardadas correctamente");
+    await page.reload();
+    await page.locator("#mainPanel #v13PreferencesOpen").click();
+    await expect(page.locator("#v13ShirtSize")).toHaveValue("L");
+    await expect(page.locator("#v13DiplomaLanguage")).toHaveValue("es-va");
+  } finally {
+    await context?.close();
+    await campus.close();
+  }
+});
+
 test("la navegación aplica los accesos de socio, externo, cuota pendiente y administración", async ({ browser }) => {
   const campus = await createCampus();
   const contexts = [];

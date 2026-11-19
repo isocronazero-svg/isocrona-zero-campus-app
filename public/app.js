@@ -7227,6 +7227,7 @@ function renderJoinView() {
               <p class="muted"><strong>Participante:</strong> ${escapeHtml(member?.name || session?.name || "Sin nombre")}</p>
               <p class="muted"><strong>Email:</strong> ${escapeHtml(member?.email || session?.email || "-")}</p>
               <p class="muted"><strong>Tipo:</strong> Acceso solo campus para cursos abiertos.</p>
+              ${!isMemberPreviewSession() ? '<button class="ghost-button" type="button" id="v13PreferencesOpen">Camiseta e idioma del diploma</button>' : ""}
             </div>
             <div class="mail-card">
               <h4>Que ganas al hacerte socio</h4>
@@ -7257,6 +7258,7 @@ function renderJoinView() {
             <p class="eyebrow">Estado de socio</p>
             <h3>Mi perfil</h3>
             <p class="muted">Tus datos, cuotas y formación, en un mismo lugar.</p>
+            ${!previewOnly ? '<button class="ghost-button" type="button" id="v13PreferencesOpen">Camiseta e idioma del diploma</button>' : ""}
           </div>
         </div>
 

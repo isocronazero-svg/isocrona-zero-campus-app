@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  const open = document.getElementById("v13PreferencesOpen");
+  const profilePanel = document.getElementById("mainPanel");
   const exportsPanel = document.getElementById("v13AdminExports");
   const roleSwitcher = document.getElementById("roleSwitcher");
   let isAdmin = false;
@@ -48,7 +48,7 @@
   const cut = document.getElementById("v13ShirtCut");
   const language = document.getElementById("v13DiplomaLanguage");
   const confirmed = document.getElementById("v13ShirtConfirmed");
-  if (!open || !dialog || !form) return;
+  if (!profilePanel || !dialog || !form) return;
   // A changed size/cut requires a fresh, explicit confirmation on a later save.
   size.addEventListener("change", () => { confirmed.checked = false; });
   cut.addEventListener("change", () => { confirmed.checked = false; });
@@ -64,7 +64,8 @@
     if (!response.ok || !data.ok) throw new Error(data.error || "No se ha podido completar la operación.");
     return data.preferences || {};
   }
-  open.addEventListener("click", async () => {
+  profilePanel.addEventListener("click", async event => {
+    if (!event.target.closest("#v13PreferencesOpen")) return;
     const requestVersion = ++preferencesRequestVersion;
     preferencesLoaded = false;
     form.querySelector('button[type="submit"]').disabled = true;
