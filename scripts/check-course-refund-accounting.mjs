@@ -152,8 +152,11 @@ assert.match(clientSource, /const certificateSubmission = getCourseEnrollmentSub
 assert.match(clientSource, /submission\.memberId === memberId && !\["cancelled", "rejected"\]\.includes\(submission\.status\)/,
   "Enrollment lookup must exclude cancelled and rejected history");
 
-assert.match(clientSource, /data-status="rejected">Rechazar<\/button>\`\}/,
-  "Admin review actions must be inside the active-enrollment branch");
+const groupedActions = clientSource.slice(clientSource.indexOf('<details class="course-ledger-risk-actions">'));
+assert.ok(groupedActions.startsWith('<details class="course-ledger-risk-actions">') &&
+  groupedActions.indexOf('data-status="rejected">Rechazar</button>') > 0 &&
+  groupedActions.indexOf('data-status="rejected">Rechazar</button>') < groupedActions.indexOf('</details>'),
+  "Admin rejection must remain inside the active-enrollment branch and grouped actions");
 assert.match(serverSource, /const authenticated = requireAdminAccount\(req, res, authState\)/,
   "Cancellation must authenticate before parsing the request");
 assert.match(serverSource, /const account = requireAdminAccount\(req, res, state\)/,
@@ -162,4 +165,24 @@ assert.match(serverSource, /refundAmount > paid/,
   "Cancellation must reject refunds larger than the validated payment");
 assert.match(serverSource, /submission\.refund\?\.status !== "pending"/,
   "Refund confirmation must reject duplicate completed refunds");
+// V1.4 release candidate: mobile presentation must not remove existing actions.
+assert.match(clientSource, /class="table-card course-ledger-table" role="region" aria-label="Inscripciones, pagos, bajas y devoluciones" tabindex="0"/,
+  "Enrollment ledger must expose an accessible mobile region");
+assert.match(clientSource, /<details class="course-ledger-risk-actions">/,
+  "Destructive enrollment actions must be grouped, not removed");
+for (const action of ["cancel-course-enrollment", "confirm-course-refund", "set-enrollment-submission-status"]) {
+  assert.ok(clientSource.includes('data-action="' + action + '"'),
+    "Existing admin action must remain available: " + action);
+}
+assert.match(clientSource, /await requestCourseCancellationDetails\(\)/,
+  "Mobile cancellation form must be connected to the existing action");
+assert.match(clientSource, /body = details;/,
+  "Cancellation details must be sent through the existing API");
+const stylesSource = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+assert.match(stylesSource, /\.course-ledger-table tbody tr \{ border: 1px solid var\(--line\)/,
+  "Mobile ledger must show a card for each enrollment");
+for (const heading of ["Alumno", "Estado", "Importe", "Método", "Justificante", "Nota", "Acciones"]) {
+  assert.ok(stylesSource.includes('content: "' + heading + '";'),
+    "Mobile ledger must preserve column: " + heading);
+}
 console.log("Course refund accounting OK");

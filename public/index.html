@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Portal de socios | Isocrona Zero</title>
-    <link rel="stylesheet" href="./styles.css?v=20260928" />
-    <link rel="stylesheet" href="./assets/css/portal-ui.css?v=20260928" />
+    <link rel="stylesheet" href="./styles.css?v=20261116-v14" />
+    <link rel="stylesheet" href="./assets/css/portal-ui.css?v=20261116-v14" />
   </head>
   <body class="portal-ui">
     <div class="login-screen" id="loginScreen">
@@ -199,7 +199,6 @@
           <p class="status-note" id="sessionStatus">Sin sesion activa</p>
           <p class="status-note" id="syncStatus">Cargando datos...</p>
           <div class="sidebar-toolbar">
-            <button class="ghost-button" type="button" id="v13PreferencesOpen">Camiseta e idioma del diploma</button>
             <div id="v13AdminExports" hidden>
               <p class="eyebrow">Listados V1.3</p>
               <a class="ghost-button button-link" href="/api/v1.3/export?type=shirts">Excel camisetas</a>
@@ -222,6 +221,7 @@
       </aside>
 
       <main class="content" id="content" tabindex="-1">
+        <nav class="member-quick-nav" id="memberQuickNav" aria-label="Accesos rápidos del socio" hidden></nav>
         <section id="portalSponsors" class="sponsor-strip" aria-label="Patrocinadores" hidden></section>
         <header class="hero" id="hero">
           <div>

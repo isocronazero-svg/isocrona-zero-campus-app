@@ -275,6 +275,7 @@ const ASSOCIATE_ONBOARDING_LABELS = {
 const ADMIN_ONLY_TOP_LEVEL_VIEWS = new Set(["associates", "validations", "members", "reports", "automation", "activity"]);
 
 const navElement = document.getElementById("nav");
+const memberQuickNav = document.getElementById("memberQuickNav");
 const metricsElement = document.getElementById("metrics");
 const mainPanel = document.getElementById("mainPanel");
 const sidePanel = document.getElementById("sidePanel");
@@ -802,8 +803,7 @@ document.addEventListener("click", async (event) => {
       expandedNavViews.add("test");
     }
     const requestedAnchorId = String(actionTarget.dataset.anchor || "").trim();
-    const normalizedRequestedView =
-      requestedView === "overview" && shouldUseMemberProfileAsPrimaryView() ? "join" : requestedView;
+    const normalizedRequestedView = requestedView;
     const effectiveRequestedView = resolveCampusAliasView(normalizedRequestedView);
     const navItem = navItems.find((item) => item.id === effectiveRequestedView);
 
@@ -1721,24 +1721,67 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
+function requestCourseCancellationDetails() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "course-cancellation-overlay";
+    overlay.setAttribute("role", "presentation");
+    const dialog = document.createElement("section");
+    dialog.className = "course-cancellation-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-labelledby", "course-cancellation-title");
+    dialog.innerHTML = `<h2 id="course-cancellation-title">Dar de baja al alumno</h2>
+      <p>Se liberará la plaza y se conservará el historial de inscripción y pago.</p>
+      <form class="course-cancellation-form">
+        <label>Motivo de la baja <textarea name="reason" required maxlength="1000" rows="3"></textarea></label>
+        <label>Importe de devolución (€) <input name="amount" type="number" min="0" step="0.01" value="0" required inputmode="decimal"></label>
+        <p class="course-cancellation-note">Si hay devolución, quedará pendiente hasta que se confirme su pago fuera de la aplicación. No se realizan transferencias automáticamente.</p>
+        <div class="course-cancellation-buttons"><button type="button" data-cancel>Cancelar</button><button type="submit">Confirmar baja</button></div>
+      </form>`;
+    overlay.append(dialog);
+    document.body.append(overlay);
+    const previousFocus = document.activeElement;
+    const close = (value) => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      overlay.remove();
+      if (previousFocus && previousFocus.isConnected) previousFocus.focus();
+      resolve(value);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); close(null); }
+      if (event.key === "Tab") {
+        const controls = [...dialog.querySelectorAll("textarea, input, button")];
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    dialog.querySelector("[data-cancel]").addEventListener("click", () => close(null));
+    overlay.addEventListener("click", (event) => { if (event.target === overlay) close(null); });
+    dialog.querySelector("form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const reason = form.elements.reason.value.trim();
+      const refundAmount = Number(form.elements.amount.value);
+      if (!reason || !Number.isFinite(refundAmount) || refundAmount < 0) return;
+      close({ reason, refundAmount });
+    });
+    dialog.querySelector("textarea").focus();
+  });
+}
+
   if ((action === "cancel-course-enrollment" || action === "confirm-course-refund") && isAdminView() && courseId) {
     const submissionId = actionTarget.dataset.submissionId;
     if (!submissionId) return;
     const cancelling = action === "cancel-course-enrollment";
     let body = {};
     if (cancelling) {
-      const reason = window.prompt("Motivo de la baja del alumno:");
-      if (reason === null) return;
-      if (!reason.trim()) return showToast("Es obligatorio indicar el motivo de la baja.", "error");
-      const amountText = window.prompt("Importe de devolución en euros (0 si no se devuelve nada):", "0");
-      if (amountText === null) return;
-      const refundAmount = Number(amountText.trim().replace(",", "."));
-      if (!amountText.trim() || !Number.isFinite(refundAmount) || refundAmount < 0) {
-        return showToast("Indica un importe de devolución válido.", "error");
-      }
-      if (!window.confirm(`¿Dar de baja al alumno y liberar su plaza? Devolución pendiente: ${refundAmount.toFixed(2)} €.`)) return;
-      body = { reason: reason.trim(), refundAmount };
-    } else if (!window.confirm("¿Confirmas que la asociación YA ha devuelto el dinero? Se descontará del balance.")) {
+      const details = await requestCourseCancellationDetails();
+      if (!details) return;
+      body = details;
+    } else if (!window.confirm("¿Confirmas que el dinero YA se ha devuelto por fuera de la aplicación? Esta acción solo registra la devolución como realizada y la descuenta del saldo neto de tesorería. No envía dinero ni realiza transferencias.")) {
       return;
     }
     try {
@@ -6223,6 +6266,18 @@ function renderNav() {
     return state.activeView === item.id;
   };
 
+  // Keep the full sidebar intact; quick access is a second, compact route to existing views.
+  if (memberQuickNav) {
+    const quickItems = !isAdminView() && session && !session.mustChangePassword
+      ? effectiveNavItems.filter((item) => ["overview", "campus", "test", "diplomas"].includes(item.id) && isViewAllowed(item.id))
+      : [];
+    memberQuickNav.hidden = quickItems.length === 0;
+    memberQuickNav.innerHTML = quickItems.map((item) => {
+      const active = isNavItemActive(item);
+      return `<button class="ghost-button${active ? " active" : ""}" type="button" data-action="${item.action || "nav"}" data-view="${item.view || item.id}"${item.mode ? ` data-mode="${item.mode}"` : ""}${active ? ' aria-current="page"' : ""}>${escapeHtml(item.label)}</button>`;
+    }).join("");
+  }
+
   navElement.innerHTML = effectiveNavItems
     .filter((item) => isViewAllowed(item.id))
     .filter((item) => !(memberPrimaryProfile && isAdminView() && item.id === "overview"))
@@ -7172,6 +7227,7 @@ function renderJoinView() {
               <p class="muted"><strong>Participante:</strong> ${escapeHtml(member?.name || session?.name || "Sin nombre")}</p>
               <p class="muted"><strong>Email:</strong> ${escapeHtml(member?.email || session?.email || "-")}</p>
               <p class="muted"><strong>Tipo:</strong> Acceso solo campus para cursos abiertos.</p>
+              ${!isMemberPreviewSession() ? '<button class="ghost-button" type="button" id="v13PreferencesOpen">Camiseta e idioma del diploma</button>' : ""}
             </div>
             <div class="mail-card">
               <h4>Que ganas al hacerte socio</h4>
@@ -7202,6 +7258,7 @@ function renderJoinView() {
             <p class="eyebrow">Estado de socio</p>
             <h3>Mi perfil</h3>
             <p class="muted">Tus datos, cuotas y formación, en un mismo lugar.</p>
+            ${!previewOnly ? '<button class="ghost-button" type="button" id="v13PreferencesOpen">Camiseta e idioma del diploma</button>' : ""}
           </div>
         </div>
 
@@ -14673,11 +14730,11 @@ function renderCourseWorkbench(course) {
             ${
               enrollmentSubmissions.length
                 ? `
-                  <div class="table-card">
+                  <div class="table-card course-ledger-table" role="region" aria-label="Inscripciones, pagos, bajas y devoluciones" tabindex="0">
                     <table>
                       <thead>
                         <tr>
-                          <th>Alumno</th>
+                          <th scope="col">Alumno</th>
                           <th>Estado</th>
                           <th>Importe</th>
                           <th>Metodo</th>
@@ -14706,10 +14763,15 @@ function renderCourseWorkbench(course) {
                                         : submission.refund?.status === "completed"
                                           ? `<span class="small-chip">Devueltos ${Number(submission.refund.amount).toFixed(2)} €</span>`
                                           : ""}`
-                                      : submission.status === "rejected" ? `<span class="small-chip">Solicitud rechazada</span>` : `<button class="mini-button" type="button" data-action="cancel-course-enrollment" data-course-id="${course.id}" data-submission-id="${submission.id}">Dar de baja</button>
-                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Validar</button>
+                                      : submission.status === "rejected" ? `<span class="small-chip">Solicitud rechazada</span>` : `<button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="confirmed">Validar</button>
                                     <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="pending-proof">Pedir justificante</button>
-                                    <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>`}
+                                    <details class="course-ledger-risk-actions">
+                                      <summary>Otras acciones</summary>
+                                      <div class="chip-row">
+                                        <button class="mini-button" type="button" data-action="cancel-course-enrollment" data-course-id="${course.id}" data-submission-id="${submission.id}">Dar de baja</button>
+                                        <button class="mini-button" type="button" data-action="set-enrollment-submission-status" data-course-id="${course.id}" data-submission-id="${submission.id}" data-status="rejected">Rechazar</button>
+                                      </div>
+                                    </details>`}
                                   </div>
                                 </td>
                               </tr>

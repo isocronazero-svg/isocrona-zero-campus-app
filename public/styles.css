@@ -5313,3 +5313,70 @@ input[type="file"][name="attachments"] { width: 100%; min-width: 0; box-sizing: 
 .journey-history-row details { grid-column: 1 / -1; overflow-wrap: anywhere; }
 .journey-history-count { padding: 8px 12px; background: var(--accent-soft); color: var(--accent-strong); border-radius: 10px; font-weight: 650; }
 @media(max-width:480px) { .journey-history-row { grid-template-columns: minmax(0,1fr); } .journey-history-count { justify-self: start; } }
+
+/* V1.4: course administration actions remain visible without horizontal scrolling on phones. */
+.course-admin-quick-access { margin: 12px 0; }
+.course-admin-quick-access > button { max-width: 100%; white-space: normal; text-align: center; }
+@media (max-width: 600px) {
+  .course-admin-quick-access > button { display: block; width: 100%; min-height: 48px; }
+  .workbench-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .workbench-tabs .ghost-button,
+  .workbench-tabs .primary-button { min-width: 0; width: 100%; white-space: normal; }
+}
+
+/* V1.4: show each enrollment as a readable card on narrow screens.
+   Preserve all seven ledger columns and existing admin action handlers. */
+@media (max-width: 600px) {
+  .course-ledger-scroll-hint { display: none; }
+  .course-ledger-table { overflow: visible; }
+  .course-ledger-table table,
+  .course-ledger-table tbody,
+  .course-ledger-table tr,
+  .course-ledger-table td { display: block; width: 100%; min-width: 0; }
+  .course-ledger-table thead { display: none; }
+  .course-ledger-table tbody { display: grid; gap: 12px; }
+  .course-ledger-table tbody tr { border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .course-ledger-table tbody td { border: 0; padding: 8px 0; overflow-wrap: anywhere; }
+  .course-ledger-table tbody td + td { border-top: 1px solid var(--line); }
+  .course-ledger-table tbody td::before { display: block; font-size: .78rem; font-weight: 700; margin-bottom: 4px; opacity: .75; }
+  .course-ledger-table tbody td:nth-child(1)::before { content: "Alumno"; }
+  .course-ledger-table tbody td:nth-child(2)::before { content: "Estado"; }
+  .course-ledger-table tbody td:nth-child(3)::before { content: "Importe"; }
+  .course-ledger-table tbody td:nth-child(4)::before { content: "Método"; }
+  .course-ledger-table tbody td:nth-child(5)::before { content: "Justificante"; }
+  .course-ledger-table tbody td:nth-child(6)::before { content: "Nota"; }
+  .course-ledger-table tbody td:nth-child(7)::before { content: "Acciones"; }
+  .course-ledger-table tbody td .chip-row { flex-wrap: wrap; }
+}
+
+/* V1.4: clearly separate routine course actions from cancellations and rejections. */
+.course-ledger-risk-actions { width: 100%; margin-top: 8px; }
+.course-ledger-risk-actions > summary {
+  cursor: pointer;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-weight: 600;
+  width: fit-content;
+  max-width: 100%;
+}
+.course-ledger-risk-actions[open] > summary { margin-bottom: 10px; }
+.course-ledger-risk-actions > .chip-row { padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+@media (max-width: 600px) {
+  .course-ledger-risk-actions > summary { width: 100%; min-height: 44px; }
+  .course-ledger-risk-actions > .chip-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .course-ledger-risk-actions > .chip-row > button { width: 100%; min-height: 44px; white-space: normal; }
+}
+
+
+/* V1.4: mobile-first cancellation form, isolated from production accounting. */
+.course-cancellation-overlay { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .55); }
+.course-cancellation-dialog { width: min(100%, 480px); max-height: min(90dvh, 720px); overflow-y: auto; border-radius: 16px; padding: 24px; background: var(--surface, #fff); color: var(--text, #17212b); box-shadow: 0 18px 70px rgba(0,0,0,.25); }
+.course-cancellation-dialog h2 { margin-top: 0; }
+.course-cancellation-form { display: grid; gap: 16px; }
+.course-cancellation-form label { display: grid; gap: 6px; font-weight: 600; }
+.course-cancellation-form textarea, .course-cancellation-form input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px; font: inherit; border: 1px solid #9aa6b2; border-radius: 8px; background: #fff; color: #17212b; }
+.course-cancellation-note { font-size: .9rem; line-height: 1.5; }
+.course-cancellation-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.course-cancellation-buttons button { min-height: 44px; padding: 10px 16px; }
+@media (max-width: 480px) { .course-cancellation-dialog { padding: 18px; } .course-cancellation-buttons button { flex: 1 1 120px; } }

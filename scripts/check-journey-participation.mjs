@@ -74,4 +74,9 @@ try {
  assert.equal((await request('/api/courses/course-custom',teacher,'PATCH',{journeyTypeId:traffic.id})).status,403);
  const legacy=(await (await request('/api/state',admin)).json());for(const c of legacy.courses){delete c.journeyTypeId;delete c.journeyTypeLabel;}assert.equal((await request('/api/state',admin,'POST',legacy)).status,200);const retained=(await (await request('/api/state',admin)).json()).courses.find(c=>c.id==='course-custom');assert.equal(retained.journeyTypeId,custom.journeyTypeId);
  console.log('Journey report HTTP checks passed: admin/global, assigned instructor/context, member/foreign denial, JSON/CSV parity, custom types and legacy snapshot preservation.');
-} finally {if(server)server.kill();rmSync(root,{recursive:true,force:true});}
+} finally {
+ if(server && server.exitCode === null && server.signalCode === null) {
+  await new Promise(resolve => { server.once('close',resolve); server.kill(); });
+ }
+ rmSync(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+}

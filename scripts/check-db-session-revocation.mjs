@@ -10,7 +10,22 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const restarting = process.argv[2] === "--restart";
-const temp = restarting ? process.argv[3] : fs.mkdtempSync(path.join(os.tmpdir(), "iz-db-revocation-"));
+const worker = process.argv[2] === "--worker";
+const temp = restarting || worker ? process.argv[3] : fs.mkdtempSync(path.join(os.tmpdir(), "iz-db-revocation-"));
+// Release process-owned SQLite connections before removing the isolated test directory.
+if (!restarting && !worker) {
+  let status = 1;
+  try {
+    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), "--worker", temp], {
+      cwd: root, env: process.env, stdio: "inherit", timeout: 120_000
+    });
+    if (child.error) throw child.error;
+    status = child.status ?? 1;
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+  process.exit(status);
+}
 const rowFile = path.join(temp, "user.json");
 const proofFile = path.join(temp, "proof.json");
 const secret = restarting ? JSON.parse(fs.readFileSync(proofFile)).secret : crypto.randomBytes(32).toString("hex");
@@ -121,5 +136,4 @@ try {
   }
 } finally {
   releaseProfile?.();
-  if (!restarting) fs.rmSync(temp, { recursive: true, force: true });
 }
