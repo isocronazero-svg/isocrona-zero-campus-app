@@ -432,11 +432,45 @@ function ensureWhatsappAdminButton() {
   nav.append(button);
 }
 
+// Local dismissal is a temporary UX preference; server sync will be added before release.
+function whatsappDismissalKey() {
+  const associateId = clean(ownAssociate()?.id);
+  return associateId ? `isocrona:whatsapp-dismissed:${associateId}` : "";
+}
+
+function whatsappDismissed() {
+  const key = whatsappDismissalKey();
+  try { return Boolean(key && window.localStorage.getItem(key) === "1"); }
+  catch { return false; }
+}
+
 function ensureWhatsappMemberCard() {
   const existing = document.getElementById("whatsappMemberCard");
+  const profileLink = document.getElementById("whatsappMemberProfileLink");
   const url = whatsappUrl();
   const isMember = latestState?.role === "member" && Boolean(ownAssociate());
   if (!url || !isMember) {
+    existing?.remove();
+    profileLink?.remove();
+    return;
+  }
+
+  // Always retain access from the member's profile even after dismissing the banner.
+  const profile = document.getElementById("joinSectionProfileStatus");
+  if (profile && !profileLink) {
+    const link = document.createElement("a");
+    link.id = "whatsappMemberProfileLink";
+    link.className = "ghost-button button-link";
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Canal de WhatsApp de la asociación";
+    profile.prepend(link);
+  } else if (profileLink) {
+    profileLink.href = url;
+  }
+
+  if (whatsappDismissed()) {
     existing?.remove();
     return;
   }
@@ -449,7 +483,14 @@ function ensureWhatsappMemberCard() {
   const card = document.createElement("div");
   card.id = "whatsappMemberCard";
   card.className = "whatsapp-member-card";
-  card.innerHTML = `<strong>Canal de WhatsApp de Isócrona Zero</strong><p class="muted">Únete directamente para recibir las comunicaciones de la asociación.</p><a class="primary-button button-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Unirme al canal de WhatsApp</a>`;
+  card.innerHTML = `<strong>Canal de WhatsApp de Isócrona Zero</strong><p class="muted">Recibe las comunicaciones de la asociación.</p><div class="chip-row"><a class="primary-button button-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Unirme al canal</a><button class="ghost-button" type="button" data-whatsapp-dismiss>Ya me he unido / No volver a mostrar</button></div>`;
+  card.querySelector("[data-whatsapp-dismiss]")?.addEventListener("click", () => {
+    const key = whatsappDismissalKey();
+    if (!key) return;
+    try { window.localStorage.setItem(key, "1"); }
+    catch { return; }
+    card.remove();
+  });
   hero.after(card);
 }
 
