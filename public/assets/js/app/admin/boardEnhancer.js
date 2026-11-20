@@ -448,8 +448,8 @@ function ensureWhatsappMemberCard() {
   }
 
   // Always retain access from the member's profile even after dismissing the banner.
-  const profile = document.getElementById("joinSectionProfileStatus");
-  if (profile && !profileLink) {
+  const profile = document.querySelector("#mainPanel .panel-header");
+  if (profile && latestState?.activeView === "join" && !profileLink) {
     const link = document.createElement("a");
     link.id = "whatsappMemberProfileLink";
     link.className = "ghost-button button-link";
