@@ -246,6 +246,25 @@ function createBoardV11Handler(deps) {
       return true;
     }
 
+    if (url.pathname === "/api/v1.1/whatsapp-invitation/dismiss" && req.method === "POST") {
+      try {
+        state = deps.readState();
+        account = deps.requireAuthenticatedAccount(req, res, state);
+        if (!account) return true;
+        const associate = resolveAccountAssociate(state, account);
+        if (!associate || account.role !== "member") {
+          deps.sendJson(res, 403, { ok: false, error: "Solo socios con ficha vinculada" });
+          return true;
+        }
+        associate.whatsappInvitationDismissedAt = associate.whatsappInvitationDismissedAt || new Date().toISOString();
+        deps.writeState(state);
+        deps.sendJson(res, 200, { ok: true, dismissedAt: associate.whatsappInvitationDismissedAt });
+      } catch (error) {
+        deps.sendJsonError(res, error, "No se pudo guardar la preferencia");
+      }
+      return true;
+    }
+
     if (url.pathname === "/api/v1.1/whatsapp-channel" && req.method === "PUT") {
       if (account.role !== "admin") {
         deps.sendJson(res, 403, { ok: false, error: "Solo administración puede cambiar el canal de WhatsApp" });
