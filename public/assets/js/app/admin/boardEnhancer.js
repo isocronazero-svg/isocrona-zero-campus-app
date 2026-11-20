@@ -432,16 +432,8 @@ function ensureWhatsappAdminButton() {
   nav.append(button);
 }
 
-// Local dismissal is a temporary UX preference; server sync will be added before release.
-function whatsappDismissalKey() {
-  const associateId = clean(ownAssociate()?.id);
-  return associateId ? `isocrona:whatsapp-dismissed:${associateId}` : "";
-}
-
 function whatsappDismissed() {
-  const key = whatsappDismissalKey();
-  try { return Boolean(key && window.localStorage.getItem(key) === "1"); }
-  catch { return false; }
+  return Boolean(ownAssociate()?.whatsappInvitationDismissedAt);
 }
 
 function ensureWhatsappMemberCard() {
@@ -484,12 +476,18 @@ function ensureWhatsappMemberCard() {
   card.id = "whatsappMemberCard";
   card.className = "whatsapp-member-card";
   card.innerHTML = `<strong>Canal de WhatsApp de Isócrona Zero</strong><p class="muted">Recibe las comunicaciones de la asociación.</p><div class="chip-row"><a class="primary-button button-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Unirme al canal</a><button class="ghost-button" type="button" data-whatsapp-dismiss>Ya me he unido / No volver a mostrar</button></div>`;
-  card.querySelector("[data-whatsapp-dismiss]")?.addEventListener("click", () => {
-    const key = whatsappDismissalKey();
-    if (!key) return;
-    try { window.localStorage.setItem(key, "1"); }
-    catch { return; }
-    card.remove();
+  card.querySelector("[data-whatsapp-dismiss]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const result = await api("/api/v1.1/whatsapp-invitation/dismiss", { method: "POST" });
+      const associate = ownAssociate();
+      if (associate) associate.whatsappInvitationDismissedAt = result.dismissedAt;
+      card.remove();
+    } catch (error) {
+      button.disabled = false;
+      window.alert(error.message || "No se pudo guardar la preferencia");
+    }
   });
   hero.after(card);
 }
