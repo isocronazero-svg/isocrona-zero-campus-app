@@ -246,7 +246,7 @@ function createBoardV11Handler(deps) {
       return true;
     }
 
-    const manualNoticeSeenMatch = url.pathname.match(/^\\/api\\/v1\\.1\\/manual-notices\\/([^/]+)\\/seen$/);
+    const manualNoticeSeenMatch = url.pathname.match(/^\/api\/v1\.1\/manual-notices\/([^/]+)\/seen$/);
     if (manualNoticeSeenMatch && req.method === "POST") {
       try {
         state = deps.readState();
