@@ -1115,6 +1115,29 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
+    if (action === "mark-manual-notice-seen") {
+      if (isMemberPreviewSession()) {
+        showToast("La vista previa no modifica avisos reales.", "warning");
+        return;
+      }
+      const noticeId = String(actionTarget.dataset.noticeId || "").trim();
+      if (!noticeId) return;
+      actionTarget.disabled = true;
+      try {
+        const response = await fetch(`/api/v1.1/manual-notices/${encodeURIComponent(noticeId)}/seen`, { method: "POST" });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "No se pudo marcar el aviso como visto");
+        await refreshState();
+        applySessionToState();
+        render();
+        showToast("Aviso marcado como visto", "success");
+      } catch (error) {
+        actionTarget.disabled = false;
+        showToast(error.message || "No se pudo guardar el aviso", "error");
+      }
+      return;
+    }
+
     if (action === "mark-member-notification-read") {
       if (isMemberPreviewSession()) {
         showToast("La vista previa no marca avisos reales.", "warning");
@@ -20348,7 +20371,8 @@ function getMemberCampusAlerts(memberId) {
       course.waitingIds.includes(memberId) ||
       course.diplomaReady.includes(memberId)
   );
-  const manualNotices = getVisibleManualCampusNotices(memberId, ownCourses);
+  const manualNotices = getVisibleManualCampusNotices(memberId, ownCourses)
+    .filter(notice => !(notice.seenByMemberIds || []).includes(memberId));
 
   manualNotices.forEach((notice, index) => {
     alerts.push({
@@ -20649,6 +20673,7 @@ function renderMemberAlerts(memberId, options = {}) {
                       ${alert.notice ? renderNoticeAttachments(alert.notice) + renderNoticeLinks(alert.notice, "campus") : ""}
                       <div class="chip-row">
                         ${renderMemberAlertAction(alert)}
+                        ${alert.notice ? `<button class="mini-button" type="button" data-action="mark-manual-notice-seen" data-notice-id="${escapeHtml(alert.notice.id)}">Marcar como visto</button>` : ""}
                       </div>
                     </div>
                   `
