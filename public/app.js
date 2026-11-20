@@ -7011,8 +7011,10 @@ function getUnreadMemberNotifications(memberId) {
 }
 
 function renderMemberNotifications(memberId) {
-  const notifications = sortCurrentMemberNotifications(memberId);
-  const unreadCount = notifications.filter((notification) => !isMemberNotificationRead(notification, memberId)).length;
+  const allNotifications = sortCurrentMemberNotifications(memberId);
+  const notifications = allNotifications.filter((notification) => !isMemberNotificationRead(notification, memberId));
+  const readNotifications = allNotifications.filter((notification) => isMemberNotificationRead(notification, memberId));
+  const unreadCount = notifications.length;
   return `
     <div class="mail-card">
       <div class="panel-header">
@@ -7056,6 +7058,7 @@ function renderMemberNotifications(memberId) {
             </div>`
           : `<div class="empty-state">No tienes avisos pendientes.</div>`
       }
+      ${readNotifications.length ? `<details class="member-notice-history"><summary>Ver avisos ya vistos (${readNotifications.length})</summary><div class="compact-list">${readNotifications.map((notification) => `<div class="timeline-item compact-card member-notice is-read"><strong>${escapeHtml(notification.title || "Aviso interno")}</strong><p class="notice-body">${escapeHtml(notification.body || "")}</p>${renderNoticeAttachments(notification)}${renderNoticeLinks(notification, "member", isAdminView())}<p class="muted">${escapeHtml(formatDateTime(notification.createdAt) || "Fecha pendiente")}</p></div>`).join("")}</div></details>` : ""}
     </div>
   `;
 }
