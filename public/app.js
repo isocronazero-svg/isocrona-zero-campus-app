@@ -20643,6 +20643,8 @@ function renderMemberAlertAction(alert) {
 function renderMemberAlerts(memberId, options = {}) {
   const compact = Boolean(options.compact);
   const alerts = getMemberCampusAlerts(memberId);
+  const seenManualNotices = getVisibleManualCampusNotices(memberId, (state.courses || []).filter(course => (course.enrolledIds || []).includes(memberId) || (course.waitingIds || []).includes(memberId)))
+    .filter(notice => (notice.seenByMemberIds || []).includes(memberId));
   const containerId = options.sectionId ? ` id="${escapeHtml(options.sectionId)}"` : "";
   const headerText = alerts.length
     ? "Lo que te conviene resolver ahora."
@@ -20682,6 +20684,7 @@ function renderMemberAlerts(memberId, options = {}) {
             </div>`
           : `<div class="empty-state">No hay avisos pendientes para tu ficha.</div>`
       }
+      ${seenManualNotices.length ? `<details class="member-notice-history"><summary>Ver novedades ya vistas (${seenManualNotices.length})</summary><div class="compact-list">${seenManualNotices.map(notice => `<div class="timeline-item compact-card"><strong>${escapeHtml(notice.title || "Novedad del campus")}</strong><p>${escapeHtml(notice.detail || "")}</p>${renderNoticeAttachments(notice)}${renderNoticeLinks(notice, "campus")}<p class="muted">${escapeHtml(formatDateTime(notice.publishedAt) || "Fecha pendiente")}</p></div>`).join("")}</div></details>` : ""}
     </div>
   `;
 }
