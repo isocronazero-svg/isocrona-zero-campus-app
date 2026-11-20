@@ -7073,7 +7073,7 @@ function renderMemberOverview() {
   const history = member ? getMemberHistory(member.id) : [];
   const payments = getAssociatePayments(associate);
   const visibleManualNotices = member ? getVisibleManualCampusNotices(member.id, ownCourses) : [];
-  const featuredNotice = visibleManualNotices[0] || null;
+  // Manual notices are already displayed in "Lo importante ahora"; avoid duplicating the first one.
   const diplomaCourses = state.courses.filter((course) => (course.diplomaReady || []).includes(member?.id));
 
   return `
@@ -7099,20 +7099,6 @@ function renderMemberOverview() {
         }.
       </div>
 
-      ${
-        featuredNotice
-          ? `
-            <div class="status-note ${featuredNotice.tone === "warning" ? "warning" : featuredNotice.tone === "success" ? "success" : "info"}">
-              <strong>${escapeHtml(featuredNotice.title)}</strong>: ${escapeHtml(featuredNotice.detail)}
-              ${
-                featuredNotice.courseId
-                  ? ` <button class="mini-button" type="button" data-action="select-course" data-course-id="${featuredNotice.courseId}">${escapeHtml(featuredNotice.actionLabel || "Abrir curso")}</button>`
-                  : ` <button class="mini-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Ver avisos</button>`
-              }
-            </div>
-          `
-          : ""
-      }
 
       ${member ? renderMemberAlerts(member.id) : ""}
 
