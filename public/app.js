@@ -7072,8 +7072,6 @@ function renderMemberOverview() {
   const primaryCourse = getPrimaryMemberCourse(member?.id);
   const history = member ? getMemberHistory(member.id) : [];
   const payments = getAssociatePayments(associate);
-  const visibleManualNotices = member ? getVisibleManualCampusNotices(member.id, ownCourses) : [];
-  // Manual notices are already displayed in "Lo importante ahora"; avoid duplicating the first one.
   const diplomaCourses = state.courses.filter((course) => (course.diplomaReady || []).includes(member?.id));
 
   return `
