@@ -246,6 +246,45 @@ function createBoardV11Handler(deps) {
       return true;
     }
 
+    const manualNoticeSeenMatch = url.pathname.match(/^\\/api\\/v1\\.1\\/manual-notices\\/([^/]+)\\/seen$/);
+    if (manualNoticeSeenMatch && req.method === "POST") {
+      try {
+        state = deps.readState();
+        account = deps.requireAuthenticatedAccount(req, res, state);
+        if (!account) return true;
+        const memberId = clean(account.memberId);
+        const member = arrays(state.members).find(item => item.id === memberId);
+        if (!member) {
+          deps.sendJson(res, 403, { ok: false, error: "No hay una ficha de alumno vinculada" });
+          return true;
+        }
+        const noticeId = decodeURIComponent(manualNoticeSeenMatch[1]);
+        const notice = arrays(state.manualCampusNotices).find(item => item.id === noticeId && item.active !== false);
+        if (!notice) {
+          deps.sendJson(res, 404, { ok: false, error: "Aviso no encontrado" });
+          return true;
+        }
+        const associate = resolveAccountAssociate(state, account);
+        const ownCourse = arrays(state.courses).some(course => course.id === notice.courseId &&
+          (arrays(course.enrolledIds).includes(memberId) || arrays(course.waitingIds).includes(memberId)));
+        const eligible = notice.audience === "course" ? ownCourse
+          : notice.audience === "campus-only" ? !associate
+          : notice.audience === "associates" || notice.audience === "active-associates" ? Boolean(associate)
+          : true;
+        if (!eligible) {
+          deps.sendJson(res, 403, { ok: false, error: "Este aviso no corresponde a tu ficha" });
+          return true;
+        }
+        notice.seenByMemberIds = arrays(notice.seenByMemberIds);
+        if (!notice.seenByMemberIds.includes(memberId)) notice.seenByMemberIds.push(memberId);
+        deps.writeState(state);
+        deps.sendJson(res, 200, { ok: true, noticeId, memberId });
+      } catch (error) {
+        deps.sendJsonError(res, error, "No se pudo marcar el aviso como visto");
+      }
+      return true;
+    }
+
     if (url.pathname === "/api/v1.1/whatsapp-invitation/dismiss" && req.method === "POST") {
       try {
         state = deps.readState();
