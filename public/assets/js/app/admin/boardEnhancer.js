@@ -432,11 +432,38 @@ function ensureWhatsappAdminButton() {
   nav.append(button);
 }
 
+function whatsappDismissed() {
+  return Boolean(ownAssociate()?.whatsappInvitationDismissedAt);
+}
+
 function ensureWhatsappMemberCard() {
   const existing = document.getElementById("whatsappMemberCard");
+  const profileLink = document.getElementById("whatsappMemberProfileLink");
   const url = whatsappUrl();
   const isMember = latestState?.role === "member" && Boolean(ownAssociate());
   if (!url || !isMember) {
+    existing?.remove();
+    profileLink?.remove();
+    return;
+  }
+
+  // Always retain access from the member's profile even after dismissing the banner.
+  if (latestState?.activeView !== "join") profileLink?.remove();
+  const profile = document.querySelector("#mainPanel .panel-header");
+  if (profile && latestState?.activeView === "join" && !profileLink) {
+    const link = document.createElement("a");
+    link.id = "whatsappMemberProfileLink";
+    link.className = "ghost-button button-link";
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Canal de WhatsApp de la asociación";
+    profile.prepend(link);
+  } else if (profileLink) {
+    profileLink.href = url;
+  }
+
+  if (whatsappDismissed()) {
     existing?.remove();
     return;
   }
@@ -449,7 +476,20 @@ function ensureWhatsappMemberCard() {
   const card = document.createElement("div");
   card.id = "whatsappMemberCard";
   card.className = "whatsapp-member-card";
-  card.innerHTML = `<strong>Canal de WhatsApp de Isócrona Zero</strong><p class="muted">Únete directamente para recibir las comunicaciones de la asociación.</p><a class="primary-button button-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Unirme al canal de WhatsApp</a>`;
+  card.innerHTML = `<strong>Canal de WhatsApp de Isócrona Zero</strong><p class="muted">Recibe las comunicaciones de la asociación.</p><div class="chip-row"><a class="primary-button button-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Unirme al canal</a><button class="ghost-button" type="button" data-whatsapp-dismiss>Ya me he unido / No volver a mostrar</button></div>`;
+  card.querySelector("[data-whatsapp-dismiss]")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      const result = await api("/api/v1.1/whatsapp-invitation/dismiss", { method: "POST" });
+      const associate = ownAssociate();
+      if (associate) associate.whatsappInvitationDismissedAt = result.dismissedAt;
+      card.remove();
+    } catch (error) {
+      button.disabled = false;
+      window.alert(error.message || "No se pudo guardar la preferencia");
+    }
+  });
   hero.after(card);
 }
 

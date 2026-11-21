@@ -149,7 +149,9 @@ for (const { name, browserName, options } of profiles) {
         console.log("[V1.4 QA notice] marked read");
         const notice = panel.locator(".member-notice").filter({ hasText: noticeTitle });
         await expect(notice).toContainText("La práctica comienza a las 09:30.");
-        await expect(notice.locator(".notice-status")).toHaveText("Leido");
+        await expect(panel.locator(".member-notice.is-unread").filter({ hasText: noticeTitle })).toHaveCount(0);
+        await panel.locator(".member-notice-history summary").click();
+        await expect(panel.locator(".member-notice-history .member-notice.is-read").filter({ hasText: noticeTitle })).toBeVisible();
         await expect(panel.getByText("0 aviso(s) pendiente(s)")).toBeVisible();
 
         console.log("[V1.4 QA navigation] opening courses");
