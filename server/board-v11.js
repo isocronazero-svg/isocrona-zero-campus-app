@@ -1,4 +1,5 @@
 const { appendAuditEvent } = require("./audit-log");
+const { canAccessCampusNotice } = require("./notices");
 const { madridYearMonth } = require("../public/membership-fee-policy.js");
 const { isJourney } = require("./journey-participation");
 
@@ -264,14 +265,7 @@ function createBoardV11Handler(deps) {
           deps.sendJson(res, 404, { ok: false, error: "Aviso no encontrado" });
           return true;
         }
-        const associate = resolveAccountAssociate(state, account);
-        const ownCourse = arrays(state.courses).some(course => course.id === notice.courseId &&
-          (arrays(course.enrolledIds).includes(memberId) || arrays(course.waitingIds).includes(memberId)));
-        const eligible = notice.audience === "course" ? ownCourse
-          : notice.audience === "campus-only" ? !associate
-          : notice.audience === "associates" || notice.audience === "active-associates" ? Boolean(associate)
-          : true;
-        if (!eligible) {
+        if (!canAccessCampusNotice(state, account, notice)) {
           deps.sendJson(res, 403, { ok: false, error: "Este aviso no corresponde a tu ficha" });
           return true;
         }
