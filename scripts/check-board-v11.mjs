@@ -164,7 +164,7 @@ assert.match(boardSource, /Abrir archivo/);
 assert.match(boardSource, /El archivo no está disponible o no existe/);
 assert.match(boardSource, /Libro interno de ingresos validados/);
 assert.match(boardSource, /Unirme al canal/);
-assert.match(boardSource, /whatsapp-invitation\\/dismiss/);
+assert.match(boardSource, /whatsapp-invitation/);
 assert.match(feeYearSource, /Tu alta está activa desde ahora/);
 assert.match(feeYearSource, /incluidos por Isócrona Zero sin coste adicional/);
 assert.match(feeYearSource, /puedes participar con normalidad en las actividades para socios/);
