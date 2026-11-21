@@ -154,7 +154,7 @@ function safeFileName(value) {
   return clean(value || "justificante").replace(/[\r\n"\\/]/g, "_").slice(0, 140) || "justificante";
 }
 
-function sendProof(res, proof) {
+function sendProof(res, proof, { download = false } = {}) {
   if (!proof?.contentBase64) {
     res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ ok: false, error: "No hay justificante adjunto" }));
@@ -177,8 +177,9 @@ function sendProof(res, proof) {
   res.writeHead(200, {
     "Content-Type": responseType,
     "Content-Length": String(bytes.length),
-    "Content-Disposition": `inline; filename="${safeFileName(proof.name || proof.fileName)}"`,
-    "Cache-Control": "private, no-store"
+    "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${safeFileName(proof.name || proof.fileName)}"`,
+    "Cache-Control": "private, no-store",
+    "X-Content-Type-Options": "nosniff"
   });
   res.end(bytes);
 }
@@ -207,7 +208,7 @@ function createCourseFinanceHandler(deps) {
         deps.sendJson(res, 404, { ok: false, error: "Curso o pago no encontrado" });
         return true;
       }
-      sendProof(res, submission.paymentProof);
+      sendProof(res, submission.paymentProof, { download: url.searchParams.get("download") === "1" });
       return true;
     }
 
