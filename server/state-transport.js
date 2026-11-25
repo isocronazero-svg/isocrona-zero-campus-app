@@ -366,7 +366,9 @@ function createStateTransport(dependencies = {}) {
       emailOutbox: quotaLimitedAccess
         ? []
         : (state.emailOutbox || []).filter((item) => item.memberId === memberId || item.associateId === associateId),
-      manualCampusNotices: (state.manualCampusNotices || []).filter(notice => canAccessCampusNotice(state, { ...account, role: "member", memberId, associateId, email: memberEmail }, notice)),
+      manualCampusNotices: (state.manualCampusNotices || [])
+        .filter(notice => canAccessCampusNotice(state, { ...account, role: "member", memberId, associateId, email: memberEmail }, notice))
+        .map(notice => ({ ...notice, seenByMemberIds: (notice.seenByMemberIds || []).includes(memberId) ? [memberId] : [] })),
       memberNotifications: listVisibleMemberNotifications(state, memberId).map((notification) =>
         buildMemberNotificationAudiencePayload(notification, memberId)
       ),

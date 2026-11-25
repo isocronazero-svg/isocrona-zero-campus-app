@@ -1,4 +1,5 @@
 const { appendAuditEvent } = require("./audit-log");
+const { canAccessCampusNotice } = require("./notices");
 const { madridYearMonth } = require("../public/membership-fee-policy.js");
 const { isJourney } = require("./journey-participation");
 
@@ -242,6 +243,57 @@ function createBoardV11Handler(deps) {
         deps.sendJson(res, 200, { ok: true, associateId, membershipFeeYear: year });
       } catch (error) {
         deps.sendJsonError(res, error, "No se pudo actualizar el año de cuota");
+      }
+      return true;
+    }
+
+    const manualNoticeSeenMatch = url.pathname.match(/^\/api\/v1\.1\/manual-notices\/([^/]+)\/seen$/);
+    if (manualNoticeSeenMatch && req.method === "POST") {
+      try {
+        state = deps.readState();
+        account = deps.requireAuthenticatedAccount(req, res, state);
+        if (!account) return true;
+        const memberId = clean(account.memberId);
+        const member = arrays(state.members).find(item => item.id === memberId);
+        if (!member) {
+          deps.sendJson(res, 403, { ok: false, error: "No hay una ficha de alumno vinculada" });
+          return true;
+        }
+        const noticeId = decodeURIComponent(manualNoticeSeenMatch[1]);
+        const notice = arrays(state.manualCampusNotices).find(item => item.id === noticeId && item.active !== false);
+        if (!notice) {
+          deps.sendJson(res, 404, { ok: false, error: "Aviso no encontrado" });
+          return true;
+        }
+        if (!canAccessCampusNotice(state, account, notice)) {
+          deps.sendJson(res, 403, { ok: false, error: "Este aviso no corresponde a tu ficha" });
+          return true;
+        }
+        notice.seenByMemberIds = arrays(notice.seenByMemberIds);
+        if (!notice.seenByMemberIds.includes(memberId)) notice.seenByMemberIds.push(memberId);
+        deps.writeState(state);
+        deps.sendJson(res, 200, { ok: true, noticeId, memberId });
+      } catch (error) {
+        deps.sendJsonError(res, error, "No se pudo marcar el aviso como visto");
+      }
+      return true;
+    }
+
+    if (url.pathname === "/api/v1.1/whatsapp-invitation/dismiss" && req.method === "POST") {
+      try {
+        state = deps.readState();
+        account = deps.requireAuthenticatedAccount(req, res, state);
+        if (!account) return true;
+        const associate = resolveAccountAssociate(state, account);
+        if (!associate || account.role !== "member") {
+          deps.sendJson(res, 403, { ok: false, error: "Solo socios con ficha vinculada" });
+          return true;
+        }
+        associate.whatsappInvitationDismissedAt = associate.whatsappInvitationDismissedAt || new Date().toISOString();
+        deps.writeState(state);
+        deps.sendJson(res, 200, { ok: true, dismissedAt: associate.whatsappInvitationDismissedAt });
+      } catch (error) {
+        deps.sendJsonError(res, error, "No se pudo guardar la preferencia");
       }
       return true;
     }

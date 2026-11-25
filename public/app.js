@@ -1151,6 +1151,29 @@ document.addEventListener("click", async (event) => {
       return;
     }
 
+    if (action === "mark-manual-notice-seen") {
+      if (isMemberPreviewSession()) {
+        showToast("La vista previa no modifica avisos reales.", "warning");
+        return;
+      }
+      const noticeId = String(actionTarget.dataset.noticeId || "").trim();
+      if (!noticeId) return;
+      actionTarget.disabled = true;
+      try {
+        const response = await fetch(`/api/v1.1/manual-notices/${encodeURIComponent(noticeId)}/seen`, { method: "POST" });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "No se pudo marcar el aviso como visto");
+        await refreshState();
+        applySessionToState();
+        render();
+        showToast("Aviso marcado como visto", "success");
+      } catch (error) {
+        actionTarget.disabled = false;
+        showToast(error.message || "No se pudo guardar el aviso", "error");
+      }
+      return;
+    }
+
     if (action === "mark-member-notification-read") {
       if (isMemberPreviewSession()) {
         showToast("La vista previa no marca avisos reales.", "warning");
@@ -7047,8 +7070,10 @@ function getUnreadMemberNotifications(memberId) {
 }
 
 function renderMemberNotifications(memberId) {
-  const notifications = sortCurrentMemberNotifications(memberId);
-  const unreadCount = notifications.filter((notification) => !isMemberNotificationRead(notification, memberId)).length;
+  const allNotifications = sortCurrentMemberNotifications(memberId);
+  const notifications = allNotifications.filter((notification) => !isMemberNotificationRead(notification, memberId));
+  const readNotifications = allNotifications.filter((notification) => isMemberNotificationRead(notification, memberId));
+  const unreadCount = notifications.length;
   return `
     <div class="mail-card">
       <div class="panel-header">
@@ -7092,6 +7117,7 @@ function renderMemberNotifications(memberId) {
             </div>`
           : `<div class="empty-state">No tienes avisos pendientes.</div>`
       }
+      ${readNotifications.length ? `<details class="member-notice-history"><summary>Ver avisos ya vistos (${readNotifications.length})</summary><div class="compact-list">${readNotifications.map((notification) => `<div class="timeline-item compact-card member-notice is-read"><strong>${escapeHtml(notification.title || "Aviso interno")}</strong><p class="notice-body">${escapeHtml(notification.body || "")}</p>${renderNoticeAttachments(notification)}${renderNoticeLinks(notification, "member", isAdminView())}<p class="muted">${escapeHtml(formatDateTime(notification.createdAt) || "Fecha pendiente")}</p></div>`).join("")}</div></details>` : ""}
     </div>
   `;
 }
@@ -7105,8 +7131,6 @@ function renderMemberOverview() {
   const primaryCourse = getPrimaryMemberCourse(member?.id);
   const history = member ? getMemberHistory(member.id) : [];
   const payments = getAssociatePayments(associate);
-  const visibleManualNotices = member ? getVisibleManualCampusNotices(member.id, ownCourses) : [];
-  const featuredNotice = visibleManualNotices[0] || null;
   const diplomaCourses = state.courses.filter((course) => (course.diplomaReady || []).includes(member?.id));
 
   return `
@@ -7132,20 +7156,6 @@ function renderMemberOverview() {
         }.
       </div>
 
-      ${
-        featuredNotice
-          ? `
-            <div class="status-note ${featuredNotice.tone === "warning" ? "warning" : featuredNotice.tone === "success" ? "success" : "info"}">
-              <strong>${escapeHtml(featuredNotice.title)}</strong>: ${escapeHtml(featuredNotice.detail)}
-              ${
-                featuredNotice.courseId
-                  ? ` <button class="mini-button" type="button" data-action="select-course" data-course-id="${featuredNotice.courseId}">${escapeHtml(featuredNotice.actionLabel || "Abrir curso")}</button>`
-                  : ` <button class="mini-button" type="button" data-action="open-member-campus-mode" data-mode="alerts">Ver avisos</button>`
-              }
-            </div>
-          `
-          : ""
-      }
 
       ${member ? renderMemberAlerts(member.id) : ""}
 
@@ -20488,7 +20498,8 @@ function getMemberCampusAlerts(memberId) {
       course.waitingIds.includes(memberId) ||
       course.diplomaReady.includes(memberId)
   );
-  const manualNotices = getVisibleManualCampusNotices(memberId, ownCourses);
+  const manualNotices = getVisibleManualCampusNotices(memberId, ownCourses)
+    .filter(notice => !(notice.seenByMemberIds || []).includes(memberId));
 
   manualNotices.forEach((notice, index) => {
     alerts.push({
@@ -20759,6 +20770,8 @@ function renderMemberAlertAction(alert) {
 function renderMemberAlerts(memberId, options = {}) {
   const compact = Boolean(options.compact);
   const alerts = getMemberCampusAlerts(memberId);
+  const seenManualNotices = getVisibleManualCampusNotices(memberId, (state.courses || []).filter(course => (course.enrolledIds || []).includes(memberId) || (course.waitingIds || []).includes(memberId)))
+    .filter(notice => (notice.seenByMemberIds || []).includes(memberId));
   const containerId = options.sectionId ? ` id="${escapeHtml(options.sectionId)}"` : "";
   const headerText = alerts.length
     ? "Lo que te conviene resolver ahora."
@@ -20789,6 +20802,7 @@ function renderMemberAlerts(memberId, options = {}) {
                       ${alert.notice ? renderNoticeAttachments(alert.notice) + renderNoticeLinks(alert.notice, "campus") : ""}
                       <div class="chip-row">
                         ${renderMemberAlertAction(alert)}
+                        ${alert.notice ? `<button class="mini-button" type="button" data-action="mark-manual-notice-seen" data-notice-id="${escapeHtml(alert.notice.id)}">Marcar como visto</button>` : ""}
                       </div>
                     </div>
                   `
@@ -20797,6 +20811,7 @@ function renderMemberAlerts(memberId, options = {}) {
             </div>`
           : `<div class="empty-state">No hay avisos pendientes para tu ficha.</div>`
       }
+      ${seenManualNotices.length ? `<details class="member-notice-history"><summary>Ver novedades ya vistas (${seenManualNotices.length})</summary><div class="compact-list">${seenManualNotices.map(notice => `<div class="timeline-item compact-card"><strong>${escapeHtml(notice.title || "Novedad del campus")}</strong><p>${escapeHtml(notice.detail || "")}</p>${renderNoticeAttachments(notice)}${renderNoticeLinks(notice, "campus")}<p class="muted">${escapeHtml(formatDateTime(notice.publishedAt) || "Fecha pendiente")}</p></div>`).join("")}</div></details>` : ""}
     </div>
   `;
 }
