@@ -71,7 +71,7 @@ for (const refreshFails of [false, true]) {
   const updatedCourse = { id: "qa", attendance: { pupil: 100 }, evaluations: { pupil: "Apto" }, diplomaReady: [] };
   const context = vm.createContext({
     state: { courses: [{ id: "qa", attendance: { pupil: 0 } }], activityLog: [] }, session: { role: "admin", accountId: "admin" },
-    academicBusy: false, academicRoster: null, syncStatus: "", canManageCourseAcademic: () => true,
+    academicBusy: false, academicRoster: { accountId: "admin", course: { id: "qa" }, teaching: { version: "retained", resources: [] } }, syncStatus: "", canManageCourseAcademic: () => true,
     render() {}, showToast() {}, applySessionToState() {},
     fetch: async () => { requests++; return { ok: true }; },
     readJsonResponse: async () => ({ ok: true, course: updatedCourse, students: [], activityLog: [{ id: "confirmed-academic" }] }),
@@ -83,6 +83,7 @@ for (const refreshFails of [false, true]) {
   assert.equal(refreshes, 1);
   assert.equal(requests, 1, "A failed refresh never resubmits the confirmed mutation");
   assert.equal(context.academicBusy, false);
+  assert.equal(context.academicRoster.teaching.version, "retained", "Academic updates preserve the same account/course teaching panel even if refresh fails");
 }
 const bundledDefaultStatePath = path.join(repoRoot, "data", "default-state.json");
 const nodeModulesCandidates = [

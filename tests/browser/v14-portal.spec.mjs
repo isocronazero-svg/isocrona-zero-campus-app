@@ -159,6 +159,11 @@ for (const { name, browserName, options } of profiles) {
       await panel.getByRole("button", { name: "Guardar test", exact: true }).click();
       expect((await savedTest).status()).toBe(200);
       await expect(panel.locator("#teachingPublished")).toBeChecked();
+      await page.locator("#courseAcademicPanel").getByRole("button", { name: "Asistió", exact: true }).click();
+      await expect(page.locator(".academic-student")).toContainText("100%");
+      await expect(panel).toBeVisible();
+      await expect(panel.locator('[data-teaching-title]')).toHaveValue("Archivo docente QA");
+      await expect(panel.locator("#teachingPublished")).toBeChecked();
       expect((await page.request.get(`${campus.baseURL}/api/courses/member-qa/teaching`)).status()).toBe(403);
       expect((await page.request.get(`${campus.baseURL}/api/course-finance`)).status()).toBe(403);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);

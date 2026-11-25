@@ -11032,7 +11032,9 @@ async function invokeCourseAcademicAction(courseId, memberId, changes = null) {
     if (!response.ok || payload.ok === false) throw new Error(payload.error || "Accion rechazada");
     confirmed = true;
     // Keep roster data outside /api/state. A confirmed mutation is never resubmitted by a refresh.
-    academicRoster = { ...payload, accountId: session.accountId };
+    const teaching = academicRoster?.accountId === session.accountId && academicRoster?.course?.id === courseId
+      ? academicRoster.teaching : undefined;
+    academicRoster = { ...payload, accountId: session.accountId, teaching };
     // Retain the authoritative admin course even if the subsequent refresh cannot reach the server.
     if (identity.role === "admin" && payload.course?.id === courseId) {
       Object.assign(course, payload.course);
@@ -11042,6 +11044,9 @@ async function invokeCourseAcademicAction(courseId, memberId, changes = null) {
     if (session !== identity) return;
     applySessionToState();
     syncStatus = payload.message || "Seguimiento guardado";
+    if (canManageCourseAcademic(state.courses.find(item => item.id === courseId))) {
+      state.selectedCourseId = courseId;
+    }
     showToast(syncStatus, payload.blocked?.length ? "info" : "success");
   } catch (error) {
     if (session === identity) {

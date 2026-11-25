@@ -53,6 +53,11 @@ Node 22.23.3, Windows. Solo datos ficticios y servidores en loopback.
 
 ## Pendiente antes de publicar
 
+- Revision adicional: al actualizar asistencia se conserva el contenido docente
+  cargado y la seleccion del curso, revalidando el permiso tras refrescar estado.
+  Regresion de navegador superada en escritorio, Android emulado y WebKit:
+  asistencia 100%, documento y test publicado permanecen visibles.
+
 - CI y revision de la PR urgente en el HEAD definitivo.
 - Verificacion de la cuenta real afectada: no se pudo consultar la vinculacion
   porque la pestana productiva muestra login. Se ha solicitado acceso admin;
