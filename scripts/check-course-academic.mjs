@@ -384,6 +384,16 @@ async function checkInstructorAcademic(admin, member, anonymous, baseUrl) {
   const preservedWholeEdit = findCourse((await admin.request("GET", "/api/state")).body, "course-attendance");
   assert.equal(preservedWholeEdit.sharedTestPublished, false);
   assert.ok(preservedWholeEdit.teachingRevision > removed.body.course.teachingRevision);
+  const internalId = secondUpload.resources.at(-1).id;
+  assert.equal((await member.request("GET", `${teachingPath}/resources/${internalId}`, undefined, false, true)).body, "Second file");
+  await admin.request("PATCH", "/api/courses/course-attendance", {
+    teachingRevision: preservedWholeEdit.teachingRevision,
+    resources: preservedWholeEdit.resources.map(resource => resource.id === internalId ? { ...resource, visibility: "interno" } : resource)
+  });
+  assert.equal((await member.request("GET", `${teachingPath}/resources/${internalId}`, undefined, true)).status, 404,
+    "An enrolled learner cannot download internal teaching documents");
+  assert.ok(!findCourse((await member.request("GET", "/api/state")).body, "course-attendance").resources.some(resource => resource.id === internalId));
+  assert.equal((await memberTeacher.request("GET", `${teachingPath}/resources/${internalId}`, undefined, false, true)).body, "Second file");
   await admin.request("PATCH", "/api/courses/course-attendance", { instructorAssociateIds: ["associate-assigned"] });
   assert.equal((await memberTeacher.request("GET", teachingPath, undefined, true)).status, 403, "Revocation applies in the same session");
   assert.equal((await memberTeacher.request("GET", "/api/courses/course-attendance/academic", undefined, true)).status, 403);

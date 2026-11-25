@@ -288,7 +288,7 @@ function createStateTransport(dependencies = {}) {
 
         return {
           ...course,
-          resources: (course.resources || []).filter(resource => resource.visibility !== "instructores" ||
+          resources: (course.resources || []).filter(resource => !["interno", "instructores"].includes(resource.visibility) ||
             require("./course-permissions").canManageAssignedCourse(account, course)).map(({ attachment, ...resource }) => resource),
           accessScope: normalizeCourseAccessScope(course.accessScope, course.audience),
           enrolledCount: (course.enrolledIds || []).length,

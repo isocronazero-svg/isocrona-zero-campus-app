@@ -26,7 +26,7 @@ function createCourseTeachingHandler(deps) {
       if (match[2]) {
         if (!manages && !deps.canAccessCourse(state, account, course)) return send(403, { error: "No tienes acceso al curso" });
         const resource = (course.resources || []).find(item => item.id === decodeURIComponent(match[2]));
-        if (!resource?.attachment?.contentBase64 || (!manages && resource.visibility === "instructores")) return send(404, { error: "Documento no encontrado" });
+        if (!resource?.attachment?.contentBase64 || (!manages && ["interno", "instructores"].includes(resource.visibility))) return send(404, { error: "Documento no encontrado" });
         const bytes = Buffer.from(resource.attachment.contentBase64, "base64");
         res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": bytes.length,
           "X-Content-Type-Options": "nosniff", "Content-Disposition": `attachment; filename="${String(resource.attachment.name || "documento").replace(/[^a-zA-Z0-9._-]/g, "_")}"` });

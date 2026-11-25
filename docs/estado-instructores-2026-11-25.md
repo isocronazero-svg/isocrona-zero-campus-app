@@ -47,6 +47,9 @@ Node 22.23.3, Windows. Solo datos ficticios y servidores en loopback.
   los cambios administrativos de contenido versionado incrementan su revision,
   tanto por PATCH de curso como por estado. Regresiones de dos editores y de
   documento eliminado sin resurreccion superadas.
+- Documento con visibilidad `interno`: oculto del estado del alumno y descarga
+  directa denegada, conservando el acceso del docente asignado. Regresion HTTP
+  con alumno inscrito y cambio de visibilidad superada.
 
 ## Pendiente antes de publicar
 
