@@ -1,5 +1,5 @@
 import { test, expect, devices, webkit } from "@playwright/test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -18,7 +18,7 @@ function dayFromNow(days) {
   return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-async function createCampus() {
+async function createCampus({ teacher = false } = {}) {
   const portProbe = createServer().listen(0, "127.0.0.1");
   await once(portProbe, "listening");
   const port = portProbe.address().port;
@@ -65,6 +65,15 @@ async function createCampus() {
       enrollmentSubmissions: [{ id: "history-enrollment", memberId: "member", status: "confirmed",
         amount: 0, paymentStatus: "not-required", participantType: "member" }] }
   ];
+  if (teacher) {
+    seed.courses[0].instructorAssociateIds = ["associate-member"];
+    seed.courses[0].enrolledIds = ["external"];
+    seed.testZoneQuestions = [{ id: "teaching-q", prompt: "Pregunta docente ficticia", options: ["A", "B"], correctIndex: 0, active: true, published: true }];
+    seed.testZoneResults = [
+      { id: "teaching-result", courseId: "public-qa", memberId: "external", accountId: "account-external", score: 1, total: 1 },
+      { id: "foreign-result", courseId: "member-qa", memberId: "external", accountId: "account-external", score: 0, total: 1 }
+    ];
+  }
   await writeFile(seedPath, JSON.stringify(seed));
   const inherited = Object.fromEntries(["PATH", "HOME", "TMPDIR", "SYSTEMROOT"]
     .filter((key) => process.env[key]).map((key) => [key, process.env[key]]));
@@ -118,6 +127,65 @@ const profiles = [
   { name: "Android emulado", browserName: "chromium", options: devices["Pixel 7"] },
   { name: "iPhone emulado", browserName: "webkit", options: devices["iPhone 13"] }
 ];
+
+for (const { name, browserName, options } of profiles) {
+  test(`docente asignado con rol socio: documentos y test (${name})`, async ({ browser }, testInfo) => {
+    const campus = await createCampus({ teacher: true });
+    let engine, page;
+    try {
+      if (browserName === "webkit") engine = await webkit.launch();
+      page = await openAs(engine || browser, campus, "member", options);
+      const errors = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.locator('#mainPanel button[data-action="open-member-campus-mode"][data-mode="courses"]').click();
+      await expect(page.getByRole("heading", { name: "Mis cursos como instructor" })).toBeVisible();
+      await page.locator('[data-action="open-course-academic"][data-course-id="public-qa"]').click();
+      const panel = page.locator("#courseTeachingContent");
+      await expect(panel).toBeVisible();
+      await expect(panel).toContainText("Participante QA: 1 / 1");
+      await expect(panel).not.toContainText("Participante QA: 0 / 1");
+      await expect(page.locator("#courseAcademicPanel")).toContainText("Participante QA");
+      await panel.locator("#teachingNewTitle").fill("Archivo docente QA");
+      await panel.locator("#teachingNewFile").setInputFiles({ name: "qa.txt", mimeType: "text/plain", buffer: Buffer.from("Synthetic teaching document") });
+      await panel.getByRole("button", { name: "Subir documento", exact: true }).click();
+      await expect(panel.locator('[data-teaching-title]')).toHaveValue("Archivo docente QA");
+      const downloadResponse = await page.request.get(new URL(await panel.getByRole("link", { name: "Descargar documento" }).getAttribute("href"), campus.baseURL).toString());
+      expect(downloadResponse.status()).toBe(200);
+      expect(await downloadResponse.text()).toBe("Synthetic teaching document");
+      await panel.locator("summary").click();
+      await panel.locator('[data-teaching-question]').check();
+      await panel.locator("#teachingPublished").check();
+      const savedTest = page.waitForResponse(response => response.url().endsWith("/public-qa/teaching") && response.request().method() === "PATCH");
+      await panel.getByRole("button", { name: "Guardar test", exact: true }).click();
+      expect((await savedTest).status()).toBe(200);
+      await expect(panel.locator("#teachingPublished")).toBeChecked();
+      await page.locator("#courseAcademicPanel").getByRole("button", { name: "Asistió", exact: true }).click();
+      await expect(page.locator(".academic-student")).toContainText("100%");
+      await expect(panel).toBeVisible();
+      await expect(panel.locator('[data-teaching-title]')).toHaveValue("Archivo docente QA");
+      await expect(panel.locator("#teachingPublished")).toBeChecked();
+      expect((await page.request.get(`${campus.baseURL}/api/courses/member-qa/teaching`)).status()).toBe(403);
+      expect((await page.request.get(`${campus.baseURL}/api/course-finance`)).status()).toBe(403);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+      expect(errors).toEqual([]);
+      await page.screenshot({ path: testInfo.outputPath("instructor-mobile.png"), fullPage: true });
+    } finally {
+      await page?.context().close();
+      await engine?.close();
+      await campus.close();
+    }
+  });
+}
+
+test("smoke HTTP aislado", async () => {
+  const campus = await createCampus();
+  try {
+    const result = spawnSync(process.execPath, ["scripts/smoke-campus-test.mjs"], {
+      cwd: root, env: { ...process.env, IZ_BASE_URL: campus.baseURL }, encoding: "utf8"
+    });
+    expect(result.status, result.stdout + result.stderr).toBe(0);
+  } finally { await campus.close(); }
+});
 
 for (const { name, browserName, options } of profiles) {
   test.describe(name, () => {

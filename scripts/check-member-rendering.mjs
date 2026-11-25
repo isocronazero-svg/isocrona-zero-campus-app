@@ -316,7 +316,8 @@ assert.equal(JSON.stringify(catalogueCourses), originalCourses, "Filtering never
 for (const admin of [true, false]) {
   for (const mode of ["all", "catalog", "details", "workbench", ...(admin ? ["create", "import"] : [])]) {
     const html = vm.runInNewContext(`${source("renderCourses")}\nrenderCourses();`, {
-      session: { role: admin ? "admin" : "member" }, state: { selectedMemberId: "member" }, coursesSectionMode: mode,
+      session: { role: admin ? "admin" : "member" }, state: { selectedMemberId: "member", courses: catalogueCourses }, coursesSectionMode: mode,
+      canManageCourseAcademic: () => false,
       isAdminView: () => admin, findMember: () => ({ id: "member" }), getSelectedCourse: () => catalogueCourses[1],
       getMemberCourseBuckets: () => buckets, getPrimaryMemberCourse: () => catalogueCourses[1],
       renderCourseCatalog: () => "CATALOGUE_ONLY", renderCourseWorkbench: () => "WORKBENCH_ONLY",

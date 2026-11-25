@@ -74,12 +74,14 @@ function prepareServerOwnedStatePreservation(req, res, url, deps) {
 }
 
 function createCourseSharedTestHandler(deps) {
+  const handleTeaching = require("./course-teaching").createCourseTeachingHandler({ ...deps, sharedQuestions });
   const secret = randomBytes(32);
   const handleAuditLog = createAuditLogHandler(deps);
   const handleBoardV11 = createBoardV11Handler(deps);
   const handleCourseFinance = createCourseFinanceHandler(deps);
   const handleDiplomaPreview = createDiplomaPreviewHandler(deps);
   return async function handle(req, res, url) {
+    if (await handleTeaching(req, res, url)) return true;
     if (await handleAuditLog(req, res, url)) return true;
     if (await handleBoardV11(req, res, url)) return true;
     if (await handleCourseFinance(req, res, url)) return true;

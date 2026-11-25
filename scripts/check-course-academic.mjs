@@ -12,6 +12,20 @@ import http from "node:http";
 import vm from "node:vm";
 
 const { createOnboardingStateAccess } = createRequire(import.meta.url)("../server/onboarding-state.js");
+{
+  let libraryState = { campusGroups: [{ id: "group", contentRevision: 0, modules: [] }] };
+  const libraryAccess = createOnboardingStateAccess({ readState: () => structuredClone(libraryState),
+    writeState: next => { libraryState = structuredClone(next); } });
+  const oldWriter = libraryAccess.readState();
+  const upload = libraryAccess.readState();
+  upload.campusGroups[0].contentRevision = 1;
+  upload.campusGroups[0].modules = [{ id: "module", documents: [{ id: "new", attachment: { contentBase64: "UUE=" } }] }];
+  libraryAccess.writeState(upload);
+  libraryAccess.writeState(oldWriter);
+  assert.equal(libraryState.campusGroups[0].contentRevision, 1);
+  assert.equal(libraryState.campusGroups[0].modules[0].documents[0].attachment.contentBase64, "UUE=",
+    "An older asynchronous writer cannot discard a group contribution");
+}
 let stored = { courses: [{ id: "qa", attendance: { pupil: 100 }, evaluations: { pupil: "Apto" }, diplomaReady: [] }] };
 const access = createOnboardingStateAccess({ readState: () => structuredClone(stored), writeState: state => { stored = structuredClone(state); } });
 const staleAutomation = access.readState();
@@ -57,7 +71,7 @@ for (const refreshFails of [false, true]) {
   const updatedCourse = { id: "qa", attendance: { pupil: 100 }, evaluations: { pupil: "Apto" }, diplomaReady: [] };
   const context = vm.createContext({
     state: { courses: [{ id: "qa", attendance: { pupil: 0 } }], activityLog: [] }, session: { role: "admin", accountId: "admin" },
-    academicBusy: false, academicRoster: null, syncStatus: "", canManageCourseAcademic: () => true,
+    academicBusy: false, academicRoster: { accountId: "admin", course: { id: "qa" }, teaching: { version: "retained", resources: [] } }, syncStatus: "", canManageCourseAcademic: () => true,
     render() {}, showToast() {}, applySessionToState() {},
     fetch: async () => { requests++; return { ok: true }; },
     readJsonResponse: async () => ({ ok: true, course: updatedCourse, students: [], activityLog: [{ id: "confirmed-academic" }] }),
@@ -69,6 +83,7 @@ for (const refreshFails of [false, true]) {
   assert.equal(refreshes, 1);
   assert.equal(requests, 1, "A failed refresh never resubmits the confirmed mutation");
   assert.equal(context.academicBusy, false);
+  assert.equal(context.academicRoster.teaching.version, "retained", "Academic updates preserve the same account/course teaching panel even if refresh fails");
 }
 const bundledDefaultStatePath = path.join(repoRoot, "data", "default-state.json");
 const nodeModulesCandidates = [
@@ -168,16 +183,22 @@ function buildSeedState() {
   const legacy = { ...untouchedCourse, id: "course-legacy-sessions", sessions: [{ title: "Sesion antigua", duration: 1 }] };
   delete legacy.modules;
   seed.courses.push(legacy);
-  for (const id of ["assigned", "unassigned"]) {
+  for (const id of ["assigned", "unassigned", "assigned-member"]) {
     seed.associates.push({ ...seed.associates[0], id: "associate-" + id, firstName: id, lastName: "Instructor QA",
       email: id + "@example.test", instructorEnabled: false, linkedMemberId: "member-" + id, annualAmount: 0 });
     seed.members.push({ ...seed.members[0], id: "member-" + id, name: id + " Instructor QA", email: id + "@example.test", associateId: "associate-" + id });
     seed.accounts.push({ id: "account-" + id, name: id + " Instructor QA", email: id + "@example.test",
-      role: "instructor", memberId: "member-" + id, associateId: "associate-" + id, password: passwords.member, passwordHash: "", status: "Activo" });
+      role: id === "assigned-member" ? "member" : "instructor", memberId: "member-" + id, associateId: "associate-" + id, password: passwords.member, passwordHash: "", status: "Activo" });
   }
   seed.courses.push({ ...untouchedCourse, id: "course-attendance", title: "Jornada QA presencial", modules: [], resources: [],
-    instructorAssociateIds: ["associate-assigned"], enrolledIds: ["member-1", "member-2"], waitingIds: ["member-3"],
+    instructorAssociateIds: ["associate-assigned", "associate-assigned-member"], enrolledIds: ["member-1", "member-2"], waitingIds: ["member-3"],
     attendance: {}, evaluations: {}, diplomaReady: [], contentProgress: {} });
+  seed.campusGroups = [
+    { id: "teacher-group", title: "Grupo docente QA", allowedAssociateIds: ["associate-assigned-member"],
+      modules: [{ id: "qa-module", title: "Documentos", documents: [], practiceSheets: [], videos: [], links: [] }] },
+    { id: "foreign-group", title: "Grupo ajeno QA", allowedAssociateIds: ["associate-unassigned"],
+      modules: [{ id: "qa-module", title: "Documentos", documents: [], practiceSheets: [], videos: [], links: [] }] }
+  ];
   return seed;
 }
 
@@ -267,7 +288,7 @@ function createClient(baseUrl) {
       try { await whileReading(); } finally { req.end(serialized.slice(1)); }
       return response;
     },
-    async request(method, requestPath, body, allowFailure = false) {
+    async request(method, requestPath, body, allowFailure = false, raw = false) {
       const headers = { Accept: "application/json" };
       const cookieHeader = Array.from(cookies.entries()).map(([name, value]) => `${name}=${value}`).join("; ");
       if (cookieHeader) headers.Cookie = cookieHeader;
@@ -284,7 +305,7 @@ function createClient(baseUrl) {
         cookies.set(cookiePair.slice(0, separator), cookiePair.slice(separator + 1));
       }
       const text = await response.text();
-      const parsedBody = text ? JSON.parse(text) : null;
+      const parsedBody = raw ? text : text ? JSON.parse(text) : null;
       if (!response.ok && !allowFailure) {
         throw new Error(`${method} ${requestPath} -> ${response.status}: ${parsedBody?.error || text}`);
       }
@@ -303,6 +324,81 @@ function findCourse(state, courseId) {
 }
 
 async function checkInstructorAcademic(admin, member, anonymous, baseUrl) {
+  const memberTeacher = createClient(baseUrl);
+  await login(memberTeacher, "assigned-member@example.test", passwords.member);
+  assert.equal((await memberTeacher.request("GET", "/api/courses/course-attendance/academic")).status, 200,
+    "Assignment grants academic access without changing the member role");
+  assert.equal((await memberTeacher.request("GET", "/api/courses/course-2/academic", undefined, true)).status, 403);
+  assert.equal((await memberTeacher.request("PATCH", "/api/courses/course-attendance", { title: "forbidden" }, true)).status, 403);
+  const teachingPath = "/api/courses/course-attendance/teaching";
+  const initialTeaching = (await memberTeacher.request("GET", teachingPath)).body;
+  for (const client of [member, anonymous]) {
+    assert.equal((await client.request("GET", teachingPath, undefined, true)).status, client === member ? 403 : 401);
+  }
+  assert.equal((await memberTeacher.request("GET", "/api/courses/course-2/teaching", undefined, true)).status, 403);
+  const uploaded = (await memberTeacher.request("PATCH", teachingPath, { action: "resource", version: initialTeaching.version,
+    title: "Documento ficticio", attachment: { name: "qa.txt", contentBase64: Buffer.from("Synthetic teaching file").toString("base64") } })).body;
+  assert.equal(uploaded.resources.length, initialTeaching.resources.length + 1);
+  assert.ok(!JSON.stringify(uploaded).includes("contentBase64"));
+  assert.equal((await memberTeacher.request("PATCH", teachingPath, { action: "resource", version: initialTeaching.version, title: "stale" }, true)).status, 409);
+  const published = (await memberTeacher.request("PATCH", teachingPath, { action: "test", version: uploaded.version,
+    questionIds: ["shared-q1"], published: true })).body;
+  assert.equal(published.published, true);
+  const uploadedId = uploaded.resources.at(-1).id;
+  const edited = (await memberTeacher.request("PATCH", teachingPath, { action: "resource", version: published.version,
+    id: uploadedId, title: "Documento editado", description: "QA" })).body;
+  assert.equal(edited.resources.at(-1).label, "Documento editado");
+  const secondUpload = (await memberTeacher.request("PATCH", teachingPath, { action: "resource", version: edited.version,
+    title: "Segundo documento", attachment: { name: "qa2.txt", contentBase64: Buffer.from("Second file").toString("base64") } })).body;
+  assert.equal(secondUpload.resources.length, uploaded.resources.length + 1);
+  const stateAfterUpload = (await admin.request("GET", "/api/state")).body;
+  assert.equal(findCourse(stateAfterUpload, "course-attendance").resources.find(item => item.id === uploadedId).attachment, undefined);
+  assert.equal((await memberTeacher.request("GET", `${teachingPath}/resources/${uploadedId}`, undefined, false, true)).body, "Synthetic teaching file");
+  assert.ok(!JSON.stringify((await memberTeacher.request("GET", "/api/state")).body).includes(Buffer.from("Synthetic teaching file").toString("base64")));
+  const slowTeachingSave = await admin.slowStateSave(stateAfterUpload, async () => {
+    await memberTeacher.request("PATCH", teachingPath, { action: "resource", version: secondUpload.version,
+      id: uploadedId, title: "Concurrent teacher edit" });
+  });
+  assert.equal(slowTeachingSave.status, 200);
+  assert.equal((await memberTeacher.request("GET", teachingPath)).body.resources.find(item => item.id === uploadedId).label,
+    "Concurrent teacher edit", "A stale administrative state save must preserve the teacher's edit");
+  assert.equal((await memberTeacher.request("GET", `${teachingPath}/resources/${uploadedId}`, undefined, false, true)).body, "Synthetic teaching file");
+  const contribution = { moduleId: "qa-module", title: "Aportacion QA", attachment: {
+    name: "group.txt", contentBase64: Buffer.from("Group synthetic file").toString("base64") } };
+  assert.equal((await memberTeacher.request("POST", "/api/campus-groups/teacher-group/documents", contribution)).status, 201);
+  assert.equal((await memberTeacher.request("POST", "/api/campus-groups/foreign-group/documents", contribution, true)).status, 403);
+  assert.equal((await member.request("POST", "/api/campus-groups/teacher-group/documents", contribution, true)).status, 403);
+  const firstEditor = findCourse((await admin.request("GET", "/api/state")).body, "course-attendance");
+  const removed = await admin.request("PATCH", "/api/courses/course-attendance", {
+    resources: firstEditor.resources.filter(item => item.id !== uploadedId), teachingRevision: firstEditor.teachingRevision
+  });
+  assert.equal(removed.body.course.teachingRevision, firstEditor.teachingRevision + 1);
+  assert.equal((await admin.request("PATCH", "/api/courses/course-attendance", {
+    resources: firstEditor.resources, teachingRevision: firstEditor.teachingRevision
+  }, true)).status, 409, "A second admin editor cannot resurrect a deleted document");
+  assert.equal((await memberTeacher.request("GET", `${teachingPath}/resources/${uploadedId}`, undefined, true)).status, 404);
+  const firstWholeEditor = (await admin.request("GET", "/api/state")).body;
+  const staleWholeEditor = structuredClone(firstWholeEditor);
+  findCourse(firstWholeEditor, "course-attendance").sharedTestPublished = false;
+  await admin.request("POST", "/api/state", firstWholeEditor);
+  await admin.request("POST", "/api/state", staleWholeEditor);
+  const preservedWholeEdit = findCourse((await admin.request("GET", "/api/state")).body, "course-attendance");
+  assert.equal(preservedWholeEdit.sharedTestPublished, false);
+  assert.ok(preservedWholeEdit.teachingRevision > removed.body.course.teachingRevision);
+  const internalId = secondUpload.resources.at(-1).id;
+  assert.equal((await member.request("GET", `${teachingPath}/resources/${internalId}`, undefined, false, true)).body, "Second file");
+  await admin.request("PATCH", "/api/courses/course-attendance", {
+    teachingRevision: preservedWholeEdit.teachingRevision,
+    resources: preservedWholeEdit.resources.map(resource => resource.id === internalId ? { ...resource, visibility: "interno" } : resource)
+  });
+  assert.equal((await member.request("GET", `${teachingPath}/resources/${internalId}`, undefined, true)).status, 404,
+    "An enrolled learner cannot download internal teaching documents");
+  assert.ok(!findCourse((await member.request("GET", "/api/state")).body, "course-attendance").resources.some(resource => resource.id === internalId));
+  assert.equal((await memberTeacher.request("GET", `${teachingPath}/resources/${internalId}`, undefined, false, true)).body, "Second file");
+  await admin.request("PATCH", "/api/courses/course-attendance", { instructorAssociateIds: ["associate-assigned"] });
+  assert.equal((await memberTeacher.request("GET", teachingPath, undefined, true)).status, 403, "Revocation applies in the same session");
+  assert.equal((await memberTeacher.request("GET", "/api/courses/course-attendance/academic", undefined, true)).status, 403);
+  assert.equal((await memberTeacher.request("POST", "/api/campus-groups/teacher-group/documents", contribution, true)).status, 403);
   const assigned = createClient(baseUrl), unassigned = createClient(baseUrl);
   await login(assigned, "assigned@example.test", passwords.member);
   await login(unassigned, "unassigned@example.test", passwords.member);

@@ -4,6 +4,8 @@ import { spawnSync } from "node:child_process";
 const syntaxFiles = [
   "public/membership-fee-policy.js",
   "server/fixture-account-policy.js",
+  "server/course-permissions.js",
+  "server/course-teaching.js",
   "server/mail-delivery.js",
   "server/onboarding-state.js",
   "public/enrollment-time.js",

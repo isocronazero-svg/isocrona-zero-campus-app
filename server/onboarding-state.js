@@ -104,6 +104,11 @@ function capture(state) {
     applicationDnis: new Map((state.associateApplications || []).map(item => [item.id, item.dni])),
     applicationProofs: new Map((state.associateApplications || []).map(item => [item.id, item.paymentProof])),
     journeyTypes: new Map((state.courses || []).map(course => [course.id, {journeyTypeId:course.journeyTypeId, journeyTypeLabel:course.journeyTypeLabel}])),
+    campusLibraries: new Map((state.campusGroups || []).map(group => [group.id, { revision: Number(group.contentRevision || 0), group }])),
+    teachingCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
+      resources: course.resources, sharedTestQuestionIds: course.sharedTestQuestionIds,
+      sharedTestPublished: course.sharedTestPublished, teachingRevision: course.teachingRevision
+    })])),
     academicCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
       attendance: course.attendance, evaluations: course.evaluations, diplomaReady: course.diplomaReady
     })])),
@@ -160,6 +165,21 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
   for (const course of state.courses || []) {
     const latest = current.journeyTypes.get(course.id), before = baseline?.journeyTypes.get(course.id);
     if (latest && (!Object.hasOwn(course, "journeyTypeId") || (baseline && JSON.stringify(before) !== JSON.stringify(latest)))) Object.assign(course, latest);
+  }
+  if (baseline) for (const course of state.courses || []) {
+    const latest = current.teachingCourses.get(course.id);
+    const before = baseline.teachingCourses.get(course.id);
+    if (latest && Number(latest.teachingRevision || 0) !== Number(before?.teachingRevision || 0)) {
+      Object.assign(course, structuredClone(latest));
+    }
+  }
+  if (baseline) for (const [id, latest] of current.campusLibraries) {
+    if (latest.revision === (baseline.campusLibraries.get(id)?.revision || 0)) continue;
+    // Only the revision is needed from the baseline; avoid duplicating every library's bytes during capture.
+    const index = (state.campusGroups || []).findIndex(group => group.id === id);
+    state.campusGroups = state.campusGroups || [];
+    if (index < 0) state.campusGroups.push(structuredClone(latest.group));
+    else state.campusGroups[index] = structuredClone(latest.group);
   }
   // Preserve concurrent enrollment/reservation changes with a three-way merge.
   if (baseline) for (const course of state.courses || []) {
