@@ -765,6 +765,42 @@ document.addEventListener("click", async (event) => {
   event.preventDefault();
 
   const action = actionTarget.dataset.action;
+  if (action === "instructor-group-upload") {
+    const button = actionTarget;
+    if (button.disabled) return;
+    const panel = button.closest("[data-instructor-group-upload]");
+    const file = panel.querySelector('input[type="file"]').files[0];
+    const identity = session;
+    button.disabled = true;
+    try {
+      if (!file || !file.size || file.size > 20_000_000) throw new Error("Selecciona un archivo de hasta 20 MB");
+      const contentBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.readAsDataURL(file);
+      });
+      if (session !== identity) return;
+      const response = await fetch(`/api/campus-groups/${encodeURIComponent(panel.dataset.groupId)}/documents`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moduleId: panel.dataset.moduleId, title: panel.querySelector('input[type="text"]').value || file.name,
+          attachment: { name: file.name, contentBase64 } })
+      });
+      const result = await readJsonResponse(response, "No se pudo subir el documento");
+      if (session !== identity) return;
+      if (!response.ok) throw new Error(result.error || "No se pudo subir el documento");
+      panel.querySelector('input[type="file"]').value = "";
+      showToast("Documento guardado", "success");
+      await refreshState();
+      if (session === identity) render();
+    } catch (error) { if (session === identity) showToast(error.message, "error"); }
+    finally { button.disabled = false; }
+    return;
+  }
+  if (action.startsWith("teaching-")) {
+    await saveTeachingContent(actionTarget);
+    return;
+  }
   const courseId = actionTarget.dataset.courseId;
   const memberId = actionTarget.dataset.memberId;
   let shouldPersist = false;
@@ -5359,7 +5395,7 @@ async function persistCourseEditorAndRender(course, successMessage) {
     "contentTemplate", "contentStatus", "objectives", "sessions", "modules", "resources", "questionBank",
     "materials", "evaluationCriteria", "certificateCity", "certificateContents",
     "feedbackEnabled", "feedbackRequiredForDiploma", "feedbackTeachers",
-    "sharedTestQuestionIds", "sharedTestPublished"
+    "sharedTestQuestionIds", "sharedTestPublished", "teachingRevision"
   ];
   const payload = Object.fromEntries(fields.filter(key => Object.prototype.hasOwnProperty.call(course, key))
     .map(key => [key, course[key]]));
@@ -10253,6 +10289,10 @@ function renderCampusGroupsSection() {
       </div>
 
       ${!state.campusGroups.length ? '<div class="empty-state">No tienes grupos internos disponibles.</div>' : ""}
+      ${selectedGroup && selectedModule && !isMemberPreviewSession() && !editable &&
+        (session?.role === "instructor" || state.courses.some(canManageCourseAcademic)) ? `<div data-instructor-group-upload data-group-id="${escapeHtml(selectedGroup.id)}" data-module-id="${escapeHtml(selectedModule.id)}">
+          <label>Título<input type="text" maxlength="200"></label><label>Documento<input type="file"></label>
+          <button type="button" class="primary-button" data-action="instructor-group-upload">Subir documento al subgrupo</button></div>` : ""}
 
       <div class="group-selector-grid">
         ${state.campusGroups
@@ -10707,7 +10747,7 @@ function renderCourses() {
   const showCourseSection = (section) => (coursesSectionMode === "all" ? "catalog" : coursesSectionMode) === section;
   return `
     <div class="panel-stack courses-area">
-      ${session?.role === "instructor" ? `<section class="academic-assigned"><h3>Cursos que imparto</h3><div class="chip-row">${state.courses.filter(canManageCourseAcademic).map(course => `<button class="ghost-button" type="button" data-action="open-course-academic" data-course-id="${escapeHtml(course.id)}">${escapeHtml(course.title)} · Asistencia y certificación</button>`).join("") || `<p class="muted">Sin cursos asignados.</p>`}</div>${canManageCourseAcademic(selectedCourse) && academicRoster?.course?.id === selectedCourse?.id ? renderOperations(selectedCourse) : ""}</section>` : ""}
+      ${!isAdminView() && state.courses.some(canManageCourseAcademic) ? `<section class="academic-assigned"><h3>Mis cursos como instructor</h3><div class="chip-row">${state.courses.filter(canManageCourseAcademic).map(course => `<button class="ghost-button" type="button" data-action="open-course-academic" data-course-id="${escapeHtml(course.id)}">${escapeHtml(course.title)} · Asistencia y certificación</button>`).join("")}</div>${canManageCourseAcademic(selectedCourse) && academicRoster?.course?.id === selectedCourse?.id ? renderOperations(selectedCourse) : ""}</section>` : ""}
       <div class="panel-header courses-page-header">
         <div>
           <p class="eyebrow">Campus</p>
@@ -10951,8 +10991,8 @@ function renderCourseCatalog(memberBuckets = null) {
 }
 
 function canManageCourseAcademic(course) {
-  return isAdminView() || (session?.role === "instructor" && Boolean(session.associateId) &&
-    (course?.instructorAssociateIds || []).includes(session.associateId));
+  return Boolean(course) && (isAdminView() || (!isMemberPreviewSession() && ["member", "instructor", "admin"].includes(session?.role) && Boolean(session.associateId) &&
+    (course.instructorAssociateIds || []).includes(session.associateId)));
 }
 
 async function loadCourseAcademicRoster(courseId) {
@@ -10965,6 +11005,11 @@ async function loadCourseAcademicRoster(courseId) {
     throw new Error(payload.error || "No se pudo cargar el alumnado");
   }
   academicRoster = { ...payload, accountId: session.accountId };
+  const teachingResponse = await fetch("/api/courses/" + encodeURIComponent(courseId) + "/teaching", { cache: "no-store" });
+  const teaching = await readJsonResponse(teachingResponse, "No se pudo cargar el contenido docente");
+  if (session !== identity) return;
+  if (!teachingResponse.ok) throw new Error(teaching.error || "No se pudo cargar el contenido docente");
+  academicRoster.teaching = teaching;
 }
 
 async function invokeCourseAcademicAction(courseId, memberId, changes = null) {
@@ -11048,7 +11093,84 @@ function renderOperations(course) {
     }).join("") + '</div>' +
     (!students.length ? '<p class="empty-state">' + (loaded ? 'No hay inscritos confirmados.' : 'Actualiza el alumnado para consultar los inscritos.') + '</p>' : '') +
     '<p class="muted">Lista de espera: ' + Number(waitingCount) + '. Sin acciones académicas.</p>' +
-    (!isAdminView() && course.journeyTypeId ? renderJourneyHistoryForCourse(course) : '') + '</section>';
+    (!isAdminView() && course.journeyTypeId ? renderJourneyHistoryForCourse(course) : '') +
+    (loaded ? renderTeachingContent(course, academicRoster.teaching) : '') + '</section>';
+}
+
+function renderTeachingContent(course, teaching) {
+  if (!teaching) return "";
+  const id = escapeHtml(course.id);
+  return `<section id="courseTeachingContent" data-course-id="${id}">
+    <h3>Documentación del curso</h3>
+    <div class="panel-stack">${teaching.resources.map(resource => `<div class="field-grid" data-teaching-resource="${escapeHtml(resource.id)}">
+      <label>Título<input data-teaching-title value="${escapeHtml(resource.label)}"></label>
+      <label>Descripción<input data-teaching-description value="${escapeHtml(resource.description || "")}"></label>
+      ${resource.hasAttachment ? `<a class="mini-button" href="/api/courses/${encodeURIComponent(course.id)}/teaching/resources/${encodeURIComponent(resource.id)}">Descargar documento</a>` : ""}
+      <div class="chip-row"><button type="button" class="mini-button" data-action="teaching-edit" data-resource-id="${escapeHtml(resource.id)}">Guardar</button>
+      <button type="button" class="mini-button" data-action="teaching-remove" data-resource-id="${escapeHtml(resource.id)}">Eliminar</button></div></div>`).join("")}</div>
+    <div class="field-grid"><label>Título<input id="teachingNewTitle" maxlength="200"></label>
+    <label>Archivo<input id="teachingNewFile" type="file"></label></div>
+    <button type="button" class="primary-button" data-action="teaching-upload">Subir documento</button>
+    <h3>Test del curso</h3>
+    <details><summary>Preguntas (${teaching.questionIds.length} seleccionadas)</summary>
+      <div style="max-height:320px;overflow:auto;overflow-wrap:anywhere">${teaching.questions.map(question => `<label class="checkbox-row"><input type="checkbox" data-teaching-question value="${escapeHtml(question.id)}" ${teaching.questionIds.includes(question.id) ? "checked" : ""}>${escapeHtml(question.prompt)}</label>`).join("")}</div>
+    </details>
+    <label class="checkbox-row"><input id="teachingPublished" type="checkbox" ${teaching.published ? "checked" : ""}>Publicado</label>
+    <button type="button" class="primary-button" data-action="teaching-test">Guardar test</button>
+    <h3>Resultados</h3>
+    ${teaching.results.map(result => `<p>${escapeHtml(result.name)}: ${escapeHtml(String(result.score ?? ""))} / ${escapeHtml(String(result.total ?? ""))}</p>`).join("") || '<p class="muted">Sin resultados.</p>'}
+  </section>`;
+}
+
+async function saveTeachingContent(button) {
+  const panel = button.closest("#courseTeachingContent");
+  const course = state.courses.find(item => item.id === panel?.dataset.courseId);
+  if (!course || !canManageCourseAcademic(course) || panel.dataset.busy === "true" || !academicRoster?.teaching) return;
+  const identity = session;
+  const payload = { version: academicRoster.teaching.version };
+  panel.dataset.busy = "true";
+  const buttons = [...panel.querySelectorAll("button")];
+  buttons.forEach(item => { item.disabled = true; });
+  try {
+    const action = button.dataset.action;
+    if (action === "teaching-test") {
+      Object.assign(payload, { action: "test", published: panel.querySelector("#teachingPublished").checked,
+        questionIds: [...panel.querySelectorAll("[data-teaching-question]:checked")].map(input => input.value) });
+    } else if (action === "teaching-remove") {
+      if (!window.confirm("¿Eliminar este recurso del curso?")) return;
+      Object.assign(payload, { action: "remove-resource", id: button.dataset.resourceId });
+    } else if (action === "teaching-edit") {
+      const row = button.closest("[data-teaching-resource]");
+      Object.assign(payload, { action: "resource", id: button.dataset.resourceId,
+        title: row.querySelector("[data-teaching-title]").value, description: row.querySelector("[data-teaching-description]").value });
+    } else if (action === "teaching-upload") {
+      const file = panel.querySelector("#teachingNewFile").files[0];
+      if (!file || !file.size || file.size > 20_000_000) throw new Error("Selecciona un archivo de hasta 20 MB");
+      const contentBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.readAsDataURL(file);
+      });
+      Object.assign(payload, { action: "resource", title: panel.querySelector("#teachingNewTitle").value || file.name,
+        attachment: { name: file.name, contentBase64 } });
+    } else return;
+    if (identity !== session) return;
+    const response = await fetch(`/api/courses/${encodeURIComponent(course.id)}/teaching`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+    });
+    const result = await readJsonResponse(response, "No se pudo guardar");
+    if (identity !== session) return;
+    if (!response.ok) throw new Error(result.error || "No se pudo guardar");
+    academicRoster.teaching = result;
+    syncStatus = "Contenido docente guardado";
+    render();
+  } catch (error) {
+    if (identity === session) showToast(error.message, "error");
+  } finally {
+    panel.dataset.busy = "false";
+    buttons.forEach(item => { item.disabled = false; });
+  }
 }
 
 function renderMemberOperationCard(course) {

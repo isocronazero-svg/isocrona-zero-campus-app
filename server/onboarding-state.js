@@ -104,6 +104,10 @@ function capture(state) {
     applicationDnis: new Map((state.associateApplications || []).map(item => [item.id, item.dni])),
     applicationProofs: new Map((state.associateApplications || []).map(item => [item.id, item.paymentProof])),
     journeyTypes: new Map((state.courses || []).map(course => [course.id, {journeyTypeId:course.journeyTypeId, journeyTypeLabel:course.journeyTypeLabel}])),
+    teachingCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
+      resources: course.resources, sharedTestQuestionIds: course.sharedTestQuestionIds,
+      sharedTestPublished: course.sharedTestPublished, teachingRevision: course.teachingRevision
+    })])),
     academicCourses: new Map((state.courses || []).map(course => [course.id, structuredClone({
       attendance: course.attendance, evaluations: course.evaluations, diplomaReady: course.diplomaReady
     })])),
@@ -160,6 +164,13 @@ function mergeConcurrentAccessChanges(state, baseline, current, instructorUpdate
   for (const course of state.courses || []) {
     const latest = current.journeyTypes.get(course.id), before = baseline?.journeyTypes.get(course.id);
     if (latest && (!Object.hasOwn(course, "journeyTypeId") || (baseline && JSON.stringify(before) !== JSON.stringify(latest)))) Object.assign(course, latest);
+  }
+  if (baseline) for (const course of state.courses || []) {
+    const latest = current.teachingCourses.get(course.id);
+    const before = baseline.teachingCourses.get(course.id);
+    if (latest && Number(latest.teachingRevision || 0) !== Number(before?.teachingRevision || 0)) {
+      Object.assign(course, structuredClone(latest));
+    }
   }
   // Preserve concurrent enrollment/reservation changes with a three-way merge.
   if (baseline) for (const course of state.courses || []) {

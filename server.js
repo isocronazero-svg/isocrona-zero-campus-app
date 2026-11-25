@@ -6593,6 +6593,9 @@ const server = http.createServer(async (req, res) => {
       for (const course of state.courses || []) {
         const current = (latestQuestionState.courses || []).find(c => c.id === course.id);
         course.instructorAssociateIds = current ? [...(current.instructorAssociateIds || [])] : [];
+        if (current?.teachingRevision && course.teachingRevision !== current.teachingRevision) {
+          for (const key of ["resources", "sharedTestQuestionIds", "sharedTestPublished", "teachingRevision"]) course[key] = structuredClone(current[key]);
+        }
         // The course API owns explicit deadlines; old whole-state forms must not reopen enrollment.
         if (current) course.enrollmentClosesAt = current.enrollmentClosesAt || "";
         EnrollmentTime.validateCourseWindow(course, current);
@@ -7025,6 +7028,38 @@ const server = http.createServer(async (req, res) => {
   }
 
   const campusGroupSaveMatch = requestUrl.pathname.match(/^\/api\/campus-groups\/([^/]+)$/);
+  const campusGroupContributionMatch = requestUrl.pathname.match(/^\/api\/campus-groups\/([^/]+)\/documents$/);
+  if (campusGroupContributionMatch && req.method === "POST") {
+    if (!requireAuthenticatedAccount(req, res, readState())) return;
+    try {
+      const payload = await readJsonBody(req, 28_000_000);
+      const state = readState();
+      const account = requireAuthenticatedAccount(req, res, state);
+      if (!account) return;
+      const group = findCampusGroupById(state.campusGroups || [], decodeURIComponent(campusGroupContributionMatch[1]));
+      const teacher = account.role === "admin" || account.role === "instructor" ||
+        state.courses.some(course => canManageCourseAcademic(account, course));
+      if (!teacher || !canAccessCampusGroup(state, account, group)) return sendJson(res, 403, { error: "No tienes permiso para aportar documentos a este grupo" });
+      const module = (group.modules || []).find(item => item.id === payload.moduleId);
+      if (!module) return sendJson(res, 404, { error: "Subgrupo no encontrado" });
+      const encoded = String(payload.attachment?.contentBase64 || "");
+      const bytes = Buffer.from(encoded, "base64");
+      const title = String(payload.title || "").trim();
+      if (!title || title.length > 200 || !bytes.length || bytes.length > 20_000_000 || bytes.toString("base64") !== encoded) {
+        return sendJson(res, 400, { error: "Indica titulo y archivo valido de hasta 20 MB" });
+      }
+      const attachment = { name: String(payload.attachment.name || "documento").slice(0, 200), type: "application/octet-stream", size: bytes.length, contentBase64: encoded };
+      if (!/\.(pdf|png|jpe?g|txt|docx?|xlsx?|pptx?|zip)$/i.test(attachment.name)) {
+        return sendJson(res, 400, { error: "Formato no permitido. Usa PDF, imagen, texto, Office o ZIP." });
+      }
+      const entry = { id: `document-${require("node:crypto").randomUUID()}`, title, note: "", url: "", attachment };
+      module.documents = [...(module.documents || []), entry];
+      group.documents = group.modules.flatMap(item => item.documents || []);
+      group.contentRevision = Number(group.contentRevision || 0) + 1;
+      writeState(state);
+      return sendJson(res, 201, { ok: true, id: entry.id });
+    } catch (error) { return sendJsonError(res, error, "No se pudo subir el documento al grupo"); }
+  }
   if (campusGroupSaveMatch && req.method === "PUT") {
     if (!requireAdminAccount(req, res, readState())) return;
     try {
@@ -9064,6 +9099,11 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
 
       const previousCourse = state.courses[courseIndex];
+      const source = payload?.course || payload;
+      if (previousCourse.teachingRevision && ["resources", "sharedTestQuestionIds", "sharedTestPublished"].some(key => Object.hasOwn(source, key)) &&
+          source.teachingRevision !== previousCourse.teachingRevision) {
+        return sendJson(res, 409, { ok: false, error: "El contenido docente ha cambiado. Actualiza el curso antes de guardar." });
+      }
       const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
       const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...JourneyParticipation.classifyJourney(payload?.course || payload, previousCourse), ...courseInstructorConfig(state, payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
       releaseInstructors = reserveInstructorAssignments(course.instructorAssociateIds, previousCourse.instructorAssociateIds || []);
@@ -9074,7 +9114,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       const summary = await runCourseAcademicAutomation(state, "Actualizacion de curso");
       course.diplomaReady = mergeDiplomaReadyIds(issuedDiplomas, course.diplomaReady);
       writeState(state);
-      return sendJson(res, 200, { ok: true, message: "Curso actualizado", course, summary });
+      return sendJson(res, 200, { ok: true, message: "Curso actualizado", course: {
+        ...course, resources: (course.resources || []).map(({ attachment, ...resource }) => resource)
+      }, summary });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo actualizar el curso");
     } finally {
@@ -13790,8 +13832,7 @@ function normalizeCourseAcademicChanges(payload) {
 }
 
 function canManageCourseAcademic(account, course) {
-  return account?.role === "admin" || (account?.role === "instructor" && Boolean(account.associateId) &&
-    (course?.instructorAssociateIds || []).includes(account.associateId));
+  return require("./server/course-permissions").canManageAssignedCourse(account, course);
 }
 
 function buildCourseAcademicRoster(state, course) {
@@ -13895,7 +13936,10 @@ function normalizeCourseMutationPayload(payload, existingCourse = null) {
     objectives: readArray("objectives"),
     sessions: readArray("sessions"),
     modules: readArray("modules"),
-    resources: readArray("resources"),
+    resources: readArray("resources").map(resource => {
+      const attachment = (fallback.resources || []).find(item => item.id === resource.id)?.attachment;
+      return attachment ? { ...resource, attachment } : resource;
+    }),
     questionBank: readArray("questionBank"),
     materials: readArray("materials"),
     evaluationCriteria: readArray("evaluationCriteria"),

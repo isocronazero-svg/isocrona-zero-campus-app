@@ -104,6 +104,9 @@ function createStateTransport(dependencies = {}) {
 
     return {
       ...state,
+      courses: (state.courses || []).map(course => ({ ...course,
+        resources: (course.resources || []).map(({ attachment, ...resource }) => resource)
+      })),
       accounts: (state.accounts || []).map(stripAccountSecrets),
       emailOutbox: (state.emailOutbox || []).map(item => ({
         ...item,
@@ -124,7 +127,11 @@ function createStateTransport(dependencies = {}) {
     const classifiedCourses = new Map((currentState.courses || []).map(course => [course.id, course]));
     nextState.courses = (nextState.courses || []).map(course => {
       const current = classifiedCourses.get(course.id);
-      return current ? {...course,journeyTypeId:current.journeyTypeId || '',journeyTypeLabel:current.journeyTypeLabel || ''} : course;
+      return current ? {...course,journeyTypeId:current.journeyTypeId || '',journeyTypeLabel:current.journeyTypeLabel || '',
+        resources: (course.resources || []).map(resource => {
+          const attachment = (current.resources || []).find(item => item.id === resource.id)?.attachment;
+          return attachment ? { ...resource, attachment } : resource;
+        })} : course;
     });
     // Derived from server configuration; never accept it back as persisted state.
     delete nextState.mailDelivery;
@@ -281,6 +288,8 @@ function createStateTransport(dependencies = {}) {
 
         return {
           ...course,
+          resources: (course.resources || []).filter(resource => resource.visibility !== "instructores" ||
+            require("./course-permissions").canManageAssignedCourse(account, course)).map(({ attachment, ...resource }) => resource),
           accessScope: normalizeCourseAccessScope(course.accessScope, course.audience),
           enrolledCount: (course.enrolledIds || []).length,
           waitingCount: (course.waitingIds || []).length,
