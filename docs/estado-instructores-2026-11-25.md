@@ -43,6 +43,10 @@ Node 22.23.3, Windows. Solo datos ficticios y servidores en loopback.
   CI del HEAD definitivo: consultar los checks de la PR; no se considera verde
   hasta que hayan terminado ambos workflows.
 - Smoke HTTP aislado: superado (14 rutas).
+- Revision P1/P2: protegidas aportaciones a grupos en la reconciliacion comun;
+  los cambios administrativos de contenido versionado incrementan su revision,
+  tanto por PATCH de curso como por estado. Regresiones de dos editores y de
+  documento eliminado sin resurreccion superadas.
 
 ## Pendiente antes de publicar
 

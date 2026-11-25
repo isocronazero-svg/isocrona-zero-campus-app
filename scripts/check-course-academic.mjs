@@ -367,6 +367,23 @@ async function checkInstructorAcademic(admin, member, anonymous, baseUrl) {
   assert.equal((await memberTeacher.request("POST", "/api/campus-groups/teacher-group/documents", contribution)).status, 201);
   assert.equal((await memberTeacher.request("POST", "/api/campus-groups/foreign-group/documents", contribution, true)).status, 403);
   assert.equal((await member.request("POST", "/api/campus-groups/teacher-group/documents", contribution, true)).status, 403);
+  const firstEditor = findCourse((await admin.request("GET", "/api/state")).body, "course-attendance");
+  const removed = await admin.request("PATCH", "/api/courses/course-attendance", {
+    resources: firstEditor.resources.filter(item => item.id !== uploadedId), teachingRevision: firstEditor.teachingRevision
+  });
+  assert.equal(removed.body.course.teachingRevision, firstEditor.teachingRevision + 1);
+  assert.equal((await admin.request("PATCH", "/api/courses/course-attendance", {
+    resources: firstEditor.resources, teachingRevision: firstEditor.teachingRevision
+  }, true)).status, 409, "A second admin editor cannot resurrect a deleted document");
+  assert.equal((await memberTeacher.request("GET", `${teachingPath}/resources/${uploadedId}`, undefined, true)).status, 404);
+  const firstWholeEditor = (await admin.request("GET", "/api/state")).body;
+  const staleWholeEditor = structuredClone(firstWholeEditor);
+  findCourse(firstWholeEditor, "course-attendance").sharedTestPublished = false;
+  await admin.request("POST", "/api/state", firstWholeEditor);
+  await admin.request("POST", "/api/state", staleWholeEditor);
+  const preservedWholeEdit = findCourse((await admin.request("GET", "/api/state")).body, "course-attendance");
+  assert.equal(preservedWholeEdit.sharedTestPublished, false);
+  assert.ok(preservedWholeEdit.teachingRevision > removed.body.course.teachingRevision);
   await admin.request("PATCH", "/api/courses/course-attendance", { instructorAssociateIds: ["associate-assigned"] });
   assert.equal((await memberTeacher.request("GET", teachingPath, undefined, true)).status, 403, "Revocation applies in the same session");
   assert.equal((await memberTeacher.request("GET", "/api/courses/course-attendance/academic", undefined, true)).status, 403);

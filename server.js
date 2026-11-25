@@ -6595,6 +6595,9 @@ const server = http.createServer(async (req, res) => {
         course.instructorAssociateIds = current ? [...(current.instructorAssociateIds || [])] : [];
         if (current?.teachingRevision && course.teachingRevision !== current.teachingRevision) {
           for (const key of ["resources", "sharedTestQuestionIds", "sharedTestPublished", "teachingRevision"]) course[key] = structuredClone(current[key]);
+        } else if (current?.teachingRevision && require("./server/course-teaching").teachingVersion(course) !==
+            require("./server/course-teaching").teachingVersion(current)) {
+          course.teachingRevision = current.teachingRevision + 1;
         }
         // The course API owns explicit deadlines; old whole-state forms must not reopen enrollment.
         if (current) course.enrollmentClosesAt = current.enrollmentClosesAt || "";
@@ -9108,6 +9111,10 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       }
       const issuedDiplomas = [...(previousCourse.diplomaReady || [])];
       const course = { ...normalizeCourseMutationPayload(payload, previousCourse), ...JourneyParticipation.classifyJourney(payload?.course || payload, previousCourse), ...courseInstructorConfig(state, payload, previousCourse), ...courseTestConfig(state, payload, previousCourse) };
+      if (previousCourse.teachingRevision && require("./server/course-teaching").teachingVersion(course) !==
+          require("./server/course-teaching").teachingVersion(previousCourse)) {
+        course.teachingRevision = previousCourse.teachingRevision + 1;
+      }
       releaseInstructors = reserveInstructorAssignments(course.instructorAssociateIds, previousCourse.instructorAssociateIds || []);
       state.courses[courseIndex] = course;
       state.selectedCourseId = course.id;
