@@ -38,7 +38,10 @@ Node 22.23.3, Windows. Solo datos ficticios y servidores en loopback.
 - check-state-transport y check-member-rendering: superados.
 - check:frontend-syntax y git diff --check: superados.
 - Playwright docente: escritorio Chromium, Android emulado e iPhone WebKit
-  superados. Suite completa final y CI: registrar resultado en la PR.
+  superados. Suite completa final: 12/12 superadas, incluyendo smoke HTTP.
+  PR #378: https://github.com/isocronazero-svg/isocrona-zero-campus-app/pull/378
+  CI del HEAD definitivo: consultar los checks de la PR; no se considera verde
+  hasta que hayan terminado ambos workflows.
 - Smoke HTTP aislado: superado (14 rutas).
 
 ## Pendiente antes de publicar

@@ -9071,7 +9071,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
       appendActivity(state, "admin", account.name, `Ha creado el curso ${course.title}`);
       const summary = await runCourseAcademicAutomation(state, "Creacion de curso");
       writeState(state);
-      return sendJson(res, 201, { ok: true, message: "Curso creado y guardado", course, summary });
+      return sendJson(res, 201, { ok: true, message: "Curso creado y guardado", course: {
+        ...course, resources: (course.resources || []).map(({ attachment, ...resource }) => resource)
+      }, summary });
     } catch (error) {
       return sendJsonError(res, error, "No se pudo crear el curso");
     } finally {
@@ -9356,7 +9358,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         : "Cierre academico validado";
       return sendJson(res, 200, {
         ...buildCourseAcademicRoster(state, course), message,
-        ...(account.role === "admin" ? { course, activityLog: state.activityLog } : {}),
+        ...(account.role === "admin" ? { course: {
+          ...course, resources: (course.resources || []).map(({ attachment, ...resource }) => resource)
+        }, activityLog: state.activityLog } : {}),
         memberId: memberId || undefined, changes, blocked, blockers: [],
         updatedMemberIds: ids, generated: memberId ? (course.diplomaReady || []).includes(memberId) : undefined,
         generatedCount: (course.diplomaReady || []).length, summary: null
@@ -9455,7 +9459,9 @@ const memberEnrollMatch = requestUrl.pathname.match(/^\/api\/member\/courses\/([
         : sampleMember
           ? `Todavia no hay diplomas listos en ${course.title}. Por ejemplo, ${sampleMember.name} tiene pendiente: ${sampleBlockers.join(", ")}`
           : `Todavia no hay diplomas listos en ${course.title}. Revisa asistencia, evaluacion, contenido, valoracion y DNI/NIE.`;
-      return sendJson(res, 200, { ok: true, message, course, generatedCount, summary });
+      return sendJson(res, 200, { ok: true, message, course: {
+        ...course, resources: (course.resources || []).map(({ attachment, ...resource }) => resource)
+      }, generatedCount, summary });
     } catch (error) {
       return sendJsonError(res, error, "No se pudieron actualizar los diplomas");
     }

@@ -12,6 +12,20 @@ import http from "node:http";
 import vm from "node:vm";
 
 const { createOnboardingStateAccess } = createRequire(import.meta.url)("../server/onboarding-state.js");
+{
+  let libraryState = { campusGroups: [{ id: "group", contentRevision: 0, modules: [] }] };
+  const libraryAccess = createOnboardingStateAccess({ readState: () => structuredClone(libraryState),
+    writeState: next => { libraryState = structuredClone(next); } });
+  const oldWriter = libraryAccess.readState();
+  const upload = libraryAccess.readState();
+  upload.campusGroups[0].contentRevision = 1;
+  upload.campusGroups[0].modules = [{ id: "module", documents: [{ id: "new", attachment: { contentBase64: "UUE=" } }] }];
+  libraryAccess.writeState(upload);
+  libraryAccess.writeState(oldWriter);
+  assert.equal(libraryState.campusGroups[0].contentRevision, 1);
+  assert.equal(libraryState.campusGroups[0].modules[0].documents[0].attachment.contentBase64, "UUE=",
+    "An older asynchronous writer cannot discard a group contribution");
+}
 let stored = { courses: [{ id: "qa", attendance: { pupil: 100 }, evaluations: { pupil: "Apto" }, diplomaReady: [] }] };
 const access = createOnboardingStateAccess({ readState: () => structuredClone(stored), writeState: state => { stored = structuredClone(state); } });
 const staleAutomation = access.readState();
